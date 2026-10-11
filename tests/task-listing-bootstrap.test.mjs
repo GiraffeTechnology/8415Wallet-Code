@@ -5,18 +5,23 @@ import { createServer as httpServer } from 'node:http';
 import { once } from 'node:events';
 import { X509Certificate } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, chmod, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, writeFile, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { bootstrapTaskListingRuntime } from '../server/task-listing-bootstrap.mjs';
-import { createTaskListingTransport } from '../server/task-listing-transport.mjs';
+import { createTaskListingTransport, readTaskListingPrivateFile } from '../server/task-listing-transport.mjs';
 import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
 import { freezeTaskPolicy } from '../src/agent/taskContract.ts';
 import { freezeTaskExecutorIdentity, freezeNftValuationPolicy } from '../server/task-authorization.mjs';
 import { createFillProvider } from './fixtures/listing-runtime/fill-provider.mjs';
 const a=c=>`0x${c.repeat(40)}`;
+async function privateFixtureDirectory(t) {
+ // Production validates every ancestor; system temp can be world-writable.
+ // A unique directory directly in the canonical checkout needs no shared parent.
+ const directory=await mkdtemp(join(await realpath(process.cwd()),'.task-listing-bootstrap-'));
+ t.after(()=>rm(directory,{recursive:true,force:true}));return directory;
+}
 async function certificates(t) {
- const directory=await mkdtemp(join(tmpdir(),'wallet-listing-bootstrap-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const directory=await privateFixtureDirectory(t);
  const result={directory};
  for(const name of ['wallet','journal']){
   const key=join(directory,`${name}.key`),cert=join(directory,`${name}.crt`);
@@ -27,6 +32,17 @@ async function certificates(t) {
  result.ca=join(directory,'ca.crt');await writeFile(result.ca,Buffer.concat([result.wallet.certBytes,result.journal.certBytes]),{mode:0o600});result.caBytes=await readFile(result.ca);return result;
 }
 async function service(t,certs,handler){const s=createServer({cert:certs.journal.certBytes,key:certs.journal.keyBytes,ca:certs.caBytes,requestCert:true,rejectUnauthorized:true},handler);s.listen(0,'127.0.0.1');await once(s,'listening');t.after(()=>new Promise(r=>s.close(r)));return{server:s,url:`https://127.0.0.1:${s.address().port}`};}
+test('private-file reader rejects writable ancestors even when the immediate parent is private',async t=>{
+ const directory=await privateFixtureDirectory(t),nested=join(directory,'nested'),file=join(nested,'synthetic.key');
+ await mkdir(nested,{mode:0o700});await writeFile(file,'synthetic-private-file',{mode:0o600});
+ assert.equal((await readTaskListingPrivateFile(file)).toString(),'synthetic-private-file');
+ for(const mode of [0o720,0o702,0o1777]){
+  await chmod(directory,mode);
+  try {await assert.rejects(readTaskListingPrivateFile(file),/TASK_LISTING_PRIVATE_DIRECTORY_REFUSED/);}
+  finally {await chmod(directory,0o700);}
+ }
+ assert.equal((await readTaskListingPrivateFile(file)).toString(),'synthetic-private-file');
+});
 test('fixed mTLS transport validates real peer; HTTP204/205 cannot crash process or produce success',async t=>{
  const certs=await certificates(t);let status=200;
  const s=await service(t,certs,(req,res)=>{assert.equal(req.socket.authorized,true);res.statusCode=status;res.end(status===200?'{}':undefined);});
