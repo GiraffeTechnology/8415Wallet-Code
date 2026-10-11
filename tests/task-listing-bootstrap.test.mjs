@@ -7,6 +7,7 @@ import { X509Certificate } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { bootstrapTaskListingRuntime } from '../server/task-listing-bootstrap.mjs';
 import { createTaskListingTransport } from '../server/task-listing-transport.mjs';
 import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
@@ -15,7 +16,7 @@ import { freezeTaskExecutorIdentity, freezeNftValuationPolicy } from '../server/
 import { createFillProvider } from './fixtures/listing-runtime/fill-provider.mjs';
 const a=c=>`0x${c.repeat(40)}`;
 async function certificates(t) {
- const directory=await mkdtemp(join(process.cwd(),'.runtime-evidence/bootstrap-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const directory=await mkdtemp(join(tmpdir(),'wallet-listing-bootstrap-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const result={directory};
  for(const name of ['wallet','journal']){
   const key=join(directory,`${name}.key`),cert=join(directory,`${name}.crt`);
