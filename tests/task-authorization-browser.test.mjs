@@ -8,7 +8,8 @@ import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { freezeTaskPolicy, emptyTaskBudget } from '../src/agent/taskContract.ts';
+import { freezeTaskPolicy, emptyNftListingBudget } from '../src/agent/taskContract.ts';
+import { freezeNftValuationPolicy } from '../server/task-authorization.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const evidence = process.env.WALLET_TASK_EVIDENCE;
 async function endpoint() {
@@ -32,10 +33,17 @@ test('synthetic desktop and mobile real-page task approval, app switch, reload, 
           minimumProceeds: { currency: 'USD', amountMinor: '100001', minorUnit: 2, comparison: 'gt', basis: 'net' }, marketAdapters: ['synthetic-reviewed-market'] } });
       const executorIdentity = { schema: '8415-task-executor/1', agentId: 'synthetic-agent', agentVersion: '1', adapterId: 'synthetic-test-adapter', adapterVersion: '1', implementationDigest: `0x${'9'.repeat(64)}` };
       const executor = { identity: executorIdentity, digest: `0x${createHash('sha256').update(JSON.stringify(executorIdentity)).digest('hex')}` };
-      let authorized = false, session;
-      const view = () => ({ observationPolicy: null, receiptVerifier: null, observations: [], observationRevision: '0', completion: { state: 'not-attempted', fresh: false }, task, executor, authorization: authorized ? { schema: '8415-task-authorization-reference/1', taskDigest: task.digest,
+      const seconds = Math.floor(Date.now() / 1000);
+      const valuationPolicy = freezeNftValuationPolicy({ source: 'synthetic:quote-source',
+        base: { chainId: '1', token: `0x${'00'.repeat(20)}`, decimals: 18 }, quote: { currency: 'USD', decimals: 2 },
+        rateDecimals: 8, priceAt: 'order-review', validFrom: String(seconds - 10), validUntil: String(seconds + 3600), maxAgeSeconds: '45' });
+      const canonical = JSON.stringify({ taskPolicy: task.policy, valuationPolicy }, null, 2);
+      let valuationConfigured = false, authorized = false, session;
+      const view = () => ({ ...(valuationConfigured ? { valuationPolicy,
+        listing: { revocationCancelsPublishedOrder: false, settlementObservationConfigured: false } } : {}), observationPolicy: null, receiptVerifier: null, observations: [], observationRevision: '0', completion: { state: 'not-attempted', fresh: false }, task, executor, authorization: authorized ? { schema: '8415-task-authorization-reference/2', taskDigest: task.digest,
+        valuationPolicyDigest: valuationPolicy.digest, priceAt: valuationPolicy.policy.priceAt,
         reference: 'grant:synthetic', status: 'authorized', grantPolicyVersion: '1', credentialRevisionAtApproval: '0' } : null,
-        effectiveStatus: authorized ? 'authorized' : 'pending', budget: authorized ? emptyTaskBudget(task) : null,
+        effectiveStatus: authorized ? 'authorized' : 'pending', budget: authorized ? emptyNftListingBudget(task) : null,
         capabilities: { executable: false, adapterConfigured: false, receiptVerifierConfigured: false, missing: ['USER_CONTROLLED_SIGNER_NOT_CONNECTED', 'MARKET_PRICE_VERIFIER_NOT_CONNECTED'] } });
       await page.addInitScript(({ account }) => { window.ethereum = { on() {}, removeListener() {}, async request({ method }) {
         if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [account];
@@ -56,8 +64,9 @@ test('synthetic desktop and mobile real-page task approval, app switch, reload, 
         else if (path === 'logout') data = { loggedOut: true };
         else if (path === 'tasks/list') data = { tasks: [view()], nextCursor: null, revision: '1' };
         else if (path === 'tasks/status') data = view();
-        else if (path === 'tasks/prepare') data = { task, executor, observationPolicy: null, receiptVerifier: null, purpose: 'authorize-task', challengeId: `challenge:${'c'.repeat(43)}`, expiresAt: Date.now() + 120000 };
-        else if (path === 'tasks/authorize') { assert.equal(body.taskDigest, task.digest); assert.equal(body.code, '123456'); assert.equal(body.executorDigest, executor.digest); assert.equal(body.observationPolicyDigest, null); authorized = true; data = view(); }
+        else if (path === 'tasks/prepare') { assert.equal(valuationConfigured, true); assert.deepEqual(body.valuationPolicy, valuationPolicy.policy); data = { task, executor, valuationPolicy, observationPolicy: null, receiptVerifier: null, purpose: 'authorize-task', challengeId: `challenge:${'c'.repeat(43)}`, expiresAt: Date.now() + 120000 }; }
+        else if (path === 'tasks/authorize') { assert.equal(body.taskDigest, task.digest); assert.equal(body.code, '123456'); assert.equal(body.executorDigest, executor.digest); assert.equal(body.observationPolicyDigest, null);
+          assert.equal(body.valuationPolicyDigest, valuationPolicy.digest); assert.equal(body.priceAt, 'order-review'); authorized = true; data = view(); }
         else if (path === 'tasks/resume') data = { ...view(), continuation: { state: 'blocked', code: 'TASK_EXECUTION_ADAPTER_NOT_CONNECTED' } };
         else { await route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"AUTH_ROUTE_REFUSED"}' }); return; }
         await route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
@@ -69,9 +78,17 @@ test('synthetic desktop and mobile real-page task approval, app switch, reload, 
       };
       await page.goto(`${origin}/web/index.html`); await login();
       await page.locator('[data-route="tasks"]').first().click(); await page.locator('.task-list-item').click();
+      // An NFT task without valuation context must stay blocked, with no challenge
+      // or authorization request. Configure the exact reviewed policy before retrying.
+      await page.waitForFunction(() => document.getElementById('task-error').textContent === 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED');
+      assert.equal(await page.locator('#task-authorize-fields').isVisible(), false);
+      assert.equal(await page.locator('#task-authorize').isEnabled(), false);
+      assert.equal(requests.filter(path => ['tasks/prepare', 'tasks/authorize'].includes(path)).length, 0);
+      valuationConfigured = true; await page.locator('#task-recheck').click();
       await page.locator('#task-authorize-fields').waitFor({ state: 'visible' });
       assert.match(await page.locator('#task-summary').innerText(), /> 1000\.01 USD/);
       assert.match(await page.locator('#task-summary').innerText(), /9007199254740993123/);
+      assert.ok((await page.locator('#task-summary').innerText()).includes(valuationPolicy.digest));
       const prepareCount = requests.filter(path => path === 'tasks/prepare').length;
       await page.locator('#task-code').fill('654321'); await page.locator('#task-ack').check();
       await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });
@@ -82,14 +99,14 @@ test('synthetic desktop and mobile real-page task approval, app switch, reload, 
       const canonicalPolicy = page.locator('#task-canonical');
       // The policy is an intentionally collapsed disclosure. Inspect its exact
       // stored text, then open it through the user control before testing layout.
-      assert.equal(await canonicalPolicy.textContent(), JSON.stringify(task.policy, null, 2));
+      assert.equal(await canonicalPolicy.textContent(), canonical);
       await canonicalPolicy.locator('..').locator('summary').click();
       await canonicalPolicy.waitFor({ state: 'visible' });
-      assert.equal(await canonicalPolicy.innerText(), JSON.stringify(task.policy, null, 2));
+      assert.equal(await canonicalPolicy.innerText(), canonical);
       for (const locale of ['zh-Hans', 'zh-Hant', 'fr', 'es', 'ja', 'en']) {
         await page.locator('#ui-locale').selectOption(locale);
         assert.equal(await canonicalPolicy.isVisible(), true, `${locale}: canonical policy remains visible`);
-        assert.equal(await canonicalPolicy.innerText(), JSON.stringify(task.policy, null, 2));
+        assert.equal(await canonicalPolicy.innerText(), canonical);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${viewport.width}:${locale}: no horizontal overflow`);
       }
       assert.equal(requests.filter(path => path === 'tasks/prepare').length, prepareCount);
