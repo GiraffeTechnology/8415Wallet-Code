@@ -7,7 +7,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-test('method and task browser module closure is served exactly, while unlisted sources remain refused', { timeout: 30000 }, async () => {
+test('every HTML module entry and its closure is served exactly, while unlisted sources remain refused', { timeout: 30000 }, async t => {
   const socket = createServer(); socket.listen(0, '127.0.0.1'); await once(socket, 'listening');
   const port = socket.address().port; await new Promise(resolve => socket.close(() => resolve()));
   const root = fileURLToPath(new URL('..', import.meta.url)), origin = `http://127.0.0.1:${port}`;
@@ -15,7 +15,19 @@ test('method and task browser module closure is served exactly, while unlisted s
     env: { ...process.env, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     await once(server.stdout, 'data');
-    const pending = ['/web/wallet-auth.mjs', '/web/task-ui.mjs'], visited = new Set();
+    const entry = new URL('/web/index.html', origin);
+    const document = await fetch(entry); assert.equal(document.status, 200);
+    const html = await document.text(), pending = [], visited = new Set();
+    for (const [tag] of html.matchAll(/<script\b[^>]*>/gi)) {
+      if (!/\btype\s*=\s*(['"])module\1/i.test(tag)) continue;
+      const source = tag.match(/\bsrc\s*=\s*(['"])([^'"]+)\1/i);
+      assert.ok(source, 'Module entry must have an explicit source');
+      const url = new URL(source[2], entry); assert.equal(url.origin, origin);
+      pending.push(url.pathname);
+    }
+    assert.ok(pending.includes('/web/wallet-auth.mjs'));
+    assert.ok(pending.includes('/web/task-ui.mjs'));
+    const entryCount = pending.length;
     while (pending.length) {
       const path = pending.shift(); if (visited.has(path)) continue; visited.add(path);
       assert.ok(visited.size < 256, 'Bound the public module graph');
@@ -34,11 +46,14 @@ test('method and task browser module closure is served exactly, while unlisted s
       }
       scan(ast);
     }
+    t.diagnostic(`Verified ${entryCount} HTML module entries and ${visited.size} served modules`);
     assert.ok(visited.has('/web/method-change-ui.mjs'));
     assert.ok(visited.has('/web/task-authorization.mjs'));
+    assert.ok(visited.has('/web/task-listing-results.mjs'));
     assert.ok(visited.has('/web/task-authorization-ui.mjs'));
     assert.ok(visited.has('/dist/browser/agent/receiptObservation.js'));
-    for (const path of ['/web/method-change-unsafe.mjs', '/server/task-authorization.mjs', '/src/agent/taskContract.ts'])
+    for (const path of ['/web/method-change-unsafe.mjs', '/server/task-authorization.mjs', '/server/task-listing-runtime.mjs', '/src/agent/taskContract.ts',
+      '/vendor/artfi-task-listing-runtime-1.0.0.tgz'])
       assert.equal((await fetch(`${origin}${path}`)).status, 404, path);
   } finally {
     const stopped = once(server, 'exit'); server.kill('SIGTERM'); await stopped;

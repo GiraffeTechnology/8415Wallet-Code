@@ -2,7 +2,8 @@
  * signing, transaction submission, market execution or budget mutation. */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { encodeCall, encodeCallWithTail } from '../src/codec/abi.ts';
+import { encodeCall } from '../src/codec/abi.ts';
+import { encodeExactTaskOperation } from './task-operation-encoding.mjs';
 import { freezeTaskPolicy, freezeChildOperation } from '../src/agent/taskContract.ts';
 import { TaskObservationError, freezeTaskObservationPolicy, normalizeObservationAttempt,
   normalizeObservationVerifier, bindTaskObservation } from '../src/agent/receiptObservation.ts';
@@ -16,7 +17,7 @@ import { receiptAssetTransaction, proveAssetReplacement } from '../src/xiongan/e
 // modules are compiler inputs, not executed dependencies. Packagers rewrite the
 // .ts suffixes together with imports when emitting the same closure to JavaScript.
 export const TASK_RECEIPT_RUNTIME_FILES = Object.freeze([
-  'server/task-receipt-adapter.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
+  'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
   'src/codec/abi.ts', 'src/codec/keccak.ts', 'src/controls/accounts.ts', 'src/controls/authorization.ts',
   'src/controls/client.ts', 'src/controls/execution.ts', 'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
 ]);
@@ -35,10 +36,6 @@ function fields(value, names) {
 const hex = value => `0x${BigInt(value).toString(16)}`;
 const quantity = value => { check(typeof value === 'string' && /^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(value) && value.length <= 66, 'TASK_RECEIPT_QUANTITY_REFUSED'); return BigInt(value); };
 const pin = (value, chainId) => ({ chainId: BigInt(chainId), controller: value.contract, runtimeCodeHash: value.runtimeCodeHash });
-function wireMatches(child, to, data, value) {
-  check(child.wire.to === to.toLowerCase() && child.wire.calldataHash === hashControlBytes(data) &&
-    BigInt(child.wire.valueWei) === BigInt(value), 'TASK_RECEIPT_ENCODING_MISMATCH');
-}
 /** Server-owned provider and policy are captured once. Browser JSON cannot
  * select an endpoint, reduce depth or replace verifier methods. */
 export function createTaskReceiptAdapter({ provider, observationPolicy, now = Date.now }) {
@@ -84,44 +81,26 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, now = Da
   async function submission(c, transactionHash) {
     const child = c.child.child, op = child.operation;
     const base = { from: op.actor, chainId: hex(op.chainId), nonce: hex(child.nonce) };
-    let data, to, value = '0';
-    switch (op.kind) {
-      case 'native-transfer': to = op.recipient; data = '0x'; value = op.valueWei; break;
-      case 'erc20-transfer': to = op.contract; data = encodeCall('transfer(address,uint256)', ['address', 'uint256'], [op.recipient, BigInt(op.amount)]); break;
-      case 'erc721-transfer': to = op.contract; data = encodeCall('safeTransferFrom(address,address,uint256)', ['address', 'address', 'uint256'], [op.actor, op.recipient, BigInt(op.tokenId)]); break;
-      case 'erc1155-transfer': to = op.contract; data = encodeCallWithTail('safeTransferFrom(address,address,uint256,uint256,bytes)',
-        ['address', 'address', 'uint256', 'uint256', 'bytes'], [op.actor, op.recipient, BigInt(op.tokenId), BigInt(op.amount), '0x']); break;
-      case 'create-account': case 'complete': case 'return-hop': {
-        const deployment = pin(op.controller, op.chainId);
-        data = op.kind === 'create-account' ? encodeCall('createAccount()', [], []) : encodeCall(op.kind === 'complete' ?
-          'completeThrough(bytes32,bytes32,uint256)' : 'returnHop(bytes32,bytes32,uint256)',
-        ['bytes32', 'bytes32', 'uint256'], [op.sequenceId, op.legId, BigInt(op.expectedRevision)]);
-        wireMatches(child, deployment.controller, data, '0');
-        return { kind: 'control', record: { schema: '8415-control-submission/1', deployment, kind: op.kind, transactionHash,
-          actor: op.actor, nonce: BigInt(child.nonce), calldataHash: hashControlBytes(data),
-          sequenceId: op.kind === 'create-account' ? null : op.sequenceId, legId: op.kind === 'return-hop' ? op.legId : null,
-          expectedRevision: op.kind === 'create-account' ? null : BigInt(op.expectedRevision), acceptanceHash: null } };
-      }
-      case 'deposit': case 'standalone-withdraw': {
-        const controller = pin(op.controller, op.chainId), token = pin(op.token, op.chainId);
-        const account = await new ControlledAccountClient(readonlyProvider, controller).account(op.actor);
-        check(account !== null, 'TASK_RECEIPT_ACCOUNT_NOT_ESTABLISHED');
-        const deposit = op.kind === 'deposit';
-        data = deposit ? encodeCall('safeTransferFrom(address,address,uint256)', ['address', 'address', 'uint256'],
-          [op.actor, account.account, BigInt(op.tokenId)]) : encodeCall('withdrawStandalone(address,uint256,address)',
-          ['address', 'uint256', 'address'], [token.controller, BigInt(op.tokenId), op.destination]);
-        const target = deposit ? token : account.pin;
-        wireMatches(child, target.controller, data, '0');
-        return { kind: 'fixed', record: { schema: '8415-fixed-submission/1', pin: target,
-          guards: deposit ? [controller, account.pin] : [controller, token], actor: op.actor, value: 0n,
-          nonce: BigInt(child.nonce), transactionHash, calldataHash: hashControlBytes(data),
-          event: { address: token.controller, signature: 'Transfer(address,address,uint256)',
-            indexed: [wordAddress(deposit ? op.actor : account.account), wordAddress(deposit ? account.account : op.destination), wordUint(BigInt(op.tokenId))],
-            dataHash: hashControlBytes('0x') } } };
-      }
-      default: throw new TaskObservationError('TASK_RECEIPT_OPERATION_NOT_SUPPORTED');
+    const account = ['deposit', 'standalone-withdraw'].includes(op.kind)
+      ? await new ControlledAccountClient(readonlyProvider, pin(op.controller, op.chainId)).account(op.actor) : null;
+    if (['deposit', 'standalone-withdraw'].includes(op.kind)) check(account !== null, 'TASK_RECEIPT_ACCOUNT_NOT_ESTABLISHED');
+    const { to, data, value } = encodeExactTaskOperation(c.child, account?.account ?? null);
+    if (['create-account', 'complete', 'return-hop'].includes(op.kind)) {
+      const deployment = pin(op.controller, op.chainId);
+      return { kind: 'control', record: { schema: '8415-control-submission/1', deployment, kind: op.kind, transactionHash,
+        actor: op.actor, nonce: BigInt(child.nonce), calldataHash: hashControlBytes(data),
+        sequenceId: op.kind === 'create-account' ? null : op.sequenceId, legId: op.kind === 'return-hop' ? op.legId : null,
+        expectedRevision: op.kind === 'create-account' ? null : BigInt(op.expectedRevision), acceptanceHash: null } };
     }
-    wireMatches(child, to, data, value);
+    if (op.kind === 'deposit' || op.kind === 'standalone-withdraw') {
+      const controller = pin(op.controller, op.chainId), token = pin(op.token, op.chainId), deposit = op.kind === 'deposit';
+      return { kind: 'fixed', record: { schema: '8415-fixed-submission/1', pin: deposit ? token : account.pin,
+        guards: deposit ? [controller, account.pin] : [controller, token], actor: op.actor, value: 0n,
+        nonce: BigInt(child.nonce), transactionHash, calldataHash: hashControlBytes(data),
+        event: { address: token.controller, signature: 'Transfer(address,address,uint256)',
+          indexed: [wordAddress(deposit ? op.actor : account.account), wordAddress(deposit ? account.account : op.destination), wordUint(BigInt(op.tokenId))],
+          dataHash: hashControlBytes('0x') } } };
+    }
     return { kind: 'asset', record: { ...base, to, data, value: hex(value) } };
   }
   function output(c, observed, replacementHash = null) {

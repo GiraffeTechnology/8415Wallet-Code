@@ -71,7 +71,7 @@ function dappMap(plan, profile = 'v2') {
 
 test('checked-in reviewed Wallet boundary has all exact entries mandatory', () => {
   assert.equal(currentPolicy.review.status, 'approved-for-local-build');
-  assert.equal(currentPolicy.entries.length, 278);
+  assert.equal(currentPolicy.entries.length, Object.values(currentPolicy.mandatory).flat().length);
   const loaded = loadPolicy(join(root, 'config/product-source-allowlist.json'), sha256(readFileSync(join(root, 'config/product-source-allowlist.json'))));
   assert.deepEqual(loaded.policy.entries, currentPolicy.entries);
   assert.equal(currentPolicy.schema, POLICY_SCHEMA); assert.equal(currentPolicy.version, 2);
@@ -100,7 +100,7 @@ test('reviewed policy legal notice and companion guide preserve distribution bou
 test('inspection writes nothing and reports predicted source identity', t => {
   const f = fixture(t); const indexBefore = readFileSync(join(f.source, '.git/index'));
   const plan = inspectSource(f.options), summary = planSummary(plan);
-  assert.equal(summary.writes, false); assert.equal(summary.sourceEntryCount, 278);
+  assert.equal(summary.writes, false); assert.equal(summary.sourceEntryCount, currentPolicy.entries.length);
   assert.equal(summary.closure.browserOutputs.length, 2);
   assert.deepEqual(readFileSync(join(f.source, '.git/index')), indexBefore);
   assert.equal(existsSync(join(f.directory, 'output')), false);
@@ -360,7 +360,7 @@ test('committed in-repository policy and tooling need no self-referential source
   assert.deepEqual(readFileSync(join(f.source, '.git/index')), indexBefore);
   assert.deepEqual(NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS.slice(2), TOOLING_FILES.filter(path => path.startsWith('scripts/package/')));
   for (const path of TOOLING_FILES) assert.equal(plan.productEntries.some(entry => entry.path === path), false);
-  assert.equal(plan.policy.entries.length, 278);
+  assert.equal(plan.policy.entries.length, currentPolicy.entries.length);
 });
 
 test('staged local snapshot retains genuine HEAD and dirty relation while clean CI refuses', t => {
@@ -495,7 +495,7 @@ test('source-only or failed builds produce no publication paths or Github output
   const result = materialize(f);
   assert.equal(existsSync(join(result.outputRoot, 'publication')), false);
   assert.throws(() => emitGithubOutputs({ ...result, githubOutput: output }), /PUBLICATION_REQUIRES_VERIFIED_BUILD/);
-  assert.deepEqual(readFileSync(output), before); assert.equal(plan.productEntries.length, 279);
+  assert.deepEqual(readFileSync(output), before); assert.equal(plan.productEntries.length, currentPolicy.entries.length + 1);
 });
 
 test('CLI identity and clean flags are explicit and inspect cannot emit Github outputs', t => {

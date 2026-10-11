@@ -1,6 +1,8 @@
-/** Explicitly configured private-IPC or legacy loopback auth service; deploy behind the approved same-origin TLS proxy. */
+/** Explicitly configured auth service; listing is an additive server-only runtime. */
 import { createServer } from 'node:http';
 import { readFile, chmod, lstat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { createAuthService } from './auth-service.mjs';
 import { createTaskBackgroundRunner } from './task-background-runner.mjs';
 import { openEncryptedStore } from './store.mjs';
@@ -8,31 +10,72 @@ import { createCaVerifier } from './ca-verifier.mjs';
 import { protectSocketDirectory } from './socket-path.mjs';
 import { validateAuthConfig } from './config-validation.mjs';
 import { createOtpSenderFromEnvironment } from './mail-otp.mjs';
-const configPath = process.env.WALLET_AUTH_CONFIG;
-if (!configPath) throw new Error('WALLET_AUTH_CONFIG_REQUIRED');
-const config = JSON.parse(await readFile(configPath, 'utf8'));
-validateAuthConfig(config); // Refuse ambiguous bindings before opening credential state.
-if (config.socketPath) {
-  await protectSocketDirectory(config.socketPath);
-  try { await lstat(config.socketPath); throw Error('AUTH_EXISTING_SOCKET_REFUSED'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-}
-if (typeof config.statePath !== 'string' || !/^[a-fA-F0-9]{64}$/.test(process.env.WALLET_AUTH_STORE_KEY ?? '')) throw new Error('AUTH_ENCRYPTED_STORE_CONFIG_REQUIRED');
-const store = await openEncryptedStore(config.statePath, Buffer.from(process.env.WALLET_AUTH_STORE_KEY, 'hex'));
-try {
-  const verifyCa = config.ca ? await createCaVerifier(config.ca) : null;
-  const sendOtp = createOtpSenderFromEnvironment(process.env, config.mail); // No connection/send until a verified registration/recovery workflow requests it.
-  const handler = createAuthService({ origin: config.origin, tenant: config.tenant, accounts: config.accounts, store, verifyCa, sendOtp });
-  const background = createTaskBackgroundRunner({ store, continuation: handler.taskBackground });
+import { bootstrapTaskListingRuntime, ensureTaskListingServerCondition } from './task-listing-bootstrap.mjs';
+
+/** Reusable process-level entry for an already reviewed server capability object.
+ * HTTP request data is never passed as listingRuntime or auth options. */
+export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, now = Date.now }) {
+  validateAuthConfig(config);
+  const listing = listingRuntime ?? await bootstrapTaskListingRuntime({ configuration: config.listing, store, authStatePath: config.statePath, now });
+  try {
+  const handler = createAuthService({ origin: config.origin, tenant: config.tenant, accounts: config.accounts, store, verifyCa, sendOtp, now,
+    ...listing.runtime.authOptions });
+  listing.runtime.connectAuthorization(handler.taskListingAuthorization);
+  const background = createTaskBackgroundRunner({ store, continuation: handler.taskBackground, now });
   const server = createServer(handler);
-  server.requestTimeout = 10000; server.headersTimeout = 10000; server.timeout = 15000;
-  server.maxHeadersCount = 40;
-  server.on('error', async error => { process.stderr.write(`AUTH_LISTENER_FAILED_${/^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : 'UNKNOWN'}\n`); await background.stop(); await store.close(); process.exitCode = 1; });
-  if (config.socketPath) server.listen(config.socketPath, async () => {
-    try { await chmod(config.socketPath, 0o666); background.start(); process.stdout.write('8415wallet auth service listening on protected local socket. No credentials logged.\n'); }
-    catch { await background.stop(); server.close(async () => { await store.close(); process.exitCode = 1; }); }
-  });
-  else server.listen(config.port, '127.0.0.1', () => { background.start(); process.stdout.write('8415wallet auth service listening on configured legacy loopback port. No credentials logged.\n'); });
-  for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, async () => {
-    await background.stop(); server.close(async () => { await store.close(); });
-  });
-} catch (error) { await store.close(); throw error; }
+  server.requestTimeout = 10000; server.headersTimeout = 10000; server.timeout = 15000; server.maxHeadersCount = 40;
+  let started = false, closed = false, stopPromise = null;
+  async function stop() {
+    if (stopPromise) return stopPromise; closed = true;
+    stopPromise = (async () => {
+      await background.stop();
+      if (server.listening) await new Promise(resolve => server.close(resolve));
+      await listing.stop();
+    })();
+    return stopPromise;
+  }
+  async function start() {
+    if (started || closed) throw Error('AUTH_LISTENER_ALREADY_STARTED');
+    try {
+      if (config.socketPath) {
+        await protectSocketDirectory(config.socketPath);
+        try { await lstat(config.socketPath); throw Error('AUTH_EXISTING_SOCKET_REFUSED'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+      await listing.start();
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        const listening = () => { server.off('error', reject); resolve(); };
+        if (config.socketPath) server.listen(config.socketPath, listening); else server.listen(config.port, '127.0.0.1', listening);
+      });
+      if (config.socketPath) await chmod(config.socketPath, 0o666);
+      started = true; background.start();
+    } catch (error) { await stop(); throw error; }
+  }
+  return Object.freeze({ handler, server, background, listingState: listing.runtime.state, listingCode: listing.runtime.code, start, stop });
+  } catch (error) { try { await listing.stop(); } catch { /* Preserve the original construction failure. */ } throw error; }
+}
+export async function startAuthFromEnvironment() {
+  const configPath = process.env.WALLET_AUTH_CONFIG;
+  if (!configPath) throw Error('WALLET_AUTH_CONFIG_REQUIRED');
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  validateAuthConfig(config);
+  await ensureTaskListingServerCondition(config.listing);
+  if (typeof config.statePath !== 'string' || !/^[a-fA-F0-9]{64}$/.test(process.env.WALLET_AUTH_STORE_KEY ?? '')) throw Error('AUTH_ENCRYPTED_STORE_CONFIG_REQUIRED');
+  const store = await openEncryptedStore(config.statePath, Buffer.from(process.env.WALLET_AUTH_STORE_KEY, 'hex'));
+  let runtime;
+  try {
+    const verifyCa = config.ca ? await createCaVerifier(config.ca) : null;
+    const sendOtp = createOtpSenderFromEnvironment(process.env, config.mail);
+    runtime = await createAuthRuntime({ config, store, verifyCa, sendOtp });
+    runtime.server.on('error', async error => {
+      process.stderr.write(`AUTH_LISTENER_FAILED_${/^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : 'UNKNOWN'}\n`);
+      await runtime.stop(); await store.close(); process.exitCode = 1;
+    });
+    await runtime.start();
+    process.stdout.write('8415wallet auth service listening. No credentials logged.\n');
+    if (runtime.listingState === 'disabled') process.stdout.write(`${runtime.listingCode}\n`);
+    for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, async () => { await runtime.stop(); await store.close(); });
+    return runtime;
+  } catch (error) { await runtime?.stop(); await store.close(); throw error; }
+}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await startAuthFromEnvironment();

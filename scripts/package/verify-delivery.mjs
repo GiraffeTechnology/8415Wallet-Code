@@ -12,6 +12,7 @@ import { validatePasswordRoutes } from '../../web/tenant-password-routing.mjs';
 export { sha256 };
 export const DELIVERY_SCHEMA = '8415wallet-dapp-delivery/1';
 export const DELIVERY_FILES = ['deploy/dapp/install.mjs', 'scripts/package/verify-delivery.mjs', 'scripts/package/verify-auth.mjs',
+  'server/task-listing-package-pin.mjs',
   'web/release-profile.mjs', 'web/tenant-password-routing.mjs', 'config/releases/v2.json', 'config/releases/v3.json', 'config/releases/xiongan-v2.json',
   'docs/DAPP-INSTALL.md', 'docs/AUTH-INSTALL.md', ...LEGAL_FILES];
 const fail = (condition, code) => { if (!condition) throw Error(`DAPP_DELIVERY_${code}`); };

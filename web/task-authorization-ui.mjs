@@ -18,6 +18,7 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
     const name = document.createElement('span'), data = document.createElement('strong');
     paint(name, msg(key)); data.textContent = String(value); item.append(name, data); el('task-summary').append(item);
   }
+  function note(key) { const item = document.createElement('p'); paint(item, msg(key)); el('task-summary').append(item); }
   function stopContinuation() { if (continuationTimer !== null) window.clearTimeout(continuationTimer); continuationTimer = null; }
   function stopCoordination() {
     leaseEpoch++; leasePending = false; leader = false;
@@ -43,8 +44,10 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
   function scheduleContinuation() {
     stopContinuation();
     const eligible = visible && document.visibilityState !== 'hidden' &&
+      ((active?.selected?.listing?.settlementObservationConfigured && active?.selected?.executionState === 'listed' &&
+        !['paused', 'locked', 'loading', 'list'].includes(active?.phase)) ||
       (active?.selected?.capabilities.adapterConfigured || active?.selected?.capabilities.receiptVerifierConfigured) &&
-      ['authorized-waiting', 'outcome-unknown', 'submitted', 'awaiting-evidence', 'rate-limited'].includes(active?.phase);
+      ['authorized-waiting', 'outcome-unknown', 'submitted', 'awaiting-evidence', 'rate-limited'].includes(active?.phase));
     if (!eligible) {
       // Keep the lease across one in-flight request; release on terminal/hidden/closed states.
       if (!active?.busy || !visible || document.visibilityState === 'hidden') stopCoordination();
@@ -67,10 +70,11 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
       el('task-list').append(button);
     }
     el('task-empty').hidden = snapshot.phase !== 'list' || snapshot.tasks.length !== 0;
-    paint(el('task-status'), msg(`task.state.${snapshot.phase}`, snapshot.phase === 'rate-limited' ?
+    paint(el('task-status'), msg(snapshot.selected?.valuationPolicy && snapshot.phase === 'recovering' ? 'task.state.listing-recovering' : `task.state.${snapshot.phase}`, snapshot.phase === 'rate-limited' ?
       { seconds: Math.ceil(Math.max(snapshot.retryAfterMs, snapshot.continuationDelayMs) / 1000) } : {}));
-    paint(el('task-error'), snapshot.error ?? snapshot.selected?.continuation?.code ?? '');
+    paint(el('task-error'), snapshot.error ?? snapshot.selected?.continuation?.code ?? snapshot.selected?.listing?.observationError ?? '');
     const view = snapshot.selected; el('task-detail').hidden = !view;
+    paint(el('task-observation-heading'), msg(view?.valuationPolicy ? 'task.listingObservationTitle' : 'task.observationTitle'));
     if (view) {
       const { policy, digest } = view.task;
       row('task.agentId', view.executor.identity.agentId); row('task.agentVersion', view.executor.identity.agentVersion);
@@ -94,7 +98,18 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
         paint(item, msg(entry.available && entry.observation ? `task.observation.${entry.observation.state}` : 'task.observationUnavailable'));
         el('task-observation-states').append(item);
       }
-      el('task-observations').textContent = JSON.stringify(view.observations, null, 2);
+      el('task-observations').textContent = JSON.stringify(view.listing?.result?.summary ?? view.observations, null, 2);
+      if (view.listing?.result) {
+        const result = view.listing.result, item = document.createElement('p');
+        paint(item, msg(`task.listingResult.${result.state}`)); el('task-observation-states').append(item);
+        if (result.summary.aggregate) {
+          row('task.listingObservedQuantity', `${result.summary.aggregate.quantity} / ${policy.intent.quantity}`);
+          row('task.listingGross', result.summary.aggregate.gross); row('task.listingFees', result.summary.aggregate.fees);
+          row('task.listingSellerNet', result.summary.aggregate.sellerNet);
+        }
+        row('task.listingCheckedAt', result.summary.checkedAt ?? ''); note('task.listingDepthBoundary');
+        if (result.state === 'listed') note('task.listingNoFillBoundary');
+      } else if (view.listing?.observationError) note('task.listingResult.unknown');
       row('task.id', policy.taskId); row('task.digest', digest); row('task.account', policy.actor);
       row('task.tenant', policy.tenant); row('task.origin', policy.origin); row('task.chain', policy.chainId);
       if (policy.intent.kind === 'nft-sale') {
@@ -102,7 +117,22 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
         row('task.intent', intent.kind); row('task.standard', intent.standard); row('task.contract', intent.contract);
         row('task.token', intent.tokenId); row('task.quantity', intent.quantity);
         row('task.minimum', `${intent.minimumProceeds.comparison === 'gt' ? '>' : '≥'} ${amount.slice(0, -2)}.${amount.slice(-2)} USD`);
+        row('task.comparison', intent.minimumProceeds.comparison);
         row('task.basis', intent.minimumProceeds.basis); row('task.markets', intent.marketAdapters.join(', '));
+        note(`task.basis.${intent.minimumProceeds.basis}`); note('task.listingFeeBoundary');
+        if (view.valuationPolicy) {
+          const valuation = view.valuationPolicy.policy;
+          row('task.valuationDigest', view.valuationPolicy.digest); row('task.priceAt', valuation.priceAt);
+          note(`task.priceAt.${valuation.priceAt}`);
+          row('task.valuationSource', valuation.source); note('task.valuationSourceBoundary');
+          row('task.valuationBaseChain', valuation.base.chainId); row('task.valuationBaseToken', valuation.base.token);
+          row('task.valuationBaseDecimals', valuation.base.decimals); row('task.valuationQuote', `${valuation.quote.currency} / ${valuation.quote.decimals}`);
+          row('task.valuationRateDecimals', valuation.rateDecimals); row('task.valuationValidFrom', valuation.validFrom);
+          row('task.valuationValidUntil', valuation.validUntil); row('task.valuationMaxAge', valuation.maxAgeSeconds);
+          note('task.listingRevocation');
+        } else note('task.valuationMissing');
+        if (view.authorization) row('task.authorizationSchema', view.authorization.schema);
+        if (view.listing && !view.listing.settlementObservationConfigured) note('task.listingEvidenceMissing');
       } else {
         row('task.intent', policy.intent.operation.kind);
         const fields = (object, prefix = '') => { for (const [key, value] of Object.entries(object)) {
@@ -114,9 +144,9 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
       }
       row('task.expiry', `${policy.expiresAt} (Unix seconds)`);
       row('task.feeEach', `${policy.fees.perOperationWei} wei`); row('task.feeTotal', `${policy.fees.totalWei} wei`);
-      el('task-canonical').textContent = JSON.stringify(policy, null, 2);
+      el('task-canonical').textContent = JSON.stringify(view.valuationPolicy ? { taskPolicy: policy, valuationPolicy: view.valuationPolicy } : policy, null, 2);
       el('task-missing').textContent = view.capabilities.missing.join('\n');
-      paint(el('task-execution-status'), msg(`task.execution.${view.executionState}`));
+      paint(el('task-execution-status'), msg(view.valuationPolicy && view.executionState === 'unknown' ? 'task.execution.listingUnknown' : `task.execution.${view.executionState}`));
       el('task-operations').textContent = JSON.stringify(view.budget?.reservations ?? [], null, 2);
     } else { for (const id of ['task-policy-status', 'task-verifier-status', 'task-completion', 'task-observation-freshness', 'task-observations']) el(id).textContent = '';
       el('task-observation-states').replaceChildren(); el('task-canonical').textContent = ''; el('task-missing').textContent = ''; el('task-execution-status').textContent = ''; el('task-operations').textContent = ''; }
@@ -127,8 +157,8 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
     el('task-recheck').hidden = !view || snapshot.busy; el('task-recheck').disabled = snapshot.retryAfterMs > 0;
     el('task-revoke').hidden = !view?.authorization || ['revoked', 'expired'].includes(view?.effectiveStatus);
     el('task-revoke').disabled = snapshot.busy;
-    el('task-recover').hidden = !['unknown', 'submitted'].includes(view?.executionState);
-    paint(el('task-recover'), msg(view?.executionState === 'submitted' ? 'task.observe' : 'task.recover')); el('task-recover').disabled = snapshot.busy || snapshot.retryAfterMs > 0;
+    el('task-recover').hidden = !['unknown', 'submitted', 'listed'].includes(view?.executionState);
+    paint(el('task-recover'), msg(view?.valuationPolicy ? 'task.listingCheck' : view?.executionState === 'submitted' ? 'task.observe' : 'task.recover')); el('task-recover').disabled = snapshot.busy || snapshot.retryAfterMs > 0;
     el('task-blocked').hidden = snapshot.phase !== 'authorized-blocked';
     if (snapshot.phase !== 'review') clearCode();
     scheduleContinuation();

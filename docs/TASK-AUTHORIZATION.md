@@ -1,5 +1,26 @@
 # Bounded task authorization service
 
+## 2026-10-10 composition update
+
+The service and isolated-contract descriptions below retain their original scope.
+Their earlier statements that the installed runtime, listing observer and UI are
+not connected are superseded for the bounded seller-listing path by
+`TASK-LISTING-RUNTIME.md`, `TASK-LISTING-RESULTS.md` and
+`TASK-NATIVE-LISTING-COMPOSITION.md`. The optional installed runtime now wires the
+fixed ArtFi package, authenticated task journal, held grant capabilities,
+background runner and read-only listing results; missing approved configuration
+keeps that runtime disabled. This does not make every task or market executable.
+
+Local evidence exercises actual service/module and Wallet/Go/MySQL boundaries,
+including logout continuation, restart and lost-response recovery. Signer,
+RPC/venue, quote/request and fill responses remain synthetic. Deployment,
+production credential provisioning, real signing/publication/chain execution,
+genuine-device journeys and production acceptance are **NOT_RUN**. Use the
+source-bound delivery manifest for exact results; listing acceptance is not a
+completed sale. The implementation does not add another human approval for each
+child already within an active grant.
+
+
 The same-origin `/auth/tasks/` service authorizes an exact bounded parent task
 with an enrolled authenticator TOTP. Account login and task authorization remain
 separate. Human-facing HTTP routes require a current owner-bound session. After
@@ -169,8 +190,10 @@ The three verification/result methods return exact `taskDigest`, `childDigest`,
 returns `transactionHash`; recovery requires `state: 'submitted'`. Mismatched
 results fail closed. The service never replaces a verified child with a later
 planner payload. Any uncertain send result stays recoverable with the full quota
-and nonce claim retained. No actual signer, encoding verifier, market-price
-verifier or atomic-sale adapter is included. Before planning or sending new work,
+and nonce claim retained. No genuine signer, market-price verifier or atomic-sale adapter is included.
+The optional [exact sign-only injection candidate](TASK-EXACT-SIGNER.md) now
+implements the closed nine-operation encoding and strict returned-byte checks;
+it remains unconfigured and requires separately reviewed external infrastructure. Before planning or sending new work,
 a bound receipt verifier must also be configured, and its captured
 `assessChild({ task, child, executor, observationPolicy })` must establish the
 exact child, executor, policy and verifier tuple before execution verification or
@@ -226,3 +249,92 @@ Task HTTP rate-limit responses expose only `Retry-After` and matching integer
 client scheduling, not authority or success inference. Approval is never replayed
 on a rate limit; background continuation does not consume the interactive HTTP
 request budget.
+
+## Isolated NFT seller-listing contract (not a connected marketplace)
+
+`8415-agent-task/1` and its normalized Keccak digest are unchanged. A seller
+listing is a separate `8415-nft-listing-child/1`, normalized by
+`freezeNftListingChild`; it is not an ERC-721/1155 transfer with a made-up buyer,
+account nonce or transaction hash. It binds:
+
+- the frozen task digest, reviewed executor digest, durable grant reference and
+  grant policy version;
+- chain, seller, Seaport protocol address, NFT standard/contract/token ID and
+  exactly the task's quantity;
+- authorized market adapter, Wallet operation ID, native operation/plan IDs and
+  the native review digest;
+- order hash, typed-data digest, counter, salt and order expiry;
+- valuation-policy and quote-evidence digests, plus an explicit maximum fee.
+
+Whole quantity means the quantity specified in this task, not the wallet's full
+balance. This contract does not ban all ERC-1155 partial-fill order types or
+remove the existing manual transfer path. The native verifier must enforce the
+actual reviewed order terms. Off-chain listing fees may be zero; no synthetic
+transaction gas is manufactured.
+
+A new `tasks/prepare` request may explicitly include `valuationPolicy` alongside
+`policy`. It contains `source`, `base: {chainId, token, decimals}`,
+`quote: {currency: 'USD', decimals: 2}`, `rateDecimals`, `priceAt`, `validFrom`,
+`validUntil` and `maxAgeSeconds`. There is no default price-at time. The exact
+canonical policy uses ArtFi's sorted-key SHA-256 (64 lowercase hexadecimal
+characters without `0x`); it is not inserted into or rehashed as the legacy task.
+The returned challenge includes the frozen policy and its digest.
+`tasks/authorize` must include that `valuationPolicyDigest` and explicit
+`priceAt`, in the same request and the same atomic TOTP consumption as the task,
+executor and observation policy. The resulting durable grant and display
+reference use version 2. Legacy grant/reference version 1 is unchanged; pending
+or approved legacy grants cannot be silently upgraded. A new explicit task ID
+and fresh authorization are required for changed valuation scope. A
+`settlement`-time USD minimum remains blocked because this increment cannot
+promise future USD valuation. `order-review` never implies settlement-time USD.
+
+Listing grants use `8415-task-budget/2` in the same grant record and the existing
+single-writer store, CAS revision, fee/unit allocation, send-attempt fence,
+cancellation tombstones and background runner. Version-1 budget bytes and
+transaction-submission semantics remain unchanged. A version-2 reservation has
+`submission: null`, then `{kind: 'seaport-order', chainId, protocol, orderHash}`
+only after trusted publication/recovery. It never contains `transactionHash`.
+The entire task quantity is reserved once. The service persists
+`outcome-unknown` before its sole send callback and invokes it inside the
+existing serialized `withReadSnapshot` fence. Concurrent execution, lost
+signing/publication replies, restart, timeout, expiry and revocation never
+release attempted quota or trigger a new sign, publication, repricing or relist.
+Only a definitely unattempted reservation may be cancelled.
+
+The service optionally accepts a server-owned `listingExecution` object with
+`plan` (optional), `verify`, `send` and read-only `recover` methods. HTTP JSON
+cannot install this object. The methods are captured when configured. Their
+input is `{task, child, executor, grantReference, grantPolicyVersion,
+valuationPolicy}`; planning substitutes `budget` for `child`. Here `child` is
+`{child, digest}`, `task` and `executor` retain their existing frozen envelopes,
+and `valuationPolicy` is `{policy, digest}`. A method result must bind
+`taskDigest`, `childDigest`, `executorDigest`, `grantReference`,
+`grantPolicyVersion`, `valuationPolicyDigest`, `quoteEvidenceDigest`,
+`orderHash` and `typedDataDigest`. Verification additionally returns the
+`nft-listing-observable` capability, which the server-owned adapter must establish
+from independently verified native order/quote/current-state/observation
+capabilities. A caller flag or echoed JSON is not a verifier. Send returns the
+Seaport `submission` reference. Recovery additionally returns `state:
+'submitted'` only on trusted positive evidence of an already published order;
+an offline order hash or a claim that an unknown attempt was unsent is
+insufficient. Recovery always retains the original attempt's executor and grant
+version, even after revocation.
+
+An adapter that awaits between review and actual signing or publication must
+recheck this same durable grant at each real side-effect boundary; the service's
+immediate callback fence does not authorize later work after a revoke. The
+native port's own durable single-use claims are still required. No marketplace
+signer, ArtFi network port, live RPC, credentials or production adapter
+configuration is supplied by this increment. The test adapter is entirely
+synthetic.
+
+A published order is `listed-awaiting-evidence`, never a sale receipt. The
+settlement observer is not connected here; direct listing observation is
+explicitly blocked. Read-only recovery remains permitted after revocation or
+expiry. Revoking the Wallet grant prevents new authorized actions; it does not
+cancel an order already published to Seaport. The version-2 status exposes
+`revocationCancelsPublishedOrder: false`. A later UI must distinguish those
+facts, show the explicit valuation policy/price-at choice and support the new
+reference/budget schemas before presenting listing approval. Existing UI and
+production composition do not provide that listing flow. The original
+exact-operation path and manual trades remain available unchanged.
