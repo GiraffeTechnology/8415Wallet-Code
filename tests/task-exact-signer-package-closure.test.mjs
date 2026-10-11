@@ -8,6 +8,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
+import { TASK_LISTING_PACKAGE_PIN } from '../server/task-listing-package-pin.mjs';
 import { TASK_EXACT_SIGNER_RUNTIME_FILES } from '../server/task-exact-signer-adapter.mjs';
 import { TASK_RECEIPT_RUNTIME_FILES } from '../server/task-receipt-adapter.mjs';
 import { TASK_RUNTIME_SOURCE_PATHS, runtimePackage, sourcePathAllowed } from '../scripts/package/verify-auth.mjs';
@@ -95,7 +96,13 @@ test('auth runtime and product source selection require the signer and shared en
   for (const path of TASK_EXACT_SIGNER_RUNTIME_FILES) assert.ok(sourcePathAllowed(path), `auth closure excludes ${path}`);
   const sourcePackage = readJson('package.json'), sourceLock = readJson('package-lock.json');
   const { manifest, lock } = runtimePackage(sourcePackage, sourceLock);
-  assert.deepEqual(manifest.dependencies, { ethers: sourceLock.packages['node_modules/ethers'].version });
+  assert.deepEqual(manifest.dependencies, {
+    ethers: sourceLock.packages['node_modules/ethers'].version,
+    '@artfi/task-listing-runtime': `file:${TASK_LISTING_PACKAGE_PIN.artifactPath}`,
+  });
+  const listing = lock.packages['node_modules/@artfi/task-listing-runtime'];
+  assert.equal(listing.version, TASK_LISTING_PACKAGE_PIN.packageVersion);
+  assert.equal(listing.integrity, TASK_LISTING_PACKAGE_PIN.artifactIntegrity);
   assert.equal(manifest.engines.node, '>=22.18.0');
   assert.ok(Object.values(lock.packages).every(entry => !entry.dev && !entry.hasInstallScript));
 });
@@ -124,7 +131,9 @@ test('V2 and V3 SDK entry graphs exclude the server signer and remain runtime-de
 test('fresh offline production install imports isolated native signer closure and fails for every omitted source or external dependency', { timeout: 180000 }, () => {
   const directory = mkdtempSync(join(tmpdir(), 'wallet-exact-signer-runtime-'));
   try {
-    for (const path of TASK_EXACT_SIGNER_RUNTIME_FILES) {
+    // The runtime lock references this exact local tarball; a warm npm cache
+    // must not conceal an incomplete isolated installation fixture.
+    for (const path of [...TASK_EXACT_SIGNER_RUNTIME_FILES, TASK_LISTING_PACKAGE_PIN.artifactPath]) {
       const destination = join(directory, path);
       mkdirSync(dirname(destination), { recursive: true });
       cpSync(join(root, path), destination);

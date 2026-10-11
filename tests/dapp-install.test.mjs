@@ -18,10 +18,10 @@ const sums = root => put(root, 'SHA256SUMS', walk(root).filter(path => path !== 
 const template = id => ({ schema: '8415wallet-release/1', product: '8415wallet', platform: '8415wallet.com', profile: id, tenant: { id: 'default', label: '8415wallet' }, deployment: { environment: 'unconfigured', url: null } });
 const config = () => ({ ...template('v2'), tenant: { id: 'example', label: 'Synthetic Example' }, deployment: { environment: 'local', url: 'http://127.0.0.1:23456/wallet/web/index.html' } });
 const passwordRoutingPaths = ['web/tenant-password-routing.mjs', 'web/tenant-password-ui.mjs', 'web/tenant-password-routing.json'];
-function fixture(t, revision = 'first', routingMutation = {}) {
+function fixture(t, revision = 'first', routingMutation = {}, omittedAuthPath = null) {
   const root = mkdtempSync(join(tmpdir(), 'wallet-kit-test-')); t.after(() => rmSync(root, { recursive: true, force: true }));
   const sourceRoot = join(root, 'source'), runtime = join(root, 'runtime'), kit = join(root, 'kit'); mkdirSync(sourceRoot); mkdirSync(runtime); mkdirSync(kit);
-  const authPaths = ['server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-xiongan/install.mjs', 'deploy/auth-xiongan/8415wallet-auth-xiongan.service', 'deploy/auth-xiongan/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
+  const authPaths = ['server/task-listing-package-pin.mjs', 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-xiongan/install.mjs', 'deploy/auth-xiongan/8415wallet-auth-xiongan.service', 'deploy/auth-xiongan/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
   for (const path of new Set([...authPaths, ...DELIVERY_FILES, 'docs/ERC-8415-Wallet-PRD.md'])) put(sourceRoot, path, `Synthetic fixture ${revision}: ${path}\n`);
   for (const path of passwordRoutingPaths) put(sourceRoot, path, readFileSync(new URL(`../${path}`, import.meta.url)));
   const pkg = { name: '8415wallet', version: '0.1.0', license: 'SEE LICENSE IN LICENSE', dependencies: { ethers: '^6.17.0' } };
@@ -32,7 +32,9 @@ function fixture(t, revision = 'first', routingMutation = {}) {
   git(['init', '-q']); git(['add', '--all']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Synthetic fixture']);
   const authSource = captureAuthSource(sourceRoot), source = captureSource(sourceRoot);
   const artifacts = {}, manifests = {};
-  for (const path of authPaths) put(runtime, path, readFileSync(join(sourceRoot, path)));
+  for (const path of authPaths) {
+    if (path !== omittedAuthPath) put(runtime, path, readFileSync(join(sourceRoot, path)));
+  }
   put(runtime, 'provenance/package.source.json', jsonBytes(pkg)); put(runtime, 'provenance/package-lock.source.json', jsonBytes(lock));
   const production = runtimePackage(pkg, lock); put(runtime, 'package.json', jsonBytes(production.manifest)); put(runtime, 'package-lock.json', jsonBytes(production.lock));
   put(runtime, 'node_modules/ethers/package.json', jsonBytes({ name: 'ethers', version: '6.17.0' })); put(runtime, 'node_modules/ethers/index.js', 'export const syntheticFixture = true;\n');
@@ -77,6 +79,10 @@ test('complete synthetic kit verifies V2/V3, exact source, auth dependencies and
   assert.equal(readFileSync(join(extracted, 'DELIVERY.json'), 'utf8'), readFileSync(join(f.kit, 'DELIVERY.json'), 'utf8'));
   assert.equal(JSON.parse(readFileSync(join(extracted, 'runtime/auth/AUTH-RELEASE.json'))).source.tree, f.pins.expectedTree);
   assert.throws(() => extractDelivery(verified, extracted), /EEXIST/);
+});
+test('auth payload completeness rejects a missing source-pinned listing package pin', t => {
+  const f = fixture(t, 'missing-auth-pin', {}, 'server/task-listing-package-pin.mjs');
+  assert.throws(() => verifyDeliveryArchive(f.archive, f.pins), /AUTH_PACKAGE_SOURCE_PAYLOAD_COMPLETENESS/);
 });
 test('external digest and tree pins are mandatory; self-consistent altered source/tool payload is refused', t => {
   const f = fixture(t); assert.throws(() => verifyDeliveryArchive(f.archive), /EXTERNAL_PINS_REQUIRED/);

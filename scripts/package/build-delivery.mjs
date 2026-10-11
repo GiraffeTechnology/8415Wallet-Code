@@ -4,14 +4,15 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { captureSource, deterministicArchive, sha256, walk } from './dapp-release.mjs';
 import { DELIVERY_FILES, DELIVERY_SCHEMA, verifyDeliveryArchive } from './verify-delivery.mjs';
 /** Resolve actual staged installer/verifier imports without checkout or global
  * module assistance. Imports are inert; this does not install or activate. */
 export function verifyDeliveryEntryImports(directory) {
-  execFileSync(process.execPath, ['--input-type=module', '-e',
-    "await import('./scripts/package/verify-delivery.mjs'); await import('./deploy/dapp/install.mjs');"], {
+  execFileSync(process.execPath, ['--input-type=module',
+    '--import', pathToFileURL(resolve(directory, 'scripts/package/verify-delivery.mjs')).href,
+    '--import', pathToFileURL(resolve(directory, 'deploy/dapp/install.mjs')).href, '-e', ''], {
     cwd: directory, stdio: 'pipe', timeout: 30000,
     env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' },
   });
