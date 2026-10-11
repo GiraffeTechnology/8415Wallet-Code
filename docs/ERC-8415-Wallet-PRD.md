@@ -704,22 +704,30 @@ agent prompts, public artifacts or persisted business-operation records.
 
 ## 6.6 Implementation and acceptance evidence
 
-At main `da7e5478e1de1407e566149813108f8afa4c9342`, TOTP authenticates login;
-credential-recovery proofs authorize their existing reset flow, not transactions.
-The browser agent surface imports bounded JSON for human review and retains the
-external provider's second confirmation. `BudgetSigner` is test-runner process
-budgeting, not a persistent product allowance. `TransactionSigner` is an SDK
-interface; hardware CA verifies login challenges, with no established Ethereum
-transaction-signing integration. Parent-task authorization, mobile task approval,
-automatic resumption, product budget enforcement and trusted signer integration
-remain planned and require source-bound acceptance. The stronger combined-factor
-method-change lifecycle in §6.4 also remains to be completed and accepted.
+### 2026-10-10 implementation evidence update
 
+The `da7e5478e1de1407e566149813108f8afa4c9342` planned baseline is superseded
+for the bounded paths now present: verified parent-task grants, TOTP-bound task
+approval, background continuation, durable budgets/revocation, exact-operation
+and native seller-listing adapters, and combined-factor authenticator/password
+management. See `BETA-PRD-COVERAGE.md`, `AUTH-METHOD-CHANGES.md`,
+`TASK-LISTING-RUNTIME.md` and `TASK-LISTING-RESULTS.md` for their exact scope.
+No trusted-device management or hardware-CA transaction-signing capability is
+implied by these implementations.
+
+Recorded local evidence exercises installed Wallet/ArtFi modules, authentication,
+authorization, background continuation, authenticated cross-process journal CAS,
+restart and lost-response recovery. Signer results, RPC/venue responses,
+quote/request sources and fill evidence in those checks are synthetic. Source
+identity and actual results must be taken from the corresponding delivery
+manifest, not inherited from a previous commit or this description.
+
+Deployment, production credential provisioning, real signer/venue/chain execution,
+genuine mobile/device journeys and production acceptance remain **NOT_RUN**.
 Track each requirement as planned, implemented with exact source evidence, or
-accepted with a specific result. Pure proposal/contract tests, package checks,
-previous CI success and source availability do not establish the missing end-to-end
-paths. Run the security acceptance matrix against the eventual exact candidate,
-including negative cases and genuine mobile DApp evidence, before claiming them.
+accepted with a specific result. Package verification and local functional tests
+do not complete the full security acceptance matrix or establish production
+readiness. The requirements in §§6.1–6.5 remain unchanged.
 
 ---
 

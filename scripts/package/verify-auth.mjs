@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
+import { TASK_LISTING_PACKAGE_PIN } from '../../server/task-listing-package-pin.mjs';
 
 export const LEGAL_FILES = Object.freeze(['LICENSE', 'THIRD_PARTY_NOTICES.md', 'LICENSES/CC0-1.0.txt']);
 export const PUBLIC_LEGAL_FILES = Object.freeze(LEGAL_FILES.map(path => `web/legal/${path}`));
@@ -41,11 +42,17 @@ export function validateAuthStateTransition(current, candidate, { rollback = fal
   fail(!rollback, 'STATE_SEMANTICS_TRANSITION_REFUSED');
 }
 export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
+  'server/task-runtime-import-probe.mjs',
+  'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
+  'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
+  'server/task-journal-capabilities.mjs', 'server/task-listing-results.mjs', 'web/task-listing-results.mjs',
+  'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
+  'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
   'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
 ]);
-export const sourcePathAllowed = path => TASK_RUNTIME_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/login-core\.mjs|deploy\/auth-xiongan\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth-xiongan\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
+export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || TASK_RUNTIME_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/login-core\.mjs|deploy\/auth-xiongan\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth-xiongan\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
 export function safePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length <= 240 && /^[A-Za-z0-9_@.+/=-]+$/.test(path)
     && path.split('/').every(part => part && part !== '.' && part !== '..');
@@ -98,27 +105,60 @@ export function sourceTree(entries) {
 /** Derive only the exact, lockfile-pinned production graph; npm still validates its closure. */
 export function runtimePackage(sourcePackage, sourceLock) {
   fail(sourcePackage?.name === '8415wallet' && sourceLock?.lockfileVersion === 3, 'SOURCE_PACKAGE_REFUSED');
-  fail(Object.keys(sourcePackage.dependencies ?? {}).join() === 'ethers', 'DEPENDENCY_ALLOWLIST_REFUSED');
+  const deps = Object.keys(sourcePackage.dependencies ?? {}).sort();
+  const listing = deps.join() === '@artfi/task-listing-runtime,ethers';
+  fail(listing || deps.join() === 'ethers', 'DEPENDENCY_ALLOWLIST_REFUSED');
+  if (listing) fail(sourcePackage.dependencies['@artfi/task-listing-runtime'] === `file:${TASK_LISTING_PACKAGE_PIN.artifactPath}`, 'LISTING_ARTIFACT_SOURCE_REFUSED');
+  const bundlePins = new Map(TASK_LISTING_PACKAGE_PIN.packages.map(p => [`node_modules/@artfi/task-listing-runtime/${p.path}`, p]));
   assert.deepEqual(sourceLock.packages?.['']?.dependencies, sourcePackage.dependencies, 'AUTH_PACKAGE_SOURCE_LOCK_ROOT_MISMATCH');
   const entries = Object.entries(sourceLock.packages ?? {}).filter(([path, info]) => path && !info.dev);
   fail(entries.length > 0 && entries.length < 100, 'DEPENDENCY_GRAPH_REFUSED');
   for (const [path, info] of entries) {
     fail(safePath(path) && /^(?:node_modules\/(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+)(?:\/node_modules\/(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+)*$/.test(path), 'DEPENDENCY_PATH_REFUSED');
-    fail(!info.link && !info.hasInstallScript && !info.optional && typeof info.version === 'string'
-      && /^https:\/\/registry\.npmjs\.org\//.test(info.resolved ?? '') && /^sha512-[A-Za-z0-9+/]+={0,2}$/.test(info.integrity ?? ''), 'DEPENDENCY_METADATA_REFUSED');
+    fail(!info.link && !info.hasInstallScript && !info.optional && typeof info.version === 'string', 'DEPENDENCY_METADATA_REFUSED');
+    if (listing && path === 'node_modules/@artfi/task-listing-runtime') {
+      fail(info.version === TASK_LISTING_PACKAGE_PIN.packageVersion && info.resolved === `file:${TASK_LISTING_PACKAGE_PIN.artifactPath}` &&
+        info.integrity === TASK_LISTING_PACKAGE_PIN.artifactIntegrity, 'LISTING_ARTIFACT_LOCK_REFUSED');
+    } else if (listing && bundlePins.has(path)) {
+      const pin = bundlePins.get(path);
+      fail(info.inBundle === true && info.version === pin.version && !info.resolved && !info.integrity, 'LISTING_BUNDLE_LOCK_REFUSED');
+    } else fail(/^https:\/\/registry\.npmjs\.org\//.test(info.resolved ?? '') && /^sha512-[A-Za-z0-9+/]+={0,2}$/.test(info.integrity ?? '') && !info.inBundle, 'DEPENDENCY_METADATA_REFUSED');
   }
   const ethers = sourceLock.packages['node_modules/ethers'];
   fail(ethers && /^\d+\.\d+\.\d+$/.test(ethers.version), 'ETHERS_PIN_REQUIRED');
   const manifest = { name: '8415wallet-auth-runtime', version: sourcePackage.version, private: true, type: 'module',
     license: sourcePackage.license, engines: { node: '>=22.18.0' },
     scripts: { start: 'node server/runtime-entry.mjs', 'operator:initialize': 'node server/operator-init.mjs', 'operator:activate': 'node server/operator-activate.mjs' },
-    dependencies: { ethers: ethers.version } };
+    dependencies: { ethers: ethers.version, ...(listing ? { '@artfi/task-listing-runtime': `file:${TASK_LISTING_PACKAGE_PIN.artifactPath}` } : {}) } };
+  if (listing) fail([...bundlePins].every(([path,pin]) => sourceLock.packages[path]?.inBundle === true && sourceLock.packages[path]?.version === pin.version), 'LISTING_BUNDLE_INCOMPLETE');
   const lock = { name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true,
     packages: { '': { name: manifest.name, version: manifest.version, license: manifest.license, dependencies: manifest.dependencies, engines: manifest.engines },
       ...Object.fromEntries(entries) } };
   return { manifest, lock };
 }
 
+export function verifyTaskListingArtifact(directory) {
+  const path = join(directory, TASK_LISTING_PACKAGE_PIN.artifactPath);
+  fail(sha256(readFileSync(path)) === TASK_LISTING_PACKAGE_PIN.artifactSha256, 'LISTING_ARTIFACT_DIGEST_MISMATCH');
+}
+export function verifyInstalledTaskListingPackage(directory) {
+  const root = join(directory, 'node_modules/@artfi/task-listing-runtime');
+  const bytes = readFileSync(join(root, 'runtime-manifest.json'));
+  fail(sha256(bytes) === TASK_LISTING_PACKAGE_PIN.manifestSha256, 'LISTING_MANIFEST_DIGEST_MISMATCH');
+  const manifest = JSON.parse(bytes);
+  fail(manifest.packageName === TASK_LISTING_PACKAGE_PIN.packageName && manifest.packageVersion === TASK_LISTING_PACKAGE_PIN.packageVersion &&
+    manifest.source.fingerprint === TASK_LISTING_PACKAGE_PIN.sourceFingerprint, 'LISTING_SOURCE_IDENTITY_MISMATCH');
+  assert.deepEqual(manifest.packages, TASK_LISTING_PACKAGE_PIN.packages, 'AUTH_PACKAGE_LISTING_PACKAGE_PINS_MISMATCH');
+  assert.deepEqual(walkAuth(root).sort(), [...Object.keys(manifest.files), 'runtime-manifest.json'].sort(), 'AUTH_PACKAGE_LISTING_COMPLETE_INVENTORY');
+  for (const [path, expected] of Object.entries(manifest.files)) {
+    fail(safePath(path) && hashPattern.test(expected) && sha256(readFileSync(join(root, path))) === expected, 'LISTING_FILE_DIGEST_MISMATCH');
+  }
+  for (const pin of TASK_LISTING_PACKAGE_PIN.packages) {
+    const bytes = readFileSync(join(root, pin.path, 'package.json')), pkg = JSON.parse(bytes);
+    fail(sha256(bytes) === pin.normalizedPackageSha256 && pkg.name === pin.name && pkg.version === pin.version &&
+      !['preinstall', 'install', 'postinstall', 'prepare'].some(key => Object.hasOwn(pkg.scripts ?? {}, key)), 'LISTING_DEPENDENCY_REFUSED');
+  }
+}
 export function verifyAuthDirectory(directory, { expectedTree } = {}) {
   const files = walkAuth(directory);
   fail(files.every(packagePathAllowed), 'PAYLOAD_ALLOWLIST_REFUSED');
@@ -154,6 +194,7 @@ export function verifyAuthDirectory(directory, { expectedTree } = {}) {
   const runtime = runtimePackage(sourcePackage, sourceLock);
   assert.deepEqual(JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')), runtime.manifest, 'AUTH_PACKAGE_RUNTIME_PACKAGE_MISMATCH');
   assert.deepEqual(JSON.parse(readFileSync(join(directory, 'package-lock.json'), 'utf8')), runtime.lock, 'AUTH_PACKAGE_RUNTIME_LOCK_MISMATCH');
+  if (runtime.manifest.dependencies['@artfi/task-listing-runtime']) { verifyTaskListingArtifact(directory); verifyInstalledTaskListingPackage(directory); }
   const dependencyRoots = Object.keys(runtime.lock.packages).filter(Boolean).sort((a, b) => b.length - a.length);
   for (const path of dependencyRoots) {
     const installed = JSON.parse(readFileSync(join(directory, path, 'package.json'), 'utf8'));

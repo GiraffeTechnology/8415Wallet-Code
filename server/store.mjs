@@ -21,6 +21,40 @@ export class MemoryCredentialStore {
     });
     this.#queue = run.catch(() => {}); return run;
   }
+  /** Read-only serialized boundary for a server-owned immediate side effect.
+   * The callback runs synchronously inside the same queue as credential/grant
+   * writes. It receives a detached snapshot, cannot update stored values, and
+   * must not await or re-enter this store. Use only after required durable data
+   * has already committed; this method itself performs no persistence. */
+  async withReadSnapshot(keys, inspect) {
+    if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
+      ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length ||
+      typeof inspect !== 'function') throw new Error('AUTH_STORE_KEYS_REFUSED');
+    const run = this.#queue.then(() => {
+      if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY');
+      const values = structuredClone(Object.fromEntries(keys.map(key => [key, Object.hasOwn(this.#data, key) ? this.#data[key] : null])));
+      const result = inspect(values);
+      if (result && typeof result.then === 'function') throw new Error('AUTH_STORE_ASYNC_SNAPSHOT_REFUSED');
+      return result;
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
+  /** Server-owned asynchronous read capability. Shares the exact credential/grant
+   * write queue. The lock is retained until the callback actually settles; a timeout
+   * must never race/drop its promise and imply that a side effect was not attempted.
+   * The callback MUST NOT re-enter this store. Use a separate native task journal.
+   * This is additive: the synchronous withReadSnapshot contract is unchanged. */
+  async withReadGate(keys, inspect) {
+    if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
+      ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length ||
+      typeof inspect !== 'function') throw new Error('AUTH_STORE_KEYS_REFUSED');
+    const run = this.#queue.then(async () => {
+      if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY');
+      const values = structuredClone(Object.fromEntries(keys.map(key => [key, Object.hasOwn(this.#data, key) ? this.#data[key] : null])));
+      return await inspect(values);
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
   async transaction(username, update) {
     const result = await this.transactionMany([username], async values => ({ [username]: await update(values[username]) }));
     return result[username];

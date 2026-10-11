@@ -6,15 +6,16 @@ import { createHash } from 'node:crypto';
 import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
 import { freezeTaskPolicy, emptyTaskBudget } from '../src/agent/taskContract.ts';
 import { AccountAuthClient } from '../web/account-auth.mjs';
-import { CATALOGS, setLocale } from '../web/i18n.mjs';
+import { CATALOGS, setLocale, renderUi } from '../web/i18n.mjs';
 // Import the actual browser controller with its immutable core source entry. Tests
 // do not depend on a previously generated dist directory or a fake success adapter.
 const moduleText = readFileSync(new URL('../web/task-authorization.mjs', import.meta.url), 'utf8')
+  .replace('./task-listing-results.mjs', new URL('../web/task-listing-results.mjs', import.meta.url).href)
   .replace('../dist/browser/agent/taskContract.js', new URL('../src/agent/taskContract.ts', import.meta.url).href)
   .replace('../dist/browser/agent/receiptObservation.js', new URL('../src/agent/receiptObservation.ts', import.meta.url).href)
   .replace('../dist/browser/vendor/ethers.js', import.meta.resolve('ethers'));
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(moduleText).toString('base64')}`;
-const { TaskAuthorizationClient, TaskAuthorizationFlow, normalizeExecutor, normalizeObservationContext } = await import(moduleUrl);
+const { TaskAuthorizationClient, TaskAuthorizationFlow, normalizeExecutor, normalizeObservationContext, normalizeValuationContext } = await import(moduleUrl);
 const uiText = readFileSync(new URL('../web/task-authorization-ui.mjs', import.meta.url), 'utf8')
   .replace('./task-authorization.mjs', moduleUrl).replace('./i18n.mjs', new URL('../web/i18n.mjs', import.meta.url).href);
 const { mountTaskAuthorization } = await import(`data:text/javascript;base64,${Buffer.from(uiText).toString('base64')}`);
@@ -24,8 +25,7 @@ const executorIdentity = { schema: '8415-task-executor/1', agentId: 'synthetic-a
 const executor = { identity: executorIdentity, digest: `0x${createHash('sha256').update(JSON.stringify(executorIdentity)).digest('hex')}` };
 const makeTask = (taskId = 'sale-1') => freezeTaskPolicy({ schema: '8415-agent-task/1', taskId, tenant: 'xiongan', origin,
   chainId: '1', actor: account, expiresAt: '1900003600', fees: { perOperationWei: '1000000000000001', totalWei: '2000000000000003' },
-  intent: { kind: 'nft-sale', direction: 'sell', standard: 'ERC-721', contract: `0x${'22'.repeat(20)}`, tokenId: '9007199254740993123', quantity: '1',
-    minimumProceeds: { currency: 'USD', amountMinor: '100001', minorUnit: 2, comparison: 'gt', basis: 'net' }, marketAdapters: ['market-reviewed'] } });
+  intent: { kind: 'exact-operation', operation: { kind: 'native-transfer', chainId: '1', actor: account, recipient: `0x${'22'.repeat(20)}`, valueWei: '9007199254740993123' } } });
 const receiptPolicy = freezeTaskObservationPolicy({ minimumConfirmations: '2' }); // Explicit synthetic test policy, not a product default.
 const verifier = { verifierId: 'synthetic:receipt', verifierVersion: '1', verifierImplementationDigest: `0x${'8'.repeat(64)}` };
 function observationFor(input: any, state = 'confirmed-at-depth') {
@@ -62,7 +62,7 @@ function fixture() {
   return { task, tasks, requests, statuses, view, client, flow, request, snapshots,
     setHold: (value: Promise<void>) => { hold = value; }, setError: (value: any) => { error = value; }, loseResponse: () => { lostResponse = true; } };
 }
-test('authorization reviews canonical NFT price, exact integers and one parent grant then automatically requests continuation', async () => {
+test('authorization reviews canonical exact-operation scope, exact integers and one parent grant then automatically requests continuation', async () => {
   const f = fixture(); await f.flow.load(f.task.digest);
   assert.equal(f.flow.snapshot().phase, 'review'); assert.deepEqual(f.flow.snapshot().selected.task, f.task);
   assert.equal(f.requests.some(r => r.path === 'tasks/authorize'), false);
@@ -114,7 +114,7 @@ test('expired challenge cannot authorize and credentials-changed status never si
 });
 test('service binding, digest tampering and fabricated execution success fail closed', () => {
   const f = fixture(), view = f.view(f.task.digest);
-  const forged = JSON.parse(JSON.stringify(view)); forged.task.policy.intent.minimumProceeds.comparison = 'gte';
+  const forged = JSON.parse(JSON.stringify(view)); forged.task.policy.intent.operation.valueWei = '1';
   assert.throws(() => f.client.view(forged), /TASK_DIGEST_MISMATCH/);
   for (const bad of [{ tenant: 'other' }, { origin: 'https://other.invalid' }, { account: `0x${'33'.repeat(20)}` }, { chainId: '8453' }]) {
     assert.throws(() => new TaskAuthorizationClient({ request() {}, context: { ...context, ...bad } }).view(view), /TASK_IDENTITY_REFUSED/);
@@ -207,11 +207,11 @@ test('app switch clears OTP without losing task or regenerating its challenge; c
 });
 test('DOM displays full immutable scope, clears code on submit and never renders granted as executed', async () => {
   const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
-  const values = f.el('task-summary').children.flatMap((row: Node) => row.children.map(n => n.textContent));
+  const values = f.el('task-summary').children.flatMap((row: Node) => row.children.map((n: Node) => n.textContent));
   assert.ok(values.includes(executor.identity.agentId)); assert.ok(values.includes(executor.identity.agentVersion));
   assert.ok(values.includes(executor.identity.adapterId)); assert.ok(values.includes(executor.identity.adapterVersion));
   assert.ok(values.includes(executor.identity.implementationDigest)); assert.ok(values.includes(executor.digest));
-  assert.ok(values.includes('> 1000.01 USD')); assert.ok(values.includes('9007199254740993123')); assert.ok(values.includes('net'));
+  assert.ok(values.includes('native-transfer')); assert.ok(values.includes('9007199254740993123')); assert.ok(values.includes(`0x${'22'.repeat(20)}`));
   assert.ok(values.includes('1000000000000001 wei')); assert.ok(values.includes('2000000000000003 wei'));
   f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
   f.el('task-authorize-form').dispatchEvent({ type: 'submit', preventDefault() {} }); assert.equal(f.el('task-code').value, ''); await tick();
@@ -487,7 +487,7 @@ test('receipt UI shows explicit depth, verifier, historical evidence and read-on
   const fixture = receiptFixture(), f = uiFixture({ fixtureOverride: fixture });
   f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
   assert.equal(f.result.snapshot().phase, 'completed-at-observation-depth'); assert.equal(f.timers.size, 0);
-  const values = f.el('task-summary').children.flatMap((row: Node) => row.children.map(n => n.textContent));
+  const values = f.el('task-summary').children.flatMap((row: Node) => row.children.map((n: Node) => n.textContent));
   for (const value of ['2', receiptPolicy.digest, verifier.verifierId, verifier.verifierVersion, verifier.verifierImplementationDigest]) assert.ok(values.includes(value));
   assert.match(f.el('task-recover').textContent, /Refresh transaction observation/); assert.equal(f.el('task-recover').hidden, false);
   assert.match(f.el('task-observation-freshness').textContent, /Refreshed/);
@@ -596,4 +596,377 @@ test('missing cross-tab locks clearly pauses page polling without persisting a f
   f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
   assert.equal(f.timers.size, 0); assert.match(f.el('task-auto-status').textContent, /coordination is unavailable/);
   assert.equal(f.result.snapshot().selected.effectiveStatus, 'authorized');
+});
+
+// Listing fixtures use no user account, live factor, signer, RPC or marketplace.
+const makeSaleTask = (taskId = 'listing:ui', comparison = 'gt', basis = 'net') => freezeTaskPolicy({ ...makeTask(taskId).policy,
+  intent: { kind: 'nft-sale', direction: 'sell', standard: 'ERC-1155', contract: `0x${'22'.repeat(20)}`,
+    tokenId: '9007199254740993123', quantity: '3', minimumProceeds: { currency: 'USD', amountMinor: '100001', minorUnit: 2, comparison, basis },
+    marketAdapters: ['synthetic:seaport'] } });
+const valuationInput = (priceAt = 'order-review') => ({ source: 'synthetic:quote-source',
+  base: { chainId: '1', token: `0x${'00'.repeat(20)}`, decimals: 18 }, quote: { currency: 'USD', decimals: 2 },
+  rateDecimals: 8, priceAt, validFrom: '1899999990', validUntil: '1900003600', maxAgeSeconds: '45' });
+const freezeValuation = (policy: any) => {
+  const sorted = (value: any): any => value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, sorted(value[k])])) : value;
+  return { policy, digest: createHash('sha256').update(JSON.stringify(sorted(policy))).digest('hex') };
+};
+function listingFixture(options: any = {}) {
+  const task = options.task ?? makeSaleTask(), valuationPolicy = options.legacy ? undefined : freezeValuation(options.policy ?? valuationInput());
+  const requests: any[] = [], statuses = new Map<string, string>(); let operation: any = null, hold: Promise<void> | null = null;
+  let lostReply = false, publish = options.publish !== false;
+  const view = (): any => ({ task, executor, ...(valuationPolicy ? { valuationPolicy, listing: { revocationCancelsPublishedOrder: false, settlementObservationConfigured: false } } : {}),
+    observationPolicy: receiptPolicy, receiptVerifier: null, observations: [], observationRevision: '0',
+    completion: { state: operation?.status === 'submitted' ? 'listed-awaiting-evidence' : operation?.status === 'outcome-unknown' ? 'outcome-unknown' : 'not-attempted', fresh: false },
+    authorization: statuses.has(task.digest) ? { schema: valuationPolicy ? '8415-task-authorization-reference/2' : '8415-task-authorization-reference/1',
+      taskDigest: task.digest, reference: 'grant:listing-ui', status: statuses.get(task.digest), grantPolicyVersion: '1', credentialRevisionAtApproval: '2',
+      ...(valuationPolicy ? { valuationPolicyDigest: valuationPolicy.digest, priceAt: valuationPolicy.policy.priceAt } : {}) } : null,
+    effectiveStatus: statuses.get(task.digest) ?? 'pending',
+    budget: statuses.has(task.digest) ? { schema: valuationPolicy ? '8415-task-budget/2' : '8415-task-budget/1', taskDigest: task.digest, revision: '1', reservations: operation ? [operation] : [] } : null,
+    capabilities: { executable: false, adapterConfigured: options.adapter !== false, receiptVerifierConfigured: false, missing: ['TASK_LISTING_OBSERVER_NOT_CONNECTED'] } });
+  const submitted = () => { operation = { operationId: 'listing:operation', childDigest: `0x${'a'.repeat(64)}`, units: '3', feeWei: '0', status: 'submitted',
+    submission: { kind: 'seaport-order', chainId: '1', protocol: `0x${'55'.repeat(20)}`, orderHash: `0x${'77'.repeat(32)}` } }; };
+  const request = async (path: string, body: any) => {
+    requests.push({ path, body: structuredClone(body) });
+    if (path === 'tasks/list') return { tasks: [view()], revision: '1', nextCursor: null };
+    if (path === 'tasks/status') return view();
+    if (path === 'tasks/prepare') return { task, executor, ...(valuationPolicy ? { valuationPolicy } : {}), observationPolicy: receiptPolicy, receiptVerifier: null,
+      challengeId: `challenge:${'a'.repeat(43)}`, expiresAt: now + 120000, purpose: 'authorize-task' };
+    if (path === 'tasks/authorize') { if (hold) await hold; statuses.set(task.digest, 'authorized'); if (lostReply) throw Error('synthetic lost reply'); return view(); }
+    if (path === 'tasks/revoke') { statuses.set(task.digest, 'revoked'); return view(); }
+    assert.equal(path, 'tasks/resume');
+    if (!valuationPolicy || options.adapter === false) return { ...view(), continuation: { state: 'blocked', code: !valuationPolicy ? 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED' : 'TASK_LISTING_ADAPTER_NOT_CONNECTED' } };
+    if (publish) { submitted(); return { ...view(), continuation: { state: 'submitted', operationId: operation.operationId } }; }
+    return { ...view(), continuation: operation?.status === 'submitted' ? { state: 'listed-awaiting-evidence', code: 'TASK_LISTING_OBSERVER_NOT_CONNECTED', operationId: operation.operationId } :
+      { state: 'waiting-for-operation', code: 'TASK_NO_CANDIDATE' } };
+  };
+  const client = new TaskAuthorizationClient({ context, request }), flow = new TaskAuthorizationFlow({ client, now: () => now });
+  return { task, valuationPolicy, requests, statuses, view, request, client, flow, submitted,
+    unknown() { operation = { operationId: 'listing:operation', childDigest: `0x${'a'.repeat(64)}`, units: '3', feeWei: '0', status: 'outcome-unknown', submission: null }; },
+    setHold(value: Promise<void>) { hold = value; }, loseResponse() { lostReply = true; }, stopPublishing() { publish = false; } };
+}
+test('listing valuation parser matches the frozen service canonical vector with every field bound', async () => {
+  const { freezeNftValuationPolicy } = await import('../server/task-authorization.mjs');
+  const expected = freezeNftValuationPolicy(valuationInput()), checked = normalizeValuationContext({ valuationPolicy: expected });
+  assert.deepEqual(checked, expected); assert.ok(Object.isFrozen(checked.policy.base)); assert.equal(checked.digest.length, 64);
+  assert.equal(normalizeValuationContext({}), null);
+  for (const change of [{ source: 'different' }, { priceAt: 'settlement' }, { base: { ...expected.policy.base, decimals: 17 } },
+    { rateDecimals: 9 }, { validFrom: '1899999991' }, { validUntil: '1900003601' }, { maxAgeSeconds: '46' }])
+    assert.throws(() => normalizeValuationContext({ valuationPolicy: { ...expected, policy: { ...expected.policy, ...change } } }), /TASK_VALUATION_POLICY_MISMATCH/);
+  for (const field of Object.keys(expected.policy)) {
+    const policy = { ...expected.policy }; delete policy[field];
+    assert.throws(() => normalizeValuationContext({ valuationPolicy: freezeValuation(policy) }), /TASK_VALUATION_POLICY_REFUSED/);
+  }
+  for (const policy of [{ ...valuationInput(), verified: true }, { ...valuationInput(), source: '' }, { ...valuationInput(), priceAt: 'now' },
+    { ...valuationInput(), maxAgeSeconds: '0' }, { ...valuationInput(), validUntil: '1' }, { ...valuationInput(), quote: { currency: 'USD', decimals: 3 } },
+    { ...valuationInput(), base: { ...valuationInput().base, chainId: '0' } }])
+    assert.throws(() => normalizeValuationContext({ valuationPolicy: freezeValuation(policy) }), /TASK_VALUATION_POLICY_REFUSED/);
+});
+test('listing preparation and single OTP pin the complete valuation policy, priceAt and reference version 2', async () => {
+  const f = listingFixture(); await f.flow.load(f.task.digest); assert.equal(f.flow.snapshot().phase, 'review');
+  assert.deepEqual(f.requests.find(r => r.path === 'tasks/prepare').body, { policy: f.task.policy, valuationPolicy: f.valuationPolicy!.policy });
+  await f.flow.authorize('123456'); assert.equal(f.flow.snapshot().phase, 'listed-awaiting-evidence');
+  const approval = f.requests.find(r => r.path === 'tasks/authorize').body;
+  assert.deepEqual(approval, { challengeId: `challenge:${'a'.repeat(43)}`, taskDigest: f.task.digest, executorDigest: executor.digest,
+    observationPolicyDigest: receiptPolicy.digest, valuationPolicyDigest: f.valuationPolicy!.digest, priceAt: 'order-review', code: '123456' });
+  f.stopPublishing(); await f.flow.recover(); await f.flow.open(f.task.digest);
+  assert.equal(f.requests.filter(r => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.flow.snapshot().selected.authorization.schema, '8415-task-authorization-reference/2');
+  assert.equal(f.flow.snapshot().selected.budget.schema, '8415-task-budget/2');
+  assert.equal(f.flow.snapshot().selected.executionState, 'listed');
+  assert.equal(f.requests.some(r => /observe|reserve|execute|sign|sendTransaction/.test(r.path)), false);
+  assert.doesNotMatch(JSON.stringify(f.flow.snapshot()), /123456|challengeId|transactionHash/);
+});
+test('listing refuses policy substitution during prepare, authorize, resume and revoke', async () => {
+  for (const phase of ['prepare', 'authorize', 'resume', 'revoke']) {
+    const f = listingFixture({ publish: false }), changed = freezeValuation({ ...valuationInput(), source: 'synthetic:other-source' });
+    const client = new TaskAuthorizationClient({ context, request: async (path: string, body: any) => {
+      const raw = await f.request(path, body);
+      if (path === `tasks/${phase}`) return { ...raw, valuationPolicy: changed,
+        ...(raw.authorization ? { authorization: { ...raw.authorization, valuationPolicyDigest: changed.digest } } : {}) };
+      return raw;
+    } });
+    const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(f.task.digest);
+    if (phase !== 'prepare') await flow.authorize('123456');
+    if (phase === 'revoke') await flow.revoke();
+    assert.equal(flow.snapshot().error, 'TASK_VALUATION_POLICY_CHANGED', phase);
+    assert.equal(flow.snapshot().selected.valuationPolicy.digest, f.valuationPolicy!.digest, phase);
+    if (phase === 'prepare') assert.equal(f.requests.some(r => r.path === 'tasks/authorize'), false);
+    if (phase === 'authorize') assert.equal(f.requests.some(r => r.path === 'tasks/resume'), false);
+  }
+});
+test('listing parser rejects downgrade, mismatched reference/budget/chain and invented settlement or cancellation claims', () => {
+  const f = listingFixture(); f.statuses.set(f.task.digest, 'authorized'); f.submitted();
+  const raw = f.view();
+  const changes = [
+    (v: any) => { delete v.valuationPolicy; },
+    (v: any) => { v.authorization.schema = '8415-task-authorization-reference/1'; },
+    (v: any) => { v.authorization.valuationPolicyDigest = 'f'.repeat(64); },
+    (v: any) => { v.authorization.priceAt = 'settlement'; },
+    (v: any) => { v.valuationPolicy = freezeValuation({ ...valuationInput(), base: { ...valuationInput().base, chainId: '8453' } }); },
+    (v: any) => { v.budget.schema = '8415-task-budget/1'; },
+    (v: any) => { v.budget.reservations[0].submission.chainId = '8453'; },
+    (v: any) => { v.budget.reservations[0].transactionHash = `0x${'b'.repeat(64)}`; },
+    (v: any) => { v.listing.revocationCancelsPublishedOrder = true; },
+    (v: any) => { v.listing.settlementObservationConfigured = true; },
+    (v: any) => { v.completion.state = 'completed-at-observation-depth'; },
+    (v: any) => { v.completion.fresh = true; },
+    (v: any) => { v.observations = [{ operationId: 'listing:operation', observation: null, available: false }]; },
+  ];
+  for (const change of changes) { const bad = structuredClone(raw); change(bad); assert.throws(() => f.client.view(bad), /TASK_/); }
+  assert.equal(f.client.view(raw).completion.state, 'listed-awaiting-evidence');
+});
+test('no valuation defaults: legacy NFT preparation and approval stay disabled while exact-operation remains available', async () => {
+  const f = listingFixture({ legacy: true }), ui = uiFixture({ fixtureOverride: f });
+  ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(ui.result.snapshot().phase, 'configuration-required'); assert.equal(ui.el('task-authorize').disabled, true);
+  assert.equal(ui.el('task-code').disabled, true); await f.flow.load(f.task.digest); await f.flow.authorize('123456');
+  assert.equal(f.requests.some(r => ['tasks/prepare', 'tasks/authorize'].includes(r.path)), false);
+  await assert.rejects(f.client.prepare(f.task), /TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED/);
+  assert.match(ui.el('task-summary').children.map((n: Node) => n.textContent).join(' '), /not configured|version-1/);
+  const exact = fixture(); await exact.flow.load(exact.task.digest); assert.equal(exact.flow.snapshot().phase, 'review');
+});
+test('legacy version-1 NFT grant remains inspectable and revocable without upgrading or another OTP', async () => {
+  const f = listingFixture({ legacy: true }); f.statuses.set(f.task.digest, 'authorized');
+  const ui = uiFixture({ fixtureOverride: f }); ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(ui.result.snapshot().selected.authorization.schema, '8415-task-authorization-reference/1');
+  assert.equal(ui.result.snapshot().selected.valuationPolicy, undefined);
+  assert.equal(ui.el('task-revoke').hidden, false); ui.el('task-revoke').click(); await tick();
+  assert.equal(ui.result.snapshot().phase, 'revoked'); assert.equal(f.requests.some(r => /authorize|prepare|resume/.test(r.path)), false);
+});
+test('settlement priceAt is shown literally and blocks an unsupported future-USD authorization', async () => {
+  const f = listingFixture({ policy: valuationInput('settlement') }), ui = uiFixture({ fixtureOverride: f });
+  ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(ui.result.snapshot().phase, 'configuration-required'); assert.equal(ui.el('task-authorize').disabled, true);
+  assert.equal(ui.result.snapshot().selected.valuationPolicy.policy.priceAt, 'settlement');
+  assert.equal(f.requests.some(r => /authorize|prepare/.test(r.path)), false);
+  assert.match(ui.el('task-summary').children.map((n: Node) => n.textContent).join(' '), /cannot be guaranteed/);
+});
+test('listing review shows precise gt/gte, USD gross/net, independent wei fees and every valuation field without a default price', async () => {
+  for (const comparison of ['gt', 'gte']) for (const basis of ['gross', 'net']) {
+    const f = listingFixture({ task: makeSaleTask(`listing:${comparison}:${basis}`, comparison, basis) }), ui = uiFixture({ fixtureOverride: f });
+    ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+    const values = ui.el('task-summary').children.flatMap((row: Node) => [row.textContent, ...row.children.map((n: Node) => n.textContent)]);
+    for (const value of [`${comparison === 'gt' ? '>' : '\u2265'} 1000.01 USD`, comparison, basis, '9007199254740993123', '3',
+      '1000000000000001 wei', '2000000000000003 wei', f.valuationPolicy!.digest, ...Object.values(valuationInput()).filter(v => typeof v === 'string'), '18', 'USD / 2', '8'])
+      assert.ok(values.includes(String(value)), `${comparison}/${basis}: ${value}`);
+    assert.match(values.join(' '), /not a live quote/); assert.match(values.join(' '), /not an extra USD allowance/);
+    assert.doesNotMatch(values.join(' '), /500\.00 USD/);
+    assert.deepEqual(JSON.parse(ui.el('task-canonical').textContent), { taskPolicy: f.task.policy, valuationPolicy: f.valuationPolicy });
+  }
+});
+test('listing UI distinguishes published order from receipt and stops polling unsupported settlement evidence', async () => {
+  const f = listingFixture(), ui = uiFixture({ fixtureOverride: f });
+  ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  ui.el('task-code').value = '123456'; ui.el('task-ack').checked = true;
+  ui.el('task-authorize-form').dispatchEvent({ type: 'submit', preventDefault() {} }); await tick();
+  assert.equal(ui.result.snapshot().phase, 'listed-awaiting-evidence'); assert.equal(ui.timers.size, 0);
+  assert.match(ui.el('task-status').textContent, /No sale or payment/); assert.match(ui.el('task-execution-status').textContent, /order hash is not a transaction hash/);
+  assert.match(ui.el('task-operations').textContent, /seaport-order/); assert.doesNotMatch(ui.el('task-operations').textContent, /transactionHash/);
+  assert.equal(ui.el('task-code').value, ''); assert.equal(ui.el('task-ack').checked, false);
+  assert.match(ui.el('task-recover').textContent, /order status/);
+  f.stopPublishing(); ui.el('task-revoke').click(); await tick();
+  assert.equal(ui.result.snapshot().phase, 'revoked'); assert.equal(ui.result.snapshot().selected.completion.state, 'listed-awaiting-evidence');
+  assert.match(ui.el('task-summary').children.map((n: Node) => n.textContent).join(' '), /does not cancel a Seaport order/);
+  ui.el('task-recover').click(); await tick();
+  assert.equal(ui.result.snapshot().phase, 'revoked'); assert.equal(f.requests.some(r => /cancel|observe|execute|reserve/.test(r.path)), false);
+});
+test('listing unknown attempt is recoverable after revocation without another approval or transaction receipt request', async () => {
+  const f = listingFixture(); f.statuses.set(f.task.digest, 'revoked'); f.unknown();
+  await f.flow.load(f.task.digest); assert.equal(f.flow.snapshot().selected.executionState, 'unknown');
+  assert.equal(f.requests.some(r => r.path === 'tasks/resume'), false);
+  await f.flow.recover(); assert.equal(f.flow.snapshot().phase, 'revoked'); assert.equal(f.flow.snapshot().selected.executionState, 'listed');
+  assert.equal(f.requests.some(r => /authorize|prepare|observe|execute|reserve/.test(r.path)), false);
+});
+test('listing language switches preserve exact source facts, consent, policy digest and a single prepared challenge', async () => {
+  const f = listingFixture(), ui = uiFixture({ fixtureOverride: f });
+  ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  const before = f.requests.length, canonical = ui.el('task-canonical').textContent;
+  ui.el('task-ack').checked = true; ui.el('task-code').value = '123456';
+  for (const locale of ['zh-Hans', 'zh-Hant', 'fr', 'es', 'ja', 'en']) {
+    setLocale(locale, { document: null, persist: false });
+    assert.equal(renderUi('Original NFT description \u539f\u6587 <img src=x> {priceAt}', locale), 'Original NFT description \u539f\u6587 <img src=x> {priceAt}');
+    assert.equal(f.requests.length, before); assert.equal(ui.el('task-ack').checked, true); assert.equal(ui.el('task-code').value, '123456');
+    assert.equal(ui.el('task-canonical').textContent, canonical); assert.equal(ui.result.snapshot().selected.valuationPolicy.digest, f.valuationPolicy!.digest);
+  }
+});
+test('listing repeated submit, cancel and late response never replay approval or continue a dismissed form', async () => {
+  const f = listingFixture(); let release!: () => void; f.setHold(new Promise<void>(r => { release = r; }));
+  await f.flow.load(f.task.digest); const pending = f.flow.authorize('123456'); await f.flow.authorize('123456');
+  f.flow.suspend(); release(); await pending;
+  assert.equal(f.flow.snapshot().phase, 'paused'); assert.equal(f.requests.filter(r => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.some(r => r.path === 'tasks/resume'), false);
+  await f.flow.open(f.task.digest); assert.equal(f.flow.snapshot().phase, 'listed-awaiting-evidence');
+  assert.equal(f.requests.filter(r => r.path === 'tasks/authorize').length, 1);
+});
+test('lost listing authorization reply is recovered by same-task reload, never by an OTP retry', async () => {
+  const f = listingFixture(); await f.flow.load(f.task.digest); f.loseResponse(); await f.flow.authorize('123456');
+  assert.equal(f.flow.snapshot().phase, 'uncertain');
+  const restored = new TaskAuthorizationFlow({ client: f.client, now: () => now }); await restored.load(f.task.digest);
+  assert.equal(restored.snapshot().phase, 'listed-awaiting-evidence'); assert.equal(f.requests.filter(r => r.path === 'tasks/authorize').length, 1);
+});
+test('listing approval with configured policy does not pretend a missing execution adapter is connected', async () => {
+  const f = listingFixture({ adapter: false }); await f.flow.load(f.task.digest); await f.flow.authorize('123456');
+  assert.equal(f.flow.snapshot().phase, 'authorized-blocked'); assert.equal(f.flow.snapshot().selected.capabilities.executable, false);
+  assert.equal(f.flow.snapshot().selected.continuation.code, 'TASK_LISTING_ADAPTER_NOT_CONNECTED'); assert.equal(f.flow.snapshot().selected.executionState, 'not-started');
+});
+test('frozen listing service and browser controller interoperate with one synthetic OTP through publish, revoke and unknown recovery', async () => {
+  const { createTaskAuthorizationService } = await import('../server/task-authorization.mjs');
+  const { MemoryCredentialStore } = await import('../server/store.mjs');
+  const { base32, hotp, matchTotp } = await import('../server/crypto.mjs');
+  for (const losePublicationReply of [false, true]) {
+    const task = makeSaleTask(`service-listing:${losePublicationReply}`), secret = base32(Buffer.alloc(20, 0x42));
+    const store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
+    const session = { ...context, username: 'synthetic', id: 'synthetic-listing-session', revision: 0, issuedAt: now, expiresAt: now + 900000 };
+    let otp = 0, plans = 0, sends = 0, recoveries = 0;
+    const result = (input: any) => ({ taskDigest: input.task.digest, childDigest: input.child.digest, executorDigest: input.executor.digest,
+      grantReference: input.grantReference, grantPolicyVersion: input.grantPolicyVersion, valuationPolicyDigest: input.valuationPolicy.digest,
+      quoteEvidenceDigest: input.child.child.quoteEvidenceDigest, orderHash: input.child.child.orderHash, typedDataDigest: input.child.child.typedDataDigest });
+    const submission = (input: any) => ({ kind: 'seaport-order', chainId: input.child.child.chainId, protocol: input.child.child.protocol, orderHash: input.child.child.orderHash });
+    const listingExecution = {
+      async plan(input: any) { plans++; return { schema: '8415-nft-listing-child/1', operationId: 'listing:synthetic-service', taskDigest: input.task.digest,
+        executorDigest: input.executor.digest, grantReference: input.grantReference, grantPolicyVersion: input.grantPolicyVersion,
+        chainId: '1', seller: account, protocol: `0x${'55'.repeat(20)}`, nft: { standard: 'ERC-1155', contract: `0x${'22'.repeat(20)}`, tokenId: '9007199254740993123', quantity: '3' },
+        adapterId: 'synthetic:seaport', nativeOperationId: 'synthetic:native', nativePlanId: 'synthetic:plan', reviewDigest: '6'.repeat(64),
+        orderHash: `0x${'7'.repeat(64)}`, typedDataDigest: `0x${'8'.repeat(64)}`, counter: '0', salt: '9', expiresAt: '1900001800',
+        valuationPolicyDigest: input.valuationPolicy.digest, quoteEvidenceDigest: '9'.repeat(64), fees: { maximumFeeWei: '0' } }; },
+      async verify(input: any) { return { ...result(input), capability: 'nft-listing-observable' }; },
+      async send(input: any) { sends++; if (losePublicationReply) throw Error('synthetic lost publication response'); return { ...result(input), submission: submission(input) }; },
+      async recover(input: any) { recoveries++; return { ...result(input), state: 'submitted', submission: submission(input) }; },
+    };
+    const service = createTaskAuthorizationService({ ...context, store, now: () => now, listingExecution, executorIdentity,
+      observationPolicy: receiptPolicy.policy,
+      assertSession(s: any, credential?: any) { assert.equal(s, session); if (credential) assert.equal(credential.revision, session.revision); },
+      credentialFor: () => store.read('xiongan:synthetic'),
+      consumeTotp(_s: any, credential: any, code: string) { const step = matchTotp(credential.secret, code, now, credential.lastStep);
+        assert.notEqual(step, null); otp++; return { ...credential, lastStep: step }; },
+    });
+    await service.handler('tasks/prepare', { policy: task.policy, valuationPolicy: valuationInput() }, session);
+    const calls: string[] = [], client = new TaskAuthorizationClient({ context, request: (path: string, body: any) => { calls.push(path); return service.handler(path, body, session); } });
+    const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
+    assert.equal(flow.snapshot().phase, 'review'); await flow.authorize(hotp(secret, Math.floor(now / 30000)));
+    assert.equal(flow.snapshot().phase, losePublicationReply ? 'outcome-unknown' : 'listed-awaiting-evidence');
+    assert.equal(flow.snapshot().selected.executionState, losePublicationReply ? 'unknown' : 'listed');
+    assert.equal(otp, 1); assert.equal(plans, 1); assert.equal(sends, 1);
+    await flow.revoke(); await flow.recover(); await flow.open(task.digest);
+    assert.equal(flow.snapshot().phase, 'revoked'); assert.equal(flow.snapshot().selected.completion.state, 'listed-awaiting-evidence');
+    assert.equal(flow.snapshot().selected.listing.revocationCancelsPublishedOrder, false);
+    assert.equal(flow.snapshot().selected.capabilities.executable, false);
+    assert.equal(otp, 1); assert.equal(plans, 1); assert.equal(sends, 1); assert.equal(recoveries, losePublicationReply ? 1 : 0);
+    assert.equal(calls.some(path => /observe|cancel|execute|reserve/.test(path)), false);
+  }
+});
+
+function observedListingFixture() {
+  const base = listingFixture({ publish: false }); base.statuses.set(base.task.digest, 'authorized'); base.submitted();
+  let state = 'partial';
+  function decorate(raw: any) {
+    if (!raw?.listing) return raw;
+    const operation = raw.budget.reservations[0], fresh = !['unknown', 'reorg'].includes(state), quantity = state === 'observed-at-depth' ? '3' : state === 'partial' || state === 'unknown' ? '2' : '0';
+    const aggregate = { quantity, gross: String(BigInt(quantity) * 100n), fees: String(BigInt(quantity) * 5n), sellerNet: String(BigInt(quantity) * 95n) };
+    const summary = { kind: 'TASK_LISTING_OBSERVATION_SUMMARY', binding: { taskDigest: raw.task.digest, childDigest: operation.childDigest,
+      chainId: '1', orderHash: operation.submission.orderHash, orderDigest: 'b'.repeat(64), sourceId: 'synthetic-reader', observationPolicyId: 'synthetic-policy',
+      minimumConfirmations: 2, requestedQuantity: '3', orderQuantity: '3' }, revision: 1,
+      freshness: fresh ? 'FRESH' : 'STALE', reason: state === 'reorg' ? 'TASK_LISTING_REORG' : state === 'unknown' ? 'TASK_LISTING_CANONICAL_READER_UNAVAILABLE' : 'TASK_LISTING_ANCHORS_REVALIDATED',
+      saleStatus: fresh && quantity !== '0' ? 'VERIFIED_FILLS' : 'UNKNOWN', aggregate: fresh ? aggregate : null, lastKnownAggregate: aggregate,
+      availableFillCount: quantity === '0' ? 0 : 1, invalidatedFillCount: state === 'reorg' ? 1 : 0, reconciliationBlocked: false,
+      checkedAt: now, head: { number: 100, hash: `0x${'c'.repeat(64)}` }, finality: 'NOT_EVALUATED', cumulativeCompletion: 'NOT_EVALUATED', onchainOrderStatus: 'NOT_EVALUATED',
+      currentOwnership: 'NOT_EVALUATED', currentBalances: 'NOT_EVALUATED', usdProceeds: 'NOT_EVALUATED', sellerNetBasis: 'TOKEN_PROCEEDS_EXCLUDING_GAS',
+      authorizationChanged: false, budgetChanged: false, quotaChanged: false, resendAuthorized: false, relistAuthorized: false };
+    const completion = { listed: 'listed-awaiting-evidence', partial: 'listing-partial', 'observed-at-depth': 'listing-observed-at-depth', unknown: 'listing-unknown', reorg: 'listing-reorg' }[state]!;
+    return { ...raw, listing: { revocationCancelsPublishedOrder: false, settlementObservationConfigured: true, result: { state, summary } },
+      completion: { state: completion, fresh }, ...(raw.continuation ? { continuation: { state: completion, operationId: operation.operationId } } : {}) };
+  }
+  const request = async (path: string, body: any) => {
+    const raw = await base.request(path, body);
+    if (path === 'tasks/revoke') return { ...raw, listing: { revocationCancelsPublishedOrder: false, settlementObservationConfigured: true, result: null } };
+    return raw.tasks ? { ...raw, tasks: raw.tasks.map(decorate) } : decorate(raw);
+  };
+  return { ...base, request, raw: () => decorate(base.view()), setState(value: string) { state = value; } };
+}
+
+test('listing UI renders durable quantities and all five result states; depth never becomes finality or USD proceeds', async () => {
+  const f = observedListingFixture(), ui = uiFixture({ fixtureOverride: f });
+  ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(ui.result.snapshot().phase, 'listing-partial');
+  assert.match(ui.el('task-observation-states').children.map((n: Node) => n.textContent).join(' '), /Partial quantity/);
+  assert.ok(ui.el('task-summary').children.some((n: Node) => n.children.some(v => v.textContent === '2 / 3')));
+  assert.ok(ui.el('task-summary').children.some((n: Node) => /not ERC-8415, economic or legal finality/.test(n.textContent)));
+  assert.equal(ui.timers.size, 1);
+  for (const state of ['observed-at-depth', 'listed', 'unknown', 'reorg']) {
+    f.setState(state); ui.el('task-recover').click(); await tick();
+    assert.equal(ui.result.snapshot().selected.listing.result.state, state);
+    assert.equal(ui.result.snapshot().selected.completion.fresh, !['unknown', 'reorg'].includes(state));
+    if (['unknown', 'reorg'].includes(state)) assert.equal(ui.el('task-summary').children.some((n: Node) => n.children.some(v => v.textContent === '2 / 3')), false);
+  }
+  assert.equal(f.requests.some(r => /authorize|prepare|execute|reserve/.test(r.path)), false);
+});
+
+test('listing UI after revoke still reads evidence, while hidden/closed views lose freshness and polling', async () => {
+  const f = observedListingFixture(), ui = uiFixture({ fixtureOverride: f });
+  ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  ui.el('task-revoke').click(); await tick();
+  assert.equal(ui.result.snapshot().phase, 'revoked'); assert.equal(ui.timers.size, 1);
+  const [id, callback] = [...ui.timers.entries()][0]; ui.timers.delete(id); callback(); await tick();
+  assert.equal(ui.result.snapshot().selected.effectiveStatus, 'revoked');
+  assert.equal(ui.result.snapshot().selected.listing.result.state, 'partial');
+  ui.document.visibilityState = 'hidden'; ui.events.dispatchEvent({ type: 'visibilitychange' });
+  assert.equal(ui.result.snapshot().selected.completion.fresh, false); assert.equal(ui.result.snapshot().selected.listing.result.summary.aggregate, null); assert.equal(ui.timers.size, 0);
+  ui.document.visibilityState = 'visible'; ui.events.dispatchEvent({ type: 'visibilitychange' });
+  ui.el('task-cancel').click(); await tick(); assert.equal(ui.timers.size, 0); assert.equal(ui.result.snapshot().phase, 'paused');
+});
+
+test('listing client refuses rebound consumer evidence and invented current/finality/cancellation claims', () => {
+  const f = observedListingFixture(), raw = f.raw();
+  assert.equal(f.client.view(raw, { allowFresh: true }).listing.result.state, 'partial');
+  for (const mutate of [
+    (v: any) => { v.listing.result.summary.binding.taskDigest = `0x${'9'.repeat(64)}`; },
+    (v: any) => { v.listing.result.summary.binding.childDigest = `0x${'9'.repeat(64)}`; },
+    (v: any) => { v.listing.result.summary.binding.orderHash = `0x${'9'.repeat(64)}`; },
+    (v: any) => { v.listing.result.summary.binding.minimumConfirmations = 1; },
+    (v: any) => { v.listing.result.summary.binding.requestedQuantity = '2'; },
+    (v: any) => { v.listing.result.state = 'observed-at-depth'; },
+    (v: any) => { v.listing.result.summary.aggregate.quantity = '4'; },
+    (v: any) => { v.listing.result.summary.finality = 'FINAL'; },
+    (v: any) => { v.listing.result.summary.usdProceeds = '60000'; },
+    (v: any) => { v.listing.result.summary.relistAuthorized = true; },
+    (v: any) => { v.listing.result.summary.onchainOrderStatus = 'CANCELLED'; },
+    (v: any) => { v.listing.result.summary.freshness = 'STALE'; },
+  ]) { const bad = structuredClone(raw); mutate(bad); assert.throws(() => f.client.view(bad, { allowFresh: true }), /TASK_LISTING_OBSERVATION_REFUSED/); }
+});
+
+test('listing read freshness does not weaken the old exact-operation cached status/list boundary', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest); const forged = f.view(true);
+  const client = new TaskAuthorizationClient({ context, request: async (path: string) => path === 'tasks/list'
+    ? { tasks: [forged], nextCursor: null, revision: '1' } : forged });
+  await assert.rejects(client.status(f.task.digest), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
+  await assert.rejects(client.list(), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
+});
+
+test('listing summary cannot bypass freshness gating by understating the completion flag', () => {
+  const f = observedListingFixture();
+  for (const state of ['partial', 'observed-at-depth', 'listed']) {
+    f.setState(state); const raw = f.raw();
+    assert.throws(() => f.client.view(raw), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
+    raw.completion.fresh = false;
+    assert.throws(() => f.client.view(raw), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
+    assert.throws(() => f.client.view(raw, { allowFresh: true }), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
+  }
+  f.setState('unknown'); const stale = f.raw(); stale.completion.fresh = true;
+  assert.throws(() => f.client.view(stale, { allowFresh: true }), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
+});
+
+test('listing retry failure uses the fallback result and grant state instead of relabelling it as awaiting fills', async () => {
+  for (const grantStatus of ['authorized', 'revoked']) {
+    const f = observedListingFixture(); f.statuses.set(f.task.digest, grantStatus); let failStatus = false;
+    const client = new TaskAuthorizationClient({ context, request: async (path: string, body: any) => {
+      if (path === 'tasks/resume' || failStatus && path === 'tasks/status') throw Object.assign(Error('timeout'), { code: 'TASK_SERVICE_UNAVAILABLE' });
+      return f.request(path, body);
+    } });
+    const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(f.task.digest);
+    assert.equal(flow.snapshot().phase, grantStatus === 'revoked' ? 'revoked' : 'listing-partial');
+    assert.equal(flow.snapshot().selected.listing.result.state, 'partial');
+    failStatus = true; await flow.continue();
+    assert.equal(flow.snapshot().phase, grantStatus === 'revoked' ? 'revoked' : 'listing-unknown');
+    assert.equal(flow.snapshot().selected.completion.fresh, false); assert.equal(flow.snapshot().selected.listing.result.summary.aggregate, null);
+  }
 });

@@ -1,7 +1,8 @@
+import { normalizeListingResult, listingCompletion, historicalListingResult } from './task-listing-results.mjs';
 /** Bounded task review. A sign-in session and a task grant are separate facts. */
 import { sha256, toUtf8Bytes } from '../dist/browser/vendor/ethers.js';
 import { freezeTaskObservationPolicy, normalizeObservationVerifier, normalizeTaskObservation } from '../dist/browser/agent/receiptObservation.js';
-import { freezeTaskPolicy, normalizeAuthorizationReference, normalizeTaskBudget } from '../dist/browser/agent/taskContract.js';
+import { freezeTaskPolicy, normalizeAuthorizationReference, normalizeNftListingAuthorizationReference, normalizeTaskBudget } from '../dist/browser/agent/taskContract.js';
 export class TaskUiError extends Error {
   constructor(code) { super(code); this.name = 'TaskUiError'; this.code = code; }
 }
@@ -35,16 +36,57 @@ export function normalizeObservationContext(value) {
   insist(receiptVerifier === null || observationPolicy !== null, 'TASK_OBSERVATION_POLICY_REQUIRED');
   return freeze({ observationPolicy, receiptVerifier });
 }
+/** Display-side verification of the service's complete policy, never a price quote.
+ * Matches the frozen service policy's sorted-key SHA256; no source or time default.
+ */
+export function normalizeValuationContext(value) {
+  if (value.valuationPolicy === undefined) return null;
+  const fields = (raw, keys) => {
+    insist(raw && typeof raw === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(raw)), 'TASK_VALUATION_POLICY_REFUSED');
+    const descriptors = Object.getOwnPropertyDescriptors(raw);
+    insist(Reflect.ownKeys(descriptors).length === keys.length && keys.every(key =>
+      Object.hasOwn(descriptors, key) && Object.hasOwn(descriptors[key], 'value')), 'TASK_VALUATION_POLICY_REFUSED');
+  };
+  fields(value.valuationPolicy, ['policy', 'digest']);
+  const raw = value.valuationPolicy.policy;
+  fields(raw, ['source', 'base', 'quote', 'rateDecimals', 'priceAt', 'validFrom', 'validUntil', 'maxAgeSeconds']);
+  fields(raw.base, ['chainId', 'token', 'decimals']); fields(raw.quote, ['currency', 'decimals']);
+  const uint = item => typeof item === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(item) && BigInt(item) < (1n << 256n);
+  const decimals = item => Number.isInteger(item) && item >= 0 && item <= 36;
+  insist(typeof raw.source === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(raw.source) &&
+    uint(raw.base.chainId) && BigInt(raw.base.chainId) > 0n && typeof raw.base.token === 'string' && /^0x[0-9a-f]{40}$/i.test(raw.base.token) &&
+    decimals(raw.base.decimals) && decimals(raw.rateDecimals) && raw.quote.currency === 'USD' && raw.quote.decimals === 2 &&
+    ['order-review', 'settlement'].includes(raw.priceAt) && uint(raw.validFrom) && uint(raw.validUntil) && uint(raw.maxAgeSeconds) &&
+    BigInt(raw.validFrom) < BigInt(raw.validUntil) && BigInt(raw.maxAgeSeconds) > 0n, 'TASK_VALUATION_POLICY_REFUSED');
+  const policy = { source: raw.source, base: { chainId: raw.base.chainId, token: raw.base.token, decimals: raw.base.decimals },
+    quote: { currency: raw.quote.currency, decimals: raw.quote.decimals }, rateDecimals: raw.rateDecimals,
+    priceAt: raw.priceAt, validFrom: raw.validFrom, validUntil: raw.validUntil, maxAgeSeconds: raw.maxAgeSeconds };
+  const sorted = item => item && typeof item === 'object' ? Object.fromEntries(Object.keys(item).sort().map(key => [key, sorted(item[key])])) : item;
+  const digest = sha256(toUtf8Bytes(JSON.stringify(sorted(policy)))).slice(2);
+  insist(value.valuationPolicy.digest === digest, 'TASK_VALUATION_POLICY_MISMATCH');
+  return freeze({ policy, digest });
+}
+function sameValuationContext(value, expected) {
+  insist((value.valuationPolicy?.digest ?? null) === (expected.valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_CHANGED');
+}
+function approvalBlocker(view) {
+  if (view.task.policy.intent.kind !== 'nft-sale') return null;
+  return !view.valuationPolicy ? 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED' :
+    view.valuationPolicy.policy.priceAt !== 'order-review' ? 'TASK_FUTURE_USD_PRICE_NOT_GUARANTEED' : null;
+}
 function sameObservationContext(value, expected) {
+  sameValuationContext(value, expected);
   insist((value.observationPolicy?.digest ?? null) === (expected.observationPolicy?.digest ?? null), 'TASK_OBSERVATION_POLICY_CHANGED');
   insist(JSON.stringify(value.receiptVerifier) === JSON.stringify(expected.receiptVerifier), 'TASK_RECEIPT_VERIFIER_CHANGED');
 }
-const completionStates = new Set(['not-attempted', 'outcome-unknown', 'awaiting-evidence', 'completed-at-observation-depth', 'failed-at-observation-depth']);
+const completionStates = new Set(['not-attempted', 'outcome-unknown', 'awaiting-evidence', 'completed-at-observation-depth', 'failed-at-observation-depth', 'listed-awaiting-evidence', 'listing-partial', 'listing-observed-at-depth', 'listing-unknown', 'listing-reorg']);
 function observationView(value, task, executor, budget, authorization, allowFresh) {
   const context = normalizeObservationContext(value);
   insist(Array.isArray(value.observations) && value.observations.length <= (budget?.reservations.length ?? 0) &&
     typeof value.observationRevision === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value.observationRevision) &&
     BigInt(value.observationRevision) < (1n << 256n), 'TASK_OBSERVATION_RESPONSE_REFUSED');
+  const listing = budget?.schema === '8415-task-budget/2' || value.valuationPolicy !== undefined;
+  if (listing) insist(value.observations.length === 0, 'TASK_LISTING_OBSERVATION_REFUSED');
   const observations = value.observations.map(entry => {
     insist(entry && Object.keys(entry).sort().join(',') === 'available,observation,operationId' && typeof entry.available === 'boolean' &&
       typeof entry.operationId === 'string' && (!entry.available || entry.observation !== null), 'TASK_OBSERVATION_RESPONSE_REFUSED');
@@ -68,16 +110,34 @@ function observationView(value, task, executor, budget, authorization, allowFres
   });
   insist(new Set(observations.map(entry => entry.operationId)).size === observations.length, 'TASK_OBSERVATION_RESPONSE_REFUSED');
   const spent = budget?.reservations.filter(item => item.status !== 'cancelled') ?? [];
+  let listingResult = null;
+  if (listing && value.listing?.result) {
+    const operation = spent.find(item => item.status === 'submitted');
+    insist(spent.length === 1 && operation && context.observationPolicy, 'TASK_LISTING_OBSERVATION_REFUSED');
+    listingResult = normalizeListingResult(value.listing.result.summary, { taskDigest: task.digest, childDigest: operation.childDigest,
+      chainId: task.policy.chainId, orderHash: operation.submission.orderHash, requestedQuantity: task.policy.intent.quantity,
+      minimumConfirmations: context.observationPolicy.policy.minimumConfirmations });
+    insist(listingResult.state === value.listing.result.state, 'TASK_LISTING_OBSERVATION_REFUSED');
+  }
   const current = spent.map(item => observations.find(entry => entry.operationId === item.operationId && entry.available)?.observation);
   const state = !spent.length ? 'not-attempted' : spent.some(item => item.status === 'outcome-unknown') ? 'outcome-unknown' :
+    listing ? (spent.some(item => item.status === 'submitted') ? listingResult ? listingCompletion(listingResult.state) :
+      value.listing?.observationError ? 'listing-unknown' : 'listed-awaiting-evidence' : 'not-attempted') :
     current.every(item => item?.state === 'confirmed-at-depth') ? 'completed-at-observation-depth' :
     current.some(item => ['reverted-at-depth', 'superseded-at-depth'].includes(item?.state)) ? 'failed-at-observation-depth' : 'awaiting-evidence';
   insist(value.completion && completionStates.has(value.completion.state) && value.completion.state === state &&
     typeof value.completion.fresh === 'boolean', 'TASK_COMPLETION_RESPONSE_REFUSED');
-  insist(!value.completion.fresh || (allowFresh && spent.length === 1 && current[0]), 'TASK_OBSERVATION_FRESHNESS_REFUSED');
-  return freeze({ ...context, observations, observationRevision: value.observationRevision, completion: { state, fresh: value.completion.fresh } });
+  insist(!value.completion.fresh || (allowFresh && spent.length === 1 && (listing ? listingResult?.summary.freshness === 'FRESH' : current[0])), 'TASK_OBSERVATION_FRESHNESS_REFUSED');
+  if (listingResult) insist(value.completion.fresh === (listingResult.summary.freshness === 'FRESH') &&
+    (listingResult.summary.freshness !== 'FRESH' || allowFresh), 'TASK_OBSERVATION_FRESHNESS_REFUSED');
+  return freeze({ ...context, ...(listing ? { listing: { ...value.listing, ...(Object.hasOwn(value.listing, 'result') ? { result: listingResult } : {}) } } : {}), observations, observationRevision: value.observationRevision, completion: { state, fresh: value.completion.fresh } });
 }
-const historical = view => view ? freeze({ ...view, completion: { ...view.completion, fresh: false } }) : null;
+const historical = view => {
+  if (!view) return null;
+  const result = historicalListingResult(view.listing?.result);
+  return freeze({ ...view, ...(result ? { listing: { ...view.listing, result } } : {}),
+    completion: { state: result ? listingCompletion(result.state) : view.completion.state, fresh: false } });
+};
 /** Validate server facts before they enter any UI, including complete parent digest. */
 export class TaskAuthorizationClient {
   #request; #context;
@@ -92,20 +152,32 @@ export class TaskAuthorizationClient {
   }
   view(value, { allowFresh = false } = {}) {
     insist(value && typeof value === 'object' && statuses.has(value.effectiveStatus));
-    const task = this.task(value.task), authorization = value.authorization, executor = normalizeExecutor(value.executor);
+    const task = this.task(value.task), executor = normalizeExecutor(value.executor), valuationPolicy = normalizeValuationContext(value);
+    const authorization = value.authorization === null ? null : valuationPolicy ?
+      normalizeNftListingAuthorizationReference(value.authorization) : normalizeAuthorizationReference(value.authorization);
+    if (valuationPolicy) {
+      insist(task.policy.intent.kind === 'nft-sale' && valuationPolicy.policy.base.chainId === task.policy.chainId, 'TASK_VALUATION_POLICY_BINDING_REFUSED');
+      insist(value.listing && value.listing.revocationCancelsPublishedOrder === false && typeof value.listing.settlementObservationConfigured === 'boolean' &&
+        Object.keys(value.listing).every(key => ['revocationCancelsPublishedOrder', 'settlementObservationConfigured', 'result', 'observationError'].includes(key)) &&
+        (value.listing.settlementObservationConfigured ? Object.hasOwn(value.listing, 'result') : value.listing.result === undefined && value.listing.observationError === undefined) &&
+        (value.listing.observationError === undefined || value.listing.result === null && /^[A-Z][A-Z0-9_]{0,127}$/.test(value.listing.observationError)), 'TASK_LISTING_RESPONSE_REFUSED');
+      if (authorization) insist(authorization.valuationPolicyDigest === valuationPolicy.digest && authorization.priceAt === valuationPolicy.policy.priceAt, 'TASK_VALUATION_POLICY_BINDING_REFUSED');
+    } else insist(value.listing === undefined, 'TASK_LISTING_RESPONSE_REFUSED');
     insist(value.capabilities?.executable === false && typeof value.capabilities.adapterConfigured === 'boolean' && typeof value.capabilities.receiptVerifierConfigured === 'boolean' && Array.isArray(value.capabilities.missing) &&
       value.capabilities.missing.length <= 16 &&
       value.capabilities.missing.every(code => typeof code === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(code)), 'TASK_EXECUTION_CAPABILITY_REFUSED');
     if (authorization === null) insist(value.effectiveStatus === 'pending' || value.effectiveStatus === 'expired');
-    else { const reference = normalizeAuthorizationReference(authorization); insist(reference.taskDigest === task.digest && reference.status === value.effectiveStatus); }
+    else insist(authorization.taskDigest === task.digest && authorization.status === value.effectiveStatus);
     const budget = value.budget === null ? null : normalizeTaskBudget(value.budget);
-    insist(authorization === null ? budget === null : budget?.taskDigest === task.digest);
+    insist(authorization === null ? budget === null : budget?.taskDigest === task.digest &&
+      budget.schema === (valuationPolicy ? '8415-task-budget/2' : '8415-task-budget/1'));
+    if (valuationPolicy) insist(budget?.reservations.every(item => item.submission === null || item.submission.chainId === task.policy.chainId) ?? true, 'TASK_LISTING_SUBMISSION_REFUSED');
     const executionState = budget?.reservations.some(item => item.status === 'outcome-unknown') ? 'unknown' :
-      budget?.reservations.some(item => item.status === 'submitted') ? 'submitted' :
+      budget?.reservations.some(item => item.status === 'submitted') ? (valuationPolicy ? 'listed' : 'submitted') :
       budget?.reservations.some(item => item.status === 'reserved') ? 'reserved' : 'not-started';
     // Readiness is not authority or success. Only the authenticated service can
     // continue this task; quotes, provider events and references cannot execute it.
-    return freeze({ task, executor, ...observationView(value, task, executor, budget, authorization, allowFresh), authorization: authorization ? { ...authorization } : null, effectiveStatus: value.effectiveStatus, budget, executionState,
+    return freeze({ task, executor, ...(valuationPolicy ? { valuationPolicy, listing: { ...value.listing } } : {}), ...observationView(value, task, executor, budget, authorization, allowFresh), authorization: authorization ? { ...authorization } : null, effectiveStatus: value.effectiveStatus, budget, executionState,
       capabilities: { executable: false, adapterConfigured: value.capabilities.adapterConfigured, receiptVerifierConfigured: value.capabilities.receiptVerifierConfigured, missing: [...value.capabilities.missing] } });
   }
   async list() {
@@ -116,7 +188,7 @@ export class TaskAuthorizationClient {
         (typeof value.revision === 'string' || Number.isSafeInteger(value.revision)) &&
         (value.nextCursor === null || (typeof value.nextCursor === 'string' && value.nextCursor.length > 0 && value.nextCursor.length <= 256)));
       if (revision !== null) insist(value.revision === revision, 'TASK_LIST_CHANGED');
-      revision = value.revision; tasks.push(...value.tasks.map(item => this.view(item)));
+      revision = value.revision; tasks.push(...value.tasks.map(item => this.view(item, { allowFresh: item?.valuationPolicy !== undefined })));
       cursor = value.nextCursor;
       if (cursor !== null) { insist(!cursors.has(cursor), 'TASK_LIST_CHANGED'); cursors.add(cursor); }
       insist(cursors.size <= 1000, 'TASK_LIST_TOO_LARGE');
@@ -130,11 +202,16 @@ export class TaskAuthorizationClient {
     sameObservationContext(value, expectedObservationContext);
     const continuation = raw.continuation;
     insist(value.task.digest === taskDigest && continuation &&
-      ['blocked', 'waiting-for-operation', 'outcome-unknown', 'submitted', 'awaiting-evidence', 'completed-at-observation-depth', 'failed-at-observation-depth'].includes(continuation.state), 'TASK_EXECUTION_CAPABILITY_REFUSED');
+      ['blocked', 'waiting-for-operation', 'outcome-unknown', 'submitted', 'awaiting-evidence', 'completed-at-observation-depth', 'failed-at-observation-depth', 'listed-awaiting-evidence', 'listing-partial', 'listing-observed-at-depth', 'listing-unknown', 'listing-reorg'].includes(continuation.state), 'TASK_EXECUTION_CAPABILITY_REFUSED');
     if (['blocked', 'waiting-for-operation'].includes(continuation.state) || continuation.code !== undefined)
       insist(typeof continuation.code === 'string' && /^TASK_[A-Z_]+$/.test(continuation.code));
     if (['outcome-unknown', 'submitted'].includes(continuation.state))
       insist(value.budget?.reservations.some(item => item.operationId === continuation.operationId && item.status === continuation.state));
+    if (['listed-awaiting-evidence', 'listing-partial', 'listing-observed-at-depth', 'listing-unknown', 'listing-reorg'].includes(continuation.state))
+      insist(value.valuationPolicy && value.completion.state === continuation.state &&
+        value.budget.reservations.some(item => item.operationId === continuation.operationId && item.status === 'submitted') &&
+        (value.listing.settlementObservationConfigured ? continuation.code === undefined : continuation.state === 'listed-awaiting-evidence' &&
+          continuation.code === 'TASK_LISTING_OBSERVER_NOT_CONNECTED'), 'TASK_LISTING_RESPONSE_REFUSED');
     if (['awaiting-evidence', 'completed-at-observation-depth', 'failed-at-observation-depth'].includes(continuation.state)) {
       insist(value.budget?.reservations.some(item => item.status === 'submitted'));
       if (continuation.code === undefined) insist(value.completion.state === continuation.state &&
@@ -146,6 +223,7 @@ export class TaskAuthorizationClient {
       ...(continuation.operationId ? { operationId: continuation.operationId } : {}) } });
   }
   async observe(expected) {
+    insist(!expected.valuationPolicy, 'TASK_LISTING_OBSERVER_NOT_CONNECTED');
     const operation = expected.budget?.reservations.find(item => item.status === 'submitted');
     insist(operation && expected.capabilities.receiptVerifierConfigured, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED');
     const raw = await this.#request('tasks/observe', { taskDigest: expected.task.digest, operationId: operation.operationId,
@@ -159,20 +237,27 @@ export class TaskAuthorizationClient {
     // Map the service's observed completion into a UI phase; this creates no authority.
     return freeze({ ...value, continuation: { state: value.completion.state, operationId: operation.operationId } });
   }
-  async status(taskDigest) { const value = this.view(await this.#request('tasks/status', { taskDigest })); insist(value.task.digest === taskDigest); return value; }
+  async status(taskDigest) { const raw = await this.#request('tasks/status', { taskDigest });
+    const value = this.view(raw, { allowFresh: raw?.valuationPolicy !== undefined }); insist(value.task.digest === taskDigest); return value; }
   async prepare(task, expectedExecutorDigest = null, expectedObservationContext = null) {
-    const value = await this.#request('tasks/prepare', { policy: task.policy });
+    const expectedValuation = expectedObservationContext === null ? null : normalizeValuationContext(expectedObservationContext);
+    insist(task.policy.intent.kind !== 'nft-sale' || expectedValuation, 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED');
+    const value = await this.#request('tasks/prepare', { policy: task.policy, ...(expectedValuation ? { valuationPolicy: expectedValuation.policy } : {}) });
     insist(value.purpose === 'authorize-task' && typeof value.challengeId === 'string' && /^[A-Za-z0-9._:-]{16,256}$/.test(value.challengeId) && Number.isSafeInteger(value.expiresAt));
     const checked = this.task(value.task); insist(checked.digest === task.digest, 'TASK_DIGEST_MISMATCH');
     const executor = normalizeExecutor(value.executor);
     insist(expectedExecutorDigest === null || executor.digest === expectedExecutorDigest, 'TASK_EXECUTOR_CHANGED');
-    const observation = normalizeObservationContext(value);
+    const valuationPolicy = normalizeValuationContext(value);
+    sameValuationContext({ valuationPolicy }, { valuationPolicy: expectedValuation });
+    const observation = { ...normalizeObservationContext(value), ...(valuationPolicy ? { valuationPolicy } : {}) };
     if (expectedObservationContext !== null) sameObservationContext(observation, expectedObservationContext);
     return Object.freeze({ task: checked, executor, ...observation, challengeId: value.challengeId, expiresAt: value.expiresAt });
   }
   async authorize(challenge, code) {
+    insist(!approvalBlocker(challenge), approvalBlocker(challenge));
     insist(typeof code === 'string' && /^\d{6}$/.test(code), 'TASK_CODE_REQUIRED');
-    const value = this.view(await this.#request('tasks/authorize', { challengeId: challenge.challengeId, taskDigest: challenge.task.digest, executorDigest: challenge.executor.digest, observationPolicyDigest: challenge.observationPolicy?.digest ?? null, code }));
+    const value = this.view(await this.#request('tasks/authorize', { challengeId: challenge.challengeId, taskDigest: challenge.task.digest, executorDigest: challenge.executor.digest, observationPolicyDigest: challenge.observationPolicy?.digest ?? null,
+      ...(challenge.valuationPolicy ? { valuationPolicyDigest: challenge.valuationPolicy.digest, priceAt: challenge.valuationPolicy.policy.priceAt } : {}), code }));
     insist(value.task.digest === challenge.task.digest && value.effectiveStatus === 'authorized');
     insist(value.executor.digest === challenge.executor.digest, 'TASK_EXECUTOR_CHANGED'); sameObservationContext(value, challenge); return value;
   }
@@ -200,12 +285,16 @@ export class TaskAuthorizationFlow {
   }
   #phase(view) {
     if (view.effectiveStatus !== 'authorized') return view.effectiveStatus;
+    if (view.valuationPolicy && view.executionState === 'listed') return view.completion.state;
     return ({ blocked: 'authorized-blocked', 'waiting-for-operation': 'authorized-waiting',
       'outcome-unknown': 'outcome-unknown', submitted: 'submitted', 'awaiting-evidence': 'awaiting-evidence',
       'completed-at-observation-depth': view.completion.fresh ? 'completed-at-observation-depth' : 'awaiting-evidence',
       'failed-at-observation-depth': view.completion.fresh ? 'failed-at-observation-depth' : 'awaiting-evidence' })[view.continuation?.state] ?? 'authorized';
   }
   #continueRequest(view) {
+    const blocker = approvalBlocker(view);
+    if (blocker && !['unknown', 'submitted', 'listed'].includes(view.executionState))
+      return Promise.resolve(freeze({ ...view, continuation: { state: 'blocked', code: blocker } }));
     return view.executionState === 'submitted' && view.capabilities.receiptVerifierConfigured ? this.#client.observe(view) :
       this.#client.resume(view.task.digest, view.executor.digest, view);
   }
@@ -224,16 +313,20 @@ export class TaskAuthorizationFlow {
     try {
       const view = await this.#client.status(taskDigest); if (!this.#current(epoch)) return;
       this.#paint({ selected: view });
+      if (view.effectiveStatus === 'pending' && approvalBlocker(view)) {
+        this.#busy = false; this.#paint({ phase: 'configuration-required', error: approvalBlocker(view) }); return;
+      }
       if (view.effectiveStatus === 'pending') {
         const challenge = await this.#client.prepare(view.task, view.executor.digest, view); if (!this.#current(epoch)) return;
         insist(challenge.expiresAt > this.#now() && challenge.expiresAt <= this.#now() + 120000, 'TASK_CHALLENGE_EXPIRED');
         this.#challenge = challenge;
       }
-      const checked = view.effectiveStatus === 'authorized' || view.executionState === 'submitted' && view.capabilities.receiptVerifierConfigured ?
+      const checked = view.effectiveStatus === 'authorized' || view.executionState === 'submitted' && view.capabilities.receiptVerifierConfigured ||
+        view.executionState === 'listed' && view.listing?.settlementObservationConfigured ?
         await this.#continueRequest(view) : view;
       if (!this.#current(epoch)) return;
       this.#busy = false; this.#paint({ phase: checked.effectiveStatus === 'pending' ? 'review' : this.#phase(checked), selected: this.#progress(checked) });
-    } catch (error) { if (this.#state.selected?.effectiveStatus === 'authorized' || this.#state.selected?.executionState === 'submitted') await this.#refreshFailure(epoch, error);
+    } catch (error) { if (this.#state.selected?.effectiveStatus === 'authorized' || ['submitted', 'listed'].includes(this.#state.selected?.executionState)) await this.#refreshFailure(epoch, error);
       else if (this.#current(epoch)) { this.#busy = false; this.#paint({ phase: 'error', error: this.#error(error) }); } }
   }
   async authorize(code) {
@@ -252,7 +345,8 @@ export class TaskAuthorizationFlow {
       this.#paint({ phase: 'uncertain', error: this.#error(error) }); } }
   }
   markHistorical() { if (this.#state.selected?.completion.fresh) this.#paint({ selected: historical(this.#state.selected),
-    ...(['completed-at-observation-depth', 'failed-at-observation-depth'].includes(this.#state.phase) ? { phase: 'awaiting-evidence' } : {}) }); }
+    ...(this.#state.selected?.listing?.result && this.#state.selected.effectiveStatus === 'authorized' ? { phase: this.#state.selected.listing.result.state === 'reorg' ? 'listing-reorg' : 'listing-unknown' } :
+      ['completed-at-observation-depth', 'failed-at-observation-depth'].includes(this.#state.phase) ? { phase: 'awaiting-evidence' } : {}) }); }
   async #refreshFailure(epoch, error) {
     if (!this.#current(epoch)) return;
     if (error?.code === 'AUTH_RATE_LIMITED' && error.status === 429 && Number.isSafeInteger(error.retryAfterMs) && error.retryAfterMs >= 1000 && error.retryAfterMs <= 900000) {
@@ -267,12 +361,13 @@ export class TaskAuthorizationFlow {
       } catch { /* Keep any old evidence explicitly historical if status also fails. */ }
     }
     if (!this.#current(epoch)) return; this.#busy = false;
-    this.#paint({ phase: selected?.executionState === 'submitted' ? 'awaiting-evidence' : 'uncertain', selected, error: this.#error(error) });
+    this.#paint({ phase: selected?.executionState === 'listed' ? this.#phase(selected) : selected?.executionState === 'submitted' ? 'awaiting-evidence' : 'uncertain', selected, error: this.#error(error) });
   }
   async continue() {
     const selected = this.#state.selected;
     if (this.#busy || this.#now() < this.#retryAt || !selected || !(selected.effectiveStatus === 'authorized' && selected.capabilities.adapterConfigured ||
-      selected.executionState === 'submitted' && selected.capabilities.receiptVerifierConfigured)) return;
+      selected.executionState === 'submitted' && selected.capabilities.receiptVerifierConfigured ||
+      selected.executionState === 'listed' && selected.listing?.settlementObservationConfigured)) return;
     const epoch = this.#epoch; this.#busy = true;
     this.#paint({ phase: 'checking', selected: historical(this.#state.selected), error: null });
     try { const view = await this.#continueRequest(this.#state.selected); if (!this.#current(epoch)) return;
@@ -280,7 +375,7 @@ export class TaskAuthorizationFlow {
     } catch (error) { await this.#refreshFailure(epoch, error); }
   }
   async recover() {
-    if (this.#busy || this.#now() < this.#retryAt || !['unknown', 'submitted'].includes(this.#state.selected?.executionState)) return;
+    if (this.#busy || this.#now() < this.#retryAt || !['unknown', 'submitted', 'listed'].includes(this.#state.selected?.executionState)) return;
     const epoch = this.#epoch; this.#busy = true;
     this.#paint({ phase: 'recovering', selected: historical(this.#state.selected), error: null });
     try { const view = await this.#continueRequest(this.#state.selected); if (!this.#current(epoch)) return;

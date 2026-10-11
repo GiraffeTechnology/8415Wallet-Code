@@ -1,3 +1,4 @@
+import { normalizeListingResult, listingCompletion } from '../web/task-listing-results.mjs';
 /** Durable bounded task grants. Login is not operation authorization.
  * No signer, market verifier or receipt verifier is supplied by this module.
  */
@@ -7,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import {
   TaskContractError, freezeTaskPolicy, freezeChildOperation, emptyTaskBudget,
   normalizeTaskBudget, reserveTaskBudget, markTaskSendAttempt, noteTaskSubmission,
-  cancelUnattemptedReservation, assessChildScope,
+  cancelUnattemptedReservation, assessChildScope, freezeNftListingChild, assessNftListingScope,
+  emptyNftListingBudget, reserveNftListingBudget, noteNftListingSubmission, normalizeSeaportOrderReference,
 } from '../src/agent/taskContract.ts';
 import { TaskObservationError, freezeTaskObservationPolicy, normalizeObservationVerifier, normalizeTaskObservation, bindTaskObservation } from '../src/agent/receiptObservation.ts';
 
@@ -50,6 +52,36 @@ function observationPolicyCopy(input) {
 }
 const sameVerifier = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+/** The complete explicit policy uses ArtFi kernelRequestDigest's canonical
+ * sorted-key SHA-256, without changing the legacy Wallet task digest. */
+export function freezeNftValuationPolicy(input) {
+  const policyFields = (value, keys) => {
+    requireThat(value && typeof value === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(value)), 'TASK_REQUEST_REFUSED', 400);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    requireThat(Reflect.ownKeys(descriptors).length === keys.length && keys.every(k =>
+      Object.hasOwn(descriptors, k) && Object.hasOwn(descriptors[k], 'value')), 'TASK_REQUEST_REFUSED', 400);
+  };
+  policyFields(input, ['source', 'base', 'quote', 'rateDecimals', 'priceAt', 'validFrom', 'validUntil', 'maxAgeSeconds']);
+  policyFields(input.base, ['chainId', 'token', 'decimals']); policyFields(input.quote, ['currency', 'decimals']);
+  const decimals = value => Number.isInteger(value) && value >= 0 && value <= 36;
+  requireThat(typeof input.base.token === 'string' && /^0x[0-9a-f]{40}$/i.test(input.base.token) &&
+    decimals(input.base.decimals) && decimals(input.rateDecimals) && input.quote.currency === 'USD' && input.quote.decimals === 2 &&
+    ['order-review', 'settlement'].includes(input.priceAt), 'TASK_VALUATION_POLICY_REFUSED', 400);
+  const policy = { source: identifier(input.source), base: { chainId: version(input.base.chainId), token: input.base.token, decimals: input.base.decimals },
+    quote: { currency: 'USD', decimals: 2 }, rateDecimals: input.rateDecimals, priceAt: input.priceAt,
+    validFrom: version(input.validFrom), validUntil: version(input.validUntil), maxAgeSeconds: version(input.maxAgeSeconds) };
+  requireThat(BigInt(policy.base.chainId) > 0n && BigInt(policy.validFrom) < BigInt(policy.validUntil) &&
+    BigInt(policy.maxAgeSeconds) > 0n, 'TASK_VALUATION_POLICY_REFUSED', 400);
+  const canonical = value => value && typeof value === 'object' ?
+    Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])])) : value;
+  return immutable({ policy, digest: digest(JSON.stringify(canonical(policy))) });
+}
+function valuationPolicyCopy(input) {
+  requireThat(input && typeof input === 'object', 'TASK_VALUATION_POLICY_STATE_REFUSED', 503);
+  const copy = freezeNftValuationPolicy(input.policy);
+  requireThat(copy.digest === input.digest, 'TASK_VALUATION_POLICY_STATE_REFUSED', 503); return copy;
+}
+const isListing = child => child.child.schema === '8415-nft-listing-child/1';
 /** Session/credential callbacks and execution adapters are server-owned objects,
  * never JSON request fields. All tenants sharing an actor MUST use this same
  * single-writer store for cross-tenant nonce exclusion. Separate stores/replicas
@@ -57,15 +89,21 @@ const sameVerifier = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  */
 export function createTaskAuthorizationService({ origin, tenant, store, now = Date.now,
   assertSession, credentialFor, consumeTotp, assertPrincipal = null, principalReady = null,
-  execution = null, executorIdentity = null, observationPolicy = null, receipt = null }) {
+  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null }) {
   requireThat(store && typeof store.transactionMany === 'function' &&
     [assertSession, credentialFor, consumeTotp, now].every(value => typeof value === 'function'), 'TASK_CONFIG_REFUSED', 500);
   requireThat(execution === null || execution && ['verify', 'send', 'recover'].every(name => typeof execution[name] === 'function') && (execution.plan === undefined || typeof execution.plan === 'function'), 'TASK_ADAPTER_CONFIG_REFUSED', 500);
-  requireThat(execution === null ? executorIdentity === null : executorIdentity !== null, 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
+  requireThat(listingExecution === null || listingExecution && ['verify', 'send', 'recover'].every(name => typeof listingExecution[name] === 'function') &&
+    (listingExecution.plan === undefined || typeof listingExecution.plan === 'function') && typeof store.withReadSnapshot === 'function', 'TASK_LISTING_CONFIG_REFUSED', 500);
+  requireThat(listingResults === null || ['read', 'scan'].every(name => typeof listingResults?.[name] === 'function'), 'TASK_LISTING_RESULTS_CONFIG_REFUSED', 500);
+  if (listingResults !== null) {
+    const configured = listingResults; listingResults = Object.freeze({ read: configured.read.bind(configured), scan: configured.scan.bind(configured) });
+  }
+  requireThat(execution === null && listingExecution === null ? executorIdentity === null : executorIdentity !== null, 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
   const executor = freezeTaskExecutorIdentity(executorIdentity ?? { schema: '8415-task-executor/1',
     agentId: '8415wallet:local-task-service', agentVersion: '1', adapterId: 'unconfigured-signer', adapterVersion: '0',
     implementationDigest: SERVICE_IMPLEMENTATION_DIGEST });
-  requireThat(execution === null || executor.identity.adapterId !== 'unconfigured-signer', 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
+  requireThat(execution === null && listingExecution === null || executor.identity.adapterId !== 'unconfigured-signer', 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
   // Capture methods once; mutating a configuration object's properties cannot
   // replace the verifier/signer beneath an already reviewed executor identity.
   if (execution !== null) {
@@ -73,7 +111,12 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     execution = Object.freeze(Object.fromEntries(['verify', 'send', 'recover', 'plan'].filter(name => typeof configured[name] === 'function')
       .map(name => [name, configured[name].bind(configured)])));
   }
-  requireThat(execution === null || observationPolicy !== null, 'TASK_OBSERVATION_POLICY_CONFIG_REQUIRED', 500);
+  if (listingExecution !== null) {
+    const configured = listingExecution;
+    listingExecution = Object.freeze(Object.fromEntries(['verify', 'send', 'recover', 'plan'].filter(name => typeof configured[name] === 'function')
+      .map(name => [name, configured[name].bind(configured)])));
+  }
+  requireThat(execution === null && listingExecution === null || observationPolicy !== null, 'TASK_OBSERVATION_POLICY_CONFIG_REQUIRED', 500);
   const approvedObservationPolicy = observationPolicy === null ? null : freezeTaskObservationPolicy(observationPolicy);
   let receiptVerifier = null;
   if (receipt !== null) {
@@ -110,7 +153,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   const taskIdKey = (session, taskId) => key('id', [...principal(session), identifier(taskId)]);
   // Tenant-independent keys: one account cannot spend the same nonce in two tasks.
   const operationKey = (task, operationId) => key('operation', [task.policy.chainId, task.policy.actor, identifier(operationId)]);
-  const nonceKey = child => key('nonce', [child.child.operation.chainId, child.child.operation.actor, child.child.nonce]);
+  const nonceKey = child => isListing(child) ? key('listing-order', [child.child.chainId, child.child.seller, child.child.protocol, child.child.orderHash]) :
+    key('nonce', [child.child.operation.chainId, child.child.operation.actor, child.child.nonce]);
   function sweep() {
     const time = stamp();
     for (const [id, challenge] of challenges) if (time < challenge.issuedAt || time >= challenge.expiresAt) challenges.delete(id);
@@ -123,8 +167,13 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       task.policy.chainId === session.chainId, 'TASK_PRINCIPAL_BINDING_REFUSED', 403);
   }
   function readGrant(raw, session, taskDigest) {
-    requireThat(raw?.schema === '8415-task-grant/1' && raw.principal === JSON.stringify(principal(session)) &&
+    requireThat(['8415-task-grant/1', '8415-task-grant/2'].includes(raw?.schema) && raw.principal === JSON.stringify(principal(session)) &&
       raw.task?.digest === taskDigest && ['pending', 'authorized', 'revoked'].includes(raw.status), 'TASK_GRANT_NOT_FOUND', 404);
+    if (raw.schema === '8415-task-grant/2') {
+      const valuation = valuationPolicyCopy(raw.valuationPolicy);
+      requireThat(raw.task.policy.intent.kind === 'nft-sale' && valuation.policy.base.chainId === raw.task.policy.chainId &&
+        (raw.status === 'pending' || raw.budget?.schema === '8415-task-budget/2'), 'TASK_VALUATION_POLICY_STATE_REFUSED', 503);
+    } else requireThat(raw.valuationPolicy === undefined && (raw.status === 'pending' || raw.budget?.schema === '8415-task-budget/1'), 'TASK_GRANT_STATE_REFUSED', 503);
     const task = freezeTaskPolicy(raw.task.policy); checkTask(task, session); executorCopy(raw.executor); observationPolicyCopy(raw.observationPolicy);
     if (raw.receiptVerifier !== null) normalizeObservationVerifier(raw.receiptVerifier);
     requireThat(Array.isArray(raw.observations), 'TASK_OBSERVATION_STATE_REFUSED', 503); version(raw.observationRevision);
@@ -157,6 +206,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const spent = grant.budget?.reservations.filter(r => r.status !== 'cancelled') ?? [];
     if (!spent.length) return { state: 'not-attempted', fresh: false };
     if (spent.some(r => r.status === 'outcome-unknown')) return { state: 'outcome-unknown', fresh: false };
+    if (grant.schema === '8415-task-grant/2') return { state: spent.some(r => r.status === 'submitted') ? 'listed-awaiting-evidence' : 'not-attempted', fresh: false };
     const observations = spent.map(r => grant.observations.find(entry => entry.operationId === r.operationId &&
       entry.available && entry.observation?.childDigest === r.childDigest)?.observation);
     if (observations.every(o => o?.state === 'confirmed-at-depth')) return { state: 'completed-at-observation-depth', fresh: false };
@@ -164,15 +214,22 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     return { state: 'awaiting-evidence', fresh: false };
   }
   function view(grant, credential) {
-    const effective = effectiveStatus(grant, credential), gaps = execution ? ['TASK_CHILD_VERIFICATION_REQUIRED'] : [...missing,
+    const effective = effectiveStatus(grant, credential), gaps = grant.schema === '8415-task-grant/2' ?
+      (listingResults ? [] : ['TASK_LISTING_OBSERVER_NOT_CONNECTED']) : execution ? ['TASK_CHILD_VERIFICATION_REQUIRED'] : [...missing,
       ...(grant.task.policy.intent.kind === 'nft-sale' ? ['MARKET_PRICE_VERIFIER_NOT_CONNECTED', 'ATOMIC_SALE_SETTLEMENT_VERIFIER_NOT_CONNECTED'] : [])];
-    return { task: grant.task, executor: grant.executor, observationPolicy: grant.observationPolicy, receiptVerifier: grant.receiptVerifier,
+    if (grant.task.policy.intent.kind === 'nft-sale') gaps.push(grant.schema !== '8415-task-grant/2' ? 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED' :
+      grant.valuationPolicy.policy.priceAt === 'settlement' ? 'TASK_FUTURE_USD_PRICE_NOT_GUARANTEED' :
+      listingExecution === null ? 'TASK_LISTING_ADAPTER_NOT_CONNECTED' : 'TASK_LISTING_VERIFICATION_REQUIRED');
+    return { ...(grant.schema === '8415-task-grant/2' ? { valuationPolicy: grant.valuationPolicy, listing: {
+      revocationCancelsPublishedOrder: false, settlementObservationConfigured: Boolean(listingResults), ...(listingResults ? { result: null } : {}) } } : {}), task: grant.task, executor: grant.executor, observationPolicy: grant.observationPolicy, receiptVerifier: grant.receiptVerifier,
       observations: grant.observations, observationRevision: grant.observationRevision, completion: completion(grant), authorization: grant.status === 'pending' ? null : {
-      schema: '8415-task-authorization-reference/1', taskDigest: grant.task.digest, reference: grant.reference,
+      schema: grant.schema === '8415-task-grant/2' ? '8415-task-authorization-reference/2' : '8415-task-authorization-reference/1',
+      ...(grant.schema === '8415-task-grant/2' ? { valuationPolicyDigest: grant.valuationPolicy.digest, priceAt: grant.valuationPolicy.policy.priceAt } : {}),
+      taskDigest: grant.task.digest, reference: grant.reference,
       status: effective, grantPolicyVersion: grant.grantPolicyVersion,
       credentialRevisionAtApproval: grant.credentialRevisionAtApproval,
     }, effectiveStatus: effective, budget: grant.budget,
-    capabilities: { executable: false, adapterConfigured: Boolean(execution), missing: gaps,
+    capabilities: { executable: false, adapterConfigured: Boolean(grant.schema === '8415-task-grant/2' ? listingExecution : execution), missing: gaps,
       sessionRequired: true, factorRevalidationRequired: String(credential?.revision ?? 0) !== grant.credentialRevisionAtApproval && grant.status !== 'pending',
       executorRevalidationRequired: grant.executor.digest !== executor.digest, receiptVerifierConfigured: Boolean(receipt),
       observationPolicyRevalidationRequired: grant.observationPolicy?.digest !== approvedObservationPolicy?.digest,
@@ -191,7 +248,40 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     // Read both in one serialized snapshot; a write failure cannot yield authority.
     const result = await store.readMany([ckey, gkey]);
     assertSession(session, result[ckey]); readGrant(result[gkey], session, taskDigest);
-    return view(result[gkey], result[ckey]);
+    return listingView(session, result[gkey], result[ckey]);
+  }
+  // This read path never calls plan, send, recovery or observer discovery.
+  async function listingView(session, grant, credential, scan = false) {
+    const initial = view(grant, credential);
+    if (!listingResults || grant.schema !== '8415-task-grant/2') return initial;
+    const submitted = grant.budget?.reservations.filter(r => r.status === 'submitted') ?? [];
+    if (!submitted.length) return initial;
+    requireThat(submitted.length === 1, 'TASK_LISTING_RESULTS_BINDING_REFUSED', 503);
+    const reservation = submitted[0], gkey = grantKey(session, grant.task.digest), ckey = credentialKey(session),
+      okey = operationKey(grant.task, reservation.operationId);
+    const values = await store.readMany([ckey, gkey, okey]);
+    assertSession(session, values[ckey]);
+    const current = readGrant(values[gkey], session, grant.task.digest), operation = values[okey];
+    requireThat(operation?.schema === '8415-task-operation/2' && operation.grantKey === gkey && operation.status === 'submitted' &&
+      operation.child?.digest === reservation.childDigest && isListing(operation.child), 'TASK_LISTING_RESULTS_BINDING_REFUSED', 503);
+    const child = freezeNftListingChild(operation.child.child);
+    requireThat(child.digest === reservation.childDigest && child.child.orderHash === reservation.submission?.orderHash &&
+      child.child.chainId === reservation.submission?.chainId, 'TASK_LISTING_RESULTS_BINDING_REFUSED', 503);
+    let result = null, error = null;
+    try {
+      const summary = await listingResults[scan ? 'scan' : 'read'](listingInput({ grant: current, child, operation }));
+      result = normalizeListingResult(summary, { taskDigest: current.task.digest, childDigest: child.digest, chainId: current.task.policy.chainId,
+        orderHash: child.child.orderHash, requestedQuantity: current.task.policy.intent.quantity, minimumConfirmations: current.observationPolicy.policy.minimumConfirmations });
+    } catch (failure) { error = /^[A-Z][A-Z0-9_]{0,127}$/.test(failure?.code ?? failure?.message ?? '') ? failure.code ?? failure.message : 'TASK_LISTING_OBSERVER_UNAVAILABLE'; }
+    // Recheck owner entitlement after asynchronous external reads. Revocation
+    // changes the displayed grant, but never turns this read into new authority.
+    const latest = await store.readMany([ckey, gkey, okey]); assertSession(session, latest[ckey]);
+    const checked = readGrant(latest[gkey], session, grant.task.digest);
+    requireThat(latest[okey]?.child?.digest === child.digest && latest[okey]?.status === 'submitted' &&
+      checked.budget.reservations.some(r => r.childDigest === child.digest && r.status === 'submitted'), 'TASK_LISTING_RESULTS_BINDING_REFUSED', 503);
+    const projected = view(checked, latest[ckey]);
+    return { ...projected, listing: { ...projected.listing, result, ...(error ? { observationError: error } : {}) },
+      completion: { state: listingCompletion(result?.state ?? 'unknown'), fresh: result?.summary.freshness === 'FRESH' } };
   }
   async function list(body, session) {
     requireThat(Object.keys(body).length === 0 || Object.keys(body).length === 2 && Object.hasOwn(body, 'cursor') && Object.hasOwn(body, 'revision'), 'TASK_REQUEST_REFUSED', 400);
@@ -205,11 +295,14 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const selected = index.taskDigests.slice(cursor, cursor + 50), keys = selected.map(value => grantKey(session, value));
     const result = await store.readMany([ckey, lkey, ...keys]); assertSession(session, result[ckey]);
     requireThat((result[lkey]?.revision ?? '0') === index.revision, 'TASK_LIST_REVISION_CONFLICT');
-    return { tasks: selected.map((value, i) => view(readGrant(result[keys[i]], session, value), result[ckey])),
+    return { tasks: await Promise.all(selected.map((value, i) => listingView(session, readGrant(result[keys[i]], session, value), result[ckey]))),
       revision: index.revision, nextCursor: cursor + selected.length < index.taskDigests.length ? String(cursor + selected.length) : null };
   }
   async function prepare(body, session) {
-    fields(body, ['policy']); const task = freezeTaskPolicy(body.policy); checkTask(task, session);
+    const withValuation = body !== null && typeof body === 'object' && Object.hasOwn(body, 'valuationPolicy'); fields(body, withValuation ? ['policy', 'valuationPolicy'] : ['policy']);
+    const task = freezeTaskPolicy(body.policy); checkTask(task, session);
+    const valuationPolicy = withValuation ? freezeNftValuationPolicy(body.valuationPolicy) : null;
+    requireThat(valuationPolicy === null || task.policy.intent.kind === 'nft-sale' && valuationPolicy.policy.base.chainId === task.policy.chainId, 'TASK_VALUATION_POLICY_BINDING_REFUSED', 400);
     await credentialFor(session); assertSession(session); sweep();
     const time = stamp(); requireThat(BigInt(task.policy.expiresAt) > seconds(), 'TASK_EXPIRED', 400);
     requireThat(challenges.size < 10000, 'TASK_BUSY', 503);
@@ -219,13 +312,14 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       requireThat(values[ikey] === null || values[ikey].taskDigest === task.digest, 'TASK_ID_ALREADY_BOUND');
       if (values[gkey] !== null) {
         const prior = readGrant(values[gkey], session, task.digest); requireThat(prior.status === 'pending', 'TASK_ALREADY_EXISTS');
+        requireThat((prior.valuationPolicy?.digest ?? null) === (valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_REAUTHORIZATION_REQUIRED');
         requireThat(prior.executor.digest === executor.digest && prior.observationPolicy?.digest === approvedObservationPolicy?.digest &&
           sameVerifier(prior.receiptVerifier, receiptVerifier), 'TASK_EXECUTOR_REVALIDATION_REQUIRED');
         return values;
       }
       const index = values[lkey] ?? { revision: '0', taskDigests: [] };
       version(index.revision); requireThat(BigInt(index.revision) < (1n << 256n) - 1n, 'TASK_REVISION_EXHAUSTED');
-      return { [ckey]: values[ckey], [gkey]: { schema: '8415-task-grant/1', principal: JSON.stringify(principal(session)), task, executor, observationPolicy: approvedObservationPolicy, receiptVerifier,
+      return { [ckey]: values[ckey], [gkey]: { schema: valuationPolicy === null ? '8415-task-grant/1' : '8415-task-grant/2', ...(valuationPolicy === null ? {} : { valuationPolicy }), principal: JSON.stringify(principal(session)), task, executor, observationPolicy: approvedObservationPolicy, receiptVerifier,
         observations: [], observationRevision: '0',
         reference: `grant:${randomToken()}`, status: 'pending', grantPolicyVersion: '0', credentialRevisionAtApproval: null,
         issuedAt: time, revokedAt: null, budget: null }, [ikey]: { taskDigest: task.digest },
@@ -235,16 +329,19 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const challengeId = `challenge:${randomToken()}`, expiresAt = Math.min(time + CHALLENGE_LIFE, session.expiresAt,
       Number(BigInt(task.policy.expiresAt) * 1000n > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : BigInt(task.policy.expiresAt) * 1000n));
     requireThat(stamp() < expiresAt, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
-    challenges.set(challengeId, { task, executor, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), issuedAt: time, expiresAt, attempts: 0 });
-    return { challengeId, task, executor, observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, purpose: 'authorize-task' };
+    challenges.set(challengeId, { task, executor, valuationPolicy, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), issuedAt: time, expiresAt, attempts: 0 });
+    return { challengeId, task, executor, ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, purpose: 'authorize-task' };
   }
   async function authorize(body, session) {
-    fields(body, ['challengeId', 'taskDigest', 'executorDigest', 'observationPolicyDigest', 'code']); hash(body.taskDigest); hash(body.executorDigest); if (body.observationPolicyDigest !== null) hash(body.observationPolicyDigest); sweep();
+    const withValuation = body !== null && typeof body === 'object' && (Object.hasOwn(body, 'valuationPolicyDigest') || Object.hasOwn(body, 'priceAt'));
+    fields(body, ['challengeId', 'taskDigest', 'executorDigest', 'observationPolicyDigest', 'code', ...(withValuation ? ['valuationPolicyDigest', 'priceAt'] : [])]); hash(body.taskDigest); hash(body.executorDigest); if (body.observationPolicyDigest !== null) hash(body.observationPolicyDigest); sweep();
     const challenge = challenges.get(body.challengeId);
     const current = () => {
       assertSession(session); sweep();
       requireThat(challenge && challenges.get(body.challengeId) === challenge && challenge.binding === binding(session) &&
         equal(challenge.task.digest, body.taskDigest) && equal(challenge.executor.digest, body.executorDigest) && equal(executor.digest, body.executorDigest) &&
+        (challenge.valuationPolicy === null ? !withValuation : withValuation && challenge.valuationPolicy.digest === body.valuationPolicyDigest &&
+          challenge.valuationPolicy.policy.priceAt === body.priceAt) &&
         (challenge.observationPolicy?.digest ?? null) === body.observationPolicyDigest &&
         (approvedObservationPolicy?.digest ?? null) === body.observationPolicyDigest, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
     };
@@ -254,13 +351,15 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       current(); assertSession(session, values[ckey]);
       const proposal = readGrant(values[gkey], session, body.taskDigest);
       requireThat(proposal.status === 'pending' && proposal.executor.digest === body.executorDigest && values[ikey]?.taskDigest === body.taskDigest, 'TASK_ALREADY_EXISTS');
+      requireThat((proposal.valuationPolicy?.digest ?? null) === (challenge.valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_REAUTHORIZATION_REQUIRED');
       // One durable replace consumes the OTP and creates every grant/index field.
       const credential = consumeTotp(session, values[ckey], body.code);
-      const grant = { schema: '8415-task-grant/1', principal: JSON.stringify(principal(session)),
+      const grant = { schema: challenge.valuationPolicy === null ? '8415-task-grant/1' : '8415-task-grant/2',
+        ...(challenge.valuationPolicy === null ? {} : { valuationPolicy: challenge.valuationPolicy }), principal: JSON.stringify(principal(session)),
         task: challenge.task, executor: challenge.executor, observationPolicy: challenge.observationPolicy, receiptVerifier: challenge.receiptVerifier,
         observations: [], observationRevision: '0', reference: proposal.reference, status: 'authorized', grantPolicyVersion: '1',
         credentialRevisionAtApproval: String(session.revision), issuedAt: stamp(), revokedAt: null,
-        budget: emptyTaskBudget(challenge.task) };
+        budget: challenge.valuationPolicy === null ? emptyTaskBudget(challenge.task) : emptyNftListingBudget(challenge.task) };
       const queue = values[queueKey] ?? { schema: '8415-task-queue/1', entries: [] };
       requireThat(queue.schema === '8415-task-queue/1' && Array.isArray(queue.entries) && !queue.entries.includes(gkey), 'TASK_QUEUE_STATE_REFUSED', 503);
       return { [ckey]: credential, [gkey]: grant, [ikey]: { taskDigest: body.taskDigest },
@@ -270,15 +369,19 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   }
   async function reserve(body, session) {
     fields(body, ['taskDigest', 'child', 'expectedBudgetRevision']); hash(body.taskDigest); version(body.expectedBudgetRevision);
-    const child = freezeChildOperation(body.child);
+    const child = body.child?.schema === '8415-nft-listing-child/1' ? freezeNftListingChild(body.child) : freezeChildOperation(body.child);
     requireThat(child.child.taskDigest === body.taskDigest, 'TASK_BINDING_MISMATCH');
     const ckey = credentialKey(session), gkey = grantKey(session, body.taskDigest);
-    const okey = key('operation', [child.child.operation.chainId, child.child.operation.actor, child.child.operationId]), nkey = nonceKey(child);
+    const okey = key('operation', [isListing(child) ? child.child.chainId : child.child.operation.chainId,
+      isListing(child) ? child.child.seller : child.child.operation.actor, child.child.operationId]), nkey = nonceKey(child);
     const result = await transaction([ckey, gkey, okey, nkey], values => {
       assertSession(session, values[ckey]); const grant = readGrant(values[gkey], session, body.taskDigest); requireActive(grant, values[ckey]);
       requireThat(values[okey] === null, 'TASK_DUPLICATE_OPERATION_REFUSED'); requireThat(values[nkey] === null, 'TASK_NONCE_OCCUPIED');
-      const budget = reserveTaskBudget(grant.task, child, grant.budget, body.expectedBudgetRevision, seconds());
-      const operation = { schema: '8415-task-operation/1', grantKey: gkey, child, status: 'reserved', nonceKey: nkey, observationRevision: '0' };
+      if (isListing(child)) requireThat(grant.schema === '8415-task-grant/2', 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED');
+      const budget = isListing(child) ? reserveNftListingBudget(grant.task, child, listingGrantBinding(grant), grant.budget, body.expectedBudgetRevision, seconds()) :
+        reserveTaskBudget(grant.task, child, grant.budget, body.expectedBudgetRevision, seconds());
+      const operation = { schema: isListing(child) ? '8415-task-operation/2' : '8415-task-operation/1', grantKey: gkey, child, status: 'reserved',
+        ...(isListing(child) ? { orderKey: nkey } : { nonceKey: nkey }), observationRevision: '0' };
       return { [ckey]: values[ckey], [gkey]: { ...grant, budget }, [okey]: operation,
         [nkey]: { operationKey: okey, taskDigest: body.taskDigest, childDigest: child.digest, permanent: false } };
     });
@@ -291,12 +394,13 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const grant = readGrant(await store.read(gkey), session, body.taskDigest);
     assertSession(session); const okey = operationKey(grant.task, body.operationId), operation = await store.read(okey);
     assertSession(session);
-    requireThat(operation?.schema === '8415-task-operation/1' && operation.grantKey === gkey && operation.child?.digest === body.childDigest,
+    requireThat(['8415-task-operation/1', '8415-task-operation/2'].includes(operation?.schema) && operation.grantKey === gkey && operation.child?.digest === body.childDigest,
       'TASK_OPERATION_NOT_FOUND', 404);
-    const child = freezeChildOperation(operation.child.child);
+    const child = operation.schema === '8415-task-operation/2' ? freezeNftListingChild(operation.child.child) : freezeChildOperation(operation.child.child);
+    const claimKey = isListing(child) ? operation.orderKey : operation.nonceKey;
     requireThat(child.digest === body.childDigest && child.child.taskDigest === body.taskDigest &&
-      operation.nonceKey === nonceKey(child), 'TASK_OPERATION_STATE_REFUSED', 503);
-    return { credential, ckey: credentialKey(session), gkey, grant, okey, nkey: operation.nonceKey, child, operation };
+      claimKey === nonceKey(child), 'TASK_OPERATION_STATE_REFUSED', 503);
+    return { credential, ckey: credentialKey(session), gkey, grant, okey, nkey: claimKey, child, operation };
   }
   function checkOperation(values, context, body, session) {
     const { ckey, gkey, okey, nkey } = context;
@@ -326,6 +430,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   }
   async function execute(body, session) {
     const context = await operationContext(body, session);
+    if (isListing(context.child)) return executeListing(context, body, session);
     requireThat(execution, 'TASK_EXECUTION_ADAPTER_NOT_CONNECTED', 503);
     requireThat(receipt && context.grant.receiptVerifier !== null, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503); requireActive(context.grant, context.credential);
     requireThat(assessChildScope(context.grant.task, context.child, seconds()).state !== 'outside-declared-scope', 'TASK_CHILD_OUTSIDE_SCOPE');
@@ -364,6 +469,90 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     }
     return recordSubmission(context, body, session, submitted.transactionHash, result[gkey].budget.revision);
   }
+  function listingGrantBinding(grant) {
+    requireThat(grant.schema === '8415-task-grant/2', 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED');
+    return { taskDigest: grant.task.digest, executorDigest: grant.executor.digest, grantReference: grant.reference,
+      grantPolicyVersion: grant.grantPolicyVersion, valuationPolicyDigest: grant.valuationPolicy.digest, priceAt: grant.valuationPolicy.policy.priceAt };
+  }
+  function listingInput(context) {
+    return immutable(structuredClone({ task: context.grant.task, child: context.child,
+      executor: context.operation.attemptExecutor ?? context.grant.executor,
+      grantReference: context.grant.reference, grantPolicyVersion: context.operation.attemptGrantPolicyVersion ?? context.grant.grantPolicyVersion,
+      valuationPolicy: context.grant.valuationPolicy, observationPolicy: context.grant.observationPolicy }));
+  }
+  function listingResultBound(result, context) {
+    const c = context.child.child, input = listingInput(context);
+    return result && result.taskDigest === context.grant.task.digest && result.childDigest === context.child.digest &&
+      result.executorDigest === input.executor.digest && result.grantReference === input.grantReference && result.grantPolicyVersion === input.grantPolicyVersion &&
+      result.valuationPolicyDigest === c.valuationPolicyDigest && result.quoteEvidenceDigest === c.quoteEvidenceDigest &&
+      result.orderHash === c.orderHash && result.typedDataDigest === c.typedDataDigest;
+  }
+  function checkListingScope(grant, child) {
+    const time = seconds(), policy = grant.valuationPolicy?.policy;
+    requireThat(assessNftListingScope(grant.task, child, listingGrantBinding(grant), time).state !== 'outside-declared-scope', 'TASK_CHILD_OUTSIDE_SCOPE');
+    requireThat(policy && BigInt(policy.validFrom) <= time && time < BigInt(policy.validUntil), 'TASK_VALUATION_POLICY_EXPIRED');
+  }
+  async function executeListing(context, body, session) {
+    requireThat(listingExecution, 'TASK_LISTING_ADAPTER_NOT_CONNECTED', 503);
+    requireActive(context.grant, context.credential); checkListingScope(context.grant, context.child);
+    requireThat(context.operation.status === 'reserved', 'TASK_SEND_ATTEMPT_REFUSED');
+    const input = listingInput(context), checked = await listingExecution.verify(input);
+    requireThat(listingResultBound(checked, context) && checked.capability === 'nft-listing-observable', 'TASK_LISTING_VERIFICATION_REFUSED', 403);
+    const { ckey, gkey, okey, nkey } = context;
+    const result = await transaction([ckey, gkey, okey, nkey], values => {
+      const grant = checkOperation(values, context, body, session); requireActive(grant, values[ckey]); checkListingScope(grant, context.child);
+      requireThat(grant.grantPolicyVersion === context.grant.grantPolicyVersion && values[okey].status === 'reserved' && !values[nkey].permanent, 'TASK_SEND_ATTEMPT_REFUSED');
+      return { [ckey]: values[ckey], [gkey]: { ...grant, budget: markTaskSendAttempt(grant.budget, body.operationId, body.childDigest, body.expectedBudgetRevision) },
+        [okey]: { ...values[okey], status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: executor },
+        [nkey]: { ...values[nkey], permanent: true } };
+    });
+    let sending;
+    // Reuse the existing store's serialized immediate-side-effect fence. A
+    // queued revoke/factor change must win before calling the native port.
+    // An adapter which awaits before signing/publishing MUST revalidate this
+    // same durable grant again at each actual side-effect boundary.
+    await store.withReadSnapshot([ckey, gkey, okey, nkey], values => {
+      const grant = checkOperation(values, context, { ...body, expectedBudgetRevision: result[gkey].budget.revision }, session);
+      requireActive(grant, values[ckey]); checkListingScope(grant, context.child);
+      requireThat(values[okey].status === 'outcome-unknown' && values[nkey].permanent && grant.grantPolicyVersion === input.grantPolicyVersion, 'TASK_SEND_ATTEMPT_REFUSED');
+      try { sending = Promise.resolve(listingExecution.send(input)).then(value => ({ value }), () => ({ failed: true })); }
+      catch { sending = Promise.resolve({ failed: true }); }
+    });
+    const submitted = await sending;
+    if (!listingResultBound(submitted.value, context) || submitted.value.transactionHash !== undefined)
+      return currentListingProgress(context, session);
+    let reference;
+    try { reference = normalizeSeaportOrderReference(submitted.value.submission); }
+    catch { return currentListingProgress(context, session); }
+    const c = context.child.child;
+    if (reference.chainId !== c.chainId || reference.protocol !== c.protocol || reference.orderHash !== c.orderHash)
+      return currentListingProgress(context, session);
+    return recordListingSubmission(context, body, session, reference, result[gkey].budget.revision);
+  }
+  async function currentListingProgress(context, session) {
+    const current = await status(session, context.grant.task.digest);
+    const reservation = current.budget.reservations.find(r => r.operationId === context.child.child.operationId && r.childDigest === context.child.digest);
+    return { ...current, outcome: reservation?.status === 'submitted' ? 'submitted' : 'outcome-unknown' };
+  }
+  async function recordListingSubmission(context, body, session, submission, expectedRevision) {
+    const { ckey, gkey, okey, nkey } = context;
+    const result = await transaction([ckey, gkey, okey, nkey], values => {
+      const grant = checkOperation(values, context, { ...body, expectedBudgetRevision: expectedRevision }, session);
+      requireThat(values[okey].status === 'outcome-unknown' && values[nkey].permanent, 'TASK_SUBMISSION_STATE_REFUSED');
+      return { [ckey]: values[ckey], [gkey]: { ...grant, budget: noteNftListingSubmission(grant.budget, context.child, submission, expectedRevision) },
+        [okey]: { ...values[okey], status: 'submitted' }, [nkey]: values[nkey] };
+    });
+    return { ...view(result[gkey], result[ckey]), outcome: 'submitted' };
+  }
+  async function recoverListing(context, body, session) {
+    requireThat(listingExecution, 'TASK_LISTING_ADAPTER_NOT_CONNECTED', 503);
+    requireThat(context.operation.status === 'outcome-unknown' && context.operation.attemptExecutor &&
+      executorCopy(context.operation.attemptExecutor).digest === executor.digest, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
+    const evidence = await listingExecution.recover(listingInput(context));
+    requireThat(listingResultBound(evidence, context) && evidence.state === 'submitted' && evidence.transactionHash === undefined,
+      'TASK_RECOVERY_NOT_ESTABLISHED');
+    return recordListingSubmission(context, body, session, evidence.submission, body.expectedBudgetRevision);
+  }
   async function recordSubmission(context, body, session, transactionHash, expectedRevision) {
     const { ckey, gkey, okey, nkey } = context;
     // Recording already attempted progress must remain possible after grant
@@ -378,6 +567,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   }
   async function recover(body, session) {
     const context = await operationContext(body, session);
+    if (isListing(context.child)) return recoverListing(context, body, session);
     requireThat(execution, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503);
     requireThat(context.operation.attemptExecutor && executorCopy(context.operation.attemptExecutor).digest === executor.digest, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
     const evidence = await execution.recover(immutable(structuredClone({ task: context.grant.task, child: context.child, executor: context.operation.attemptExecutor,
@@ -390,6 +580,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   }
   async function observe(body, session, requestedReplacementHash = null) {
     const context = await operationContext(body, session), { ckey, gkey, okey, nkey, operation } = context;
+    requireThat(!isListing(context.child), 'TASK_LISTING_OBSERVER_NOT_CONNECTED', 503);
     requireThat(receipt && operation.attemptReceiptVerifier !== null, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503);
     requireThat(operation.status === 'submitted' && operation.attemptExecutor?.digest === executor.digest &&
       sameVerifier(operation.attemptReceiptVerifier, receiptVerifier), 'TASK_RECEIPT_EXECUTOR_BINDING_REQUIRED', 503);
@@ -467,7 +658,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     // after task expiry/revocation/factor changes and never calls plan or send.
     const unknown = initial.budget?.reservations.find(r => r.status === 'outcome-unknown');
     if (unknown) {
-      if (!execution) return blocked('TASK_RECEIPT_VERIFIER_NOT_CONNECTED');
+      if (initial.budget.schema === '8415-task-budget/2' ? !listingExecution : !execution) return blocked('TASK_RECEIPT_VERIFIER_NOT_CONNECTED');
       const progress = await recover({ taskDigest: body.taskDigest, operationId: unknown.operationId,
         childDigest: unknown.childDigest, expectedBudgetRevision: initial.budget.revision }, session);
       return { ...progress, continuation: { state: progress.outcome, operationId: unknown.operationId } };
@@ -482,6 +673,16 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       return BigInt(at(a.operationId)) < BigInt(at(b.operationId)) ? -1 : 1;
     })[0];
     if (submitted) {
+      if (initial.budget.schema === '8415-task-budget/2') {
+        if (!listingResults) return { ...initial, continuation: { state: 'listed-awaiting-evidence', code: 'TASK_LISTING_OBSERVER_NOT_CONNECTED', operationId: submitted.operationId } };
+        const values = await store.readMany([credentialKey(session), grantKey(session, initial.task.digest)]);
+        assertSession(session, values[credentialKey(session)]);
+        const grant = readGrant(values[grantKey(session, initial.task.digest)], session, initial.task.digest);
+        // One bounded consumer scan per continuation, including revoked/expired
+        // grants. No branch from here can reach planning, signing or publication.
+        const progress = await listingView(session, grant, values[credentialKey(session)], true);
+        return { ...progress, continuation: { state: progress.completion.state, operationId: submitted.operationId } };
+      }
       if (!receipt) return { ...initial, continuation: { state: 'awaiting-evidence', code: 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED' } };
       const progress = await observe({ taskDigest: body.taskDigest, operationId: submitted.operationId, childDigest: submitted.childDigest,
         expectedBudgetRevision: initial.budget.revision }, session);
@@ -490,6 +691,26 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     if (initial.effectiveStatus !== 'authorized') return blocked(initial.effectiveStatus === 'suspended' ?
       (initial.capabilities.executorRevalidationRequired ? 'TASK_EXECUTOR_REVALIDATION_REQUIRED' : initial.capabilities.observationPolicyRevalidationRequired ?
         'TASK_OBSERVATION_POLICY_REVALIDATION_REQUIRED' : initial.capabilities.receiptVerifierRevalidationRequired ? 'TASK_RECEIPT_VERIFIER_REVALIDATION_REQUIRED' : 'TASK_FACTOR_REVALIDATION_REQUIRED') : 'TASK_GRANT_NOT_ACTIVE');
+    if (initial.task.policy.intent.kind === 'nft-sale') {
+      if (!initial.valuationPolicy) return blocked('TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED');
+      if (initial.valuationPolicy.policy.priceAt !== 'order-review') return blocked('TASK_FUTURE_USD_PRICE_NOT_GUARANTEED');
+      if (!listingExecution) return blocked('TASK_LISTING_ADAPTER_NOT_CONNECTED');
+      const pending = initial.budget.reservations.find(r => r.status === 'reserved');
+      if (pending) {
+        const progress = await execute({ taskDigest: body.taskDigest, operationId: pending.operationId, childDigest: pending.childDigest,
+          expectedBudgetRevision: initial.budget.revision }, session);
+        return { ...progress, continuation: { state: progress.outcome, operationId: pending.operationId } };
+      }
+      if (!listingExecution.plan) return { ...initial, continuation: { state: 'waiting-for-operation', code: 'TASK_PLANNER_NOT_CONNECTED' } };
+      const proposal = await listingExecution.plan(immutable(structuredClone({ task: initial.task, budget: initial.budget, executor: initial.executor,
+        grantReference: initial.authorization.reference, grantPolicyVersion: initial.authorization.grantPolicyVersion, valuationPolicy: initial.valuationPolicy })));
+      if (proposal === null) return { ...await status(session, body.taskDigest), continuation: { state: 'waiting-for-operation', code: 'TASK_NO_CANDIDATE' } };
+      const frozen = freezeNftListingChild(proposal);
+      const reserved = await reserve({ taskDigest: body.taskDigest, child: frozen.child, expectedBudgetRevision: initial.budget.revision }, session);
+      const progress = await execute({ taskDigest: body.taskDigest, operationId: frozen.child.operationId, childDigest: frozen.digest,
+        expectedBudgetRevision: reserved.budget.revision }, session);
+      return { ...progress, continuation: { state: progress.outcome, operationId: frozen.child.operationId } };
+    }
     if (!execution) return blocked('TASK_EXECUTION_ADAPTER_NOT_CONNECTED');
     if (!receipt || initial.receiptVerifier === null) return blocked('TASK_RECEIPT_VERIFIER_NOT_CONNECTED');
     // Exactly one bounded step per call. Never replan or resend an unknown
@@ -533,6 +754,74 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       throw error;
     }
   }
+  // Server-only capability for the explicitly configured cross-library composition.
+  // Public binding fields locate an existing approved grant; they create no session,
+  // bridge credential, approval or HTTP route. Every access revalidates durable state.
+  async function locateListing(claimed) {
+    await principalReady;
+    requireThat(listingExecution !== null && assertPrincipal !== null && typeof store.withReadGate === 'function', 'TASK_LISTING_GATE_NOT_CONFIGURED', 503);
+    fields(claimed, ['taskId', 'taskDigest', 'executorDigest', 'grantReference', 'grantPolicyVersion', 'operationId']);
+    hash(claimed.taskDigest); hash(claimed.executorDigest); identifier(claimed.taskId); identifier(claimed.operationId); version(claimed.grantPolicyVersion);
+    const queue = await store.read(queueKey);
+    requireThat(queue?.schema === '8415-task-queue/1' && Array.isArray(queue.entries), 'TASK_BACKGROUND_GRANT_REFUSED', 403);
+    const entries = queue.entries;
+    requireThat(entries.length > 0, 'TASK_GRANT_NOT_FOUND', 404);
+    const grants = await store.readMany(entries);
+    const selected = entries.filter(entry => grants[entry]?.task?.digest === claimed.taskDigest && grants[entry]?.reference === claimed.grantReference);
+    requireThat(selected.length === 1, 'TASK_GRANT_NOT_FOUND', 404);
+    const gkey = selected[0], raw = grants[gkey];
+    let owner; try { owner = JSON.parse(raw.principal); } catch { throw new TaskAuthorizationError('TASK_BACKGROUND_PRINCIPAL_REFUSED', 503); }
+    requireThat(Array.isArray(owner) && owner.length === 5 && owner[0] === origin && owner[1] === tenant &&
+      typeof owner[2] === 'string' && typeof owner[3] === 'string' && typeof owner[4] === 'string', 'TASK_BACKGROUND_PRINCIPAL_REFUSED', 503);
+    const context = Object.freeze({ username: owner[2], account: owner[3], chainId: owner[4] });
+    requireThat(grantKey(context, claimed.taskDigest) === gkey, 'TASK_BACKGROUND_GRANT_REFUSED', 403);
+    return { context, gkey, ckey: credentialKey(context), okey: operationKey(raw.task, claimed.operationId) };
+  }
+  function listingCapability(values, found, claimed, purpose) {
+    const { context, gkey, ckey, okey } = found;
+    requireThat(values[queueKey]?.entries?.includes(gkey), 'TASK_BACKGROUND_GRANT_REFUSED', 403);
+    const grant = readGrant(values[gkey], context, claimed.taskDigest), credential = values[ckey], operation = values[okey];
+    const checked = assertPrincipal(context, credential);
+    requireThat(!checked || typeof checked.then !== 'function', 'TASK_BACKGROUND_CONFIG_REFUSED', 500);
+    requireThat(grant.schema === '8415-task-grant/2' && grant.status !== 'pending' &&
+      grant.task.policy.taskId === claimed.taskId && grant.executor.digest === claimed.executorDigest && grant.reference === claimed.grantReference,
+      'TASK_LISTING_BINDING_REFUSED', 403);
+    if (purpose === 'observe') {
+      requireThat(claimed.grantPolicyVersion === (operation?.attemptGrantPolicyVersion ?? (grant.status === 'revoked' ? (BigInt(grant.grantPolicyVersion) - 1n).toString() : grant.grantPolicyVersion)), 'TASK_LISTING_BINDING_REFUSED', 403);
+    } else {
+      requireActive(grant, credential);
+      requireThat(claimed.grantPolicyVersion === grant.grantPolicyVersion, 'TASK_LISTING_BINDING_REFUSED', 403);
+      requireThat(grant.valuationPolicy.policy.priceAt === 'order-review' && seconds() >= BigInt(grant.valuationPolicy.policy.validFrom) &&
+        seconds() < BigInt(grant.valuationPolicy.policy.validUntil), 'TASK_VALUATION_POLICY_EXPIRED', 403);
+      if (purpose === 'sign' || purpose === 'publish') {
+        requireThat(operation?.schema === '8415-task-operation/2' && operation.grantKey === gkey && operation.status === 'outcome-unknown' &&
+          operation.attemptGrantPolicyVersion === claimed.grantPolicyVersion && operation.attemptExecutor?.digest === claimed.executorDigest,
+          'TASK_SEND_ATTEMPT_REFUSED', 403);
+        checkListingScope(grant, operation.child);
+      }
+    }
+    if (operation) requireThat(operation.grantKey === gkey && isListing(operation.child), 'TASK_LISTING_BINDING_REFUSED', 403);
+    return immutable(structuredClone({ task: grant.task, executor: grant.executor, valuationPolicy: grant.valuationPolicy,
+      observationPolicy: grant.observationPolicy, grantReference: grant.reference, grantPolicyVersion: claimed.grantPolicyVersion,
+      child: operation?.child ?? null, operationStatus: operation?.status ?? null }));
+  }
+  const listingAuthorization = Object.freeze({
+    assertIndependentStore(candidate) { requireThat(candidate !== store, 'TASK_LISTING_STORE_REENTRY_REFUSED', 500); },
+    async inspect(claimed, purpose = 'observe') {
+      requireThat(['prepare', 'review', 'sign', 'publish', 'observe'].includes(purpose), 'TASK_LISTING_PURPOSE_REFUSED', 400);
+      const binding = immutable(structuredClone(claimed)), found = await locateListing(binding);
+      const keys = [queueKey, found.ckey, found.gkey, found.okey];
+      const values = await store.readMany(keys); return listingCapability(values, found, binding, purpose);
+    },
+    async withAuthorization(claimed, purpose, action) {
+      requireThat(['prepare', 'review', 'sign', 'publish', 'observe'].includes(purpose) && typeof action === 'function', 'TASK_LISTING_PURPOSE_REFUSED', 400);
+      const binding = immutable(structuredClone(claimed)), found = await locateListing(binding);
+      return store.withReadGate([queueKey, found.ckey, found.gkey, found.okey], async values => {
+        const snapshot = listingCapability(values, found, binding, purpose);
+        return await action(snapshot, () => listingCapability(values, found, binding, purpose));
+      });
+    },
+  });
   const background = Object.freeze({
     async list({ cursor = '0', limit = 10 } = {}) {
       await principalReady;
@@ -551,7 +840,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       requireThat(assertPrincipal !== null && typeof entry === 'string' && /^task-grant:[0-9a-f]{64}$/.test(entry), 'TASK_BACKGROUND_GRANT_REFUSED', 403);
       const snapshot = await store.readMany([queueKey, entry]), raw = snapshot[entry], queue = snapshot[queueKey];
       requireThat(queue?.schema === '8415-task-queue/1' && Array.isArray(queue.entries) && queue.entries.includes(entry) &&
-        raw?.schema === '8415-task-grant/1' && raw.status !== 'pending', 'TASK_BACKGROUND_GRANT_REFUSED', 403);
+        ['8415-task-grant/1', '8415-task-grant/2'].includes(raw?.schema) && raw.status !== 'pending', 'TASK_BACKGROUND_GRANT_REFUSED', 403);
       let owner; try { owner = JSON.parse(raw.principal); } catch { throw new TaskAuthorizationError('TASK_BACKGROUND_PRINCIPAL_REFUSED', 503); }
       requireThat(Array.isArray(owner) && owner.length === 5 && owner[0] === origin && owner[1] === tenant &&
         typeof owner[2] === 'string' && typeof owner[3] === 'string' && typeof owner[4] === 'string', 'TASK_BACKGROUND_PRINCIPAL_REFUSED', 503);
@@ -563,5 +852,5 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       return resume({ taskDigest: raw.task.digest }, context);
     },
   });
-  return { handler, cancel, background };
+  return { handler, cancel, background, listingAuthorization };
 }

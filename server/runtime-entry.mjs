@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { protectSocketDirectory } from './socket-path.mjs';
 import { validateAuthConfig } from './config-validation.mjs';
 import { installedMailEnvironment } from './mail-config.mjs';
+import { ensureTaskListingServerCondition } from './task-listing-bootstrap.mjs';
 if (process.argv.length !== 4 || process.argv[2] !== '--tenant' || !/^[a-z][a-z0-9-]{0,47}$/.test(process.argv[3])) throw Error('AUTH_SERVICE_TENANT_REQUIRED');
 const tenant = process.argv[3], name = `8415wallet-auth-${tenant}`;
 if (process.platform !== 'linux' || process.getuid?.() !== 0 || process.geteuid?.() !== 0) throw Error('AUTH_SERVICE_IDENTITY_REQUIRED');
@@ -35,6 +36,7 @@ for (const lock of ['mail-config.lock', 'migration-config.lock']) {
 }
 const config = JSON.parse(await privateFile(configPath, 1_000_000));
 validateAuthConfig(config);
+await ensureTaskListingServerCondition(config.listing);
 if (config.tenant !== tenant || config.statePath !== `/var/lib/${name}/credentials.enc` || config.socketPath !== `/run/${name}/auth.sock` || config.port !== undefined) throw Error('AUTH_SERVICE_CONFIG_BINDING_REFUSED');
 await protectSocketDirectory(config.socketPath, 0);
 let key;
@@ -44,7 +46,7 @@ try {
   if (!/^[a-fA-F0-9]{64}$/.test(text)) throw Error('AUTH_CREDENTIAL_FORMAT_REFUSED');
   process.env.WALLET_AUTH_STORE_KEY = text; process.env.WALLET_AUTH_CONFIG = configPath;
   Object.assign(process.env, await installedMailEnvironment(config.mail, credentialDirectory, privateFile));
-  await import('./main.mjs');
+  await (await import('./main.mjs')).startAuthFromEnvironment();
 } finally {
   key?.fill(0); delete process.env.WALLET_AUTH_STORE_KEY; delete process.env.WALLET_AUTH_CONFIG;
   for (const name of ['WALLET_AUTH_SMTP_PORT', 'WALLET_AUTH_SMTP_USERNAME', 'WALLET_AUTH_SMTP_PASSWORD']) delete process.env[name];

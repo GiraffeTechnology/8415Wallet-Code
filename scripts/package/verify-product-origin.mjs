@@ -67,7 +67,7 @@ export function permittedSourcePath(path) {
     && !/^(?:config\/)/.test(path) && !/\.pyc$/i.test(path) && !path.split('/').includes('__pycache__');
 }
 // Configuration has a deliberately separate exact public-profile exception.
-const sourcePathAllowed = path => (permittedSourcePath(path) || /^config\/releases\/(?:v2|v3|xiongan-v2)\.json$/.test(path))
+const sourcePathAllowed = path => (path === 'vendor/artfi-task-listing-runtime-1.0.0.tgz' || permittedSourcePath(path) || /^config\/releases\/(?:v2|v3|xiongan-v2)\.json$/.test(path))
   && !['docs/AUTH-PROVISIONING-PREPARATION.md', 'docs/AUTH-RECOVERY.md', ...TOOLING_FILES].includes(path);
 
 export function cleanEnvironment() {
@@ -321,7 +321,7 @@ export function inspectSource({ sourceRoot, allowlistPath, expectedAllowlistSha2
     const actual = upstream.get(entry.path);
     fail(actual && actual.mode === entry.mode && actual.object === entry.git_blob_sha1, `UPSTREAM_ENTRY_MISMATCH: ${entry.path}`);
     const bytes = git(sourceRoot, ['cat-file', 'blob', actual.object]);
-    fail(!isArchiveBytes(bytes), `NESTED_ARCHIVE_SOURCE_REFUSED: ${entry.path}`);
+    fail(entry.path === 'vendor/artfi-task-listing-runtime-1.0.0.tgz' || !isArchiveBytes(bytes), `NESTED_ARCHIVE_SOURCE_REFUSED: ${entry.path}`);
     fail(gitHash('blob', bytes) === entry.git_blob_sha1 && sha256(bytes) === entry.sha256, `UPSTREAM_BLOB_MISMATCH: ${entry.path}`);
     const local = regularFile(sourceRoot, entry.path);
     fail(local.mode === entry.mode && local.bytes.equals(bytes), `SOURCE_WORKTREE_MISMATCH: ${entry.path}`);

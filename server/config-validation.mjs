@@ -3,6 +3,7 @@ import { isAbsolute, normalize } from 'node:path';
 import { getAddress } from 'ethers';
 import { loginOrigin } from '../web/login-core.mjs';
 import { validateMailConfig } from './mail-config.mjs';
+import { validateTaskListingConfig } from './task-listing-config.mjs';
 const chains = new Set(['1', '8453', '11155111', '84532', '560048', '31337']);
 const fail = code => { throw new Error(code); };
 export function validateAccountBindings(accounts) {
@@ -31,8 +32,9 @@ export function validateAccountBindings(accounts) {
 }
 export function validateAuthConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) fail('AUTH_CONFIG_REFUSED');
-  if (Object.keys(config).some(key => !['origin', 'tenant', 'port', 'statePath', 'accounts', 'ca', 'reservedPorts', 'socketPath', 'mail'].includes(key))) fail('AUTH_CONFIG_FIELD_REFUSED');
+  if (Object.keys(config).some(key => !['origin', 'tenant', 'port', 'statePath', 'accounts', 'ca', 'reservedPorts', 'socketPath', 'mail', 'listing'].includes(key))) fail('AUTH_CONFIG_FIELD_REFUSED');
   validateMailConfig(config.mail);
+  try { validateTaskListingConfig(config.listing); } catch (error) { if (error.message !== 'TASK_LISTING_CONFIGURATION_REQUIRED') throw error; }
   const url = loginOrigin(config.origin);
   if (url.origin !== config.origin || typeof config.tenant !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(config.tenant)) fail('AUTH_ORIGIN_TENANT_REFUSED');
   if (config.socketPath !== undefined) {

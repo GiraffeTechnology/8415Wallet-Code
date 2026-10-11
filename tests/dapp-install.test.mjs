@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { captureAuthSource, deterministicAuthArchive } from '../scripts/package/build-auth.mjs';
+import { verifyDeliveryEntryImports } from '../scripts/package/build-delivery.mjs';
 import { LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, jsonBytes, runtimePackage, sha256, sourcePathAllowed, walkAuth } from '../scripts/package/verify-auth.mjs';
 import { captureSource, deterministicArchive, exportSource, walk } from '../scripts/package/dapp-release.mjs';
 import { DELIVERY_FILES, DELIVERY_SCHEMA, extractDelivery, readDeliveryArchive, verifyDappEntries, verifyDeliveryArchive } from '../scripts/package/verify-delivery.mjs';
@@ -236,3 +237,14 @@ for (const path of LEGAL_FILES) for (const mode of ['omit-document', 'omit-runti
     }, 'v2'), /FILE_MISSING|UI_LEGAL_SOURCE_MISMATCH/);
   });
 }
+
+
+test('delivery installer and verifier imports are closed in an isolated stage and reject a missing exact pin', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'wallet-delivery-entry-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  assert.ok(DELIVERY_FILES.includes('server/task-listing-package-pin.mjs'));
+  for (const path of DELIVERY_FILES) put(directory, path, readFileSync(new URL(`../${path}`, import.meta.url)));
+  assert.doesNotThrow(() => verifyDeliveryEntryImports(directory));
+  rmSync(join(directory, 'server/task-listing-package-pin.mjs'));
+  assert.throws(() => verifyDeliveryEntryImports(directory), /ERR_MODULE_NOT_FOUND/);
+});

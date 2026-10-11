@@ -1,6 +1,8 @@
 /** Fixed systemd credential entry; do not invoke until operator activation. */
 import { open, lstat } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import { validateAuthConfig } from './config-validation.mjs';
+import { ensureTaskListingServerCondition } from './task-listing-bootstrap.mjs';
 if (process.platform !== 'linux' || process.getuid?.() !== 0) throw Error('AUTH_SERVICE_IDENTITY_REQUIRED');
 if (process.env.WALLET_AUTH_STORE_KEY) throw Error('AUTH_AMBIENT_STORE_KEY_REFUSED');
 // A legacy unit may still point at this entry during an interrupted code switch.
@@ -9,6 +11,16 @@ catch (error) { if (error.code !== 'ENOENT') throw error; }
 if (process.env.CREDENTIALS_DIRECTORY !== '/run/credentials/8415wallet-auth-xiongan.service') throw Error('AUTH_CREDENTIAL_DIRECTORY_REFUSED');
 const directory = await lstat(process.env.CREDENTIALS_DIRECTORY);
 if (!directory.isDirectory() || directory.isSymbolicLink() || directory.uid !== 0 || (directory.mode & 0o077)) throw Error('AUTH_CREDENTIAL_DIRECTORY_REFUSED');
+// Relaunch with the fixed server condition before putting any credential into
+// the environment. The legacy entry rejects an ambient store key on startup.
+const configFile = await open('/etc/8415wallet-auth-xiongan/auth.json', constants.O_RDONLY | constants.O_NOFOLLOW);
+let configuration;
+try {
+  const stat = await configFile.stat();
+  if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== 0 || (stat.mode & 0o077) || stat.size > 1_000_000) throw Error('AUTH_CREDENTIAL_FILE_REFUSED');
+  configuration = JSON.parse(await configFile.readFile('utf8')); validateAuthConfig(configuration);
+} finally { await configFile.close(); }
+await ensureTaskListingServerCondition(configuration.listing);
 const file = await open(`${process.env.CREDENTIALS_DIRECTORY}/store-key`, constants.O_RDONLY | constants.O_NOFOLLOW);
 let key;
 try {
@@ -19,5 +31,5 @@ try {
   if (!/^[a-fA-F0-9]{64}$/.test(text)) throw Error('AUTH_CREDENTIAL_FORMAT_REFUSED');
   process.env.WALLET_AUTH_STORE_KEY = text;
   process.env.WALLET_AUTH_CONFIG = '/etc/8415wallet-auth-xiongan/auth.json';
-  await import('./main.mjs');
+  await (await import('./main.mjs')).startAuthFromEnvironment();
 } finally { key?.fill(0); delete process.env.WALLET_AUTH_STORE_KEY; await file.close(); }

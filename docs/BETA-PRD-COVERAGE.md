@@ -23,19 +23,29 @@ and its limits while the agent completes all in-scope work. It retains the same
 permission/review threshold and validates every child transaction; it does not
 require the human to operate each business-action button after a separate login.
 
-The following is the main-source baseline at
-`da7e5478e1de1407e566149813108f8afa4c9342`. All future acceptance must identify its
-own exact candidate and observed results. Previously passing CI or package checks
-are not evidence of these missing product paths.
+### 2026-10-10 bounded implementation update
 
-| Requirement | Existing implementation evidence | Remaining acceptance |
+The earlier `da7e5478e1de1407e566149813108f8afa4c9342` planned baseline is
+superseded for the implemented paths below. Exact candidate identity and observed
+results belong to the accompanying delivery manifest; this document is not a
+new test run or production acceptance record.
+
+| Requirement | Current implementation evidence | Evidence limit / remaining acceptance |
 | --- | --- | --- |
-| Bound parent-task intent, one-use/allowance distinction and child constraints | Browser `xiongan/agentRequest.ts` imports JSON for owner review only | PLANNED: verified grant, durable budget, revocation and per-child enforcement; PS-01–PS-06 and PS-13–PS-16 |
-| Mobile TOTP task confirmation followed by automatic agent resumption | `auth-service.mjs` implements TOTP login; no task proof | PLANNED: exact-task authorization page/verifier and genuine mobile app-switch/resume journey; PS-07–PS-08 |
-| Trusted transaction signing | SDK `TransactionSigner` interface and external-provider confirmation; CA handles login challenges | PLANNED: accepted signer integration bound to the verified grant and actual transaction; PS-04/PS-08 |
-| Management-page initial authenticator bind/unbind/replace and password changes with independent combined verification | Existing account management and conditional reserved-factor recovery | PLANNED: 8415wallet.com management flow, non-circular initial enrollment from verified identity/existing methods, full exact-change proof/trusted-device lifecycle, old-method invalidation and loss recovery; future native mobile management uses the same controls; PS-09–PS-12/PS-16 |
-| Persistent budgets and unknown-result recovery | Existing operation journals; `BudgetSigner` is test-process budgeting | PLANNED: task-scoped concurrent reservations and grant-aware reconciliation; PS-14–PS-15 |
-| Secret-free, source-bound audit and acceptance | Existing credential and operation protections cover their documented routes | PLANNED: full task-to-child-to-receipt audit and negative evidence; PS-17 |
+| Bound parent-task intent, grant, budget and child constraints | `server/task-authorization.mjs` and `src/agent/taskContract.ts` implement verified grants, durable reservations, revocation and per-child checks | Local service evidence exists; complete PS acceptance and production execution remain NOT_RUN |
+| TOTP task confirmation and automatic resumption | `web/task-authorization-ui.mjs`, `server/task-authorization.mjs` and `server/task-background-runner.mjs` bind exact task approval and continue within the grant after logout | Local HTTP/TOTP/logout and background continuation exercised; genuine mobile authenticator app-switch/resume NOT_RUN |
+| Trusted transaction signing | Server-only exact-operation and native seller-listing adapters bind the reviewed operation to a configured signer interface | Local signer results are synthetic; real signer integration and actual signing NOT_RUN |
+| Initial authenticator bind, replace/unbind and password changes | `server/method-change-service.mjs` and `web/method-change-ui.mjs` implement combined-factor exact changes, passwordless initial enrollment, replacement invalidation and scoped recovery | Test sources cover these paths; genuine-device/full PS acceptance NOT_RUN; no trusted-device or hardware-CA management implementation is claimed |
+| Persistent budgets and unknown-result recovery | Authoritative grant reservations, encrypted stores, native journal CAS and read-only result reconciliation preserve uncertain outcomes | Local cross-process Wallet/Go/MySQL restart and lost-response evidence exists; live chain/venue recovery NOT_RUN |
+| Source-bound task/child/result records | Task service, receipt adapter and listing-results consumer retain bound outcomes without treating listing acceptance as a completed sale | Local functional evidence only; complete PS-17 and production acceptance NOT_RUN |
+
+The bounded native seller-listing composition is implemented in
+`TASK-LISTING-RUNTIME.md` and `TASK-LISTING-RESULTS.md`. Local evidence uses actual
+installed modules, HTTP services, mTLS and persistent MySQL, with synthetic
+signer, RPC/venue, quote/request and fill responses. Deployment, production
+credential provisioning, real signing/publication/chain execution, genuine-device
+journeys and production acceptance remain **NOT_RUN**. Existing V2/V3 scope and
+acceptance requirements are unchanged.
 
 The detailed positive/negative scenarios and status vocabulary are in
 [product security](RESPONSIBILITY-CONTROLS-SECURITY.md#product-security-acceptance-matrix).

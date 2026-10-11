@@ -276,6 +276,87 @@ export function assessChildScope(taskInput: FrozenTask, childInput: FrozenChild,
     executable: false, requiredCapabilities: required });
 }
 
+/** A seller listing is an off-chain order, never a fabricated NFT transfer.
+ * ArtFi review/valuation/quote digests use its sorted-key SHA-256 hex format;
+ * task/child/typed-data/order digests retain their own existing hash domains.
+ */
+function evidenceDigest(value: unknown): string {
+  refuse(typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) && !/^0+$/.test(value), 'TASK_EVIDENCE_DIGEST_REFUSED');
+  return value;
+}
+export type NftListingChild = {
+  readonly schema: '8415-nft-listing-child/1'; readonly operationId: string; readonly taskDigest: string;
+  readonly executorDigest: string; readonly grantReference: string; readonly grantPolicyVersion: string;
+  readonly chainId: string; readonly seller: string; readonly protocol: string;
+  readonly nft: { readonly standard: 'ERC-721' | 'ERC-1155'; readonly contract: string; readonly tokenId: string; readonly quantity: string };
+  readonly adapterId: string; readonly nativeOperationId: string; readonly nativePlanId: string;
+  readonly reviewDigest: string; readonly orderHash: string; readonly typedDataDigest: string;
+  readonly counter: string; readonly salt: string; readonly expiresAt: string;
+  readonly valuationPolicyDigest: string; readonly quoteEvidenceDigest: string;
+  readonly fees: { readonly maximumFeeWei: string };
+};
+export type FrozenNftListingChild = { readonly child: NftListingChild; readonly digest: string };
+export function freezeNftListingChild(value: unknown): FrozenNftListingChild {
+  const r = object(value, ['schema', 'operationId', 'taskDigest', 'executorDigest', 'grantReference', 'grantPolicyVersion',
+    'chainId', 'seller', 'protocol', 'nft', 'adapterId', 'nativeOperationId', 'nativePlanId', 'reviewDigest', 'orderHash',
+    'typedDataDigest', 'counter', 'salt', 'expiresAt', 'valuationPolicyDigest', 'quoteEvidenceDigest', 'fees']);
+  refuse(r.schema === '8415-nft-listing-child/1', 'TASK_LISTING_SCHEMA_REFUSED');
+  const n = object(r.nft, ['standard', 'contract', 'tokenId', 'quantity']), f = object(r.fees, ['maximumFeeWei']);
+  refuse(n.standard === 'ERC-721' || n.standard === 'ERC-1155', 'TASK_NFT_STANDARD_REFUSED');
+  const quantity = uint(n.quantity, true), chainId = uint(r.chainId, true);
+  refuse(n.standard !== 'ERC-721' || quantity === '1', 'TASK_NFT_QUANTITY_REFUSED');
+  refuse(ASSET_CHAINS.includes(chainId), 'TASK_CHAIN_REFUSED');
+  const child: NftListingChild = { schema: '8415-nft-listing-child/1', operationId: text(r.operationId), taskDigest: hash(r.taskDigest),
+    executorDigest: hash(r.executorDigest), grantReference: text(r.grantReference), grantPolicyVersion: uint(r.grantPolicyVersion, true),
+    chainId, seller: address(r.seller), protocol: address(r.protocol),
+    nft: { standard: n.standard, contract: address(n.contract), tokenId: uint(n.tokenId), quantity },
+    adapterId: text(r.adapterId), nativeOperationId: text(r.nativeOperationId), nativePlanId: text(r.nativePlanId),
+    reviewDigest: evidenceDigest(r.reviewDigest), orderHash: hash(r.orderHash), typedDataDigest: hash(r.typedDataDigest),
+    counter: uint(r.counter), salt: uint(r.salt), expiresAt: uint(r.expiresAt, true, 64),
+    valuationPolicyDigest: evidenceDigest(r.valuationPolicyDigest), quoteEvidenceDigest: evidenceDigest(r.quoteEvidenceDigest),
+    fees: { maximumFeeWei: uint(f.maximumFeeWei) } };
+  return freeze({ child, digest: keccak256Utf8(JSON.stringify(child)) });
+}
+export function parseNftListingChild(input: string): FrozenNftListingChild { return freezeNftListingChild(json(input)); }
+function listingCopy(input: FrozenNftListingChild): FrozenNftListingChild {
+  const copy = freezeNftListingChild(input.child); refuse(copy.digest === input.digest, 'TASK_CHILD_DIGEST_MISMATCH'); return copy;
+}
+export type NftListingGrantBinding = {
+  readonly taskDigest: string; readonly executorDigest: string; readonly grantReference: string;
+  readonly grantPolicyVersion: string; readonly valuationPolicyDigest: string; readonly priceAt: 'order-review' | 'settlement';
+};
+/** Declared scope only. Price, quote, native review, counter, order encoding,
+ * ownership/approval and observation support still require a trusted adapter.
+ * Whole means this task's exact quantity, never the seller's full balance.
+ */
+export function assessNftListingScope(taskInput: FrozenTask, childInput: FrozenNftListingChild,
+  binding: NftListingGrantBinding, now: bigint): ScopeAssessment {
+  const { policy: t, digest } = taskCopy(taskInput), { child: c } = listingCopy(childInput); nowValue(now);
+  const reasons: string[] = [];
+  if (c.taskDigest !== digest || binding.taskDigest !== digest || c.executorDigest !== binding.executorDigest ||
+    c.grantReference !== binding.grantReference || c.grantPolicyVersion !== binding.grantPolicyVersion ||
+    c.valuationPolicyDigest !== binding.valuationPolicyDigest) reasons.push('TASK_LISTING_GRANT_BINDING_MISMATCH');
+  if (!['order-review', 'settlement'].includes(binding.priceAt)) reasons.push('TASK_VALUATION_PRICE_AT_REQUIRED');
+  if (binding.priceAt === 'settlement') reasons.push('TASK_FUTURE_USD_PRICE_NOT_GUARANTEED');
+  if (c.chainId !== t.chainId || c.seller !== t.actor) reasons.push('TASK_BINDING_MISMATCH');
+  if (BigInt(t.expiresAt) <= now || BigInt(c.expiresAt) <= now || BigInt(c.expiresAt) > BigInt(t.expiresAt)) reasons.push('TASK_EXPIRED_OR_CHILD_WINDOW_REFUSED');
+  if (BigInt(c.fees.maximumFeeWei) > BigInt(t.fees.perOperationWei)) reasons.push('TASK_CHILD_FEE_LIMIT');
+  if (t.intent.kind !== 'nft-sale') reasons.push('TASK_LISTING_INTENT_REQUIRED');
+  else if (c.nft.standard !== t.intent.standard || c.nft.contract !== t.intent.contract || c.nft.tokenId !== t.intent.tokenId ||
+    c.nft.quantity !== t.intent.quantity || !t.intent.marketAdapters.includes(c.adapterId)) reasons.push('TASK_NFT_OUTSIDE_SCOPE');
+  return freeze({ state: reasons.length ? 'outside-declared-scope' : 'requires-trusted-verification', reasons, executable: false,
+    requiredCapabilities: ['TASK_AUTHORIZATION_VERIFIER', 'NATIVE_LISTING_REVIEW_VERIFIER', 'MARKET_PRICE_VERIFIER',
+      'CURRENT_LISTING_STATE_VERIFIER', 'LISTING_OBSERVATION_VERIFIER', 'USER_CONTROLLED_SIGNER'] });
+}
+export type SeaportOrderReference = {
+  readonly kind: 'seaport-order'; readonly chainId: string; readonly protocol: string; readonly orderHash: string;
+};
+export function normalizeSeaportOrderReference(value: unknown): SeaportOrderReference {
+  const r = object(value, ['kind', 'chainId', 'protocol', 'orderHash']);
+  refuse(r.kind === 'seaport-order', 'TASK_LISTING_SUBMISSION_REFUSED');
+  return freeze({ kind: 'seaport-order', chainId: uint(r.chainId, true), protocol: address(r.protocol), orderHash: hash(r.orderHash) });
+}
+
 export type AuthorizationReference = {
   readonly schema: '8415-task-authorization-reference/1'; readonly taskDigest: string; readonly reference: string;
   readonly status: 'pending' | 'authorized' | 'suspended' | 'revoked' | 'expired';
@@ -292,6 +373,18 @@ export function normalizeAuthorizationReference(value: unknown): AuthorizationRe
     status: r.status as AuthorizationReference['status'], grantPolicyVersion: uint(r.grantPolicyVersion),
     credentialRevisionAtApproval: uint(r.credentialRevisionAtApproval) });
 }
+export type NftListingAuthorizationReference = Omit<AuthorizationReference, 'schema'> & {
+  readonly schema: '8415-task-authorization-reference/2'; readonly valuationPolicyDigest: string;
+  readonly priceAt: 'order-review' | 'settlement';
+};
+/** A display reference only. It cannot create the server's durable capability. */
+export function normalizeNftListingAuthorizationReference(value: unknown): NftListingAuthorizationReference {
+  const r = object(value, ['schema', 'taskDigest', 'reference', 'status', 'grantPolicyVersion', 'credentialRevisionAtApproval', 'valuationPolicyDigest', 'priceAt']);
+  refuse(r.schema === '8415-task-authorization-reference/2' && (r.priceAt === 'order-review' || r.priceAt === 'settlement'), 'TASK_AUTHORIZATION_REFERENCE_REFUSED');
+  const legacy = normalizeAuthorizationReference({ schema: '8415-task-authorization-reference/1', taskDigest: r.taskDigest, reference: r.reference,
+    status: r.status, grantPolicyVersion: r.grantPolicyVersion, credentialRevisionAtApproval: r.credentialRevisionAtApproval });
+  return freeze({ ...legacy, schema: '8415-task-authorization-reference/2', valuationPolicyDigest: evidenceDigest(r.valuationPolicyDigest), priceAt: r.priceAt });
+}
 export function executionAvailability(task: FrozenTask, child: FrozenChild, reference: unknown, now: bigint) {
   const scope = assessChildScope(task, child, now);
   const r = reference === null ? null : normalizeAuthorizationReference(reference);
@@ -304,10 +397,11 @@ export function executionAvailability(task: FrozenTask, child: FrozenChild, refe
 
 export type Reservation = {
   readonly operationId: string; readonly childDigest: string; readonly feeWei: string; readonly units: string;
-  readonly status: 'reserved' | 'outcome-unknown' | 'submitted' | 'cancelled'; readonly transactionHash: string | null;
-};
+  readonly status: 'reserved' | 'outcome-unknown' | 'submitted' | 'cancelled';
+} & ({ readonly transactionHash: string | null; readonly submission?: never } |
+  { readonly submission: SeaportOrderReference | null; readonly transactionHash?: never });
 export type TaskBudget = {
-  readonly schema: '8415-task-budget/1'; readonly taskDigest: string; readonly revision: string;
+  readonly schema: '8415-task-budget/1' | '8415-task-budget/2'; readonly taskDigest: string; readonly revision: string;
   readonly reservations: readonly Reservation[];
 };
 /** The next service must use one durable CAS/transaction for authorization
@@ -322,7 +416,7 @@ export interface TaskBudgetJournal {
  * All pages must be read from one immutable revision, including archived pages.
  */
 export type TaskBudgetPage = {
-  readonly schema: '8415-task-budget-page/1'; readonly taskDigest: string; readonly revision: string;
+  readonly schema: '8415-task-budget-page/1' | '8415-task-budget-page/2'; readonly taskDigest: string; readonly revision: string;
   readonly cursor: string | null; readonly nextCursor: string | null;
   readonly reservations: readonly Reservation[];
 };
@@ -336,31 +430,37 @@ export interface PagedTaskBudgetJournal {
 export function emptyTaskBudget(task: FrozenTask): TaskBudget {
   return freeze({ schema: '8415-task-budget/1', taskDigest: taskCopy(task).digest, revision: '0', reservations: [] });
 }
+export function emptyNftListingBudget(task: FrozenTask): TaskBudget {
+  const copy = taskCopy(task); refuse(copy.policy.intent.kind === 'nft-sale', 'TASK_LISTING_INTENT_REQUIRED');
+  return freeze({ schema: '8415-task-budget/2', taskDigest: copy.digest, revision: '0', reservations: [] });
+}
 export function normalizeTaskBudget(value: unknown): TaskBudget {
   const r = object(value, ['schema', 'taskDigest', 'revision', 'reservations']);
-  refuse(r.schema === '8415-task-budget/1' && Array.isArray(r.reservations), 'TASK_BUDGET_SCHEMA_REFUSED');
+  refuse((r.schema === '8415-task-budget/1' || r.schema === '8415-task-budget/2') && Array.isArray(r.reservations), 'TASK_BUDGET_SCHEMA_REFUSED');
   // This is a complete logical snapshot, not one untrusted network message.
   // Transport uses bounded pages below; task history has no arbitrary count cap.
   const reservations: Reservation[] = boundedArray(r.reservations, Number.MAX_SAFE_INTEGER).map(value => {
-    const a = object(value, ['operationId', 'childDigest', 'feeWei', 'units', 'status', 'transactionHash']);
+    const listing = r.schema === '8415-task-budget/2';
+    const a = object(value, ['operationId', 'childDigest', 'feeWei', 'units', 'status', listing ? 'submission' : 'transactionHash']);
     refuse(['reserved', 'outcome-unknown', 'submitted', 'cancelled'].includes(a.status as string), 'TASK_BUDGET_STATE_REFUSED');
-    const transactionHash = a.transactionHash === null ? null : hash(a.transactionHash);
-    refuse((a.status === 'submitted') === (transactionHash !== null), 'TASK_BUDGET_STATE_REFUSED');
-    return { operationId: text(a.operationId), childDigest: hash(a.childDigest), feeWei: uint(a.feeWei, true),
-      units: uint(a.units, true), status: a.status as Reservation['status'], transactionHash };
+    const progress = listing ? { submission: a.submission === null ? null : normalizeSeaportOrderReference(a.submission) } :
+      { transactionHash: a.transactionHash === null ? null : hash(a.transactionHash) };
+    refuse((a.status === 'submitted') === ((listing ? a.submission : a.transactionHash) !== null), 'TASK_BUDGET_STATE_REFUSED');
+    return { operationId: text(a.operationId), childDigest: hash(a.childDigest), feeWei: uint(a.feeWei, !listing),
+      units: uint(a.units, true), status: a.status as Reservation['status'], ...progress };
   });
   refuse(new Set(reservations.map(r => r.operationId)).size === reservations.length, 'TASK_DUPLICATE_OPERATION_REFUSED');
-  return freeze({ schema: '8415-task-budget/1', taskDigest: hash(r.taskDigest), revision: uint(r.revision), reservations });
+  return freeze({ schema: r.schema, taskDigest: hash(r.taskDigest), revision: uint(r.revision), reservations });
 }
 export function normalizeTaskBudgetPage(value: unknown): TaskBudgetPage {
   const r = object(value, ['schema', 'taskDigest', 'revision', 'cursor', 'nextCursor', 'reservations']);
-  refuse(r.schema === '8415-task-budget-page/1', 'TASK_BUDGET_PAGE_REFUSED');
+  refuse(r.schema === '8415-task-budget-page/1' || r.schema === '8415-task-budget-page/2', 'TASK_BUDGET_PAGE_REFUSED');
   const cursor = r.cursor === null ? null : text(r.cursor), nextCursor = r.nextCursor === null ? null : text(r.nextCursor);
   refuse(nextCursor === null || nextCursor !== cursor, 'TASK_BUDGET_PAGE_REFUSED');
   const reservations = boundedArray(r.reservations, 128);
   refuse(nextCursor === null || reservations.length > 0, 'TASK_BUDGET_PAGE_REFUSED');
-  const budget = normalizeTaskBudget({ schema: '8415-task-budget/1', taskDigest: r.taskDigest, revision: r.revision, reservations });
-  return freeze({ schema: '8415-task-budget-page/1', taskDigest: budget.taskDigest, revision: budget.revision,
+  const budget = normalizeTaskBudget({ schema: r.schema === '8415-task-budget-page/1' ? '8415-task-budget/1' : '8415-task-budget/2', taskDigest: r.taskDigest, revision: r.revision, reservations });
+  return freeze({ schema: r.schema, taskDigest: budget.taskDigest, revision: budget.revision,
     cursor, nextCursor, reservations: budget.reservations });
 }
 /** Parse a bounded transport page. A store can return smaller pages to fit the
@@ -373,13 +473,13 @@ export function assembleTaskBudgetPages(input: readonly TaskBudgetPage[]): TaskB
   const first = pages[0]!, reservations: Reservation[] = [], cursors = new Set<string>();
   let expectedCursor: string | null = null;
   pages.forEach((page, index) => {
-    refuse(page.taskDigest === first.taskDigest && page.revision === first.revision &&
+    refuse(page.schema === first.schema && page.taskDigest === first.taskDigest && page.revision === first.revision &&
       page.cursor === expectedCursor && (index === pages.length - 1 ? page.nextCursor === null : page.nextCursor !== null),
       'TASK_BUDGET_PAGE_CHAIN_REFUSED');
     if (page.cursor !== null) { refuse(!cursors.has(page.cursor), 'TASK_BUDGET_PAGE_CHAIN_REFUSED'); cursors.add(page.cursor); }
     reservations.push(...page.reservations); expectedCursor = page.nextCursor;
   });
-  return normalizeTaskBudget({ schema: '8415-task-budget/1', taskDigest: first.taskDigest, revision: first.revision, reservations });
+  return normalizeTaskBudget({ schema: first.schema === '8415-task-budget-page/1' ? '8415-task-budget/1' : '8415-task-budget/2', taskDigest: first.taskDigest, revision: first.revision, reservations });
 }
 function budgetCopy(value: TaskBudget, expectedRevision: string): TaskBudget {
   const budget = normalizeTaskBudget(value);
@@ -395,16 +495,29 @@ function advance(budget: TaskBudget, reservations: readonly Reservation[]): Task
  */
 export function reserveTaskBudget(task: FrozenTask, child: FrozenChild, input: TaskBudget, expectedRevision: string, now: bigint): TaskBudget {
   const t = taskCopy(task), c = childCopy(child), budget = budgetCopy(input, expectedRevision);
+  refuse(budget.schema === '8415-task-budget/1', 'TASK_BUDGET_SCHEMA_REFUSED');
   refuse(assessChildScope(t, c, now).state !== 'outside-declared-scope', 'TASK_CHILD_OUTSIDE_SCOPE');
-  refuse(budget.taskDigest === t.digest, 'TASK_BUDGET_BINDING_REFUSED');
-  refuse(!budget.reservations.some(r => r.operationId === c.child.operationId), 'TASK_DUPLICATE_OPERATION_REFUSED');
   const fees = BigInt(c.child.fees.gasLimit) * BigInt(c.child.fees.maxFeePerGasWei);
   const units = t.policy.intent.kind === 'nft-sale' && c.child.operation.kind === 'erc1155-transfer' ? BigInt(c.child.operation.amount) : 1n;
-  const maxUnits = t.policy.intent.kind === 'nft-sale' ? BigInt(t.policy.intent.quantity) : 1n;
-  refuse(budget.reservations.reduce((n, r) => n + (r.status === 'cancelled' ? 0n : BigInt(r.feeWei)), fees) <= BigInt(t.policy.fees.totalWei), 'TASK_TOTAL_FEE_LIMIT');
-  refuse(budget.reservations.reduce((n, r) => n + (r.status === 'cancelled' ? 0n : BigInt(r.units)), units) <= maxUnits, 'TASK_TOTAL_ASSET_LIMIT');
+  checkBudgetAllocation(t, budget, c.child.operationId, fees, units);
   return advance(budget, [...budget.reservations, { operationId: c.child.operationId, childDigest: c.digest,
     feeWei: fees.toString(), units: units.toString(), status: 'reserved', transactionHash: null }]);
+}
+function checkBudgetAllocation(task: FrozenTask, budget: TaskBudget, operationId: string, fees: bigint, units: bigint): void {
+  refuse(budget.taskDigest === task.digest, 'TASK_BUDGET_BINDING_REFUSED');
+  refuse(!budget.reservations.some(r => r.operationId === operationId), 'TASK_DUPLICATE_OPERATION_REFUSED');
+  const maxUnits = task.policy.intent.kind === 'nft-sale' ? BigInt(task.policy.intent.quantity) : 1n;
+  refuse(budget.reservations.reduce((n, r) => n + (r.status === 'cancelled' ? 0n : BigInt(r.feeWei)), fees) <= BigInt(task.policy.fees.totalWei), 'TASK_TOTAL_FEE_LIMIT');
+  refuse(budget.reservations.reduce((n, r) => n + (r.status === 'cancelled' ? 0n : BigInt(r.units)), units) <= maxUnits, 'TASK_TOTAL_ASSET_LIMIT');
+}
+export function reserveNftListingBudget(task: FrozenTask, child: FrozenNftListingChild, binding: NftListingGrantBinding,
+  input: TaskBudget, expectedRevision: string, now: bigint): TaskBudget {
+  const t = taskCopy(task), c = listingCopy(child), budget = budgetCopy(input, expectedRevision);
+  refuse(budget.schema === '8415-task-budget/2', 'TASK_BUDGET_SCHEMA_REFUSED');
+  refuse(assessNftListingScope(t, c, binding, now).state !== 'outside-declared-scope', 'TASK_CHILD_OUTSIDE_SCOPE');
+  checkBudgetAllocation(t, budget, c.child.operationId, BigInt(c.child.fees.maximumFeeWei), BigInt(c.child.nft.quantity));
+  return advance(budget, [...budget.reservations, { operationId: c.child.operationId, childDigest: c.digest,
+    feeWei: c.child.fees.maximumFeeWei, units: c.child.nft.quantity, status: 'reserved', submission: null }]);
 }
 /** Persist this state BEFORE the only signer call. Pending/unknown claims keep
  * their entire reservation across reloads; no timeout-based release exists.
@@ -417,9 +530,19 @@ export function markTaskSendAttempt(input: TaskBudget, operationId: string, chil
 }
 export function noteTaskSubmission(input: TaskBudget, operationId: string, childDigest: string, transactionHash: string, expectedRevision: string): TaskBudget {
   const budget = budgetCopy(input, expectedRevision), tx = hash(transactionHash);
+  refuse(budget.schema === '8415-task-budget/1', 'TASK_BUDGET_SCHEMA_REFUSED');
   const selected = budget.reservations.find(r => r.operationId === text(operationId));
-  refuse(selected?.childDigest === hash(childDigest) && selected.status === 'outcome-unknown', 'TASK_SUBMISSION_STATE_REFUSED');
-  return advance(budget, budget.reservations.map(r => r === selected ? { ...r, status: 'submitted' as const, transactionHash: tx } : r));
+  refuse(selected?.childDigest === hash(childDigest) && selected.status === 'outcome-unknown' && 'transactionHash' in selected, 'TASK_SUBMISSION_STATE_REFUSED');
+  return advance(budget, budget.reservations.map(r => r === selected ? { operationId: r.operationId, childDigest: r.childDigest, feeWei: r.feeWei, units: r.units, status: 'submitted' as const, transactionHash: tx } : r));
+}
+export function noteNftListingSubmission(input: TaskBudget, child: FrozenNftListingChild, submission: unknown, expectedRevision: string): TaskBudget {
+  const budget = budgetCopy(input, expectedRevision), c = listingCopy(child), reference = normalizeSeaportOrderReference(submission);
+  refuse(budget.schema === '8415-task-budget/2' && budget.taskDigest === c.child.taskDigest &&
+    reference.chainId === c.child.chainId && reference.protocol === c.child.protocol && reference.orderHash === c.child.orderHash, 'TASK_LISTING_SUBMISSION_REFUSED');
+  const selected = budget.reservations.find(r => r.operationId === c.child.operationId);
+  refuse(selected?.childDigest === c.digest && selected.status === 'outcome-unknown' && 'submission' in selected, 'TASK_SUBMISSION_STATE_REFUSED');
+  return advance(budget, budget.reservations.map(r => r === selected ? { operationId: r.operationId, childDigest: r.childDigest,
+    feeWei: r.feeWei, units: r.units, status: 'submitted' as const, submission: reference } : r));
 }
 /** Only a proposal never advanced to the send boundary can be discarded. */
 export function cancelUnattemptedReservation(input: TaskBudget, operationId: string, childDigest: string, expectedRevision: string): TaskBudget {

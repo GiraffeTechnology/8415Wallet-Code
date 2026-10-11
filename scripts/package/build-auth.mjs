@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, TASK_RUNTIME_SOURCE_PATHS, jsonBytes, packagePathAllowed, runtimePackage, safePath, sha256, sourcePathAllowed, sourceTree, verifyAuthDirectory, walkAuth } from './verify-auth.mjs';
+import { AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, TASK_RUNTIME_SOURCE_PATHS, jsonBytes, packagePathAllowed, runtimePackage, safePath, sha256, sourcePathAllowed, sourceTree, verifyAuthDirectory, verifyTaskListingArtifact, verifyInstalledTaskListingPackage, walkAuth } from './verify-auth.mjs';
 
 export function captureAuthSource(root) {
   const git = (args, options = {}) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options });
@@ -60,6 +60,14 @@ function normalizeTree(root) {
   }
 }
 
+/** Import only inert task factories from the freshly installed runtime. The
+ * repository's modules/loaders cannot repair a missing packaged dependency. */
+export function verifyTaskRuntimeImports(directory) {
+  execFileSync(process.execPath, ['--conditions=react-server', join(resolve(directory), 'server/task-runtime-import-probe.mjs')], {
+    cwd: directory, stdio: 'pipe', timeout: 30000,
+    env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' } });
+}
+
 export function buildAuthPackage({ root = process.cwd(), offline = false, output = join(root, 'dist') } = {}) {
   root = resolve(root); output = resolve(output);
   const source = captureAuthSource(root); const staged = new Map(source.entries.map(entry => [entry.path, entry]));
@@ -90,13 +98,16 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
     writeFileSync(join(stage, 'provenance/package.source.json'), sourcePackageBytes);
     writeFileSync(join(stage, 'provenance/package-lock.source.json'), sourceLockBytes);
     writeFileSync(join(stage, 'package.json'), jsonBytes(runtime.manifest)); writeFileSync(join(stage, 'package-lock.json'), jsonBytes(runtime.lock));
+    if (runtime.manifest.dependencies['@artfi/task-listing-runtime']) verifyTaskListingArtifact(stage);
     const npmArgs = ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--bin-links=false', ...(offline ? ['--offline'] : [])];
     // npm owns lockfile integrity verification. Never copy a developer node_modules tree.
     execFileSync('npm', npmArgs, { cwd: stage, stdio: 'inherit', timeout: 180000 });
     rmSync(join(stage, 'node_modules/.package-lock.json'), { force: true });
     normalizeTree(stage);
+    if (runtime.manifest.dependencies['@artfi/task-listing-runtime']) verifyInstalledTaskListingPackage(stage);
     // Check syntax without executing service entry points, reading secrets, or opening listeners.
     for (const file of walkAuth(stage).filter(file => sourcePathAllowed(file) && file.endsWith('.mjs'))) execFileSync(process.execPath, ['--check', join(stage, file)], { stdio: 'pipe' });
+    verifyTaskRuntimeImports(stage);
     const files = Object.fromEntries(walkAuth(stage).map(file => [file, sha256(readFileSync(join(stage, file)))]));
     const release = { schema: AUTH_SCHEMA, name: '8415wallet-auth-runtime', version: runtime.manifest.version, status: AUTH_STATUS,
       source, runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, entry: 'server/runtime-entry.mjs', tenantArgumentRequired: true, credentialStoreFormat: 1, legacyImportProtocol: 1, authStateSemantics: AUTH_STATE_SEMANTICS, openssl: 'External OpenSSL 3 required only for configured hardware CA verification' },
@@ -104,7 +115,7 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
         command: 'node scripts/package/build-auth.mjs', dependencyCommand: ['npm', ...npmArgs].join(' '), sourceLockSha256: sha256(sourceLockBytes),
         installScripts: 'Disabled; package verification rejects any production install/prepare lifecycle script and lockfile hasInstallScript marker',
         archiveFormat: 'Sorted regular-file-only USTAR, epoch mtime, uid/gid 0, mode 0644; gzip level 9 with zero timestamp' },
-      evidence: { integrity: 'Exact payload inventory, source blob/tree identities, lockfile-pinned production dependency installation; not publisher authentication',
+      evidence: { integrity: 'Exact payload inventory, source blob/tree identities, lockfile-pinned production dependency installation and isolated native task-runtime imports; not publisher authentication',
         deployment: 'Not installed or activated; no credential, binding, listener, proxy or account created',
         acceptance: 'No production, genuine-wallet, hardware-device, independent audit or external CI acceptance inferred' }, files };
     writeFileSync(join(stage, 'AUTH-RELEASE.json'), jsonBytes(release));

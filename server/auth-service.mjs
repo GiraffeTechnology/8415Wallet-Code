@@ -30,7 +30,7 @@ function cookies(request) {
   }
   return result;
 }
-export function createAuthService({ origin, tenant, accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null }) {
+export function createAuthService({ origin, tenant, accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null }) {
   const url = loginOrigin(origin);
   requireThat(typeof tenant === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(tenant), 'AUTH_CONFIG_REFUSED', 500);
   requireThat(Array.isArray(accounts) && accounts.length > 0 && accounts.length <= 10000 && store, 'AUTH_CONFIG_REFUSED', 500);
@@ -178,7 +178,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     consumeResetProof: (session, proof, prior) => recoveryService.consumeProof(session, proof, prior), revokeAccount });
   methodChangeService = createMethodChangeService({ origin, tenant, store, directory, users, sendOtp, now,
     assertRecent: recentIndependent, credentialFor, passwordFor, methodStates, withConsumedCode, revokeAccount });
-  taskService = createTaskAuthorizationService({ origin, tenant, store, now, execution: taskExecution, executorIdentity: taskExecutorIdentity, observationPolicy: taskObservationPolicy, receipt: taskReceipt,
+  taskService = createTaskAuthorizationService({ origin, tenant, store, now, execution: taskExecution, executorIdentity: taskExecutorIdentity, observationPolicy: taskObservationPolicy, receipt: taskReceipt, listingExecution: taskListingExecution, listingResults: taskListingResults,
     principalReady: directory.ready,
     assertPrincipal(principal, credential) {
       const user = users.get(principal.username);
@@ -207,7 +207,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     const path = req.url.slice(6), ip = req.socket.remoteAddress ?? 'unknown';
     await directory.ready;
     if (req.method === 'GET' && path === 'capabilities') return { schema: '8415wallet-auth/1', tenant, origin, passwordManagement: true, methodManagement: "combined-v1",
-      taskAuthorization: { available: true, schema: '8415-agent-task/1', sessionRequired: true, adapterConfigured: Boolean(taskExecution), executable: false },
+      taskAuthorization: { available: true, schema: '8415-agent-task/1', sessionRequired: true, adapterConfigured: Boolean(taskExecution), executable: false, listing: { adapterConfigured: Boolean(taskListingExecution), resultsConfigured: Boolean(taskListingResults), state: taskListingExecution ? 'configured' : 'disabled', code: taskListingExecution ? null : taskListingRuntimeStatus?.code ?? 'TASK_LISTING_NOT_CONFIGURED' } },
       methods: ['password', 'totp', 'wallet', ...(verifyCa ? ['ca'] : [])], registration: { available: Boolean(sendOtp), emailRequired: true }, totp: { algorithm: 'SHA1', digits: 6, period: 30 }, hardwareCa: verifyCa ? 'bridge-v1' : null };
     if (req.method === 'GET' && path === 'bootstrap') {
       limit(`bootstrap:${ip}`, 60); capacity(preauth);
@@ -345,5 +345,6 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       res.end(JSON.stringify({ error: expected ? error.message : 'AUTH_UNAVAILABLE', ...(retryAfterSeconds === null ? {} : { retryAfterSeconds }) })); }
   };
   Object.defineProperty(handler, 'taskBackground', { value: taskService.background, enumerable: false });
+  Object.defineProperty(handler, 'taskListingAuthorization', { value: taskService.listingAuthorization, enumerable: false });
   return handler;
 }

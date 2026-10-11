@@ -7,6 +7,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureSource, deterministicArchive, sha256, walk } from './dapp-release.mjs';
 import { DELIVERY_FILES, DELIVERY_SCHEMA, verifyDeliveryArchive } from './verify-delivery.mjs';
+/** Resolve actual staged installer/verifier imports without checkout or global
+ * module assistance. Imports are inert; this does not install or activate. */
+export function verifyDeliveryEntryImports(directory) {
+  execFileSync(process.execPath, ['--input-type=module', '-e',
+    "await import('./scripts/package/verify-delivery.mjs'); await import('./deploy/dapp/install.mjs');"], {
+    cwd: directory, stdio: 'pipe', timeout: 30000,
+    env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' },
+  });
+}
 export function buildDelivery({ root = process.cwd(), rebuild = true, offline = false } = {}) {
   root = resolve(root);
   if (rebuild) {
@@ -30,6 +39,7 @@ export function buildDelivery({ root = process.cwd(), rebuild = true, offline = 
       mkdirSync(dirname(join(temporary, path)), { recursive: true }); cpSync(join(root, path), join(temporary, path));
       assert.equal(sha256(readFileSync(join(temporary, path))), source.files[path]);
     }
+    verifyDeliveryEntryImports(temporary);
     const artifacts = { ...Object.fromEntries(Object.entries(manifests).map(([id, manifest]) => [id, { artifact: manifest.artifact, sha256: manifest.sha256 }])), source: manifests.v2.sourceArchive };
     mkdirSync(join(temporary, 'artifacts'));
     for (const item of Object.values(artifacts)) {
