@@ -14,6 +14,8 @@ const open = (kind = 'open') => JSON.stringify({ kind, localId, tokenId: '1', bu
 function fixture(actor = seller) {
   const flags = { state: 0n, approved: true, operator: false, confirmed: false, now: 1000n, selected: actor, chain: '0x7a69',
     projectionCode: '0x6001', register: registerId, settlement: true, interface: true, invalidInterface: false, reject: null as unknown,
+    releaseSchema: 'legacy', releaseCommitment: profile, releaseDataMismatch: false,
+    observationVersion: 0n, observedHolder: null as string | null,
     failReserve: false, failReset: false, failSubmitted: false, omitEvent: false, wrongTx: false, pending: false, receiptStatus: '0x1', reorg: false, nonce: 0n, owner: seller, rpcCase: false, replacement: false, wrongNonce: false, head: '0x65' };
   let record: LegacyClearingState | null = null, sends = 0, sent: Record<string, string> | null = null, method = '';
   const store: LegacyClearingStore = { async read() { return structuredClone(record); }, async compareAndSwap(expected, next) {
@@ -34,7 +36,7 @@ function fixture(actor = seller) {
         ['address', 'uint256', 'address', 'address', 'uint256', 'uint64', 'uint64', 'uint64', 'uint8'],
         flags.state === 0n ? [zeroAddress, 0n, zeroAddress, zeroAddress, 0n, 0n, 0n, 0n, 0n] : [projection, 1n, seller, buyer, 1000n, flags.state === 1n ? 0n : 1n, 1200n, 1100n, flags.state]);
       if (data.startsWith(encodeCall('observe(bytes32)', ['bytes32'], [key]).slice(0, 10))) return encodeWords(
-        ['uint8', 'bool', 'uint64', 'uint64', 'address', 'address', 'uint64'], [flags.state, flags.confirmed, flags.confirmed ? 2n : 1n, 1050n, flags.confirmed ? buyer : seller, escrow, flags.confirmed ? 2n : 1n]);
+        ['uint8', 'bool', 'uint64', 'uint64', 'address', 'address', 'uint64'], [flags.state, flags.confirmed, flags.observationVersion || (flags.confirmed ? 2n : 1n), 1050n, flags.observedHolder ?? (flags.confirmed ? buyer : seller), escrow, flags.observationVersion || (flags.confirmed ? 2n : 1n)]);
       if (data === encodeCall('supportsInterface(bytes4)', ['bytes4'], ['0xffffffff'])) return encodeWords(['bool'], [flags.invalidInterface]);
       if (data === encodeCall('supportsInterface(bytes4)', ['bytes4'], ['0xf4a7d71b'])) return encodeWords(['bool'], [flags.settlement]);
       if (data.startsWith('0x01ffc9a7')) return encodeWords(['bool'], [flags.interface]);
@@ -60,6 +62,13 @@ function fixture(actor = seller) {
         refund: { topics: [keccak256Utf8('TradeRefunded(bytes32,address,uint64)'), key, addressWord(buyer)], data: encodeWords(['uint64'], [1n]) },
         abandon: { topics: [keccak256Utf8('TradeAbandoned(bytes32,address)'), key, addressWord(seller)], data: '0x' },
       };
+      if (flags.releaseSchema === 'committed') events.release = {
+        topics: [keccak256Utf8('TradeReleased(bytes32,address,uint64,uint64,bytes32)'), key, addressWord(buyer)],
+        data: encodeWords(['uint64', 'uint64', 'bytes32'], [2n, 1050n, flags.releaseCommitment]),
+      };
+      if (flags.releaseDataMismatch) events.release!.data = flags.releaseSchema === 'committed'
+        ? encodeWords(['uint64', 'uint64'], [2n, 1050n])
+        : encodeWords(['uint64', 'uint64', 'bytes32'], [2n, 1050n, profile]);
       return { transactionHash: txHash, blockHash, blockNumber: '0x64', transactionIndex: '0x0', from: actor, to: sent!.to, status: flags.receiptStatus,
         logs: flags.omitEvent ? [] : [{ ...events[method], address: sent!.to, transactionHash: txHash, blockHash, blockNumber: '0x64', transactionIndex: '0x0', removed: false }] };
     }
@@ -166,4 +175,40 @@ test('same intent, wrong nonce, reorg and insufficient replacement confirmations
     const f = fixture(), s = f.session(), r = await s.prepare(open()); f.flags.reject = new Error('unknown'); await assert.rejects(s.submit(r, r.digest));
     Object.assign(f.flags, changes); await assert.rejects(s.acknowledgeReplacement(txHash)); assert.equal((await s.status()).status, 'outcome-unknown'); assert.equal(f.sends(), 1);
   }
+});
+
+for (const schema of ['legacy', 'committed']) test(`release receipt ${schema} ABI preserves only its own recorded fields`, async () => {
+  const f = fixture(), s = f.session(); f.flags.state = 2n; f.flags.confirmed = true; f.flags.releaseSchema = schema;
+  const review = await s.prepare(JSON.stringify({ kind: 'release', tradeKey: key }));
+  await s.submit(review, review.digest);
+  const result = await s.reconcile();
+  assert.equal(result.state, 'confirmed');
+  assert.deepEqual(result.releaseConfirmation, { version: 2n, effectiveAt: 1050n,
+    ...(schema === 'committed' ? { recordCommitment: profile } : {}) });
+  // Later current observations cannot rewrite the receipt's release evidence.
+  f.flags.state = 3n; f.flags.confirmed = false; f.flags.observationVersion = 3n; f.flags.observedHolder = seller;
+  const current = await s.observe(key);
+  assert.equal(current.observation.version, 3n);
+  assert.equal(current.view.confirmingVersion, 2n);
+  assert.equal(current.view.confirmingRecordCommitment, schema === 'committed' ? profile : undefined);
+  assert.equal(current.view.confirmedHolder, seller);
+  assert.equal(f.sends(), 1);
+  assert.deepEqual((await s.reconcile()).releaseConfirmation, result.releaseConfirmation);
+  await s.acknowledge();
+  assert.equal((await s.observe(key)).view.confirmingVersion, undefined);
+  assert.equal(f.sends(), 1);
+});
+for (const schema of ['legacy', 'committed']) test(`release ${schema} topic cannot decode the other ABI's data`, async () => {
+  const f = fixture(), s = f.session(); f.flags.state = 2n; f.flags.confirmed = true;
+  f.flags.releaseSchema = schema; f.flags.releaseDataMismatch = true;
+  const review = await s.prepare(JSON.stringify({ kind: 'release', tradeKey: key }));
+  await s.submit(review, review.digest);
+  await assert.rejects(s.reconcile(), /CLEARING_RPC_ABI_REFUSED/);
+  assert.equal((await s.status()).status, 'submitted');
+});
+test('new release event with a zero commitment cannot become release evidence', async () => {
+  const f = fixture(), s = f.session(); f.flags.state = 2n; f.flags.confirmed = true;
+  f.flags.releaseSchema = 'committed'; f.flags.releaseCommitment = zero;
+  const review = await s.prepare(JSON.stringify({ kind: 'release', tradeKey: key })); await s.submit(review, review.digest);
+  await assert.rejects(s.reconcile(), /CLEARING_HASH_REFUSED/);
 });

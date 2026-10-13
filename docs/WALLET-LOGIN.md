@@ -84,7 +84,9 @@ performed by this change.
   Reload, page exit/history restoration, explicit logout, expiry, provider
   disconnect, or selected account/chain changes lock the display. Each operation
   and provider request checks expiry and session binding; the timer is only
-  prompt UI cleanup. Identity is rechecked rather than inferred from connection.
+  prompt UI cleanup. Identity is rechecked rather than inferred from connection. Server-backed login also rechecks
+  the original expiry, clock monotonicity within that attempt and page origin
+  after its final provider identity wait, before emitting login success.
 - A supported contract account must supply a personal-message signature and
   pass [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271) on the selected chain.
   Only the exact ABI-encoded magic value is accepted. The proof remains private

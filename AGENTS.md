@@ -597,6 +597,16 @@ GitHub-safe mirrors differ from their private originals; do not interchange hash
 Archive publication does not establish deployment, current-head CI, genuine-device
 acceptance or a general release. Existing security and deployment rules remain in force.
 
+## Server-backed login completion repair (2026-10-13)
+
+A reproduced asynchronous provider-read window could publish login success after
+server-session expiry, clock reversal or origin change. The bounded repair
+revalidates those conditions immediately before session publication. Four login
+core/UI contract files passed 168/168 on Linux Node 24.18.0; typecheck passed.
+These are synthetic source regressions, not deployment or genuine three-account
+acceptance. See docs/reports/SERVER-LOGIN-COMPLETION-20261013.md. Preserve prior
+source-bound release artifacts and independent late-v3 work.
+
 ## Current public installation-asset policy
 
 Keep this repository public for investor review. Follow [the installation-asset publication policy](docs/INSTALLATION-ASSET-PUBLICATION.md): publish only verified product artifacts, retain all required notices, exclude private operations and tenant data, and verify uploaded checksums. The designated source/delivery owner maintains licensing documentation; deployment controllers must not create conflicting license terms or change visibility. Merge pull requests only after exact required CI is fully successful.

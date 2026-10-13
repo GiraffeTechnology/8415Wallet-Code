@@ -456,8 +456,8 @@
     {
       "path": "contracts/escrow/ProjectionEscrow.sol",
       "mode": "100644",
-      "git_blob_sha1": "8d174bbf066920b1eabe00352419f40df9697ab1",
-      "sha256": "c2a118b4c1ef9d37f668ac7de257a0e8ba52c54438f03b947fbe9c3c8c00820c"
+      "git_blob_sha1": "8135c57909fdcca3ce8991a998e57a9923ef24bb",
+      "sha256": "ed1a3bf1c118d727c96075d1f186fc75e9a013a5d73aca341fb73a0a5bf3d1de"
     },
     {
       "path": "contracts/reference/RegisterProjectionReference.sol",
@@ -666,8 +666,8 @@
     {
       "path": "docs/WALLET-LOGIN.md",
       "mode": "100644",
-      "git_blob_sha1": "1fc40dd051e1d304472aef195dfcb614710f4ebb",
-      "sha256": "e281155df1f3c965ae5565c55aac765b61b5778fa0ab328b6742dd535318cf4b"
+      "git_blob_sha1": "e3d18171ab4ec2ca8f1a1c0366f6a0e516daa7ef",
+      "sha256": "89d0343fc58b5a343e9b20b5c88c5e189d9f4ccb33d8eb8fbadaa5e6553283c7"
     },
     {
       "path": "docs/XIONGAN-WALLET.md",
@@ -1482,8 +1482,8 @@
     {
       "path": "src/sdk/escrow.ts",
       "mode": "100644",
-      "git_blob_sha1": "70684bc74309e26a702760138242a9cf1a43389c",
-      "sha256": "709db1133477f435b9de05d0c9d8aa4fa4d3dcbf5e5ac3e00a9cee12c477ebbe"
+      "git_blob_sha1": "a8286cf26d8e6be01de2f5e7144a6d62566955db",
+      "sha256": "fd030bff1a8696fa577bfabcfbe756181e70a23752ee0ab4031efedd1da5dc68"
     },
     {
       "path": "src/sdk/events.ts",
@@ -1590,8 +1590,8 @@
     {
       "path": "src/wallet/escrowView.ts",
       "mode": "100644",
-      "git_blob_sha1": "eb957f7c0b2f849a2cb60e26edecd605b1e15b46",
-      "sha256": "2116ec07dab3acb988bc94d9e0ec7fdeeec010be3da27e8e149a9b213cad5fb0"
+      "git_blob_sha1": "f1cf34a79f0663ad551af684f71beede24d3e21f",
+      "sha256": "003ecaee98146f299f6789b39be4f848811badaa2afba57912de08b44c58ffc7"
     },
     {
       "path": "src/wallet/finality.ts",
@@ -1620,8 +1620,8 @@
     {
       "path": "src/wallet/legacyClearingSession.ts",
       "mode": "100644",
-      "git_blob_sha1": "4e88f60e4808d9f2f0d32fcff8ac1764c5f757d3",
-      "sha256": "6370ff0587d4d3737cec014859dea265ac7d6c227dd7bcc6566a03ae1c2b5a7d"
+      "git_blob_sha1": "1548407521a9256dc48829254b0c1442ede56e84",
+      "sha256": "926ad47cd410dcb64fc69d7b42b50dd1fcc4ced06d5b0636fc9d4e123ba07c9d"
     },
     {
       "path": "src/wallet/linkedChainView.ts",
@@ -1656,8 +1656,8 @@
     {
       "path": "src/wallet/renderEscrow.ts",
       "mode": "100644",
-      "git_blob_sha1": "7300c437f1053a3235905d98e95c86b86f50b12e",
-      "sha256": "ff227f8fbc1167efaa54bd33016dce06e41b492c4ac5a2389cb44d4b7884d638"
+      "git_blob_sha1": "2f34dea4588150a1cf8e9e3aaf85852850138fe2",
+      "sha256": "294dc980c3fa4d9344a84a7b816511e29d4d96992c62038a2c9b755bd45860d1"
     },
     {
       "path": "src/wallet/renderFreshness.ts",
@@ -2016,8 +2016,8 @@
     {
       "path": "web/login-core.mjs",
       "mode": "100644",
-      "git_blob_sha1": "3a81c7708f3ee4f256fae2c4e6c505f271c9cc8e",
-      "sha256": "f7931e79caa4251e5e749ee8c677f8fd9639043e4f72a4557c26ed61cd54e4f8"
+      "git_blob_sha1": "e8d36a4c90e76a77065a16799fe46ecffcffabd0",
+      "sha256": "fa7c752bb73e7ad658cba67486c1599bada50c0b63336b0ee92007c8912aef57"
     },
     {
       "path": "web/method-change-ui.mjs",
