@@ -3,6 +3,7 @@ import { normalizeListingResult, listingCompletion, historicalListingResult } fr
 import { sha256, toUtf8Bytes } from '../dist/browser/vendor/ethers.js';
 import { freezeTaskObservationPolicy, normalizeObservationVerifier, normalizeTaskObservation } from '../dist/browser/agent/receiptObservation.js';
 import { freezeTaskPolicy, normalizeAuthorizationReference, normalizeNftListingAuthorizationReference, normalizeTaskBudget } from '../dist/browser/agent/taskContract.js';
+import { freezeReceiptTask, normalizeReceiptAttempts } from '../dist/browser/agent/receiptTask.js';
 export class TaskUiError extends Error {
   constructor(code) { super(code); this.name = 'TaskUiError'; this.code = code; }
 }
@@ -144,7 +145,7 @@ export class TaskAuthorizationClient {
   constructor({ request, context }) { this.#request = request; this.#context = Object.freeze({ ...context }); }
   task(value) {
     insist(value && typeof value === 'object');
-    const task = freezeTaskPolicy(value.policy), context = this.#context;
+    const task = value.policy?.intent?.kind === 'artfi-receipt' ? freezeReceiptTask(value.policy) : freezeTaskPolicy(value.policy), context = this.#context;
     insist(task.digest === value.digest, 'TASK_DIGEST_MISMATCH');
     insist(task.policy.origin === context.origin && task.policy.tenant === context.tenant &&
       task.policy.chainId === context.chainId && task.policy.actor === context.account.toLowerCase(), 'TASK_IDENTITY_REFUSED');
@@ -172,12 +173,13 @@ export class TaskAuthorizationClient {
     insist(authorization === null ? budget === null : budget?.taskDigest === task.digest &&
       budget.schema === (valuationPolicy ? '8415-task-budget/2' : '8415-task-budget/1'));
     if (valuationPolicy) insist(budget?.reservations.every(item => item.submission === null || item.submission.chainId === task.policy.chainId) ?? true, 'TASK_LISTING_SUBMISSION_REFUSED');
-    const executionState = budget?.reservations.some(item => item.status === 'outcome-unknown') ? 'unknown' :
+    const receiptAttempts = task.policy.intent.kind === 'artfi-receipt' ? normalizeReceiptAttempts(task, value.receiptAttempts ?? []) : null;
+    const executionState = receiptAttempts?.some(item => item.status === 'outcome-unknown') ? 'unknown' : receiptAttempts?.length ? 'submitted' : budget?.reservations.some(item => item.status === 'outcome-unknown') ? 'unknown' :
       budget?.reservations.some(item => item.status === 'submitted') ? (valuationPolicy ? 'listed' : 'submitted') :
       budget?.reservations.some(item => item.status === 'reserved') ? 'reserved' : 'not-started';
     // Readiness is not authority or success. Only the authenticated service can
     // continue this task; quotes, provider events and references cannot execute it.
-    return freeze({ task, executor, ...(valuationPolicy ? { valuationPolicy, listing: { ...value.listing } } : {}), ...observationView(value, task, executor, budget, authorization, allowFresh), authorization: authorization ? { ...authorization } : null, effectiveStatus: value.effectiveStatus, budget, executionState,
+    return freeze({ task, executor, ...(receiptAttempts ? { receiptAttempts } : {}), ...(valuationPolicy ? { valuationPolicy, listing: { ...value.listing } } : {}), ...observationView(value, task, executor, budget, authorization, allowFresh), authorization: authorization ? { ...authorization } : null, effectiveStatus: value.effectiveStatus, budget, executionState,
       capabilities: { executable: false, adapterConfigured: value.capabilities.adapterConfigured, receiptVerifierConfigured: value.capabilities.receiptVerifierConfigured, missing: [...value.capabilities.missing] } });
   }
   async list() {

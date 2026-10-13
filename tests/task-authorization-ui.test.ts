@@ -12,6 +12,7 @@ import { CATALOGS, setLocale, renderUi } from '../web/i18n.mjs';
 const moduleText = readFileSync(new URL('../web/task-authorization.mjs', import.meta.url), 'utf8')
   .replace('./task-listing-results.mjs', new URL('../web/task-listing-results.mjs', import.meta.url).href)
   .replace('../dist/browser/agent/taskContract.js', new URL('../src/agent/taskContract.ts', import.meta.url).href)
+  .replace('../dist/browser/agent/receiptTask.js', new URL('../src/agent/receiptTask.ts', import.meta.url).href)
   .replace('../dist/browser/agent/receiptObservation.js', new URL('../src/agent/receiptObservation.ts', import.meta.url).href)
   .replace('../dist/browser/vendor/ethers.js', import.meta.resolve('ethers'));
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(moduleText).toString('base64')}`;

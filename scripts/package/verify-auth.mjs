@@ -48,6 +48,7 @@ export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
   'server/task-journal-capabilities.mjs', 'server/task-listing-results.mjs', 'web/task-listing-results.mjs',
   'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
   'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
+  'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
   'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',

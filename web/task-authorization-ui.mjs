@@ -134,20 +134,25 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
         if (view.authorization) row('task.authorizationSchema', view.authorization.schema);
         if (view.listing && !view.listing.settlementObservationConfigured) note('task.listingEvidenceMissing');
       } else {
-        row('task.intent', policy.intent.operation.kind);
+        if (policy.intent.kind === 'artfi-receipt') {
+          row('task.intent', policy.intent.kind);
+          row('task.contract', policy.intent.escrow);
+          row('task.tokenId', policy.intent.sale.tokenId);
+          note('Fixed receipt phases: ' + policy.intent.phases.map(p => p.phase).join(', '));
+        } else row('task.intent', policy.intent.operation.kind);
         const fields = (object, prefix = '') => { for (const [key, value] of Object.entries(object)) {
           if (value && typeof value === 'object') fields(value, `${prefix}${key}.`);
           else { const item = document.createElement('div'); item.className = 'review-row';
             const name = document.createElement('span'), data = document.createElement('strong');
             name.textContent = `${prefix}${key}`; data.textContent = value; item.append(name, data); el('task-summary').append(item); }
-        } }; fields(policy.intent.operation);
+        } }; fields(policy.intent.kind === 'artfi-receipt' ? policy.intent : policy.intent.operation);
       }
       row('task.expiry', `${policy.expiresAt} (Unix seconds)`);
       row('task.feeEach', `${policy.fees.perOperationWei} wei`); row('task.feeTotal', `${policy.fees.totalWei} wei`);
       el('task-canonical').textContent = JSON.stringify(view.valuationPolicy ? { taskPolicy: policy, valuationPolicy: view.valuationPolicy } : policy, null, 2);
       el('task-missing').textContent = view.capabilities.missing.join('\n');
       paint(el('task-execution-status'), msg(view.valuationPolicy && view.executionState === 'unknown' ? 'task.execution.listingUnknown' : `task.execution.${view.executionState}`));
-      el('task-operations').textContent = JSON.stringify(view.budget?.reservations ?? [], null, 2);
+      el('task-operations').textContent = JSON.stringify(view.receiptAttempts ?? view.budget?.reservations ?? [], null, 2);
     } else { for (const id of ['task-policy-status', 'task-verifier-status', 'task-completion', 'task-observation-freshness', 'task-observations']) el(id).textContent = '';
       el('task-observation-states').replaceChildren(); el('task-canonical').textContent = ''; el('task-missing').textContent = ''; el('task-execution-status').textContent = ''; el('task-operations').textContent = ''; }
     el('task-authorize-fields').hidden = snapshot.phase !== 'review';
