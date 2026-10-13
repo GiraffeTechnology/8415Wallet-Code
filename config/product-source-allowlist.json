@@ -666,8 +666,8 @@
     {
       "path": "docs/WALLET-LOGIN.md",
       "mode": "100644",
-      "git_blob_sha1": "1fc40dd051e1d304472aef195dfcb614710f4ebb",
-      "sha256": "e281155df1f3c965ae5565c55aac765b61b5778fa0ab328b6742dd535318cf4b"
+      "git_blob_sha1": "e3d18171ab4ec2ca8f1a1c0366f6a0e516daa7ef",
+      "sha256": "89d0343fc58b5a343e9b20b5c88c5e189d9f4ccb33d8eb8fbadaa5e6553283c7"
     },
     {
       "path": "docs/XIONGAN-WALLET.md",
@@ -2016,8 +2016,8 @@
     {
       "path": "web/login-core.mjs",
       "mode": "100644",
-      "git_blob_sha1": "3a81c7708f3ee4f256fae2c4e6c505f271c9cc8e",
-      "sha256": "f7931e79caa4251e5e749ee8c677f8fd9639043e4f72a4557c26ed61cd54e4f8"
+      "git_blob_sha1": "e8d36a4c90e76a77065a16799fe46ecffcffabd0",
+      "sha256": "fa7c752bb73e7ad658cba67486c1599bada50c0b63336b0ee92007c8912aef57"
     },
     {
       "path": "web/method-change-ui.mjs",
