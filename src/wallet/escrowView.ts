@@ -1,5 +1,5 @@
-import type { Trade, TradeObservation } from '../sdk/escrow.ts';
-import type { Address, Instant, Version } from '../sdk/types.ts';
+import type { Trade, TradeObservation, ReleaseConfirmation } from '../sdk/escrow.ts';
+import type { Address, Bytes32, Instant, Version } from '../sdk/types.ts';
 
 /**
  * What a trade held in escrow means to the person in it.
@@ -61,6 +61,8 @@ export type EscrowView = {
   /** The entry that confirmed the buyer, once one exists. */
   readonly confirmingVersion: Version | undefined;
   readonly confirmingEffectiveAt: Instant | undefined;
+  /** Present only when the release's exact event ABI carried a commitment. */
+  readonly confirmingRecordCommitment: Bytes32 | undefined;
   /** Absent before the trade is funded, when no clock is running. */
   readonly window: DeadlineWindow | undefined;
   /**
@@ -76,6 +78,7 @@ export function buildEscrowView(
   trade: Trade,
   observation: TradeObservation,
   now: Instant,
+  release?: ReleaseConfirmation,
 ): EscrowView {
   const state = classify(trade, observation, now);
   const window =
@@ -87,7 +90,13 @@ export function buildEscrowView(
         }
       : undefined;
 
-  const confirming = observation.version === 0n ? undefined : observation.version;
+  // Current register observations can move after release. Without separately
+  // recorded release evidence the historical anchor is unknown, not latest.
+  const anchor = trade.state === 'RELEASED' ? release
+    : trade.state === 'FUNDED' && observation.confirmed
+      ? { version: observation.version, effectiveAt: observation.effectiveAt }
+      : undefined;
+  const confirming = anchor?.version === 0n ? undefined : anchor?.version;
 
   return {
     state,
@@ -100,7 +109,9 @@ export function buildEscrowView(
     seller: trade.seller,
     price: trade.price,
     confirmingVersion: confirming,
-    confirmingEffectiveAt: confirming === undefined ? undefined : observation.effectiveAt,
+    confirmingEffectiveAt: confirming === undefined ? undefined : anchor?.effectiveAt,
+    confirmingRecordCommitment: trade.state === 'RELEASED' && confirming !== undefined
+      ? release?.recordCommitment : undefined,
     window,
     provisionalNote:
       state === 'confirmed' || state === 'released' ? PROVISIONAL : undefined,
