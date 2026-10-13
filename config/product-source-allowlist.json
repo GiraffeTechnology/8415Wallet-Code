@@ -1132,8 +1132,8 @@
     {
       "path": "src/browser.ts",
       "mode": "100644",
-      "git_blob_sha1": "e33bb0737555c69adbccbe76500ef2da29a5754e",
-      "sha256": "942bab208b91833c81f735ed5fb78e093b645bbe975315395c5c4f03fbb2586a"
+      "git_blob_sha1": "54b81b364134d05880b0360bd1055ef913eb0737",
+      "sha256": "61ef3ce8d66cb52a60853a8719835342290360b9d59983599c3694d23061f7ff"
     },
     {
       "path": "src/cli/args.ts",
