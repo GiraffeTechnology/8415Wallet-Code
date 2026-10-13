@@ -119,6 +119,10 @@ export class WalletLogin {
           time < verified.expiresAt && verified.expiresAt - verified.issuedAt <= LOGIN_LIFETIME_MS, 'LOGIN_SERVER_SESSION_REFUSED');
         const latest = await this.#identity(provider); current();
         insist(latest.account === identity.account && latest.chainId === identity.chainId, 'LOGIN_ACCOUNT_OR_CHAIN_CHANGED');
+        // The provider recheck can outlive the verified server session.
+        // Revalidate time and origin before publishing a successful login.
+        const commitTime = this.#now();
+        insist(commitTime >= time && commitTime < verified.expiresAt && this.#origin() === origin, 'LOGIN_SERVER_SESSION_REFUSED');
         this.#abort = new AbortController(); this.#provider = provider; this.#server = server;
         this.#session = Object.freeze({ id: epoch, serverId: verified.id, tenant: verified.tenant, ...identity, origin,
           issuedAt: verified.issuedAt, expiresAt: verified.expiresAt, kind: verified.kind });

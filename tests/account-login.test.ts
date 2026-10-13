@@ -34,3 +34,55 @@ test('a connected but substituted provider cannot reuse password authentication'
   const f = fixture(); await f.login.signIn(f.provider, f.server); f.state.account = Wallet.createRandom().address;
   await assert.rejects(f.login.check(), /CHANGED/); assert.throws(() => f.login.assert());
 });
+
+for (const mutation of ['expiry', 'backward-clock', 'origin']) test(`server login rechecks ${mutation} after its final provider identity wait`, async () => {
+  const f = fixture();
+  let currentOrigin = origin, authenticated = false;
+  const login = new WalletLogin({
+    crypto: { verifyMessage, getAddress, hashMessage, Interface },
+    origin: () => currentOrigin,
+    now: () => f.state.now,
+  });
+  const notifications: string[] = [];
+  login.subscribe((_session: unknown, reason: string) => notifications.push(reason));
+  const originalRequest = f.provider.request;
+  f.provider.request = async args => {
+    const result = await originalRequest(args);
+    if (authenticated && args.method === 'eth_chainId') {
+      if (mutation === 'expiry') f.state.now = f.session.expiresAt;
+      if (mutation === 'backward-clock') f.state.now = f.session.issuedAt - 1;
+      if (mutation === 'origin') currentOrigin = 'https://other.example.invalid:18443';
+    }
+    return result;
+  };
+  const server = { ...f.server, async authenticate() {
+    const session = await f.server.authenticate();
+    authenticated = true;
+    return session;
+  } };
+  await assert.rejects(login.signIn(f.provider, server), /LOGIN_SERVER_SESSION_REFUSED/);
+  assert.equal(notifications.includes('LOGIN_VERIFIED'), false);
+  assert.equal(f.state.revoked, 1);
+  assert.throws(() => login.assert(), /LOGIN_REQUIRED/);
+});
+
+test('server login accepts a delayed final identity read while its original session is still valid', async () => {
+  const f = fixture();
+  let authenticated = false;
+  const originalRequest = f.provider.request;
+  f.provider.request = async args => {
+    const result = await originalRequest(args);
+    if (authenticated && args.method === 'eth_chainId') f.state.now = f.session.expiresAt - 1;
+    return result;
+  };
+  const server = { ...f.server, async authenticate() {
+    const session = await f.server.authenticate();
+    authenticated = true;
+    return session;
+  } };
+  const session = await f.login.signIn(f.provider, server);
+  assert.equal(session.expiresAt, f.session.expiresAt);
+  assert.equal(session.issuedAt, f.session.issuedAt);
+  assert.equal(f.login.assert().id, session.id);
+  assert.equal(f.state.revoked, 0);
+});
