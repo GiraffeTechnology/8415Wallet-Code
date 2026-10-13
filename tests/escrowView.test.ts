@@ -152,3 +152,28 @@ describe('trade keys', () => {
     assert.notEqual(tradeKey(`0x${'aa'.repeat(20)}`, localId), tradeKey(`0x${'bb'.repeat(20)}`, localId));
   });
 });
+
+describe('late admissions after release', () => {
+  const commitment = `0x${'22'.repeat(32)}` as const;
+  const latest = observation({ state: 'RELEASED', confirmed: false, version: 3n,
+    effectiveAt: NOW - 59n, confirmedHolder: SELLER, positionHolder: BUYER, entryCount: 3n });
+  test('latest v3 is not presented as the entry on which the completed release rested', () => {
+    const view = buildEscrowView(trade('RELEASED'), latest, NOW);
+    assert.equal(view.confirmingVersion, undefined);
+    assert.equal(view.confirmingEffectiveAt, undefined);
+    assert.equal(view.confirmedHolder, SELLER);
+    assert.equal(view.positionHolder, BUYER);
+    assert.equal(view.state, 'released');
+  });
+  test('a separately recorded release anchor remains v2 while the current observation becomes v3', () => {
+    const release = { version: 2n, effectiveAt: NOW - 60n, recordCommitment: commitment };
+    const view = buildEscrowView(trade('RELEASED'), latest, NOW, release);
+    assert.equal(view.confirmingVersion, 2n);
+    assert.equal(view.confirmingEffectiveAt, NOW - 60n);
+    assert.equal(view.confirmingRecordCommitment, commitment);
+    assert.equal(view.confirmedHolder, SELLER);
+    assert.equal(view.state, 'released');
+    assert.match(renderEscrow(view), /Confirming entry\s+v2/);
+    assert.match(renderEscrow(view), /Release commitment/);
+  });
+});

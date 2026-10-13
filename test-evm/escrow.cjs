@@ -142,6 +142,7 @@ describe('ProjectionEscrow', function () {
         JSON.stringify(error).toLowerCase().includes(selector),
         `expected ${name}, got ${error.message}`
       );
+      return error;
     }
   };
 
@@ -363,5 +364,80 @@ describe('ProjectionEscrow', function () {
     await rejects(escrow.connect(buyer).fund(TRADE, { value: PRICE - 1n }), 'WrongPayment');
     await fund();
     await rejects(fund(), 'WrongState');
+  });
+
+  it('late v3 changes provisional history but cannot rewrite a completed v2 release', async () => {
+    await openTrade();
+    await fund();
+    const e2 = now - 60n;
+    await admit({ effectiveAt: e2 });
+    const terms = await escrow.tradeOf(TRADE);
+    const sellerBefore = await ethers.provider.getBalance(seller.address);
+    const receipt = await (await escrow.connect(stranger).release(TRADE)).wait();
+    const releaseTime = BigInt((await ethers.provider.getBlock(receipt.blockNumber)).timestamp);
+    const releaseLog = receipt.logs.find((log) => log.address === escrow.target);
+    const released = escrow.interface.parseLog(releaseLog);
+    assert.equal(released.name, 'TradeReleased');
+    assert.equal(released.args.version, 2n);
+    assert.equal(released.args.effectiveAt, e2);
+    assert.equal(await ethers.provider.getBalance(seller.address) - sellerBefore, PRICE);
+    const balances = await Promise.all([seller.address, buyer.address, escrow.target].map((a) => ethers.provider.getBalance(a)));
+    const C3 = b32('late-commitment-v3');
+    const e3 = e2 + 1n;
+    assert.ok(e2 < e3 && e3 <= releaseTime);
+    await admit({ settlementId: b32('late-settlement-v3'), holder: stranger.address,
+      previous: C2, commitment: C3, reference: b32('late-reference-v3'), version: 3n,
+      effectiveAt: e3, height: remoteHeight + 1n });
+    const admittedAt = BigInt((await ethers.provider.getBlock('latest')).timestamp);
+    assert.ok(admittedAt > releaseTime);
+    const historical = await projection.entryAt(TOKEN, 2n);
+    assert.equal(historical.recordCommitment, C2);
+    assert.equal(historical.holder, buyer.address);
+    assert.equal(historical.effectiveAt, e2);
+    assert.equal(historical.supersededAt, e3);
+    const atRelease = await projection.entryAsOf(TOKEN, releaseTime);
+    assert.equal(atRelease.version, 3n);
+    assert.equal(atRelease.recordCommitment, C3);
+    assert.equal(atRelease.holder, stranger.address);
+    assert.equal(await projection.isFinalAsOf(TOKEN, releaseTime), false);
+    assert.equal(await projection.ownerOf(TOKEN), buyer.address);
+    assert.deepEqual(Array.from(await escrow.tradeOf(TRADE)), Array.from(terms).map((v, i) => i === terms.length - 1 ? 3n : v));
+    assert.deepEqual(await Promise.all([seller.address, buyer.address, escrow.target].map((a) => ethers.provider.getBalance(a))), balances);
+    const beforeFailuresBlock = (await ethers.provider.getBlock('latest')).number;
+    await rejects(escrow.connect(stranger).release(TRADE), 'WrongState');
+    await rejects(escrow.connect(stranger).refund(TRADE), 'WrongState');
+    await rejects(fund(), 'WrongState');
+    await rejects(escrow.connect(seller).abandon(TRADE), 'WrongState');
+    await rejects(escrow.connect(seller).open(LOCAL, projection.target, TOKEN, buyer.address,
+      PRICE, terms.admissionDeadline, terms.maxEffectiveAt), 'AlreadyExists');
+    assert.equal(await projection.ownerOf(TOKEN), buyer.address);
+    assert.deepEqual(Array.from(await escrow.tradeOf(TRADE)), Array.from(terms).map((v, i) => i === terms.length - 1 ? 3n : v));
+    assert.equal(await ethers.provider.getBalance(escrow.target), balances[2]);
+    // Reverted sends can still be mined and charge gas. Reconcile each actual
+    // failed receipt; no principal or token movement is attributed to gas.
+    const afterFailuresBlock = (await ethers.provider.getBlock('latest')).number;
+    assert.ok(afterFailuresBlock - beforeFailuresBlock <= 8);
+    let sellerGas = 0n, buyerGas = 0n;
+    for (let n = beforeFailuresBlock + 1; n <= afterFailuresBlock; n++) {
+      const block = await ethers.provider.getBlock(n);
+      for (const hash of block.transactions) {
+        const failed = await ethers.provider.getTransactionReceipt(hash);
+        assert.equal(failed.status, 0);
+        assert.equal(failed.to, escrow.target);
+        const gas = failed.gasUsed * failed.gasPrice;
+        if (failed.from === seller.address) sellerGas += gas;
+        if (failed.from === buyer.address) buyerGas += gas;
+      }
+    }
+    assert.equal(balances[0] - await ethers.provider.getBalance(seller.address), sellerGas);
+    assert.equal(balances[1] - await ethers.provider.getBalance(buyer.address), buyerGas);
+    assert.equal(released.args.recordCommitment, C2, 'release event must pin its original v2 commitment');
+    const legacy = new ethers.Interface(['event TradeReleased(bytes32 indexed tradeKey,address indexed buyer,uint64 version,uint64 effectiveAt)']);
+    assert.equal(legacy.parseLog(releaseLog), null, 'new topic is never decoded as old ABI');
+    const oldLog = legacy.encodeEventLog(legacy.getEvent('TradeReleased'), [TRADE, buyer.address, 2n, e2]);
+    const oldRelease = legacy.parseLog(oldLog);
+    assert.equal(oldRelease.args.version, 2n);
+    assert.equal(oldRelease.args.recordCommitment, undefined, 'old logs cannot gain an invented commitment');
+    assert.equal(escrow.interface.parseLog(oldLog), null, 'old topic is never decoded as new ABI');
   });
 });
