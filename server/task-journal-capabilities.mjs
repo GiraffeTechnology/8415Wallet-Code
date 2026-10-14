@@ -9,6 +9,16 @@ const fail = (code, status = 403) => { const error = Error(code); error.status =
 const check = (ok, code = 'TASK_JOURNAL_CAPABILITY_REFUSED', status = 403) => { if (!ok) fail(code, status); };
 const hash = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const receiptPhases = ['funded', 'registered', 'paid'];
+/** A receipt snapshot carries the frozen phase slot instead of a listing child.
+ * Both shapes are rejected unless every binding field the principal needs is a
+ * plain own value, so neither path can be satisfied by the other's snapshot. */
+const receiptScope = snapshot => {
+  const scope = snapshot?.scope;
+  if (!scope || Object.getPrototypeOf(scope) !== Object.prototype || snapshot.child) return null;
+  return receiptPhases.includes(scope.phase) && /^0x[a-f0-9]{64}$/.test(scope.planDigest ?? '') &&
+    /^0x[a-f0-9]{64}$/.test(scope.journalBindingHash ?? '') ? scope : null;
+};
 const bindingKeys = ['taskId', 'taskDigest', 'executorDigest', 'grantReference', 'grantPolicyVersion', 'operationId'];
 const scopeKeys = ['peerId', 'principal', 'action', 'nativeOperationId', 'planDigest', 'requestDigest', 'operation'];
 const consumeKeys = ['capability', 'peerId', 'action', 'nativeOperationId', 'planDigest', 'requestDigest'];
@@ -26,7 +36,8 @@ export function createTaskJournalCapabilities({ peerId, consumerPeerId, digest, 
     check(exact(claimed, ['kind', ...bindingKeys]) && claimed.kind === 'task');
     const expected = { taskId: snapshot.task.policy.taskId, taskDigest: snapshot.task.digest, executorDigest: snapshot.executor.digest,
       grantReference: snapshot.grantReference, grantPolicyVersion: snapshot.grantPolicyVersion,
-      operationId: snapshot.child?.child.operationId ?? `listing:${snapshot.task.digest.slice(2)}` };
+      operationId: receiptScope(snapshot) ? snapshot.operationId
+        : snapshot.child?.child.operationId ?? `listing:${snapshot.task.digest.slice(2)}` };
     check(bindingKeys.every(key => same(claimed[key], expected[key])), 'TASK_JOURNAL_PRINCIPAL_REFUSED');
     return structuredClone(claimed);
   }
@@ -55,6 +66,7 @@ export function createTaskJournalCapabilities({ peerId, consumerPeerId, digest, 
       (scope.action === 'get' ? scope.planDigest === '' && exact(operation, ['id']) : digest(operation.plan) === scope.planDigest), 'TASK_JOURNAL_REQUEST_BINDING_REFUSED');
     check(scope.action !== 'create' || held.purpose === 'prepare', 'TASK_JOURNAL_ACTION_REFUSED');
     check(scope.action !== 'update' || ['review', 'publish', 'observe'].includes(held.purpose), 'TASK_JOURNAL_ACTION_REFUSED');
+    const receipt = receiptScope(held.snapshot);
     if (scope.action !== 'get') {
       check(operation.plan?.operationId === operation.id && digest(operation.plan.taskPrincipal) === digest(p) &&
         (!held.snapshot.child || operation.plan.id === held.snapshot.child.child.nativePlanId && nativeDigest(operation.plan) === held.snapshot.child.child.reviewDigest) &&
@@ -64,9 +76,18 @@ export function createTaskJournalCapabilities({ peerId, consumerPeerId, digest, 
     const issuedAtMs = clock(); sweep(issuedAtMs);
     check(entries.size < maximum, 'TASK_JOURNAL_CAPABILITY_BUSY', 503);
     const capability = randomBytes(32).toString('base64url');
+    // The frozen phase commitment travels in the authenticated claim rather than
+    // being equated with the journal's own plan digest. The two are different
+    // namespaces: the phase commitment is fixed before the human approval, while
+    // the journal plan identity derives from the grant reference that approval
+    // produces. Equating them could only be satisfied by knowing the grant
+    // before it exists, which is the dependency cycle this path has to avoid.
+    // The consumer binds its journal entry to the committed phase instead.
     const claim = Object.freeze({ principal: p, wallet: held.snapshot.task.policy.actor, chainId: Number(held.snapshot.task.policy.chainId),
       action: scope.action, nativeOperationId: scope.nativeOperationId, planDigest: scope.planDigest,
-      requestDigest: scope.requestDigest, issuedAtMs, expiresAtMs: issuedAtMs + ttlMs, peerId });
+      requestDigest: scope.requestDigest, issuedAtMs, expiresAtMs: issuedAtMs + ttlMs, peerId,
+      ...(receipt ? { receiptPhase: receipt.phase, receiptNonce: receipt.nonce,
+        receiptPlanDigest: receipt.planDigest, receiptJournalBindingHash: receipt.journalBindingHash } : {}) });
     entries.set(capability, { ...claim, scope: held }); held.keys.add(capability);
     try { held.recheck(); return await use(capability); }
     finally { entries.delete(capability); held.keys.delete(capability); }
