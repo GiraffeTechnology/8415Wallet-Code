@@ -38,7 +38,8 @@ export function createTaskReceiptRuntime({ store, journalStore, peerId, consumer
       // held read gate. Refused here, once, at connection time.
       independent(journalStore);
       const gate = configured.withAuthorization.bind(configured), prepare = configured.withPreparation.bind(configured);
-      /** Both receipt gates read the grant store. The store serializes every
+      const readState = configured.readState.bind(configured);
+      /** All receipt reads and gates read the grant store. The store serializes every
        * read gate and write on one queue and documents that a callback must not
        * re-enter it, so opening a second gate from inside a held one would wait
        * on a lock its own caller holds and never return. Refused immediately
@@ -47,16 +48,23 @@ export function createTaskReceiptRuntime({ store, journalStore, peerId, consumer
         const error = Error('TASK_RECEIPT_GATE_REENTRY_REFUSED'); error.status = 500; throw error; } };
       authority = Object.freeze({
         assertIndependentStore: independent,
-        readState: configured.readState.bind(configured),
-        withPreparation(claimed, purpose, action) {
+        readState(claimed) {
           outermost();
+          return readState(claimed);
+        },
+        withPreparation(rawClaimed, purpose, action) {
+          outermost();
+          // Detach before the authority's first await. The same immutable
+          // binding must be validated and later used for the journal principal.
+          const claimed = Object.freeze(structuredClone(rawClaimed));
           return prepare(claimed, purpose, (snapshot, recheck) =>
             capabilities.withHeld(journalSnapshot(snapshot, claimed), recheck, purpose, () => action(snapshot, recheck)));
         },
         /** One send per phase. The gate is opened by the send, never by the
          * journal, so a journal call can never consume a permitted attempt. */
-        withAuthorization(claimed, wire, action) {
+        withAuthorization(rawClaimed, wire, action) {
           outermost();
+          const claimed = Object.freeze(structuredClone(rawClaimed));
           return gate(claimed, wire, (snapshot, recheck) =>
             capabilities.withHeld(journalSnapshot(snapshot, claimed), recheck, 'publish', () => action(snapshot, recheck)));
         },

@@ -1013,8 +1013,8 @@
     {
       "path": "server/task-receipt-runtime.mjs",
       "mode": "100644",
-      "git_blob_sha1": "444b5ef860738704d5e1e3fc1546395e3096b22d",
-      "sha256": "f51cb20ba65967d795c8d9a606056ba204bd77aa60be7d8c8574d8d5151622fb"
+      "git_blob_sha1": "2d69a3afffc2850721b1136da7cb348cb31086f4",
+      "sha256": "fe71146a738c6756350846429f1e7a2e055925116e5d504fb0ac85d994fe6c1c"
     },
     {
       "path": "server/task-runtime-import-probe.mjs",

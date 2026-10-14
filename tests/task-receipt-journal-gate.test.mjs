@@ -252,3 +252,59 @@ test('a disabled receipt runtime refuses every capability path', async () => {
   assert.throws(() => disabled.consumeCapability({}, CONSUMER), /TASK_RECEIPT_NOT_CONFIGURED/);
   assert.throws(() => disabled.connectAuthorization({}), /TASK_RECEIPT_NOT_CONFIGURED/);
 });
+
+for (const gate of ['withPreparation', 'withAuthorization']) {
+  test(`${gate} keeps the validated journal binding when the caller mutates its claim`, async () => {
+    const f = fixture(), g = await f.grant(), x = f.operation(g, 'funded');
+    const original = structuredClone(x.claimed);
+    let consumed = false;
+    const action = async () => {
+      const request = f.journalScope(g, 'funded', 'get');
+      // A self-consistent journal request for the substituted principal must
+      // still be refused, even though the caller changed its original claim.
+      const forged = structuredClone(request);
+      for (const key of ['grantReference', 'grantPolicyVersion', 'operationId']) {
+        forged.principal[key] = x.claimed[key];
+      }
+      const { kind, ...binding } = forged.principal;
+      forged.nativeOperationId = `native_${sha(binding)}`;
+      forged.operation.id = forged.nativeOperationId;
+      forged.requestDigest = sha({ action: 'get', operation: forged.operation });
+      await assert.rejects(() => f.runtime.withCapability(forged, async () => {}), /TASK_JOURNAL_PRINCIPAL_REFUSED/);
+      await f.runtime.withCapability(request, async capability => {
+        const claim = f.runtime.consumeCapability({ capability, peerId: PEER, action: 'get',
+          nativeOperationId: request.nativeOperationId, planDigest: '', requestDigest: request.requestDigest }, CONSUMER);
+        for (const key of ['grantReference', 'grantPolicyVersion', 'operationId']) {
+          assert.equal(claim.principal[key], original[key]);
+        }
+        consumed = true;
+      });
+      return h('a');
+    };
+    const pending = gate === 'withPreparation'
+      ? f.authority.withPreparation(x.claimed, 'prepare', action)
+      : f.authority.withAuthorization(x.claimed, x.wire, action);
+    // Both authority methods have cloned the binding and suspended at their
+    // first await; the runtime must never read this caller-owned object again.
+    Object.assign(x.claimed, { grantReference: 'substituted-reference', grantPolicyVersion: '999', operationId: 'substituted-operation' });
+    await pending;
+    assert.equal(consumed, true);
+    const state = await f.authority.readState(original);
+    assert.equal(state.status, gate === 'withPreparation' ? 'not-attempted' : 'submitted');
+    await f.store.close();
+  });
+
+  test(`${gate} refuses readState reentry without blocking subsequent reads`, async () => {
+    const f = fixture(), g = await f.grant(), x = f.operation(g, 'funded');
+    const action = async () => {
+      assert.throws(() => f.authority.readState(x.claimed), /TASK_RECEIPT_GATE_REENTRY_REFUSED/);
+      return h('a');
+    };
+    if (gate === 'withPreparation') await f.authority.withPreparation(x.claimed, 'prepare', action);
+    else await f.authority.withAuthorization(x.claimed, x.wire, action);
+    assert.equal(f.runtime.inHeldGate(), false);
+    const state = await f.authority.readState(x.claimed);
+    assert.equal(state.status, gate === 'withPreparation' ? 'not-attempted' : 'submitted');
+    await f.store.close();
+  });
+}
