@@ -20,6 +20,8 @@ Real UI/session, Agent/signer, three-wallet flows, receipt/state validation, rel
 
 ## Test first is not task completion
 
+Regression selection is validated as a complete batch before any npm process starts: every case ID must be unique, every script must be allowed and present, and every execution reference must be a nonempty resolved string. This prevents a late invalid entry or duplicate ID from causing a partially executed, ambiguous batch. The reference remains an operator attestation, not new authority.
+
 Keep `three_wallet_acceptance`, `full_prd_delivery` and `production_ready` independent. Complete the test/diagnosis/minimal-fix/regression cycle first, then continue all remaining full-PRD Sections 1-9, Stages 0-5 and W01-24 development. Open phase PRs and start the next independent phase without waiting for CI; actual required CI, review and merge gates still apply. Neither script authorship nor passing tests marks the whole task delivered.
 
 Select the exact test candidate with its owner. This additive source is based on the independently verified PR99 commit/tree and does not overwrite its owner branch or combine PR100/101 stacks automatically. Do not expose private configuration, credentials or protected artifacts in GitHub logs or reports.

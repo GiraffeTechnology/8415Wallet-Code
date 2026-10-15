@@ -147,15 +147,21 @@ function secretOutput(value) {
 async function regress(manifest, context) {
   requireThat(Array.isArray(manifest.regressions) && manifest.regressions.length > 0, 'EXPLICIT_REGRESSION_SELECTION_REQUIRED');
   const pkg = await jsonFile(path.join(context.root, 'package.json')), results = [];
+  const caseIds = new Set();
+  // Validate the complete batch before starting its first command.
+  for (const item of manifest.regressions) {
+    requireThat(item && /^[A-Z0-9_-]+$/.test(item.caseId) && scripts.has(item.script) && typeof pkg.scripts?.[item.script] === 'string', 'REGRESSION_COMMAND_REFUSED');
+    requireThat(!caseIds.has(item.caseId), 'DUPLICATE_REGRESSION_CASE_REFUSED');
+    caseIds.add(item.caseId);
+    requireThat(typeof item.executionAuthorizationRef === 'string' && item.executionAuthorizationRef.trim().length > 0 && item.executionAuthorizationRef !== 'UNRESOLVED' && item.priorRefusalCleared === true && Number.isSafeInteger(item.timeoutMs) && item.timeoutMs > 0 && item.timeoutMs <= 3600000,
+      'EXACT_LINUX_ROUTE_AND_PRIOR_REFUSAL_RECONCILIATION_REQUIRED');
+  }
   const env = Object.fromEntries(['PATH', 'LANG', 'LC_ALL', 'TZ', 'TERM'].filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]));
   Object.assign(env, { TMPDIR: context.temporary, TMP: context.temporary, TEMP: context.temporary,
     npm_config_cache: context.cache, XDG_CACHE_HOME: context.cache, GIT_OPTIONAL_LOCKS: '0' });
   // Do not inherit live RPC, signer, database, auth-store, bearer or Node-options bindings into regression subprocesses.
   // Never install, change config, rerun CI or invoke a signer. Extra fixture inputs require a reviewed source change.
   for (const item of manifest.regressions) {
-    requireThat(/^[A-Z0-9_-]+$/.test(item.caseId) && scripts.has(item.script) && typeof pkg.scripts?.[item.script] === 'string', 'REGRESSION_COMMAND_REFUSED');
-    requireThat(item.executionAuthorizationRef && item.priorRefusalCleared === true && Number.isSafeInteger(item.timeoutMs) && item.timeoutMs > 0 && item.timeoutMs <= 3600000,
-      'EXACT_LINUX_ROUTE_AND_PRIOR_REFUSAL_RECONCILIATION_REQUIRED');
     // A manifest flag is an operator attestation, not a way to override a tool/user refusal.
     const args = ['run', item.script, ...(item.script === 'test:evm' ? ['--', '--network', 'hardhat'] : [])];
     const result = await command('npm', args, { cwd: context.root, env, timeout: item.timeoutMs });
