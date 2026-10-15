@@ -154,3 +154,69 @@ describe('identity pins cannot be rewritten by consumers', () => {
     assert.deepEqual(await pin.read(conformance), first);
   });
 });
+
+describe('identity pins remain bound to their reader source', () => {
+  for (const field of ['chainId', 'address'] as const) {
+    for (const phase of ['before first read', 'after pinning'] as const) {
+      test(`rejects changed ${field} ${phase} even with identical register facts`, async () => {
+        const { reader } = divergentToken();
+        const source = { ...reader.source };
+        let identityReads = 0;
+        const bound = delegateReader(reader, {
+          source,
+          registerId: async () => { identityReads += 1; return reader.registerId(); },
+        });
+        const pin = new ContractIdentityPin(bound);
+        const conformance = await detectConformance(bound);
+        if (phase === 'after pinning') await pin.read(conformance);
+        const originalPin = pin.pinned;
+        const priorReads = identityReads;
+        if (field === 'chainId') source.chainId += 1n;
+        else source.address = ALICE;
+        await assert.rejects(pin.read(conformance), (error: unknown) => {
+          assert.ok(error instanceof IdentityChangedError);
+          assert.match(error.message, new RegExp(field + ' changed'));
+          return true;
+        });
+        assert.equal(identityReads, priorReads, 'refuse before new identity reads');
+        assert.equal(pin.pinned, originalPin);
+      });
+    }
+  }
+
+  for (const method of ['registerId', 'verificationProfile'] as const) {
+    test(`a source change during awaited ${method} cannot establish a pin`, async () => {
+      const { reader } = divergentToken();
+      const source = { ...reader.source };
+      const changeSource = async () => {
+        const value = await reader[method]();
+        source.chainId += 1n;
+        return value;
+      };
+      const bound = delegateReader(reader, {
+        source,
+        ...(method === 'registerId'
+          ? { registerId: changeSource }
+          : { verificationProfile: changeSource }),
+      });
+      const pin = new ContractIdentityPin(bound);
+      const conformance = await detectConformance(bound);
+      await assert.rejects(pin.read(conformance), IdentityChangedError);
+      assert.equal(pin.pinned, undefined);
+    });
+  }
+
+  test('address case alone remains compatible and the captured label is stable', async () => {
+    const { reader } = divergentToken();
+    const source = { ...reader.source };
+    const bound = delegateReader(reader, { source });
+    const pin = new ContractIdentityPin(bound);
+    const conformance = await detectConformance(bound);
+    const first = await pin.read(conformance);
+    source.address = '0x' + source.address.slice(2).toUpperCase();
+    const next = await pin.read(conformance);
+    assert.deepEqual(next, first);
+    assert.equal(next.address, first.address);
+    assert.equal(Object.isFrozen(next), true);
+  });
+});

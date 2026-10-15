@@ -29,10 +29,12 @@ export type ContractIdentity = {
  */
 export class ContractIdentityPin {
   readonly #reader: Erc8415Reader;
+  readonly #source: { readonly chainId: bigint; readonly address: string };
   #pinned: ContractIdentity | undefined;
 
   constructor(reader: Erc8415Reader) {
     this.#reader = reader;
+    this.#source = Object.freeze({ chainId: reader.source.chainId, address: reader.source.address });
   }
 
   get pinned(): ContractIdentity | undefined {
@@ -47,9 +49,11 @@ export class ContractIdentityPin {
    * that was asked.
    */
   async read(conformance: Conformance): Promise<ContractIdentity> {
+    this.#assertSource();
     requireProjectionConformance(this.#reader, conformance);
 
     const registerId = await this.#reader.registerId();
+    this.#assertSource();
     if (registerId === ZERO_BYTES32) {
       throw new IdentityChangedError('registerId', 'a nonzero identifier', registerId);
     }
@@ -58,6 +62,7 @@ export class ContractIdentityPin {
     if (conformance.settlement) {
       requireSettlementConformance(this.#reader, conformance);
       verificationProfile = await this.#reader.verificationProfile!();
+      this.#assertSource();
       if (verificationProfile === ZERO_BYTES32) {
         throw new IdentityChangedError(
           'verificationProfile',
@@ -69,8 +74,8 @@ export class ContractIdentityPin {
 
     // All identity fields are primitives; freezing prevents callers from rewriting the pin.
     const observed: ContractIdentity = Object.freeze({
-      chainId: this.#reader.source.chainId,
-      address: this.#reader.source.address,
+      chainId: this.#source.chainId,
+      address: this.#source.address,
       registerId,
       verificationProfile,
     });
@@ -92,5 +97,19 @@ export class ContractIdentityPin {
       );
     }
     return observed;
+  }
+
+  #assertSource(): void {
+    const current = this.#reader.source;
+    if (current.chainId !== this.#source.chainId) {
+      throw new IdentityChangedError(
+        'chainId',
+        String(this.#source.chainId),
+        String(current.chainId),
+      );
+    }
+    if (current.address.toLowerCase() !== this.#source.address.toLowerCase()) {
+      throw new IdentityChangedError('address', this.#source.address, current.address);
+    }
   }
 }
