@@ -67,12 +67,13 @@ export class ContractIdentityPin {
       }
     }
 
-    const observed: ContractIdentity = {
+    // All identity fields are primitives; freezing prevents callers from rewriting the pin.
+    const observed: ContractIdentity = Object.freeze({
       chainId: this.#reader.source.chainId,
       address: this.#reader.source.address,
       registerId,
       verificationProfile,
-    };
+    });
 
     const pinned = this.#pinned;
     if (pinned === undefined) {

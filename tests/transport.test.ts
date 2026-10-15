@@ -252,3 +252,44 @@ describe('an address with no contract on it', () => {
     assert.equal(await reader.supportsInterface('0x6309e170'), true);
   });
 });
+
+
+describe('history response shape is not an empty-history fallback', () => {
+  const invalidReplies: readonly [string, unknown][] = [
+    ['null', { result: null }],
+    ['object', { result: {} }],
+    ['string', { result: '0x' }],
+    ['number', { result: 7 }],
+    ['boolean', { result: false }],
+    ['missing result', { jsonrpc: '2.0', id: 1 }],
+  ];
+  for (const [label, body] of invalidReplies) {
+    test(`eth_getLogs ${label} result is a transport failure, not empty history`, async () => {
+      replyWith(body);
+      const transport = new HttpCallTransport('https://node.example');
+      await assert.rejects(transport.getLogs({}), (error: unknown) => {
+        assert.ok(error instanceof TransportError);
+        assert.ok(!(error instanceof ContractRevertError));
+        assert.equal(error.method, 'eth_getLogs');
+        assert.match(error.message, /non-array log result/);
+        return true;
+      });
+    });
+  }
+
+  test('a valid empty array is preserved and the exact filter is sent', async () => {
+    const filter = { address: `0x${'cd'.repeat(20)}`, fromBlock: '0x1', toBlock: '0x2' };
+    const calls = replyWith({ result: [] });
+    const transport = new HttpCallTransport('https://node.example');
+    assert.deepEqual(await transport.getLogs(filter), []);
+    assert.deepEqual(calls, [{ method: 'eth_getLogs', params: [filter] }]);
+  });
+
+  test('a nonempty array is preserved without transport-level event reinterpretation', async () => {
+    const logs = [{ address: `0x${'cd'.repeat(20)}`, topics: [`0x${'11'.repeat(32)}`],
+      data: '0x', blockNumber: '0x1', logIndex: '0x0' }];
+    replyWith({ result: logs });
+    const transport = new HttpCallTransport('https://node.example');
+    assert.deepEqual(await transport.getLogs({}), logs);
+  });
+});

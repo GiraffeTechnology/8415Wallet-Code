@@ -75,7 +75,10 @@ export class HttpCallTransport implements CallTransport {
 
   async getLogs(filter: Record<string, unknown>): Promise<unknown[]> {
     const result = await this.#request('eth_getLogs', [filter]);
-    return Array.isArray(result) ? result : [];
+    if (!Array.isArray(result)) {
+      throw new TransportError('eth_getLogs', 'returned a non-array log result');
+    }
+    return result;
   }
 
   async blockNumber(): Promise<bigint> {
