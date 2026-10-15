@@ -386,3 +386,13 @@ mountAssetWorkspace({
       payments: releaseProfile?.features.linkedResponsibilities ? session?.payments : null };
   },
 });
+
+import { mountAuditExport } from './audit-export-panel.mjs';
+mountAuditExport({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment || !provider) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId') };
+  },
+});
