@@ -73,7 +73,8 @@ export type ReleaseHistoryComparison = {
   readonly notes: readonly string[];
 };
 export class JourneyEvidenceError extends Error {
-  constructor(readonly code: string) { super(code); this.name = 'JourneyEvidenceError'; }
+  readonly code: string;
+  constructor(code: string) { super(code); this.name = 'JourneyEvidenceError'; this.code = code; }
 }
 function requireEvidence(ok: boolean, code: string): asserts ok {
   if (!ok) throw new JourneyEvidenceError(code);
@@ -150,7 +151,7 @@ export function captureHoodiRelease(
   requireEvidence(Array.isArray(input.acceptedConditions) &&
     input.acceptedConditions.length > 0 && input.acceptedConditions.length <= 128 &&
     input.acceptedConditions.every(hash), 'ACCEPTED_CONDITIONS_REQUIRED');
-  requireEvidence(v2.entry.version === 2n &&
+  requireEvidence(v2.entry.version === 2n && v2.entry.supersededAt === 0n &&
     v2.admission.recordedAt <= input.release.recordedAt &&
     v2.admission.blockNumber <= input.release.blockNumber &&
     v2.entry.effectiveAt <= input.release.recordedAt, 'V2_NOT_KNOWN_AT_RELEASE');
