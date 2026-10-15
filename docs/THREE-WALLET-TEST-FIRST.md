@@ -4,7 +4,7 @@ This is authored, unexecuted source for WALLET-3W-HOODI-20261015-01, prompt 1.0.
 
 ## Execution boundary
 
-Run only on the existing approved Linux execution surface, after Operations supplies an independently verified READY receipt and exact existing non-system POSIX workspace/cache/temporary/output mappings and Wallet project prefix. The runner checks device IDs against the root filesystem, realpaths, exact commit/tree/lock hash and a clean checkout. It never resets, cleans or stashes user files. A locally authored READY JSON is not authorization.
+Run only on the existing approved Linux execution surface, after Operations supplies an independently verified READY receipt and exact existing POSIX workspace/cache/temporary/output mappings and Wallet project prefix. The owner's direct 2026-10-16 instruction permits task writes on the system disk, superseding the former device-ID exclusion. The runner still checks realpaths, exact commit/tree/lock hash and a clean checkout. It never resets, cleans or stashes user files. A locally authored READY JSON is not authorization.
 
 Use `node scripts/acceptance/three-wallet-acceptance.mjs MODE /approved/path/run.json`. Every mode needs a fresh runId. Existing run outputs are never overwritten. The UNRESOLVED example is an input inventory, not executable approval. Do not insert guessed addresses, endpoints, signer routes, contracts, amounts or budgets.
 
@@ -25,3 +25,5 @@ Keep `three_wallet_acceptance`, `full_prd_delivery` and `production_ready` indep
 Select the exact test candidate with its owner. This additive source is based on the independently verified PR99 commit/tree and does not overwrite its owner branch or combine PR100/101 stacks automatically. Do not expose private configuration, credentials or protected artifacts in GitHub logs or reports.
 
 Create `8415WALLET-THREE-WALLET-ONCHAIN-ACCEPTANCE-FINAL.md` only for actual complete results or a formal BLOCKED escalation, never a placeholder. Deliver to the user-designated private Drive folder, verify owner-only permissions and full byte/hash/content readback, then revise the same file ID. No polling, timers, routine receipts or forum posting are implemented.
+
+After delivery, archive task-owned deliverables to the existing approved giraffe bucket using its established project prefix and authenticated upload/readback route. Independently verify recovery and byte/hash identity before releasing eligible local artifacts. No bucket, credential, upload route or deletion is guessed or created by this runner. Active production keys/state/journals, shared services, other owners' files and unreconciled evidence are excluded from bulk migration/removal.

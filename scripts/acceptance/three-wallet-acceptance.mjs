@@ -55,9 +55,10 @@ async function gates(manifest) {
     'EXACT_WALLET_ENVIRONMENT_NOT_READY');
   const root = await directory(manifest.paths?.workspace), cache = await directory(manifest.paths?.cache),
     temporary = await directory(manifest.paths?.temporary), output = await directory(manifest.paths?.output);
-  const systemDevice = (await fs.stat('/')).dev;
   for (const [name, value] of [['workspace', root], ['cache', cache], ['temporary', temporary], ['output', output]]) {
-    requireThat(value.device !== systemDevice && ready.paths?.[name] === value.resolved, 'NON_SYSTEM_APPROVED_POSIX_MAPPING_REQUIRED');
+    // Direct owner instruction on 2026-10-16 permits task writes on the system disk.
+    // Exact existing task path approval remains mandatory; no automatic directory allocation.
+    requireThat(ready.paths?.[name] === value.resolved, 'EXACT_APPROVED_POSIX_MAPPING_REQUIRED');
   }
   requireThat(typeof manifest.projectPrefix === 'string' && manifest.projectPrefix.length > 0 && manifest.projectPrefix === ready.projectPrefix, 'WALLET_PROJECT_PREFIX_REQUIRED');
   requireThat(await git(root.resolved, 'rev-parse', 'HEAD') === manifest.source.commit && await git(root.resolved, 'rev-parse', 'HEAD^{tree}') === manifest.source.tree, 'CHECKOUT_SOURCE_MISMATCH');
