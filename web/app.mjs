@@ -374,3 +374,15 @@ function requireOperationProfile(operation) {
 
 // Additive login-protected, read-only three-wallet evidence panel.
 import './hoodi-journey-panel.mjs';
+
+import { mountAssetWorkspace } from './asset-workspace-panel.mjs';
+mountAssetWorkspace({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment || !provider) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId'), provider,
+      linkedReader: releaseProfile?.features.linkedResponsibilities ? session?.reader : null,
+      payments: releaseProfile?.features.linkedResponsibilities ? session?.payments : null };
+  },
+});
