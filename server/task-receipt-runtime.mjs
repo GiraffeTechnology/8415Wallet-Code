@@ -26,11 +26,14 @@ export function disabledTaskReceiptRuntime(code = 'TASK_RECEIPT_NOT_CONFIGURED')
 export function createTaskReceiptRuntime({ store, journalStore, peerId, consumerPeerId, digest, nativeDigest, now = Date.now } = {}) {
   check(store && journalStore && store !== journalStore, 'TASK_RECEIPT_STORE_REENTRY_REFUSED');
   const capabilities = createTaskJournalCapabilities({ peerId, consumerPeerId, digest, nativeDigest, now });
-  let authority = null, connected = false;
+  let authority = null, connected = false, stopped = false, pendingSends = 0;
+  const active = () => { if (stopped) {
+    const error = Error('TASK_RECEIPT_RUNTIME_STOPPED'); error.status = 503; throw error; } };
   return Object.freeze({
     state: 'configured', code: null,
     get authority() { return authority; },
     connectAuthorization(configured) {
+      active();
       check(!connected && authorityKeys.every(key => typeof configured?.[key] === 'function'),
         'TASK_RECEIPT_AUTHORIZATION_CONNECTION_REFUSED');
       const independent = configured.assertIndependentStore.bind(configured);
@@ -44,7 +47,9 @@ export function createTaskReceiptRuntime({ store, journalStore, peerId, consumer
        * re-enter it, so opening a second gate from inside a held one would wait
        * on a lock its own caller holds and never return. Refused immediately
        * instead, with the reason, rather than left to deadlock. */
-      const outermost = () => { if (capabilities.inHeldGate()) {
+      // Refuse before entering the authority: opening a send gate durably
+      // consumes its phase and nonce even when its action subsequently fails.
+      const outermost = () => { active(); if (capabilities.inHeldGate()) {
         const error = Error('TASK_RECEIPT_GATE_REENTRY_REFUSED'); error.status = 500; throw error; } };
       authority = Object.freeze({
         assertIndependentStore: independent,
@@ -57,16 +62,24 @@ export function createTaskReceiptRuntime({ store, journalStore, peerId, consumer
           // Detach before the authority's first await. The same immutable
           // binding must be validated and later used for the journal principal.
           const claimed = Object.freeze(structuredClone(rawClaimed));
-          return prepare(claimed, purpose, (snapshot, recheck) =>
-            capabilities.withHeld(journalSnapshot(snapshot, claimed), recheck, purpose, () => action(snapshot, recheck)));
+          return prepare(claimed, purpose, (snapshot, recheck) => {
+            // Preparation never reserves a send. Its capabilities must stop
+            // immediately, even while an unrelated reserved send is draining.
+            const liveRecheck = () => { active(); return recheck(); };
+            return capabilities.withHeld(journalSnapshot(snapshot, claimed), liveRecheck, purpose, () => action(snapshot, liveRecheck));
+          });
         },
         /** One send per phase. The gate is opened by the send, never by the
          * journal, so a journal call can never consume a permitted attempt. */
         withAuthorization(rawClaimed, wire, action) {
           outermost();
           const claimed = Object.freeze(structuredClone(rawClaimed));
-          return gate(claimed, wire, (snapshot, recheck) =>
-            capabilities.withHeld(journalSnapshot(snapshot, claimed), recheck, 'publish', () => action(snapshot, recheck)));
+          pendingSends++;
+          const finish = () => { pendingSends--; if (stopped && pendingSends === 0) capabilities.stop(); };
+          try {
+            return Promise.resolve(gate(claimed, wire, (snapshot, recheck) =>
+              capabilities.withHeld(journalSnapshot(snapshot, claimed), recheck, 'publish', () => action(snapshot, recheck)), active)).finally(finish);
+          } catch (error) { finish(); throw error; }
         },
       });
       connected = true;
@@ -82,6 +95,10 @@ export function createTaskReceiptRuntime({ store, journalStore, peerId, consumer
       return capabilities.withCapability(scope, use);
     },
     consumeCapability: capabilities.consume,
-    stop: capabilities.stop,
+    // Stop is not revocation of an accepted reservation. The synchronous fence
+    // inside the store updater is the cutoff; persistence may still be running.
+    // Queued calls fail that fence. Accepted calls retain their journal until
+    // they settle, avoiding a shutdown-induced unknown outcome before dispatch.
+    stop() { stopped = true; if (pendingSends === 0) capabilities.stop(); },
   });
 }

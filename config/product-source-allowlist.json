@@ -917,8 +917,8 @@
     {
       "path": "server/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "77c76d3feb6dcc21263345259550e88786a1f2be",
-      "sha256": "a2a105f433ce4b3002c7498f5817521e6c8ddd26084cfef85c284d3a0858ed59"
+      "git_blob_sha1": "579fa452f5e5c5a9b6a7c0eca5277fc7f2198ef3",
+      "sha256": "81b7c3cabe194cc18c1ef46fa00847fa9f805a42bc9edb14f19c2396e3da28b9"
     },
     {
       "path": "server/task-background-runner.mjs",
@@ -1013,8 +1013,8 @@
     {
       "path": "server/task-receipt-runtime.mjs",
       "mode": "100644",
-      "git_blob_sha1": "2d69a3afffc2850721b1136da7cb348cb31086f4",
-      "sha256": "fe71146a738c6756350846429f1e7a2e055925116e5d504fb0ac85d994fe6c1c"
+      "git_blob_sha1": "18a3f1c5e2f28e489a2271788edf60971a73bfb6",
+      "sha256": "3c80aeb1ca163745173f36d311f0805419e1a0f7344cc0bdbba1bb76adfc7a1d"
     },
     {
       "path": "server/task-runtime-import-probe.mjs",

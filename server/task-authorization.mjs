@@ -972,12 +972,17 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       return immutable({phase:claimed.phase,status:attempt.status,transactionHash:attempt.transactionHash,executable:false});
     },
 
-    async withAuthorization(rawClaimed,rawWire,action){
+    async withAuthorization(rawClaimed,rawWire,action,assertActive=()=>{}){
       requireThat(typeof action==='function','TASK_RECEIPT_ACTION_REFUSED',400);
+      requireThat(typeof assertActive==='function','TASK_RECEIPT_ACTION_REFUSED',400);
       const claimed=immutable(structuredClone(rawClaimed)),wire=immutable(structuredClone(rawWire));
       const found=await locateReceipt(claimed),{ckey,gkey,okey,nkey}=found;
       const keys=[queueKey,ckey,gkey,okey,nkey];
       await store.transactionMany(keys,values=>{
+        // Server-owned lifecycle fence, inside the serialized reservation.
+        // A stopped queued call must not consume a phase or occupy its nonce.
+        const activeResult=assertActive();
+        requireThat(!activeResult||typeof activeResult.then!=='function','TASK_RECEIPT_ACTION_REFUSED',400);
         const {grant,scope,spent,phases}=receiptCapability(values,found,claimed,wire);
         requireThat(!phases.has(claimed.phase)&&values[okey]===null,'TASK_RECEIPT_ALREADY_ATTEMPTED');
         requireThat(values[nkey]===null,'TASK_NONCE_OCCUPIED');
