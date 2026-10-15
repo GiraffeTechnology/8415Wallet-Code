@@ -499,3 +499,40 @@ describe('Reader-IDENTITY-01 compatibility and error classification', () => {
     assert.deepEqual(await kit.entryAt(TOKEN, 1n), await reader.entryAt(TOKEN, 1n));
   });
 });
+
+
+describe('Reader-IDENTITY-01 comparison-failure recovery', () => {
+  for (const field of ['registerId', 'verificationProfile'] as const) {
+    test(`first chain ${field} disagreement is retried, not permanently cached`, async () => {
+      const { reader } = divergentToken();
+      const good = readerGateIdentity(reader);
+      const wrong = `0x${(field === 'registerId' ? '9' : '7').repeat(64)}`;
+      let registerCalls = 0;
+      let profileCalls = 0;
+      const kit = readerGateMake(reader, {
+        registerId: async () => {
+          registerCalls++;
+          return field === 'registerId' && registerCalls === 1 ? wrong : good.registerId();
+        },
+        verificationProfile: async () => {
+          profileCalls++;
+          return field === 'verificationProfile' && profileCalls === 1
+            ? wrong : good.verificationProfile!();
+        },
+      });
+      await assert.rejects(kit.entryCount(TOKEN), error => {
+        assert(error instanceof BackendDisagreementError);
+        assert.equal(error.field, field);
+        return true;
+      });
+      assert.equal(registerCalls, 1);
+      assert.equal(profileCalls, 1);
+      assert.equal(await kit.entryCount(TOKEN), await reader.entryCount(TOKEN));
+      assert.equal(registerCalls, 2, 'comparison failure must cause an explicit chain re-read');
+      assert.equal(profileCalls, 2, 'the complete pair must be revalidated');
+      await kit.entryCount(TOKEN);
+      assert.equal(registerCalls, 2, 'a matched pair is cached after successful validation');
+      assert.equal(profileCalls, 2);
+    });
+  }
+});

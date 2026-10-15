@@ -260,7 +260,7 @@ export class KitErc8415Reader implements Erc8415Reader {
     await this.#summary(tokenId);
   }
 
-  /** Cache successful CHAIN facts; concurrent callers await the same read. */
+  /** Concurrent callers share a chain read; only a matching summary publishes the cache. */
   async #loadChainIdentity(
     identity: NonNullable<KitReaderOptions['chainIdentity']>,
   ): Promise<CheckedKitChainIdentity> {
@@ -272,7 +272,6 @@ export class KitErc8415Reader implements Erc8415Reader {
         const verificationProfile = identity.verificationProfile === undefined
           ? undefined : await identity.verificationProfile();
         const pair: CheckedKitChainIdentity = Object.freeze({ registerId, verificationProfile });
-        this.#identityPair = pair;
         return pair;
       })();
       this.#identityPending = pending;
@@ -296,6 +295,9 @@ export class KitErc8415Reader implements Erc8415Reader {
     if (chain.verificationProfile !== undefined && chain.verificationProfile !== verificationProfile) {
       throw new BackendDisagreementError('verificationProfile', verificationProfile, chain.verificationProfile);
     }
+    // Retrieval alone is not successful validation. A comparison failure must
+    // leave no cached pair, so the next explicit read can recover.
+    this.#identityPair = chain;
   }
 }
 
