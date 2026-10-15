@@ -170,7 +170,10 @@ async function regress(manifest, context) {
     if (row.status === 'FAIL') break;
   }
   await writeExclusive(path.join(context.runPath, 'regressions.json'), { taskId: TASK, results,
+    status: results.some(row => row.status === 'FAIL') ? 'FAIL' : 'COMMANDS_EXIT_ZERO_NOT_CASE_ACCEPTANCE',
+    notRunCaseIds: manifest.regressions.slice(results.length).map(row => row.caseId),
     threeWalletAcceptance: 'NOT_RUN', fullPrdDelivery: 'NOT_ACCEPTED', ci: 'NOT_CHECKED' });
+  requireThat(!results.some(row => row.status === 'FAIL'), 'REGRESSION_COMMAND_FAILED');
 }
 async function verifyArtifacts(manifest, context) {
   requireThat(Array.isArray(manifest.artifacts), 'ARTIFACT_MANIFEST_REQUIRED');
@@ -209,5 +212,5 @@ async function main() {
   console.log(JSON.stringify({ taskId: TASK, mode, output: context.runPath, source: manifest.source,
     threeWalletAcceptance: 'NOT_ACCEPTED_BY_RUNNER', fullPrdDelivery: 'NOT_ACCEPTED', testsDoNotCompleteFullTask: true }));
 }
-main().catch(error => { console.error(JSON.stringify({ taskId: TASK, status: 'BLOCKED', code: /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'RUNNER_IO_OR_NETWORK_FAILURE',
+main().catch(error => { console.error(JSON.stringify({ taskId: TASK, status: error.message === 'REGRESSION_COMMAND_FAILED' ? 'FAIL' : 'BLOCKED', code: /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'RUNNER_IO_OR_NETWORK_FAILURE',
   rawErrorHidden: true, transactionsSent: 0, fullPrdDelivery: 'NOT_ACCEPTED' })); process.exitCode = 1; });
