@@ -396,3 +396,13 @@ mountAuditExport({
     return { wallet: plainWallet, tokenId: number('tokenId') };
   },
 });
+
+import { mountFeedContinuity } from './feed-continuity-panel.mjs';
+mountFeedContinuity({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment || !provider) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId') };
+  },
+});
