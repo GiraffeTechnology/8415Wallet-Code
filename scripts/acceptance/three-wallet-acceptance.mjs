@@ -15,7 +15,7 @@ const hex = (value, bytes) => typeof value === 'string' && new RegExp(`^0x[0-9a-
 const decimal = value => typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value);
 const within = (root, target) => target !== root && !path.relative(root, target).startsWith('..') && !path.isAbsolute(path.relative(root, target));
 const scripts = new Set(['typecheck', 'test', 'test:auth', 'test:auth:installed', 'test:package:dapp', 'test:package:auth', 'test:package:delivery', 'test:task-listing-runtime', 'test:evm']);
-const modes = new Set(['preflight', 'chain-read', 'regress', 'verify-artifacts', 'finalize-blocked']);
+const modes = new Set(['preflight', 'chain-read', 'transaction-read', 'regress', 'verify-artifacts', 'finalize-blocked']);
 
 async function jsonFile(file) { return JSON.parse(await fs.readFile(file, 'utf8')); }
 async function hashFile(file) { return sha(await fs.readFile(file)); }
@@ -141,6 +141,54 @@ async function chainRead(manifest, context) {
     status: 'READ_CAPTURE_ONLY_NOT_ACCEPTANCE', chainId: '560048', controlProofs: 'NOT_RUN', contractHashAndProxyVerification: 'NOT_RUN',
     transactionsSent: 0, threeWalletAcceptance: 'NOT_RUN', fullPrdDelivery: 'NOT_ACCEPTED' });
 }
+async function transactionRead(manifest, context) {
+  requireThat(Array.isArray(manifest.observedTransactions) && manifest.observedTransactions.length > 0 && manifest.observedTransactions.length <= 64,
+    'EXPLICIT_OBSERVED_TRANSACTIONS_REQUIRED');
+  const hashes = new Set(), ids = new Set();
+  for (const item of manifest.observedTransactions) {
+    requireThat(item && /^[A-Z0-9_-]+$/.test(item.caseId) && hex(item.hash, 32) && !/^0x0+$/.test(item.hash), 'TRANSACTION_REFERENCE_REFUSED');
+    requireThat(!hashes.has(item.hash) && !ids.has(item.caseId), 'DUPLICATE_TRANSACTION_REFERENCE_REFUSED');
+    requireThat(hex(item.expectedFrom, 20) && hex(item.expectedTo, 20) && decimal(item.expectedValueWei), 'EXACT_TRANSACTION_EXPECTATION_REQUIRED');
+    requireThat(decimal(item.requiredConfirmations) && BigInt(item.requiredConfirmations) > 0n, 'EXACT_CONFIRMATION_REQUIREMENT_REQUIRED');
+    hashes.add(item.hash); ids.add(item.caseId);
+  }
+  const captures = [], rows = [];
+  const read = async (method, params) => { const capture = await rpc(method, params); captures.push(capture); return capture.response.result; };
+  requireThat(await read('eth_chainId', []) === '0x88bb0', 'HOODI_CHAIN_ID_MISMATCH');
+  requireThat((await read('eth_getBlockByNumber', ['0x0', false]))?.hash === GENESIS, 'HOODI_GENESIS_MISMATCH');
+  const finalized = await read('eth_getBlockByNumber', ['finalized', false]);
+  requireThat(hex(finalized?.hash, 32) && /^0x[0-9a-f]+$/.test(finalized?.number), 'FINALIZED_BLOCK_REQUIRED');
+  for (const item of manifest.observedTransactions) {
+    const tx = await read('eth_getTransactionByHash', [item.hash]);
+    const receipt = await read('eth_getTransactionReceipt', [item.hash]);
+    // Null is unresolved, never permission to resubmit the transaction.
+    if (!tx || !receipt) {
+      rows.push({ caseId: item.caseId, hash: item.hash, status: 'UNRESOLVED_DO_NOT_REPLAY', tx, receipt });
+      continue;
+    }
+    requireThat(tx.hash === item.hash && receipt.transactionHash === item.hash && tx.blockHash === receipt.blockHash && tx.blockNumber === receipt.blockNumber,
+      'TRANSACTION_RECEIPT_BINDING_MISMATCH');
+    requireThat(hex(receipt.blockHash, 32) && /^0x[0-9a-f]+$/.test(receipt.blockNumber) && /^0x[0-9a-f]+$/.test(tx.value), 'TRANSACTION_BLOCK_OR_VALUE_INVALID');
+    requireThat(typeof tx.from === 'string' && tx.from.toLowerCase() === item.expectedFrom && typeof tx.to === 'string' && tx.to.toLowerCase() === item.expectedTo &&
+      BigInt(tx.value).toString() === item.expectedValueWei, 'TRANSACTION_EXPECTATION_MISMATCH');
+    requireThat(typeof receipt.from === 'string' && receipt.from.toLowerCase() === item.expectedFrom && typeof receipt.to === 'string' && receipt.to.toLowerCase() === item.expectedTo,
+      'RECEIPT_PARTICIPANT_MISMATCH');
+    requireThat(['0x0', '0x1'].includes(receipt.status) && /^0x[0-9a-f]+$/.test(receipt.gasUsed) && /^0x[0-9a-f]+$/.test(receipt.effectiveGasPrice), 'RECEIPT_STATUS_OR_GAS_INVALID');
+    const block = await read('eth_getBlockByNumber', [receipt.blockNumber, false]);
+    requireThat(block?.hash === receipt.blockHash && block.number === receipt.blockNumber && Array.isArray(block.transactions) && block.transactions.includes(item.hash) && /^0x[0-9a-f]+$/.test(block.timestamp),
+      'TRANSACTION_NOT_IN_CANONICAL_BLOCK');
+    const finalizedDepth = BigInt(finalized.number) >= BigInt(receipt.blockNumber) ? BigInt(finalized.number) - BigInt(receipt.blockNumber) + 1n : 0n;
+    rows.push({ caseId: item.caseId, hash: item.hash, tx, receipt, block,
+      status: receipt.status === '0x0' ? 'CHAIN_REVERTED' : finalizedDepth >= BigInt(item.requiredConfirmations) ? 'FINALIZED_RECEIPT_CAPTURE_NOT_BUSINESS_ACCEPTANCE' : 'CONFIRMATIONS_INSUFFICIENT',
+      finalizedDepth: finalizedDepth.toString(), requiredConfirmations: item.requiredConfirmations,
+      executionFeeWei: (BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice)).toString(),
+      feeScope: 'EXECUTION_GAS_ONLY_NOT_TOTAL_OR_BUDGET_VERIFICATION', balanceDeltas: 'NOT_VERIFIED', logsDecoded: false });
+  }
+  for (const row of rows) if (row.block) requireThat((await read('eth_getBlockByNumber', [row.block.number, false]))?.hash === row.block.hash, 'TRANSACTION_BLOCK_CHANGED');
+  requireThat((await read('eth_getBlockByNumber', [finalized.number, false]))?.hash === finalized.hash, 'CANONICAL_BLOCK_CHANGED');
+  await writeExclusive(path.join(context.runPath, 'transaction-read.json'), { taskId: TASK, source: manifest.source, finalized, rows, captures,
+    status: 'READ_CAPTURE_ONLY_NOT_ACCEPTANCE', transactionsSent: 0, threeWalletAcceptance: 'NOT_RUN', fullPrdDelivery: 'NOT_ACCEPTED' });
+}
 function secretOutput(value) {
   return /-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----|(?:private[_ -]?key|seed[_ -]?phrase|bearer)\s*[:=]\s*["']?[a-zA-Z0-9+/=_ -]{24,}/i.test(value);
 }
@@ -213,6 +261,7 @@ async function main() {
   const manifest = await jsonFile(file), context = await gates(manifest);
   await newRun(context, mode);
   if (mode === 'chain-read') await chainRead(manifest, context);
+  if (mode === 'transaction-read') await transactionRead(manifest, context);
   if (mode === 'regress') await regress(manifest, context);
   if (mode === 'verify-artifacts') await verifyArtifacts(manifest, context);
   if (mode === 'finalize-blocked') await blockedReport(manifest, context);

@@ -50,6 +50,7 @@
     "expiry": "UNRESOLVED", "confirmations": "UNRESOLVED", "allowedRecipients": "UNRESOLVED"
   },
   "regressions": [],
+  "observedTransactions": [],
   "artifacts": [],
   "cases": [],
   "formalBlockerEscalation": false,
