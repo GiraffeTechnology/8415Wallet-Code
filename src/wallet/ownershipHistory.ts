@@ -1,3 +1,4 @@
+import { InvariantViolationError } from '../sdk/errors.ts';
 import { decodeLog, encodeTopic, topicOf } from '../sdk/events.ts';
 import type { Erc8415Reader } from '../sdk/port.ts';
 import {
@@ -104,6 +105,8 @@ export async function buildOwnershipHistory(
   reader: Erc8415Reader,
   tokenId: TokenId,
 ): Promise<OwnershipHistoryView> {
+  // Bind returned logs to this invocation, not to a later mutable source value.
+  const contractAddress = reader.source.address;
   const entries = await readEntries(reader, tokenId);
 
   if (reader.getLogs === undefined || reader.chainInstantAt === undefined) {
@@ -121,14 +124,34 @@ export async function buildOwnershipHistory(
   }
 
   const logs = await reader.getLogs({
-    address: reader.source.address,
+    address: contractAddress,
     topics: [topicOf('Transfer'), null, null, encodeTopic('uint256', tokenId)],
   });
 
   const positions: Extract<TimelineEvent, { kind: 'position' }>[] = [];
   for (const log of logs) {
+    if (log.address.toLowerCase() !== contractAddress.toLowerCase()) {
+      throw new InvariantViolationError(
+        'ownership-log-scope',
+        'returned log belongs to a different contract',
+      );
+    }
     const decoded = decodeLog(log);
-    if (decoded?.kind !== 'Transfer') continue;
+    if (decoded?.kind !== 'Transfer') {
+      if (log.topics[0] === topicOf('Transfer')) {
+        throw new InvariantViolationError(
+          'ownership-log-scope',
+          'returned Transfer log cannot be decoded',
+        );
+      }
+      continue;
+    }
+    if (decoded.tokenId !== tokenId) {
+      throw new InvariantViolationError(
+        'ownership-log-scope',
+        'returned Transfer belongs to a different token',
+      );
+    }
     positions.push({
       kind: 'position',
       at: await reader.chainInstantAt(decoded.blockNumber),
