@@ -24,3 +24,7 @@ export * from './agent/receiptObservation.ts';
 
 export { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from './agent/receiptTask.ts';
 export type { FrozenReceiptTask, ReceiptPhase } from './agent/receiptTask.ts';
+
+export { captureHoodiRelease, compareHoodiReleaseHistory, renderHoodiReleaseHistory,
+  serialiseHoodiJourney, HOODI_JOURNEY_CHAIN, HOODI_JOURNEY_GENESIS } from './wallet/hoodiJourney.ts';
+export { openHoodiJourneyRead } from './wallet/hoodiJourneyProvider.ts';

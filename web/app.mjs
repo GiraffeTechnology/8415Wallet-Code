@@ -371,3 +371,6 @@ function requireOperationProfile(operation) {
   if (['deposit', 'standalone-withdraw'].includes(operation.kind) || operation.kind === 'control' && operation.action.kind === 'create-account') return;
   fail('CONTROL_RELEASE_PROFILE_REFUSED');
 }
+
+// Additive login-protected, read-only three-wallet evidence panel.
+import './hoodi-journey-panel.mjs';
