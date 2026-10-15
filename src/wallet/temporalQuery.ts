@@ -1,5 +1,5 @@
 import { detectConformance, requireProjectionConformance } from '../sdk/conformance.ts';
-import { ContractRevertError, ProjectionNotInitialized } from '../sdk/errors.ts';
+import { ContractRevertError, ProjectionNotInitialized, TransportError } from '../sdk/errors.ts';
 import { ContractIdentityPin, type ContractIdentity } from '../sdk/identity.ts';
 import type { Erc8415Reader } from '../sdk/port.ts';
 import type { Address, Conformance, Instant, RegisterEntry, TokenId } from '../sdk/types.ts';
@@ -159,8 +159,17 @@ async function contestOf(
   instant: Instant,
   hasSettlementInterface: boolean,
 ): Promise<ContestView> {
-  if (!hasSettlementInterface || reader.openGapOf === undefined || reader.settlement === undefined) {
+  if (!hasSettlementInterface) {
     return describeContest({ tokenId, instant, hasSettlementInterface: false, gap: undefined });
+  }
+
+  // Advertised contract conformance does not supply missing adapter methods.
+  // Refuse an unavailable read instead of asserting that the contract has no gaps.
+  if (typeof reader.openGapOf !== 'function') {
+    throw new TransportError('openGapOf', 'reader capability unavailable for advertised settlement interface');
+  }
+  if (typeof reader.settlement !== 'function') {
+    throw new TransportError('settlement', 'reader capability unavailable for advertised settlement interface');
   }
 
   const settlementId = await reader.openGapOf(tokenId);
