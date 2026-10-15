@@ -64,6 +64,11 @@ export type KitReaderOptions = {
   };
 };
 
+type CheckedKitChainIdentity = Readonly<{
+  registerId: Bytes32;
+  verificationProfile: Bytes32 | undefined;
+}>;
+
 /**
  * Reads an ERC-8415 projection through the Native Infrastructure Kit.
  *
@@ -81,7 +86,8 @@ export class KitErc8415Reader implements Erc8415Reader {
   readonly #api: KitProjectionApi;
   readonly #chain: ChainCompanion;
   readonly #options: KitReaderOptions;
-  #identityChecked = false;
+  #identityPair: CheckedKitChainIdentity | undefined;
+  #identityPending: Promise<CheckedKitChainIdentity> | undefined;
 
   constructor(
     api: KitProjectionApi,
@@ -188,18 +194,22 @@ export class KitErc8415Reader implements Erc8415Reader {
   }
 
   async entryAt(tokenId: TokenId, version: Version): Promise<RegisterEntry> {
+    await this.#projectionIdentity(tokenId);
     return this.#api.entryAt(tokenId, version);
   }
 
   async entryAsOf(tokenId: TokenId, instant: Instant): Promise<RegisterEntry> {
+    await this.#projectionIdentity(tokenId);
     return this.#api.entryAsOf(tokenId, instant);
   }
 
   async holderAsOf(tokenId: TokenId, instant: Instant): Promise<Address> {
+    await this.#projectionIdentity(tokenId);
     return this.#api.holderAsOf(tokenId, instant);
   }
 
   async isFinalAsOf(tokenId: TokenId, instant: Instant): Promise<boolean> {
+    await this.#projectionIdentity(tokenId);
     return this.#api.isFinalAsOf(tokenId, instant);
   }
 
@@ -243,37 +253,48 @@ export class KitErc8415Reader implements Erc8415Reader {
     return summary;
   }
 
-  /**
-   * Check once that the indexer and the chain are talking about one register.
-   *
-   * Only once: both values are specified immutable, so a per-read check would
-   * cost a chain call for a fact that cannot change. What it catches is a
-   * misconfiguration at the seam — a Kit base URL or API key pointing at
-   * another deployment — which is the failure mode a second backend
-   * introduces and the one a wallet cannot afford to absorb silently.
-   */
+  /** Direct projection results cross the same identity gate as summary reads. */
+  async #projectionIdentity(tokenId: TokenId): Promise<void> {
+    if (this.#options.crossCheckIdentity === false ||
+      this.#options.chainIdentity === undefined) return;
+    await this.#summary(tokenId);
+  }
+
+  /** Cache successful CHAIN facts; concurrent callers await the same read. */
+  async #loadChainIdentity(
+    identity: NonNullable<KitReaderOptions['chainIdentity']>,
+  ): Promise<CheckedKitChainIdentity> {
+    if (this.#identityPair !== undefined) return this.#identityPair;
+    let pending = this.#identityPending;
+    if (pending === undefined) {
+      pending = (async () => {
+        const registerId = await identity.registerId();
+        const verificationProfile = identity.verificationProfile === undefined
+          ? undefined : await identity.verificationProfile();
+        const pair: CheckedKitChainIdentity = Object.freeze({ registerId, verificationProfile });
+        this.#identityPair = pair;
+        return pair;
+      })();
+      this.#identityPending = pending;
+    }
+    try {
+      return await pending;
+    } finally {
+      if (this.#identityPending === pending) this.#identityPending = undefined;
+    }
+  }
+
+  /** Each index summary must match the cached chain identity, not a past API result. */
   async #assertSameRegister(registerId: Bytes32, verificationProfile: Bytes32): Promise<void> {
-    if (this.#identityChecked) return;
     if (this.#options.crossCheckIdentity === false) return;
     const identity = this.#options.chainIdentity;
     if (identity === undefined) return;
-
-    // Set before awaiting, so concurrent first reads do not each spend a call.
-    this.#identityChecked = true;
-
-    const onChainRegisterId = await identity.registerId();
-    if (onChainRegisterId !== registerId) {
-      throw new BackendDisagreementError('registerId', registerId, onChainRegisterId);
+    const chain = await this.#loadChainIdentity(identity);
+    if (chain.registerId !== registerId) {
+      throw new BackendDisagreementError('registerId', registerId, chain.registerId);
     }
-    if (identity.verificationProfile !== undefined) {
-      const onChainProfile = await identity.verificationProfile();
-      if (onChainProfile !== verificationProfile) {
-        throw new BackendDisagreementError(
-          'verificationProfile',
-          verificationProfile,
-          onChainProfile,
-        );
-      }
+    if (chain.verificationProfile !== undefined && chain.verificationProfile !== verificationProfile) {
+      throw new BackendDisagreementError('verificationProfile', verificationProfile, chain.verificationProfile);
     }
   }
 }
