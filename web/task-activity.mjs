@@ -18,6 +18,19 @@ export function taskActivity(view) {
       transactionHash: item.transactionHash ?? null,
       hasOrderReference: item.submission != null });
   });
+  // Receipt phases use a separate journal, not budget.reservations. Unknown
+  // attempts hold their full authorized fee ceiling until reconciliation.
+  if (view.receiptAttempts !== undefined) {
+    if (policy.intent?.kind !== 'artfi-receipt' || !Array.isArray(view.receiptAttempts)) refuse();
+    for (const item of view.receiptAttempts) {
+      if (!decimal(item.maximumFeeWei) || !['outcome-unknown','submitted'].includes(item.status)) refuse();
+      allocated += BigInt(item.maximumFeeWei);
+      operations.push(Object.freeze({ operationId: item.operationId, childDigest: null,
+        phase: item.phase, nonce: item.nonce, status: item.status,
+        feeCeilingWei: item.maximumFeeWei, transactionHash: item.transactionHash ?? null,
+        hasOrderReference: false }));
+    }
+  }
   const total = BigInt(policy.fees.totalWei);
   if (allocated > total) refuse();
   return Object.freeze({ taskDigest: view.task.digest, taskId: policy.taskId,
@@ -28,7 +41,11 @@ export function taskActivity(view) {
     unknownCount: operations.filter(item => item.status === 'outcome-unknown').length,
     submittedCount: operations.filter(item => item.status === 'submitted').length,
     operations: Object.freeze(operations),
-    savedCompletionState: view.completion?.state ?? null,
+    // Existing generic completion derives from child reservations, not receipt phases.
+    savedCompletionState: view.receiptAttempts === undefined ? view.completion?.state ?? null : null,
+    receiptExecutionState: view.receiptAttempts === undefined ? null :
+      view.receiptAttempts.some(item => item.status === 'outcome-unknown') ? 'unknown' :
+      view.receiptAttempts.length ? 'submitted' : 'not-started',
     evidence: 'SAVED_STATUS_NOT_A_FRESH_CHAIN_OBSERVATION', canExecute: false });
 }
 export class TaskActivityReader {

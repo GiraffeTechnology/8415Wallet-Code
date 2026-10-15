@@ -27,22 +27,23 @@ if (root) {
     catch { clear(); button.disabled = true; input.disabled = true; }
   };
   walletLogin.subscribe(() => { clear(); refresh(); });
-  globalThis.addEventListener('pagehide', clear);
-  globalThis.addEventListener('pageshow', clear);
-  input.addEventListener('change', () => { generation++; output.textContent = ''; });
+  globalThis.addEventListener('pagehide', () => { clear(); refresh(); });
+  globalThis.addEventListener('pageshow', () => { clear(); refresh(); });
+  input.addEventListener('change', () => { generation++; output.textContent = ''; pending = false; refresh(); });
   const integers = new Set(['chainId', 'tokenId', 'blockNumber', 'recordedAt', 'version',
     'effectiveAt', 'supersededAt', 'buyerOccurrence', 'ownerOccurrence', 'holderOccurrence']);
   button.addEventListener('click', async () => {
-    if (pending) return;
+    if (pending || document.visibilityState === 'hidden') return;
     const currentGeneration = ++generation;
+    pending = true; refresh();
     let binding;
     output.textContent = '';
     try {
       binding = walletLogin.capture();
       await walletLogin.check(); const session = walletLogin.assert(binding);
+      if (currentGeneration !== generation || document.visibilityState === 'hidden') return;
       const file = input.files?.[0];
       if (!file || file.size > 65536) throw new Error('EVIDENCE_FILE_REQUIRED');
-      pending = true; refresh();
       const text = await file.text(); walletLogin.assert(binding);
       if (currentGeneration !== generation) return;
       const envelope = JSON.parse(text, (key, value) => {

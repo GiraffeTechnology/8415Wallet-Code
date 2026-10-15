@@ -707,8 +707,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "f8ed5b14732c24a368634972cdb048d3ac542d6c",
-      "sha256": "3c9cba2f5dc0ccaa27e50e8d9597c16e8fe1060047285269e2b76264a2e548dd"
+      "git_blob_sha1": "2f7d110e92ce49f2bb3b9672996874bb323e8555",
+      "sha256": "6e81b3a01c477abeb2c41787a18607af7e133cd00d961100764f04938223309e"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -1031,8 +1031,8 @@
     {
       "path": "src/adapters/kit/kitReader.ts",
       "mode": "100644",
-      "git_blob_sha1": "8ad440638c9d256387b5769af4488e89b7cfe22f",
-      "sha256": "35a96663f528e9a8caec3b4ca8f246369a58602d63f68f04413e2f928288c9ab"
+      "git_blob_sha1": "9d2ebc7af8c88cbfb1b1eb6ce1fa959681a1fa21",
+      "sha256": "a23ad94dbc119a3451ffcb85fb73591d56ed92049321dd8112617ba5fe99f1b9"
     },
     {
       "path": "src/adapters/memory/encodeEvents.ts",
@@ -1091,8 +1091,8 @@
     {
       "path": "src/adapters/rpc/transport.ts",
       "mode": "100644",
-      "git_blob_sha1": "d3242ec02529d318f1c2e57c1977a55daa46b420",
-      "sha256": "d04ca8f831994a6b010d528456091b1acf17338994b02499c501345642836f1d"
+      "git_blob_sha1": "9cc82f8542f6242d0fa654ac6146522ec26d72b5",
+      "sha256": "8d072865cb1502aabbe7dee6918939f5b377bb1358ffe58046d057bc429b574c"
     },
     {
       "path": "src/adapters/rpc/watchtowerRpcReader.ts",
@@ -1109,8 +1109,8 @@
     {
       "path": "src/adapters/signing/eip1193Signer.ts",
       "mode": "100644",
-      "git_blob_sha1": "1f9f9dd5c3454a7059c6c41d16656db86159a460",
-      "sha256": "fea476800fab51fd1cdef92ae00b05e79abce97ffc1824cf19a34ce03e1e0d6e"
+      "git_blob_sha1": "3a1dda5d918e8d84409d3f53a221f168d9679ead",
+      "sha256": "063e3151aec9d968996374e281494b813604b26494bddf5aabdb769fe871a808"
     },
     {
       "path": "src/agent/README.md",
@@ -1139,8 +1139,8 @@
     {
       "path": "src/browser.ts",
       "mode": "100644",
-      "git_blob_sha1": "54b81b364134d05880b0360bd1055ef913eb0737",
-      "sha256": "61ef3ce8d66cb52a60853a8719835342290360b9d59983599c3694d23061f7ff"
+      "git_blob_sha1": "086a96dbb514fc1e8d1e3ea62e230b0fa88f6e52",
+      "sha256": "f3d965fd28bd7e689766d0490d6a33a252cc80fe14320cffb86f9267ca4297f6"
     },
     {
       "path": "src/cli/args.ts",
@@ -1529,8 +1529,8 @@
     {
       "path": "src/sdk/identity.ts",
       "mode": "100644",
-      "git_blob_sha1": "e0cbb6a3e59c051a811e06102158f2829e8ffbe5",
-      "sha256": "bfff69aa9f0ef084a2a0b3d77f89ee070445e1ebdf65240522afb4ec407c1061"
+      "git_blob_sha1": "9b08e678671b8e26cdefc8c07b535ca63f5a5ca9",
+      "sha256": "050eedd59995c76a2499bda004bb6ea33ffdebbcdba481f7aa1fa2cfbcfc7c3e"
     },
     {
       "path": "src/sdk/index.ts",
@@ -1599,6 +1599,12 @@
       "sha256": "dde8123750b3adaedacca922ae04f8fe4f58925242d4a5e23ff032dc6d2d73c3"
     },
     {
+      "path": "src/wallet/assetWorkspace.ts",
+      "mode": "100644",
+      "git_blob_sha1": "98892dce8b870cd6ae4977120d987c6bd69660ed",
+      "sha256": "73f78ee663a0f86ba49d95e55caabd025b948dcfbbccdf3a6e2974fea9179bf2"
+    },
+    {
       "path": "src/wallet/auditTrail.ts",
       "mode": "100644",
       "git_blob_sha1": "2d5f5408d258957691ce98f1374f7227136ae5a4",
@@ -1653,6 +1659,18 @@
       "sha256": "e3cdbdafbd9e1be9fa90b0eb21dd5c287c1a752a3a2041e1a1d7ffe316a87529"
     },
     {
+      "path": "src/wallet/hoodiJourney.ts",
+      "mode": "100644",
+      "git_blob_sha1": "ce8fcec87178ecde5334d24ff25b3a9b4d162e05",
+      "sha256": "13679bb6523784a6393bb2139ab1deb07241da14a0729ec3f6f3a5741decc3da"
+    },
+    {
+      "path": "src/wallet/hoodiJourneyProvider.ts",
+      "mode": "100644",
+      "git_blob_sha1": "cc7b567e8c0649792cb797b0ea1622c44596e05f",
+      "sha256": "0db83d3bc0a0a13b1904d99a86eebaaf8e155baa40e3a3527cc0e52d1fe1cd79"
+    },
+    {
       "path": "src/wallet/legacyClearingSession.ts",
       "mode": "100644",
       "git_blob_sha1": "1548407521a9256dc48829254b0c1442ede56e84",
@@ -1667,8 +1685,8 @@
     {
       "path": "src/wallet/ownershipHistory.ts",
       "mode": "100644",
-      "git_blob_sha1": "5c938a986f6feeb0908b48584db7facb8e247841",
-      "sha256": "57687d1f29de302553c5155d743bde05341a2580b06a6116ea1c41075f3190eb"
+      "git_blob_sha1": "9567d3c6e79d182819f58ec53930769e556b384d",
+      "sha256": "16f101002af4562ca53048f266d8ec8d4f3c7f81cc0f7977711bfa808cc8b6c6"
     },
     {
       "path": "src/wallet/posture.ts",
@@ -1687,6 +1705,12 @@
       "mode": "100644",
       "git_blob_sha1": "090b3e4a00b293f2e7023999f2dc69df6bc8d26b",
       "sha256": "5fd5456432d673c037dd479250b313aeb86cce0e5a2f6669983965d15ced6d3b"
+    },
+    {
+      "path": "src/wallet/renderAssetWorkspace.ts",
+      "mode": "100644",
+      "git_blob_sha1": "f8f0ec4d3a1ca6b3abc2ad05c6c9a237e9137f59",
+      "sha256": "5b64585e08508be4559224479d03c5f3cfab03b0ddd8d19f06a2b827fa994425"
     },
     {
       "path": "src/wallet/renderEscrow.ts",
@@ -1733,8 +1757,8 @@
     {
       "path": "src/wallet/session.ts",
       "mode": "100644",
-      "git_blob_sha1": "0955351abe834d81284a1553d12aa9560140853b",
-      "sha256": "f210550944f8713b65fe3046268e8413199680d3214ca401c6bbb3bfbd29e500"
+      "git_blob_sha1": "030af4b6c4af7a16d5d1fa3ed638dd980257366f",
+      "sha256": "c0e7bc66ce75d11b84cde1e63814363e5f39445b9414f04ff024f04b8dd10b0e"
     },
     {
       "path": "src/wallet/settlementLog.ts",
@@ -1751,8 +1775,8 @@
     {
       "path": "src/wallet/temporalQuery.ts",
       "mode": "100644",
-      "git_blob_sha1": "8724a3e9ad156abd8c720f331c1c8f55eeb8466a",
-      "sha256": "342e16745e6e80f77a5f796e7a8778bc25e5dfa2b4117d850b91b9d33e99c0e6"
+      "git_blob_sha1": "c70a6f140a12bf4cf3dbcb4535443b9a08d3d811",
+      "sha256": "4e7227d9be5e265cb8dfac11efd90d07eb60c99c5082da1f4965feff222f1dd7"
     },
     {
       "path": "src/wallet/wrap.ts",
@@ -1823,8 +1847,14 @@
     {
       "path": "web/app.mjs",
       "mode": "100644",
-      "git_blob_sha1": "07c7b43bc5f1dd1a8c61f077916f9c4e13d7d38d",
-      "sha256": "842d2012e1795e7136f7dea639e960590807cd534eede004cd832afeaf242a7e"
+      "git_blob_sha1": "85d5bb51c21736566cc50e023516cab29bc96443",
+      "sha256": "61a2ddb4f78cd5648735e003c493ff6a082ad7191f9954a68ed5134c98f1d7a4"
+    },
+    {
+      "path": "web/asset-workspace-panel.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "c8965cfb412f3d09c2d3f7bb8982879090f3a090",
+      "sha256": "b73334d4070b532abba21d97cf37c3a3011b274b147d565ae797b631f24289be"
     },
     {
       "path": "web/assets/clock.svg",
@@ -1921,6 +1951,12 @@
       "mode": "100644",
       "git_blob_sha1": "7be8dd7ebf3fc099ee33b6b80baf07d971436baf",
       "sha256": "f7da52cb840a8436ed50b117e54886d2e86dd2612d3e6572c67b1f9663768e87"
+    },
+    {
+      "path": "web/hoodi-journey-panel.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "c7138fffd2db549cec5b73d44897d8ca54bd5783",
+      "sha256": "0686878062e6b3bb3fe2c8fb39ec1ccff1066e1b484be7d27e0b0b47de82f5f0"
     },
     {
       "path": "web/i18n.mjs",
@@ -2097,6 +2133,18 @@
       "sha256": "c3e5c4216fa27a5a5be3c0057e29558a655aa52e3daecb098c5320ebac66c6c9"
     },
     {
+      "path": "web/task-activity-ui.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "d89d10cde73030681a6440e1c2a0bdd49c737c62",
+      "sha256": "e0e45b735e88ee8f4e08c7fc1cc4647c6d36c81de524f61d38288b376cc38d31"
+    },
+    {
+      "path": "web/task-activity.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "4a341074add9260d9eba16c43c1d50a70b90c503",
+      "sha256": "8ec42f7216609a1e217eda9954f7e2bf40a3818cea7a2e1e1aa2c96ec920c1bf"
+    },
+    {
       "path": "web/task-authorization-ui.mjs",
       "mode": "100644",
       "git_blob_sha1": "e18e79605772dff1cbb3527ffa7e7ce709509730",
@@ -2117,8 +2165,8 @@
     {
       "path": "web/task-ui.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b7b776d57a2274bfc12b6b2789518ef115f9b0dd",
-      "sha256": "b8845db9adcdbc4ea3b6927c178973913b8d6b0787bb98962a6098e37f088562"
+      "git_blob_sha1": "ee8d2a02a14428695061f1e9f94b4b069643d2d7",
+      "sha256": "6b67388c3b11ad328672c46beeb65fbacde6744439a56c91fcf9eb0b81dc2929"
     },
     {
       "path": "web/tenant-avatar.mjs",

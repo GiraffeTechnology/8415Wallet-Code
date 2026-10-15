@@ -63,13 +63,15 @@ export class RefusedFailingPreflightError extends Error {
 }
 
 export class Eip1193Signer implements TransactionSigner {
-  readonly account: Address;
+  readonly #account: Address;
   readonly #provider: Eip1193Provider;
 
   constructor(provider: Eip1193Provider, account: Address) {
     this.#provider = provider;
-    this.account = account.toLowerCase();
+    this.#account = account.toLowerCase();
   }
+
+  get account(): Address { return this.#account; }
 
   /**
    * Take the provider's currently selected account.
@@ -126,16 +128,16 @@ export class Eip1193Signer implements TransactionSigner {
       throw new ChainMismatchError(wire.chainId, chainId);
     }
 
-    if (wire.from.toLowerCase() !== this.account) {
-      throw new AccountMismatchError(wire.from.toLowerCase(), this.account);
+    if (wire.from.toLowerCase() !== this.#account) {
+      throw new AccountMismatchError(wire.from.toLowerCase(), this.#account);
     }
 
     // A connected signer is not a permanent grant. Re-read the selected
     // account immediately before sending; retaining it elsewhere in the
     // exposed account list is not permission to act as the selected account.
     const selected = await Eip1193Signer.connect(this.#provider);
-    if (selected.account !== this.account) {
-      throw new AccountMismatchError(this.account, selected.account);
+    if (selected.account !== this.#account) {
+      throw new AccountMismatchError(this.#account, selected.account);
     }
     // Account discovery is asynchronous too. Detect a network change during
     // that read, and also bind the eventual provider prompt to the chain.

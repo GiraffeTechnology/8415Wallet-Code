@@ -54,7 +54,7 @@ export class ContractIdentityPin {
 
     const registerId = await this.#reader.registerId();
     this.#assertSource();
-    if (registerId === ZERO_BYTES32) {
+    if (typeof registerId !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(registerId) || registerId === ZERO_BYTES32) {
       throw new IdentityChangedError('registerId', 'a nonzero identifier', registerId);
     }
 
@@ -63,7 +63,7 @@ export class ContractIdentityPin {
       requireSettlementConformance(this.#reader, conformance);
       verificationProfile = await this.#reader.verificationProfile!();
       this.#assertSource();
-      if (verificationProfile === ZERO_BYTES32) {
+      if (typeof verificationProfile !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(verificationProfile) || verificationProfile === ZERO_BYTES32) {
         throw new IdentityChangedError(
           'verificationProfile',
           'a nonzero identifier',

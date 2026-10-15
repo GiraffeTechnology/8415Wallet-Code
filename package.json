@@ -44,7 +44,8 @@
     "wallet:dapp:install": "node deploy/dapp/install.mjs",
     "test:package:delivery": "node --test tests/dapp-install.test.mjs",
     "wallet:auth:migrate-legacy": "node deploy/auth-xiongan/migrate-legacy.mjs",
-    "test:task-listing-runtime": "node --conditions=react-server --test tests/task-journal-capabilities.test.mjs tests/task-listing-runtime-config.test.mjs tests/task-listing-runtime-http.test.mjs tests/task-listing-bootstrap.test.mjs tests/task-listing-runtime-package.test.mjs"
+    "test:task-listing-runtime": "node --conditions=react-server --test tests/task-journal-capabilities.test.mjs tests/task-listing-runtime-config.test.mjs tests/task-listing-runtime-http.test.mjs tests/task-listing-bootstrap.test.mjs tests/task-listing-runtime-package.test.mjs",
+    "test:read-only-ui": "npm run wallet:browser:build && node --test tests/task-activity.test.mjs tests/task-activity-integration-boundaries.test.mjs tests/read-only-panels-lifecycle.test.mjs"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.3",

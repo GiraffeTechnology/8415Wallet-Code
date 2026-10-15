@@ -11,6 +11,7 @@ const web=new Set(['index.html','login-core.mjs','wallet-auth.mjs','account-auth
 web.add('method-change-ui.mjs');
 web.add('enrollment-qr.mjs'); web.add('qr-generator.mjs');
 web.add('task-listing-results.mjs');
+for (const module of ['task-activity.mjs','task-activity-ui.mjs','asset-workspace-panel.mjs','hoodi-journey-panel.mjs']) web.add(module);
 web.add('task-ui.mjs'); web.add('task-authorization.mjs'); web.add('task-authorization-ui.mjs');
 web.add('tenant-password-routing.mjs'); web.add('tenant-password-ui.mjs'); web.add('tenant-password-routing.json');
 const mime={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8'};
