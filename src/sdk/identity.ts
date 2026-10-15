@@ -29,10 +29,12 @@ export type ContractIdentity = {
  */
 export class ContractIdentityPin {
   readonly #reader: Erc8415Reader;
+  readonly #source: { readonly chainId: bigint; readonly address: string };
   #pinned: ContractIdentity | undefined;
 
   constructor(reader: Erc8415Reader) {
     this.#reader = reader;
+    this.#source = Object.freeze({ ...reader.source });
   }
 
   get pinned(): ContractIdentity | undefined {
@@ -47,32 +49,34 @@ export class ContractIdentityPin {
    * that was asked.
    */
   async read(conformance: Conformance): Promise<ContractIdentity> {
+    this.#assertSource();
     requireProjectionConformance(this.#reader, conformance);
 
     const registerId = await this.#reader.registerId();
-    if (registerId === ZERO_BYTES32) {
-      throw new IdentityChangedError('registerId', 'a nonzero identifier', registerId);
+    if (typeof registerId !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(registerId) || registerId === ZERO_BYTES32) {
+      throw new IdentityChangedError('registerId', 'a nonzero bytes32 identifier', String(registerId));
     }
 
     let verificationProfile: Bytes32 | undefined;
     if (conformance.settlement) {
       requireSettlementConformance(this.#reader, conformance);
       verificationProfile = await this.#reader.verificationProfile!();
-      if (verificationProfile === ZERO_BYTES32) {
+      if (typeof verificationProfile !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(verificationProfile) || verificationProfile === ZERO_BYTES32) {
         throw new IdentityChangedError(
           'verificationProfile',
-          'a nonzero identifier',
-          verificationProfile,
+          'a nonzero bytes32 identifier',
+          String(verificationProfile),
         );
       }
     }
 
-    const observed: ContractIdentity = {
-      chainId: this.#reader.source.chainId,
-      address: this.#reader.source.address,
+    this.#assertSource();
+    const observed: ContractIdentity = Object.freeze({
+      chainId: this.#source.chainId,
+      address: this.#source.address,
       registerId,
       verificationProfile,
-    };
+    });
 
     const pinned = this.#pinned;
     if (pinned === undefined) {
@@ -91,5 +95,14 @@ export class ContractIdentityPin {
       );
     }
     return observed;
+  }
+
+  #assertSource(): void {
+    if (this.#reader.source.chainId !== this.#source.chainId) {
+      throw new IdentityChangedError('chainId', String(this.#source.chainId), String(this.#reader.source.chainId));
+    }
+    if (this.#reader.source.address !== this.#source.address) {
+      throw new IdentityChangedError('address', this.#source.address, this.#reader.source.address);
+    }
   }
 }

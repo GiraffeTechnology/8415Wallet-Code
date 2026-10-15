@@ -707,8 +707,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "f8ed5b14732c24a368634972cdb048d3ac542d6c",
-      "sha256": "3c9cba2f5dc0ccaa27e50e8d9597c16e8fe1060047285269e2b76264a2e548dd"
+      "git_blob_sha1": "9b0687bf272c7a0d30c97319dfa4d18ef176d051",
+      "sha256": "0fc28c8f105e354675ff7887375e64e0905ab0c40041160bc53ebf9a942a6d0f"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -1031,8 +1031,8 @@
     {
       "path": "src/adapters/kit/kitReader.ts",
       "mode": "100644",
-      "git_blob_sha1": "8ad440638c9d256387b5769af4488e89b7cfe22f",
-      "sha256": "35a96663f528e9a8caec3b4ca8f246369a58602d63f68f04413e2f928288c9ab"
+      "git_blob_sha1": "9d2ebc7af8c88cbfb1b1eb6ce1fa959681a1fa21",
+      "sha256": "a23ad94dbc119a3451ffcb85fb73591d56ed92049321dd8112617ba5fe99f1b9"
     },
     {
       "path": "src/adapters/memory/encodeEvents.ts",
@@ -1109,8 +1109,8 @@
     {
       "path": "src/adapters/signing/eip1193Signer.ts",
       "mode": "100644",
-      "git_blob_sha1": "1f9f9dd5c3454a7059c6c41d16656db86159a460",
-      "sha256": "fea476800fab51fd1cdef92ae00b05e79abce97ffc1824cf19a34ce03e1e0d6e"
+      "git_blob_sha1": "3a1dda5d918e8d84409d3f53a221f168d9679ead",
+      "sha256": "063e3151aec9d968996374e281494b813604b26494bddf5aabdb769fe871a808"
     },
     {
       "path": "src/agent/README.md",
@@ -1529,8 +1529,8 @@
     {
       "path": "src/sdk/identity.ts",
       "mode": "100644",
-      "git_blob_sha1": "e0cbb6a3e59c051a811e06102158f2829e8ffbe5",
-      "sha256": "bfff69aa9f0ef084a2a0b3d77f89ee070445e1ebdf65240522afb4ec407c1061"
+      "git_blob_sha1": "a7ca12c037be76ae43848a7e5d5516f90b38bc1f",
+      "sha256": "b72ca7c9d5ec64e137ca735a5b4d58e5655cf9824c15903d770885b918d796c5"
     },
     {
       "path": "src/sdk/index.ts",
@@ -1733,8 +1733,8 @@
     {
       "path": "src/wallet/session.ts",
       "mode": "100644",
-      "git_blob_sha1": "0955351abe834d81284a1553d12aa9560140853b",
-      "sha256": "f210550944f8713b65fe3046268e8413199680d3214ca401c6bbb3bfbd29e500"
+      "git_blob_sha1": "030af4b6c4af7a16d5d1fa3ed638dd980257366f",
+      "sha256": "c0e7bc66ce75d11b84cde1e63814363e5f39445b9414f04ff024f04b8dd10b0e"
     },
     {
       "path": "src/wallet/settlementLog.ts",
