@@ -1,3 +1,4 @@
+import { describeTradingObservation } from './trading-observation.mjs';
 import { parseFeedContinuity, readFeedContinuity } from './feed-continuity.mjs';
 
 const insist = value => { if (!value) throw new Error('WATCHTOWER_READ_REFUSED'); };
@@ -30,7 +31,8 @@ export async function readWatchtowerComparison({ wallet, tokenId, text, instant,
     projectionObservation: reviewed.projectionObservation, instant,
     assertedCurrentFeed: feed, pairing: 'UNVERIFIED_CONFIGURATION',
     predecessorLinks: 'UNVERIFIED_CONFIGURATION_NOT_QUERIED',
-    temporal, freshness, canExecute: false, changesRuntimeConfiguration: false,
+    temporal, freshness, tradingObservation: describeTradingObservation(temporal, freshness),
+    canExecute: false, changesRuntimeConfiguration: false,
     readSemantics: 'SEQUENTIAL_LIVE_READS_NOT_ATOMIC_OR_HISTORICAL_CHAIN_SNAPSHOT',
     notes: Object.freeze([
       'The current feed was explicitly read. Its pairing to the register is still a configuration assertion, not an on-chain link.',

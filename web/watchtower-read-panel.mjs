@@ -59,7 +59,8 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
       feedOutput.textContent = [
         `Asserted feed: chain ${value.assertedCurrentFeed.chainId} / ${value.assertedCurrentFeed.address} / ${value.assertedCurrentFeed.assetId}`,
         'Register/feed pairing: UNVERIFIED_CONFIGURATION. Predecessor links: UNVERIFIED, not queried.',
-        renderFreshness(value.freshness), ...value.notes,
+        renderFreshness(value.freshness), value.tradingObservation.summary,
+        value.tradingObservation.caveat, ...value.notes,
       ].join('\n\n');
       readOnlyPaint(status, 'wt.ok');
     } catch {
@@ -77,4 +78,3 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
   login.subscribe(() => { clear(); file.value = ''; instant.value = ''; });
   return { clear };
 }
-
