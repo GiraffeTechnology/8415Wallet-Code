@@ -144,8 +144,14 @@ function record(
   value: Bytes32,
   occurrence: CollisionOccurrence,
 ): void {
-  const existing = index.get(value);
-  if (existing === undefined) index.set(value, [occurrence]);
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value)) {
+    throw new CollisionScanError('COLLISION_BYTES32_REFUSED');
+  }
+  // Hex letter case is representation, not a different bytes32 value.
+  // Keep source entries untouched; canonicalize only the comparison key.
+  const key = value.toLowerCase();
+  const existing = index.get(key);
+  if (existing === undefined) index.set(key, [occurrence]);
   else existing.push(occurrence);
 }
 
