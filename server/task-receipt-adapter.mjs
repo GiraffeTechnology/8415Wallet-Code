@@ -1,3 +1,4 @@
+import { verifyTaskExactChain } from './task-exact-chain-state.mjs';
 /** Read-only receipt observation for the existing bounded operations. No keys,
  * signing, transaction submission, market execution or budget mutation. */
 import { createHash } from 'node:crypto';
@@ -22,7 +23,7 @@ export const TASK_RECEIPT_RUNTIME_FILES = Object.freeze([
   // Approval selection, channel isolation, and the shared-store constructor
   // affect this port's trusted runtime; UI/build/test code does not.
   'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
-  'server/crypto.mjs', 'server/task-listing-transport.mjs',
+  'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-listing-transport.mjs',
   'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
   'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
   'src/codec/abi.ts', 'src/codec/keccak.ts', 'src/controls/accounts.ts', 'src/controls/authorization.ts',
@@ -195,7 +196,9 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, testAsse
       observationPolicyDigest: policy.digest, ...identity, capability: 'exact-operation-observable' });
   }
   async function observe(input) {
-    const c = context(input), submitted = await submission(c, c.attempt.transactionHash), depth = BigInt(policy.policy.minimumConfirmations);
+    const c = context(input);
+    await verifyTaskExactChain(readonlyProvider, c.task.policy.chainId);
+    const submitted = await submission(c, c.attempt.transactionHash), depth = BigInt(policy.policy.minimumConfirmations);
     let observed;
     if (submitted.kind === 'test-mint') observed = await observeMintTransaction(c, submitted.record, depth);
     else if (submitted.kind === 'asset') observed = await receiptAssetTransaction(readonlyProvider, submitted.record, c.attempt.transactionHash, depth);
@@ -286,4 +289,5 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, testAsse
   }
   return Object.freeze({ identity, observationPolicy: policy, assessChild, observe, observeReplacement, observeMintResult, verifyMintInventoryRecord });
 }
+
 

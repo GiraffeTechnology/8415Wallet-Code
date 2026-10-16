@@ -22,6 +22,8 @@ async function fixture(t, options = {}) {
   const provider = { async request({ method, params = [] }) {
     state.methods.push(method);
     if (method === 'eth_chainId') return '0x88bb0';
+    if (method === 'eth_getBalance') return '0xffffffffffffffff';
+    if (method === 'eth_getBlockByNumber' && params[0] === '0x0') return {number:'0x0',hash:'0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b'};
     if (method === 'eth_getCode') return '0x';
     if (method === 'eth_getTransactionCount') return '0x7';
     if (method === 'eth_call') return '0x';
@@ -142,3 +144,4 @@ test('revocation during external signing prevents raw dispatch through the stand
   assert.equal(f.state.signed, 1); assert.equal(f.state.broadcasts, 0);
   assert.equal((await f.call('tasks/status', { taskDigest })).effectiveStatus, 'revoked');
 });
+

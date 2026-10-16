@@ -6,7 +6,7 @@ import { validateTaskExactConfig } from './task-exact-config.mjs';
 import { readTaskListingTLS, createTaskListingTransport } from './task-listing-transport.mjs';
 import { createTaskExactSignOnly } from './task-exact-sign-only.mjs';
 const READ = ['eth_chainId', 'eth_getTransactionCount', 'eth_getBlockByNumber', 'eth_getCode',
-  'eth_call', 'eth_estimateGas', 'eth_getTransactionByHash', 'eth_getTransactionReceipt', 'eth_blockNumber'];
+  'eth_call', 'eth_estimateGas', 'eth_getTransactionByHash', 'eth_getTransactionReceipt', 'eth_blockNumber', 'eth_getBalance'];
 const WALLET = ['eth_chainId', 'eth_accounts', 'eth_signTransaction'];
 export function createTaskExactRPCPort({ configuration, tls, methods, transport = null }) {
   const allowed = new Set(methods), send = transport ?? createTaskListingTransport({
@@ -43,4 +43,5 @@ export async function bootstrapTaskExactConfiguration(configuration) {
       observationPolicy: c.observationPolicy, plannerFeeRule: c.plannerFeeRule });
   } finally { rpcTLS.key.fill(0); walletTLS?.key.fill(0); }
 }
+
 

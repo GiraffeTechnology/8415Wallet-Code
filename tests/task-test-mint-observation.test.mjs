@@ -34,6 +34,7 @@ function fixture() {
   const provider={async request({method,params=[]}) {
     calls.push(method);
     if(method==='eth_chainId')return '0x88bb0';
+    if(method==='eth_getBlockByNumber' && params[0]==='0x0')return {number:'0x0',hash:'0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b'};
     if(method==='eth_getCode')return code;
     if(method==='eth_getTransactionReceipt')return state.pending?null:structuredClone(receipt);
     if(method==='eth_getTransactionByHash')return structuredClone(tx);
@@ -82,3 +83,4 @@ test('browser mint evidence preserves actual token while refusing extra or unbou
   assert.throws(()=>normalizeTestMintResult(result,f.input.task,{...observation,state:'reorged'}));
   assert.equal(normalizeTestMintResult(null,f.input.task,null),null);
 });
+

@@ -43,6 +43,7 @@ export function validateAuthStateTransition(current, candidate, { rollback = fal
 }
 export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
   'server/task-runtime-import-probe.mjs', 'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
+  'server/task-exact-chain-state.mjs',
   'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs',
   'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
   'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
@@ -269,4 +270,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const release = args[0] === '--directory' ? verifyAuthDirectory(resolve(args[1])) : verifyAuthArchive(resolve(args[1] ?? 'dist/auth-package-manifest.json'));
   console.log(`Auth package integrity verified; source ${release.source.tree}; ${release.status}. Checksums establish integrity, not publisher authenticity or deployment acceptance.`);
 }
+
 

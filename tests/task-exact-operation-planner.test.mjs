@@ -41,6 +41,7 @@ function fixture(options = {}) {
     if (method === 'eth_getTransactionCount') state.nonces++;
     if (options.rpc) { const result = await options.rpc({ ...request, state }); if (result !== undefined) return result; }
     if (method === 'eth_chainId') return '0xaa36a7';
+    if (method === 'eth_getBalance') return '0xffffffffffffffff';
     if (method === 'eth_getTransactionCount') return '0x7';
     if (method === 'eth_getBlockByNumber') return { number: '0x2a', hash: blockHash, baseFeePerGas: '0x2', gasLimit: '0x1c9c380', timestamp: h(epoch / 1000) };
     if (method === 'eth_getCode') return [actor, recipient].includes(params[0]) ? '0x' : code;
@@ -323,3 +324,11 @@ test('zero-base EIP-1559 facts require explicit positive resulting fee; zero pri
   const explicitZeroPriority = fixture({ feeRule: { maxPriorityFeePerGasWei: '0' } });
   assert.equal((await explicitZeroPriority.planner.plan(explicitZeroPriority.input)).fees.maxFeePerGasWei, '4');
 });
+
+test('planner requires sampled and pending balances to cover value plus maximum child fee',async()=>{
+  for(const tag of ['0x2a','pending']) {
+    const f=fixture({rpc:({method,params})=>method==='eth_getBalance' && params[1]===tag?'0x0':undefined});
+    await assert.rejects(f.planner.plan(f.input),/TASK_EXACT_BALANCE_INSUFFICIENT/);
+  }
+});
+
