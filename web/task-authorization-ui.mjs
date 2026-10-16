@@ -156,7 +156,10 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
     } else { for (const id of ['task-policy-status', 'task-verifier-status', 'task-completion', 'task-observation-freshness', 'task-observations']) el(id).textContent = '';
       el('task-observation-states').replaceChildren(); el('task-canonical').textContent = ''; el('task-missing').textContent = ''; el('task-execution-status').textContent = ''; el('task-operations').textContent = ''; }
     el('task-authorize-fields').hidden = snapshot.phase !== 'review';
-    el('task-code').disabled = snapshot.phase !== 'review';
+    const testFactorExempt = snapshot.approvalFactor === 'server-test-scope';
+    el('task-code').disabled = snapshot.phase !== 'review' || testFactorExempt;
+    el('task-code').hidden = testFactorExempt;
+    el('task-code').required = !testFactorExempt;
     el('task-authorize').disabled = snapshot.phase !== 'review';
     el('task-refresh').disabled = snapshot.busy || snapshot.retryAfterMs > 0;
     el('task-recheck').hidden = !view || snapshot.busy; el('task-recheck').disabled = snapshot.retryAfterMs > 0;
@@ -192,7 +195,7 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
   el('task-authorize-form').addEventListener('submit', event => {
     event.preventDefault();
     if (!visible || active?.phase !== 'review' || !el('task-ack').checked) { paint(el('task-error'), msg('task.ackRequired')); return; }
-    let code = el('task-code').value; clearCode(); void flow?.authorize(code); code = '';
+    let code = active.approvalFactor === 'server-test-scope' ? '' : el('task-code').value; clearCode(); void flow?.authorize(code); code = '';
   });
   el('task-cancel').addEventListener('click', () => { clearCode(); flow?.suspend(); });
   el('task-recover').addEventListener('click', () => { clearCode(); void flow?.recover(); });
@@ -210,3 +213,4 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
   render({ phase: 'locked', tasks: [], selected: null, busy: false, error: null });
   return { snapshot: () => flow?.snapshot() ?? null };
 }
+

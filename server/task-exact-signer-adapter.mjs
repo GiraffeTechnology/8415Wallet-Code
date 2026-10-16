@@ -1,6 +1,7 @@
 /** Optional server-owned sign-only injection. No credential loading, key storage,
  * default signer, eth_sendTransaction, signer-side filling, or recovery resend. */
 import { createHash } from 'node:crypto';
+import { normalizeTestAssetPins, testAssetPinForTask } from './task-test-asset-authorization.mjs';
 import { readFileSync } from 'node:fs';
 import { Transaction, version as ethersVersion } from 'ethers';
 import { freezeTaskPolicy, freezeChildOperation, assessChildScope } from '../src/agent/taskContract.ts';
@@ -10,12 +11,15 @@ import { ControlledAccountClient } from '../src/controls/accounts.ts';
 import { decodeControlSequence } from '../src/controls/client.ts';
 import { encodeExactTaskOperation } from './task-operation-encoding.mjs';
 import { createTaskExactOperationPlanner, normalizeTaskExactFeeRule } from './task-exact-operation-planner.mjs';
+import { testSeriesMintRequest, verifyTestSeriesMintPreflight } from './task-test-mint-contract.mjs';
 
 export const TASK_EXACT_SIGNER_RUNTIME_FILES = Object.freeze([
   // Approval selection, channel isolation, and the shared-store constructor
   // affect this port's trusted runtime; UI/build/test code does not.
   'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
-  'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs', 'server/task-exact-operation-planner.mjs',
+  'server/crypto.mjs', 'server/task-listing-transport.mjs',
+  'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
+  'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs', 'server/task-exact-operation-planner.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts',
@@ -42,7 +46,7 @@ const hash = value => { check(typeof value === 'string' && /^0x[0-9a-f]{64}$/.te
 const hex = value => `0x${BigInt(value).toString(16)}`;
 const key = (kind, values) => `task-${kind}:${sha(JSON.stringify(values))}`;
 const pin = (p, chainId) => ({ controller: p.contract, runtimeCodeHash: p.runtimeCodeHash, chainId: BigInt(chainId) });
-const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_getCode', 'eth_call', 'eth_getTransactionByHash']);
+const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_getCode', 'eth_call', 'eth_getTransactionByHash', 'eth_getBlockByNumber']);
 
 /** ExternalExactSigner.signExactTransaction({requestId, unsignedSerialized,
  * unsignedDigest, binding}) -> signedSerialized. The injected implementation
@@ -54,7 +58,8 @@ const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_get
  * exact maxFee. Policy and external signer provenance bind the executor digest.
  */
 export function createTaskExactSignerAdapter({ provider, externalSigner, signerIdentity, store,
-  maxPriorityFeePerGasWei, agentId, agentVersion, plannerFeeRule = null, now = Date.now }) {
+  maxPriorityFeePerGasWei, agentId, agentVersion, plannerFeeRule = null, testAssetPins = [], now = Date.now }) {
+  const pins = normalizeTestAssetPins(testAssetPins);
   check(provider && typeof provider.request === 'function' && externalSigner && typeof externalSigner.signExactTransaction === 'function' &&
     store && typeof store.readMany === 'function' && typeof store.transactionMany === 'function' &&
     typeof store.withReadSnapshot === 'function' && typeof now === 'function', 'TASK_EXACT_CONFIG_REQUIRED');
@@ -64,10 +69,10 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   const priority = uint(maxPriorityFeePerGasWei);
   const planningRule = plannerFeeRule === null ? null : normalizeTaskExactFeeRule(plannerFeeRule);
   check(planningRule === null || planningRule.maxPriorityFeePerGasWei === maxPriorityFeePerGasWei, 'TASK_EXACT_PLANNER_PRIORITY_MISMATCH');
-  const planner = planningRule === null ? null : createTaskExactOperationPlanner({ provider, feeRule: planningRule, now });
+  const planner = planningRule === null ? null : createTaskExactOperationPlanner({ provider, feeRule: planningRule, testAssetPins: pins, now });
   const identity = freeze({ schema: '8415-task-executor/1', agentId: identifier(agentId), agentVersion: identifier(agentVersion),
     adapterId: '8415wallet:external-exact-signer', adapterVersion: '2',
-    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, ethersVersion, signer, maxPriorityFeePerGasWei, planner: planner?.identity ?? null }))}` });
+    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, ethersVersion, signer, maxPriorityFeePerGasWei, testAssetPins: pins, planner: planner?.identity ?? null }))}` });
   const executorDigest = `0x${sha(JSON.stringify(identity))}`;
   // Capture all configured methods once. No endpoint, signer, fee policy or
   // account selection can be supplied by HTTP JSON or swapped after approval.
@@ -117,6 +122,8 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
       check(await rpc('eth_getCode', [op.actor, 'latest']) === '0x', 'TASK_EXACT_EOA_ACTOR_REQUIRED');
       if (op.kind === 'native-transfer') check(await rpc('eth_getCode', [op.recipient, 'latest']) === '0x', 'TASK_EXACT_NATIVE_EOA_REQUIRED');
       else { const code = await rpc('eth_getCode', [encoded.to, 'latest']); check(controlHex(code) && code !== '0x', 'TASK_EXACT_TARGET_CODE_REQUIRED'); }
+      const testPin = testAssetPinForTask(pins, c.task);
+      if (testPin) check(hashControlBytes(await rpc('eth_getCode', [testPin.contract, 'latest'])) === testPin.runtimeCodeHash, 'TASK_EXACT_TEST_ASSET_CODE_REFUSED');
       if ('controller' in op) await verifyControlDeployment(readonlyProvider, pin(op.controller, op.chainId));
       if ('token' in op) await verifyControlDeployment(readonlyProvider, pin(op.token, op.chainId));
       if (op.kind === 'complete' || op.kind === 'return-hop') {
@@ -125,6 +132,8 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
         check(sequence.token === op.token.contract && sequence.tokenCodeHash === op.token.runtimeCodeHash &&
           sequence.revision === BigInt(op.expectedRevision), 'TASK_EXACT_SEQUENCE_BINDING_REFUSED');
       }
+      if (op.kind === 'artfi-test-series-mint') await verifyTestSeriesMintPreflight({
+        request: testSeriesMintRequest(op), provider: readonlyProvider, allowedWallets: [op.actor, op.distributionWallet] });
       check(quantity(await rpc('eth_getTransactionCount', [op.actor, 'pending'])) === BigInt(child.nonce), 'TASK_EXACT_NONCE_MISMATCH');
       const simulation = await rpc('eth_call', [{ from: op.actor, to: tx.to, data: tx.data, value: hex(tx.value),
         chainId: hex(tx.chainId), nonce: hex(tx.nonce), type: '0x2', gas: hex(tx.gasLimit),
@@ -260,3 +269,4 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   }
   return Object.freeze({ identity, verify, send, recover, ...(planner === null ? {} : { plan }) });
 }
+

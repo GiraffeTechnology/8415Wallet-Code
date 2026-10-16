@@ -81,6 +81,31 @@ function sameObservationContext(value, expected) {
   insist(JSON.stringify(value.receiptVerifier) === JSON.stringify(expected.receiptVerifier), 'TASK_RECEIPT_VERIFIER_CHANGED');
 }
 const completionStates = new Set(['not-attempted', 'outcome-unknown', 'awaiting-evidence', 'completed-at-observation-depth', 'failed-at-observation-depth', 'listed-awaiting-evidence', 'listing-partial', 'listing-observed-at-depth', 'listing-unknown', 'listing-reorg']);
+/** A display projection of verified mint evidence, never an approval or inventory
+ * registration. Historical/unavailable evidence stays labelled by its envelope. */
+export function normalizeTestMintResult(raw, task, observation) {
+  if (raw === null) return null;
+  const names = ['schema','taskId','chainId','collection','runtimeCodeHash','issuer','transactionHash','blockHash','blockNumber',
+    'tokenId','standard','quantity','artworkId','masterArtworkHash','metadataHash','metadataURI','distributionWallet','testOnly','finality'];
+  insist(raw && [Object.prototype, null].includes(Object.getPrototypeOf(raw)), 'TASK_TEST_MINT_RESULT_REFUSED');
+  const d = Object.getOwnPropertyDescriptors(raw);
+  insist(Reflect.ownKeys(d).length === names.length && names.every(k => Object.hasOwn(d,k) && Object.hasOwn(d[k],'value')),
+    'TASK_TEST_MINT_RESULT_REFUSED');
+  const op = task.policy.intent.operation;
+  insist(task.policy.intent.kind === 'exact-operation' && op?.kind === 'artfi-test-series-mint' && observation &&
+    observation.state === 'confirmed-at-depth' && observation.effect === 'exact-operation-observed' &&
+    raw.schema === '8415-artfi-test-series-mint-result/1' && raw.taskId === task.policy.taskId && raw.chainId === op.chainId &&
+    raw.collection === op.collection.contract && raw.runtimeCodeHash === op.collection.runtimeCodeHash && raw.issuer === op.actor &&
+    raw.transactionHash === observation.originalTransactionHash && raw.blockHash === observation.blockHash &&
+    typeof raw.blockNumber === 'string' && /^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/.test(raw.blockNumber) &&
+    BigInt(raw.blockNumber) === BigInt(observation.blockNumber) && typeof raw.tokenId === 'string' &&
+    /^[1-9][0-9]{0,77}$/.test(raw.tokenId) && BigInt(raw.tokenId) < (1n << 256n) &&
+    raw.standard === 'ERC-1155' && raw.quantity === '100' && raw.artworkId === op.artworkId &&
+    raw.masterArtworkHash === op.masterArtworkHash && raw.metadataHash === op.metadataHash && raw.metadataURI === op.metadataURI &&
+    raw.distributionWallet === op.distributionWallet && raw.testOnly === true &&
+    raw.finality === 'canonical-at-observed-block-not-finality', 'TASK_TEST_MINT_RESULT_BINDING_REFUSED');
+  return freeze(Object.fromEntries(names.map(k => [k,raw[k]])));
+}
 function observationView(value, task, executor, budget, authorization, allowFresh) {
   const context = normalizeObservationContext(value);
   insist(Array.isArray(value.observations) && value.observations.length <= (budget?.reservations.length ?? 0) &&
@@ -89,7 +114,8 @@ function observationView(value, task, executor, budget, authorization, allowFres
   const listing = budget?.schema === '8415-task-budget/2' || value.valuationPolicy !== undefined;
   if (listing) insist(value.observations.length === 0, 'TASK_LISTING_OBSERVATION_REFUSED');
   const observations = value.observations.map(entry => {
-    insist(entry && Object.keys(entry).sort().join(',') === 'available,observation,operationId' && typeof entry.available === 'boolean' &&
+    const mint = task.policy.intent.kind === 'exact-operation' && task.policy.intent.operation.kind === 'artfi-test-series-mint';
+    insist(entry && Object.keys(entry).sort().join(',') === (mint ? 'available,mintResult,observation,operationId' : 'available,observation,operationId') && typeof entry.available === 'boolean' &&
       typeof entry.operationId === 'string' && (!entry.available || entry.observation !== null), 'TASK_OBSERVATION_RESPONSE_REFUSED');
     const reservation = budget?.reservations.find(item => item.operationId === entry.operationId);
     insist(reservation?.status === 'submitted', 'TASK_OBSERVATION_BINDING_REFUSED');
@@ -107,7 +133,9 @@ function observationView(value, task, executor, budget, authorization, allowFres
       insist(task.policy.intent.kind === 'exact-operation' ? observation.effect !== 'atomic-sale-observed' :
         observation.effect !== 'exact-operation-observed', 'TASK_OBSERVATION_EFFECT_REFUSED');
     }
-    return { operationId: entry.operationId, observation, available: entry.available };
+    const mintResult = mint ? normalizeTestMintResult(entry.mintResult, task, observation) : null;
+    insist(!mint || !entry.available || observation?.state !== 'confirmed-at-depth' || mintResult !== null, 'TASK_TEST_MINT_RESULT_REQUIRED');
+    return { operationId: entry.operationId, observation, available: entry.available, ...(mint ? { mintResult } : {}) };
   });
   insist(new Set(observations.map(entry => entry.operationId)).size === observations.length, 'TASK_OBSERVATION_RESPONSE_REFUSED');
   const spent = budget?.reservations.filter(item => item.status !== 'cancelled') ?? [];
@@ -253,11 +281,13 @@ export class TaskAuthorizationClient {
     sameValuationContext({ valuationPolicy }, { valuationPolicy: expectedValuation });
     const observation = { ...normalizeObservationContext(value), ...(valuationPolicy ? { valuationPolicy } : {}) };
     if (expectedObservationContext !== null) sameObservationContext(observation, expectedObservationContext);
-    return Object.freeze({ task: checked, executor, ...observation, challengeId: value.challengeId, expiresAt: value.expiresAt });
+    const approvalFactor = value.approvalFactor ?? 'totp';
+    insist(['totp', 'server-test-scope'].includes(approvalFactor), 'TASK_APPROVAL_FACTOR_REFUSED');
+    return Object.freeze({ task: checked, executor, ...observation, approvalFactor, challengeId: value.challengeId, expiresAt: value.expiresAt });
   }
   async authorize(challenge, code) {
     insist(!approvalBlocker(challenge), approvalBlocker(challenge));
-    insist(typeof code === 'string' && /^\d{6}$/.test(code), 'TASK_CODE_REQUIRED');
+    insist(challenge.approvalFactor === 'server-test-scope' ? code === '' : typeof code === 'string' && /^\d{6}$/.test(code), 'TASK_CODE_REQUIRED');
     const value = this.view(await this.#request('tasks/authorize', { challengeId: challenge.challengeId, taskDigest: challenge.task.digest, executorDigest: challenge.executor.digest, observationPolicyDigest: challenge.observationPolicy?.digest ?? null,
       ...(challenge.valuationPolicy ? { valuationPolicyDigest: challenge.valuationPolicy.digest, priceAt: challenge.valuationPolicy.policy.priceAt } : {}), code }));
     insist(value.task.digest === challenge.task.digest && value.effectiveStatus === 'authorized');
@@ -274,7 +304,7 @@ export class TaskAuthorizationFlow {
   #client; #now; #notify; #epoch = 0; #challenge = null; #busy = false; #retryAt = 0; #waiting = 0; #continuationDelay = 30000;
   #state = { phase: 'locked', tasks: [], selected: null, error: null };
   constructor({ client, now = Date.now, onChange = () => {} }) { this.#client = client; this.#now = now; this.#notify = onChange; }
-  snapshot() { return Object.freeze({ ...this.#state, challengeExpiresAt: this.#challenge?.expiresAt ?? null, busy: this.#busy, retryAfterMs: Math.max(0, this.#retryAt - this.#now()), continuationDelayMs: this.#continuationDelay }); }
+  snapshot() { return Object.freeze({ ...this.#state, challengeExpiresAt: this.#challenge?.expiresAt ?? null, approvalFactor: this.#challenge?.approvalFactor ?? 'totp', busy: this.#busy, retryAfterMs: Math.max(0, this.#retryAt - this.#now()), continuationDelayMs: this.#continuationDelay }); }
   #paint(update) { this.#state = { ...this.#state, ...update };
     if (update.selected) this.#state.tasks = this.#state.tasks.map(view => view.task.digest === update.selected.task.digest ? update.selected : view);
     this.#notify(this.snapshot()); }
@@ -392,3 +422,4 @@ export class TaskAuthorizationFlow {
     } catch (error) { if (this.#current(epoch)) { this.#busy = false; this.#paint({ phase: 'uncertain', error: this.#error(error) }); } }
   }
 }
+

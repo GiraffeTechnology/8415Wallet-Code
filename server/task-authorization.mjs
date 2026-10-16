@@ -15,6 +15,7 @@ import { TaskObservationError, freezeTaskObservationPolicy, normalizeObservation
 
 import { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from '../src/agent/receiptTask.ts';
 import { validateReceiptWire } from './receipt-operation-encoding.mjs';
+import { testMintInventoryKey } from './task-test-asset-authorization.mjs';
 function freezeAuthorizedTask(policy) {
   const descriptor = policy && typeof policy === 'object' ? Object.getOwnPropertyDescriptor(policy, 'intent') : null;
   const intent = descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : null;
@@ -97,7 +98,7 @@ const isListing = child => child.child.schema === '8415-nft-listing-child/1';
  */
 export function createTaskAuthorizationService({ origin, tenant, store, now = Date.now,
   assertSession, credentialFor, consumeTotp, assertPrincipal = null, principalReady = null,
-  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null, channelBindings = null }) {
+  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null, channelBindings = null, testAuthorization = null }) {
   requireThat(receiptHandlerId === null || receiptHandlerId === 'artfi:whole-receipt:v1', 'TASK_RECEIPT_CONFIG_REFUSED', 500);
   requireThat(store && typeof store.transactionMany === 'function' &&
     [assertSession, credentialFor, consumeTotp, now].every(value => typeof value === 'function'), 'TASK_CONFIG_REFUSED', 500);
@@ -165,7 +166,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     receiptVerifier = normalizeObservationVerifier(receipt.identity);
     const configured = receipt;
     receipt = Object.freeze({ assessChild: configured.assessChild.bind(configured), observe: configured.observe.bind(configured), ...(typeof configured.observeReplacement === 'function' ?
-      { observeReplacement: configured.observeReplacement.bind(configured) } : {}) });
+      { observeReplacement: configured.observeReplacement.bind(configured) } : {}), ...(typeof configured.observeMintResult === 'function' ?
+      { observeMintResult: configured.observeMintResult.bind(configured) } : {}) });
   }
   // Selection is always from a normalized task (or the stored grant), never a
   // request-supplied adapter name. Removing/replacing a port suspends its grants;
@@ -191,6 +193,16 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     if (!internalContexts.has(context)) return ownerCredentialFor(context);
     const credential = await store.read(`${tenant}:${context.username}`); assertSession(context, credential); return credential;
   };
+  requireThat(testAuthorization === null || typeof testAuthorization.allows === 'function', 'TASK_TEST_ASSET_CONFIG_REFUSED', 500);
+  const testScope = testAuthorization === null ? null : testAuthorization.allows.bind(testAuthorization);
+  const acceptCommittedMintRecord = typeof testAuthorization?.acceptCommittedMintRecord === 'function' ?
+    testAuthorization.acceptCommittedMintRecord.bind(testAuthorization) : null;
+  function testFactorAllowed(task) {
+    if (testScope === null) return false;
+    const value = testScope(task);
+    requireThat(typeof value === 'boolean', 'TASK_TEST_ASSET_CONFIG_REFUSED', 500);
+    return value;
+  }
   const queueKey = key('queue', [origin, tenant]);
   const challenges = new Map();
   const stamp = () => { const time = now(); requireThat(Number.isSafeInteger(time) && time >= 0, 'TASK_CLOCK_REFUSED', 503); return time; };
@@ -240,6 +252,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   function effectiveStatus(grant, credential) {
     const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(grant.task);
     if (grant.status === 'revoked') return 'revoked';
+    if (grant.approvalFactor === 'server-test-scope' && !testFactorAllowed(grant.task)) return 'suspended';
     if (stamp() < grant.issuedAt || seconds() >= BigInt(grant.task.policy.expiresAt)) return 'expired';
     // Factor changes pause this principal only; they never renew or expand a task.
     if (grant.status === 'pending') return 'pending';
@@ -356,6 +369,10 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   async function prepare(body, session) {
     const withValuation = body !== null && typeof body === 'object' && Object.hasOwn(body, 'valuationPolicy'); fields(body, withValuation ? ['policy', 'valuationPolicy'] : ['policy']);
     const task = freezeAuthorizedTask(body.policy); checkTask(task, session);
+    requireThat(task.policy.intent.operation?.kind !== 'artfi-test-series-mint' || testFactorAllowed(task),
+      'TASK_TEST_MINT_INVENTORY_REQUIRED', 403);
+    requireThat(task.policy.intent.operation?.kind !== 'artfi-test-series-mint' || typeof receipt?.observeMintResult === 'function',
+      'TASK_TEST_MINT_OBSERVER_NOT_CONNECTED', 503);
     requireThat(channelContexts === null || Object.hasOwn(channelContexts, task.policy.intent.kind), 'TASK_CHANNEL_NOT_CONFIGURED', 503);
     const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(task);
     requireThat(task.policy.intent.kind !== 'artfi-receipt' || receiptHandlerId !== null, 'TASK_RECEIPT_GATE_NOT_CONFIGURED', 503);
@@ -387,8 +404,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const challengeId = `challenge:${randomToken()}`, expiresAt = Math.min(time + CHALLENGE_LIFE, session.expiresAt,
       Number(BigInt(task.policy.expiresAt) * 1000n > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : BigInt(task.policy.expiresAt) * 1000n));
     requireThat(stamp() < expiresAt, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
-    challenges.set(challengeId, { task, executor, valuationPolicy, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), issuedAt: time, expiresAt, attempts: 0 });
-    return { challengeId, task, executor, ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, purpose: 'authorize-task' };
+    challenges.set(challengeId, { task, executor, valuationPolicy, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), testFactorExempt: testFactorAllowed(task), issuedAt: time, expiresAt, attempts: 0 });
+    return { challengeId, task, executor, ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, approvalFactor: testFactorAllowed(task) ? 'server-test-scope' : 'totp', purpose: 'authorize-task' };
   }
   async function authorize(body, session) {
     const withValuation = body !== null && typeof body === 'object' && (Object.hasOwn(body, 'valuationPolicyDigest') || Object.hasOwn(body, 'priceAt'));
@@ -397,6 +414,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const current = () => {
       assertSession(session); sweep();
       requireThat(challenge, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
+      requireThat(testFactorAllowed(challenge.task) === challenge.testFactorExempt, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
       const { executor, approvedObservationPolicy } = approvalContext(challenge.task);
       requireThat(challenge && challenges.get(body.challengeId) === challenge && challenge.binding === binding(session) &&
         equal(challenge.task.digest, body.taskDigest) && equal(challenge.executor.digest, body.executorDigest) && equal(executor.digest, body.executorDigest) &&
@@ -413,11 +431,12 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       requireThat(proposal.status === 'pending' && proposal.executor.digest === body.executorDigest && values[ikey]?.taskDigest === body.taskDigest, 'TASK_ALREADY_EXISTS');
       requireThat((proposal.valuationPolicy?.digest ?? null) === (challenge.valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_REAUTHORIZATION_REQUIRED');
       // One durable replace consumes the OTP and creates every grant/index field.
-      const credential = consumeTotp(session, values[ckey], body.code);
+      const credential = challenge.testFactorExempt ? values[ckey] : consumeTotp(session, values[ckey], body.code);
       const grant = { schema: challenge.valuationPolicy === null ? '8415-task-grant/1' : '8415-task-grant/2',
         ...(challenge.valuationPolicy === null ? {} : { valuationPolicy: challenge.valuationPolicy }), principal: JSON.stringify(principal(session)),
         task: challenge.task, executor: challenge.executor, observationPolicy: challenge.observationPolicy, receiptVerifier: challenge.receiptVerifier,
         observations: [], observationRevision: '0', reference: proposal.reference, status: 'authorized', grantPolicyVersion: '1',
+        approvalFactor: challenge.testFactorExempt ? 'server-test-scope' : 'totp',
         credentialRevisionAtApproval: String(session.revision), issuedAt: stamp(), revokedAt: null,
         budget: challenge.task.policy.intent.kind === 'artfi-receipt' ? { schema: '8415-task-budget/1', taskDigest: challenge.task.digest, revision: '0', reservations: [] } : challenge.valuationPolicy === null ? emptyTaskBudget(challenge.task) : emptyNftListingBudget(challenge.task) };
       const queue = values[queueKey] ?? { schema: '8415-task-queue/1', entries: [] };
@@ -657,7 +676,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         'TASK_OBSERVATION_REPLACEMENT_REFUSED', 400);
       requireThat(receipt.observeReplacement, 'TASK_REPLACEMENT_VERIFIER_NOT_CONNECTED', 503);
     }
-    const startedAt = seconds(); let observation = null, failure = null;
+    const mintOperation = context.child.child.operation.kind === 'artfi-test-series-mint' ? context.child.child.operation : null;
+    const mintKey = mintOperation === null ? null : testMintInventoryKey(mintOperation.chainId, mintOperation.collection.contract, mintOperation.masterArtworkHash);
+    const startedAt = seconds(); let observation = null, mintResult = null, failure = null;
     try {
       const raw = await (replacementHash === null ? receipt.observe(input) : receipt.observeReplacement(input, replacementHash));
       observation = bindTaskObservation(raw, { ...input, verifier: receiptVerifier });
@@ -665,8 +686,24 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       requireThat(replacementHash === null ? observation.state !== 'superseded-at-depth' :
         observation.state === 'superseded-at-depth' ? observation.replacementHash === replacementHash :
           ['pending', 'confirming', 'reorged'].includes(observation.state), 'TASK_OBSERVATION_REPLACEMENT_REFUSED', 503);
+      if (mintOperation !== null && observation.state === 'confirmed-at-depth') {
+        requireThat(observation.effect === 'exact-operation-observed' && typeof receipt.observeMintResult === 'function', 'TASK_TEST_MINT_OBSERVER_NOT_CONNECTED', 503);
+        mintResult = await receipt.observeMintResult(input, observation);
+        fields(mintResult, ['schema','taskId','chainId','collection','runtimeCodeHash','issuer','transactionHash','blockHash','blockNumber',
+          'tokenId','standard','quantity','artworkId','masterArtworkHash','metadataHash','metadataURI','distributionWallet','testOnly','finality']);
+        requireThat(mintResult.schema === '8415-artfi-test-series-mint-result/1' && mintResult.taskId === context.grant.task.policy.taskId &&
+          mintResult.chainId === mintOperation.chainId && mintResult.collection === mintOperation.collection.contract &&
+          mintResult.runtimeCodeHash === mintOperation.collection.runtimeCodeHash && mintResult.issuer === mintOperation.actor &&
+          mintResult.transactionHash === reservation.transactionHash && mintResult.blockHash === observation.blockHash &&
+          /^0x(?:0|[1-9a-f][0-9a-f]*)$/.test(mintResult.blockNumber) && BigInt(mintResult.blockNumber) === BigInt(observation.blockNumber) &&
+          BigInt(version(mintResult.tokenId)) > 0n && mintResult.standard === 'ERC-1155' && mintResult.quantity === '100' &&
+          mintResult.artworkId === mintOperation.artworkId && mintResult.masterArtworkHash === mintOperation.masterArtworkHash &&
+          mintResult.metadataHash === mintOperation.metadataHash && mintResult.metadataURI === mintOperation.metadataURI &&
+          mintResult.distributionWallet === mintOperation.distributionWallet && mintResult.testOnly === true &&
+          mintResult.finality === 'canonical-at-observed-block-not-finality', 'TASK_TEST_MINT_RESULT_BINDING_REFUSED', 503);
+      }
     } catch (error) { failure = error; }
-    const result = await transaction([ckey, gkey, okey, nkey], values => {
+    const result = await transaction([ckey, gkey, okey, nkey, ...(mintKey === null ? [] : [mintKey])], values => {
       const grant = checkOperation(values, context, body, session), current = values[okey];
       requireThat(current.status === 'submitted' && values[nkey].permanent && current.observationRevision === operation.observationRevision &&
         current.attemptExecutor.digest === operation.attemptExecutor.digest && current.attemptObservationPolicy.digest === policy.digest &&
@@ -676,13 +713,20 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       const revision = (BigInt(grant.observationRevision) + 1n).toString();
       const prior = grant.observations.find(entry => entry.operationId === body.operationId);
       const observations = [...grant.observations.filter(entry => entry.operationId !== body.operationId),
-        { operationId: body.operationId, observation: failure ? prior?.observation ?? null : observation, available: failure === null }];
-      return { [ckey]: values[ckey], [gkey]: { ...grant, observations, observationRevision: revision },
+        { operationId: body.operationId, observation: failure ? prior?.observation ?? null : observation, available: failure === null,
+          ...(mintOperation === null ? {} : { mintResult: failure ? prior?.mintResult ?? null : mintResult }) }];
+      const inventory = mintKey === null ? {} : { [mintKey]: mintResult !== null && failure === null ? {
+        schema: '8415-task-test-mint-inventory/1', available: true, input, result: mintResult, observation,
+        sourceTaskDigest: context.grant.task.digest, sourceChildDigest: context.child.digest,
+      } : values[mintKey] === null ? null : values[mintKey].input?.attempt?.transactionHash === reservation.transactionHash ?
+        { ...values[mintKey], available: false } : values[mintKey] };
+      return { ...inventory, [ckey]: values[ckey], [gkey]: { ...grant, observations, observationRevision: revision },
         [okey]: { ...current, observationRevision: (BigInt(current.observationRevision) + 1n).toString(),
           // Only a verified supersession may install a replacement locator.
           // A later disappearance/reorg retains that locator for read-only retry.
           ...(failure === null && observation.state === 'superseded-at-depth' ? { replacementHash } : {}) }, [nkey]: values[nkey] };
     });
+    if (mintKey !== null) acceptCommittedMintRecord?.(result[mintKey]);
     // Persist unavailable before reporting an error: old evidence is historical,
     // never silently presented as a successful current observation.
     if (failure) throw new TaskAuthorizationError('TASK_OBSERVATION_UNAVAILABLE', 503);
@@ -1101,3 +1145,4 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   });
   return { handler, cancel, background, listingAuthorization, receiptAuthorization };
 }
+

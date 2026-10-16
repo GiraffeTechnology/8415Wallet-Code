@@ -4,6 +4,7 @@ import { getAddress } from 'ethers';
 import { loginOrigin } from '../web/login-core.mjs';
 import { validateMailConfig } from './mail-config.mjs';
 import { validateTaskListingConfig } from './task-listing-config.mjs';
+import { validateTaskExactConfig } from './task-exact-config.mjs';
 const chains = new Set(['1', '8453', '11155111', '84532', '560048', '31337']);
 const fail = code => { throw new Error(code); };
 export function validateAccountBindings(accounts) {
@@ -32,7 +33,8 @@ export function validateAccountBindings(accounts) {
 }
 export function validateAuthConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) fail('AUTH_CONFIG_REFUSED');
-  if (Object.keys(config).some(key => !['origin', 'tenant', 'port', 'statePath', 'accounts', 'ca', 'reservedPorts', 'socketPath', 'mail', 'listing'].includes(key))) fail('AUTH_CONFIG_FIELD_REFUSED');
+  if (Object.keys(config).some(key => !['origin', 'tenant', 'port', 'statePath', 'accounts', 'ca', 'reservedPorts', 'socketPath', 'mail', 'listing', 'taskTestAssets', 'exact'].includes(key))) fail('AUTH_CONFIG_FIELD_REFUSED');
+  validateTaskExactConfig(config.exact);
   validateMailConfig(config.mail);
   try { validateTaskListingConfig(config.listing); } catch (error) { if (error.message !== 'TASK_LISTING_CONFIGURATION_REQUIRED') throw error; }
   const url = loginOrigin(config.origin);
@@ -45,3 +47,4 @@ export function validateAuthConfig(config) {
     config.statePath.includes('\0')) fail('AUTH_STATE_PATH_REFUSED');
   return validateAccountBindings(config.accounts);
 }
+

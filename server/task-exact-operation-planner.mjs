@@ -2,6 +2,7 @@
  * Server configuration only; HTTP input cannot provide a fee rule or provider.
  * Proposals never replace durable reserve/verify/CAS or the signer's live checks. */
 import { createHash } from 'node:crypto';
+import { normalizeTestAssetPins, testAssetPinForTask } from './task-test-asset-authorization.mjs';
 import { readFileSync } from 'node:fs';
 import { freezeTaskPolicy, freezeChildOperation, normalizeTaskBudget, assessChildScope } from '../src/agent/taskContract.ts';
 import { encodeCall } from '../src/codec/abi.ts';
@@ -9,9 +10,10 @@ import { ControlledAccountClient } from '../src/controls/accounts.ts';
 import { decodeControlSequence } from '../src/controls/client.ts';
 import { controlHex, hashControlBytes, verifyControlDeployment } from '../src/controls/authorization.ts';
 import { encodeTaskOperationCall } from './task-operation-encoding.mjs';
+import { testSeriesMintRequest, verifyTestSeriesMintPreflight } from './task-test-mint-contract.mjs';
 
 export const TASK_EXACT_PLANNER_RUNTIME_FILES = Object.freeze([
-  'server/task-exact-operation-planner.mjs', 'server/task-operation-encoding.mjs',
+  'server/crypto.mjs', 'server/task-exact-operation-planner.mjs', 'server/task-operation-encoding.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts',
@@ -73,12 +75,13 @@ export function normalizeTaskExactFeeRule(input) {
   return freeze(rule);
 }
 
-export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.now }) {
+export function createTaskExactOperationPlanner({ provider, feeRule, testAssetPins = [], now = Date.now }) {
+  const pins = normalizeTestAssetPins(testAssetPins);
   check(typeof now === 'function', 'TASK_PLAN_CONFIG_REQUIRED');
   const rule = normalizeTaskExactFeeRule(feeRule), readonlyProvider = createTaskPlannerReadProvider(provider);
   const rpc = (method, params = []) => readonlyProvider.request({ method, params });
   const identity = freeze({ schema: '8415-task-planner/1', plannerId: '8415wallet:exact-operation-planner', plannerVersion: '1',
-    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, feeRule: rule }))}` });
+    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, feeRule: rule, testAssetPins: pins }))}` });
   function seconds() { const time = now(); check(Number.isSafeInteger(time) && time >= 0, 'TASK_PLAN_CLOCK_REFUSED'); return BigInt(Math.floor(time / 1000)); }
   async function plan(input) {
     fields(input, ['task', 'budget', 'executor', 'grantPolicyVersion']);
@@ -124,6 +127,8 @@ export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.
       return rpc(method, copied);
     } });
     check(await rpc('eth_getCode', [op.actor, block]) === '0x', 'TASK_PLAN_EOA_ACTOR_REQUIRED');
+    const testPin = testAssetPinForTask(pins, task);
+    if (testPin) check(hashControlBytes(await rpc('eth_getCode', [testPin.contract, block])) === testPin.runtimeCodeHash, 'TASK_PLAN_TEST_ASSET_CODE_REFUSED');
     if ('controller' in op) await verifyControlDeployment(pinned, pin(op.controller, op.chainId));
     if ('token' in op) await verifyControlDeployment(pinned, pin(op.token, op.chainId));
     const account = ['deposit', 'standalone-withdraw'].includes(op.kind)
@@ -138,6 +143,9 @@ export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.
       check(sequence.token === op.token.contract && sequence.tokenCodeHash === op.token.runtimeCodeHash &&
         sequence.revision === BigInt(op.expectedRevision), 'TASK_PLAN_SEQUENCE_BINDING_REFUSED');
     }
+    if (op.kind === 'artfi-test-series-mint') await verifyTestSeriesMintPreflight({
+      request: testSeriesMintRequest(op), provider: readonlyProvider, snapshotBlock: block,
+      allowedWallets: [op.actor, op.distributionWallet] });
     const transaction = { from: op.actor, to: encoded.to, data: encoded.data, value: hex(encoded.value), chainId: hex(op.chainId),
       nonce: hex(nonce), type: '0x2', gas: hex(gasCap), maxFeePerGas: hex(maxFee), maxPriorityFeePerGas: hex(priority), accessList: [] };
     const estimate = quantity(await rpc('eth_estimateGas', [transaction, rule.simulationBlock]));
@@ -166,3 +174,4 @@ export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.
   }
   return Object.freeze({ identity, plan });
 }
+

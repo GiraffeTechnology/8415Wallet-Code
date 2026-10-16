@@ -12,7 +12,7 @@ function configuration(value) {
   const required = ['provider', 'externalSigner', 'signerIdentity', 'maxPriorityFeePerGasWei',
     'agentId', 'agentVersion', 'observationPolicy'];
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Reflect.ownKeys(descriptors).some(key => ![...required, 'plannerFeeRule'].includes(key)) ||
+  if (Reflect.ownKeys(descriptors).some(key => ![...required, 'plannerFeeRule', 'testAssetPins'].includes(key)) ||
       required.some(key => !Object.hasOwn(descriptors, key)) ||
       Object.values(descriptors).some(field => !Object.hasOwn(field, 'value'))) refuse();
   return value;
@@ -30,11 +30,12 @@ export function createTaskExactRuntime({ store, serverConfiguration = null, now 
   const policy = freezeTaskObservationPolicy(c.observationPolicy);
   const execution = createTaskExactSignerAdapter({ provider, externalSigner, store, now,
     signerIdentity: structuredClone(c.signerIdentity), maxPriorityFeePerGasWei: c.maxPriorityFeePerGasWei,
-    agentId: c.agentId, agentVersion: c.agentVersion,
+    agentId: c.agentId, agentVersion: c.agentVersion, testAssetPins: c.testAssetPins ?? [],
     plannerFeeRule: c.plannerFeeRule === undefined ? null : structuredClone(c.plannerFeeRule) });
-  const receipt = createTaskReceiptAdapter({ provider, observationPolicy: policy.policy, now });
+  const receipt = createTaskReceiptAdapter({ provider, observationPolicy: policy.policy, testAssetPins: c.testAssetPins ?? [], now });
   return Object.freeze({ state: 'configured', code: null, authOptions: Object.freeze({
     taskExecution: execution, taskExecutorIdentity: execution.identity,
     taskReceipt: receipt, taskObservationPolicy: policy.policy,
   }) });
 }
+

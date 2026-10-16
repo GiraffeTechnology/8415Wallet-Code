@@ -1,6 +1,7 @@
 /** Read-only receipt observation for the existing bounded operations. No keys,
  * signing, transaction submission, market execution or budget mutation. */
 import { createHash } from 'node:crypto';
+import { normalizeTestAssetPins, testAssetPinForTask } from './task-test-asset-authorization.mjs';
 import { readFileSync } from 'node:fs';
 import { encodeCall } from '../src/codec/abi.ts';
 import { encodeExactTaskOperation } from './task-operation-encoding.mjs';
@@ -12,6 +13,7 @@ import { ResponsibilityControlClient, decodeControlSequence } from '../src/contr
 import { ControlledAccountClient } from '../src/controls/accounts.ts';
 import { receiptFixed, proveSupersededNonce, wordAddress, wordUint } from '../src/controls/execution.ts';
 import { receiptAssetTransaction, proveAssetReplacement } from '../src/xiongan/externalAssets.ts';
+import { testSeriesMintRequest, verifyTestSeriesMintPreflight, readTestSeriesMintResult } from './task-test-mint-contract.mjs';
 
 // Exact runtime closure, also used as the implementation identity. Type-only
 // modules are compiler inputs, not executed dependencies. Packagers rewrite the
@@ -20,14 +22,16 @@ export const TASK_RECEIPT_RUNTIME_FILES = Object.freeze([
   // Approval selection, channel isolation, and the shared-store constructor
   // affect this port's trusted runtime; UI/build/test code does not.
   'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
-  'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
+  'server/crypto.mjs', 'server/task-listing-transport.mjs',
+  'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
+  'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
   'src/codec/abi.ts', 'src/codec/keccak.ts', 'src/controls/accounts.ts', 'src/controls/authorization.ts',
   'src/controls/client.ts', 'src/controls/execution.ts', 'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
 ]);
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const implementationDigest = `0x${sha256(JSON.stringify(TASK_RECEIPT_RUNTIME_FILES.map(path => ({ path,
   sha256: sha256(readFileSync(new URL(`../${path}`, import.meta.url))) }))))}`;
-const identity = normalizeObservationVerifier({ verifierId: '8415wallet:task-receipt', verifierVersion: '1', verifierImplementationDigest: implementationDigest });
+
 const check = (ok, code) => { if (!ok) throw new TaskObservationError(code); };
 function fields(value, names) {
   check(value !== null && typeof value === 'object' && !Array.isArray(value) &&
@@ -41,7 +45,10 @@ const quantity = value => { check(typeof value === 'string' && /^0x(?:0|[1-9a-f]
 const pin = (value, chainId) => ({ chainId: BigInt(chainId), controller: value.contract, runtimeCodeHash: value.runtimeCodeHash });
 /** Server-owned provider and policy are captured once. Browser JSON cannot
  * select an endpoint, reduce depth or replace verifier methods. */
-export function createTaskReceiptAdapter({ provider, observationPolicy, now = Date.now }) {
+export function createTaskReceiptAdapter({ provider, observationPolicy, testAssetPins = [], now = Date.now }) {
+  const pins = normalizeTestAssetPins(testAssetPins);
+  const identity = normalizeObservationVerifier({ verifierId: '8415wallet:task-receipt', verifierVersion: '1',
+    verifierImplementationDigest: '0x' + sha256(JSON.stringify({ sourceDigest: implementationDigest, testAssetPins: pins })) });
   check(provider && typeof provider.request === 'function' && typeof now === 'function', 'TASK_RECEIPT_CONFIG_REFUSED');
   const request = provider.request.bind(provider), policy = freezeTaskObservationPolicy(observationPolicy);
   const allowed = new Set(['eth_chainId', 'eth_getTransactionReceipt', 'eth_getTransactionByHash', 'eth_getBlockByNumber',
@@ -104,7 +111,7 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, now = Da
           indexed: [wordAddress(deposit ? op.actor : account.account), wordAddress(deposit ? account.account : op.destination), wordUint(BigInt(op.tokenId))],
           dataHash: hashControlBytes('0x') } } };
     }
-    return { kind: 'asset', record: { ...base, to, data, value: hex(value) } };
+    return { kind: op.kind === 'artfi-test-series-mint' ? 'test-mint' : 'asset', record: { ...base, to, data, value: hex(value) } };
   }
   function output(c, observed, replacementHash = null) {
     const time = now(); check(Number.isSafeInteger(time) && time >= 0, 'TASK_RECEIPT_CLOCK_REFUSED');
@@ -145,6 +152,8 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, now = Da
     const maximumFee = actual.maxFeePerGas === undefined ? actual.gasPrice : actual.maxFeePerGas;
     check(quantity(actual.gas) <= BigInt(c.child.child.fees.gasLimit) && quantity(maximumFee) <= BigInt(c.child.child.fees.maxFeePerGasWei),
       'TASK_RECEIPT_FEE_BOUND_EXCEEDED');
+    const testPin = testAssetPinForTask(pins, c.task);
+    if (testPin) check(hashControlBytes(await rpc('eth_getCode', [testPin.contract, block])) === testPin.runtimeCodeHash, 'TASK_RECEIPT_TEST_ASSET_CODE_REFUSED');
     if (op.kind === 'native-transfer') {
       await nativeEoaBinding(op, block);
     } else if (op.kind === 'complete' || op.kind === 'return-hop') {
@@ -174,16 +183,78 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, now = Da
     const c = assessmentContext(input);
     await submission(c, null);
     if (c.child.child.operation.kind === 'native-transfer') await assessNativeEoa(c.child.child.operation);
+    const testPin = testAssetPinForTask(pins, c.task);
+    if (testPin) check(hashControlBytes(await readonlyProvider.request({ method: 'eth_getCode', params: [testPin.contract, 'latest'] })) === testPin.runtimeCodeHash,
+      'TASK_RECEIPT_TEST_ASSET_CODE_REFUSED');
+    if (c.child.child.operation.kind === 'artfi-test-series-mint') {
+      const op = c.child.child.operation;
+      await verifyTestSeriesMintPreflight({ request: testSeriesMintRequest(op), provider: readonlyProvider,
+        allowedWallets: [op.actor, op.distributionWallet] });
+    }
     return Object.freeze({ taskDigest: c.task.digest, childDigest: c.child.digest, executorDigest: c.executorDigest,
       observationPolicyDigest: policy.digest, ...identity, capability: 'exact-operation-observable' });
   }
   async function observe(input) {
     const c = context(input), submitted = await submission(c, c.attempt.transactionHash), depth = BigInt(policy.policy.minimumConfirmations);
     let observed;
-    if (submitted.kind === 'asset') observed = await receiptAssetTransaction(readonlyProvider, submitted.record, c.attempt.transactionHash, depth);
+    if (submitted.kind === 'test-mint') observed = await observeMintTransaction(c, submitted.record, depth);
+    else if (submitted.kind === 'asset') observed = await receiptAssetTransaction(readonlyProvider, submitted.record, c.attempt.transactionHash, depth);
     else if (submitted.kind === 'fixed') observed = await receiptFixed(readonlyProvider, submitted.record, depth);
     else observed = await new ResponsibilityControlClient(readonlyProvider, submitted.record.deployment).receipt(submitted.record, depth);
     return output(c, await operationBinding(c, observed));
+  }
+  async function observeMintTransaction(c, expected, depth) {
+    const rpc = (method, params) => readonlyProvider.request({ method, params });
+    check(quantity(await rpc('eth_chainId', [])) === BigInt(c.task.policy.chainId), 'TASK_RECEIPT_CHAIN_MISMATCH');
+    const receipt = await rpc('eth_getTransactionReceipt', [c.attempt.transactionHash]);
+    if (receipt === null) return { state: 'pending', blockNumber: null, blockHash: null, confirmations: 0n, executionEventObserved: false };
+    const number = quantity(receipt.blockNumber), blockHash = receipt.blockHash?.toLowerCase();
+    check(/^0x[0-9a-f]{64}$/.test(blockHash ?? '') && receipt.transactionHash?.toLowerCase() === c.attempt.transactionHash,
+      'TASK_RECEIPT_BINDING_REFUSED');
+    const transaction = await rpc('eth_getTransactionByHash', [c.attempt.transactionHash]);
+    check(transaction?.hash?.toLowerCase() === c.attempt.transactionHash && transaction.blockHash?.toLowerCase() === blockHash &&
+      quantity(transaction.blockNumber) === number && quantity(transaction.transactionIndex) === quantity(receipt.transactionIndex) &&
+      receipt.from?.toLowerCase() === expected.from && receipt.to?.toLowerCase() === expected.to &&
+      transaction.from?.toLowerCase() === expected.from && transaction.to?.toLowerCase() === expected.to &&
+      quantity(transaction.nonce) === quantity(expected.nonce) && quantity(transaction.value) === 0n &&
+      transaction.input?.toLowerCase() === expected.data && (transaction.chainId === undefined || quantity(transaction.chainId) === BigInt(c.task.policy.chainId)),
+      'TASK_RECEIPT_BINDING_REFUSED');
+    const result = (state, confirmations = 0n) => ({ state, blockNumber: number.toString(), blockHash,
+      confirmations, executionEventObserved: state === 'confirmed' });
+    const canonical = await rpc('eth_getBlockByNumber', [hex(number), false]);
+    const head = quantity(await rpc('eth_blockNumber', []));
+    if (canonical?.hash?.toLowerCase() !== blockHash || head < number) return result('reorged');
+    const confirmations = head - number + 1n, status = quantity(receipt.status);
+    check(status === 0n || status === 1n, 'TASK_RECEIPT_STATUS_REFUSED');
+    if (confirmations < depth) return result('confirming', confirmations);
+    if (status === 0n) {
+      check((await rpc('eth_getBlockByNumber', [hex(number), false]))?.hash?.toLowerCase() === blockHash, 'TASK_RECEIPT_SNAPSHOT_REORGED');
+      return result('reverted', confirmations);
+    }
+    const mint = await readTestSeriesMintResult({ request: testSeriesMintRequest(c.child.child.operation),
+      provider: readonlyProvider, transactionHash: c.attempt.transactionHash });
+    check(mint.blockHash === blockHash && BigInt(mint.blockNumber) === number, 'TASK_RECEIPT_MINT_BINDING_REFUSED');
+    return result('confirmed', confirmations);
+  }
+  async function observeMintResult(input, observation) {
+    const c = context(input);
+    check(c.child.child.operation.kind === 'artfi-test-series-mint', 'TASK_RECEIPT_MINT_KIND_REFUSED');
+    const checked = bindTaskObservation(observation, { ...c, verifier: identity });
+    check(checked.state === 'confirmed-at-depth' && checked.effect === 'exact-operation-observed', 'TASK_RECEIPT_MINT_DEPTH_REQUIRED');
+    const mint = await readTestSeriesMintResult({ request: testSeriesMintRequest(c.child.child.operation),
+      provider: readonlyProvider, transactionHash: c.attempt.transactionHash });
+    check(mint.blockHash === checked.blockHash && BigInt(mint.blockNumber) === BigInt(checked.blockNumber), 'TASK_RECEIPT_MINT_BINDING_REFUSED');
+    return mint;
+  }
+  async function verifyMintInventoryRecord(record) {
+    try {
+      const observation = await observe(record.input);
+      const mint = await observeMintResult(record.input, observation);
+      return record.schema === '8415-task-test-mint-inventory/1' && record.available === true &&
+        record.sourceTaskDigest === record.input.task.digest && record.sourceChildDigest === record.input.child.digest &&
+        Object.keys(record.result).sort().join(',') === Object.keys(mint).sort().join(',') &&
+        Object.keys(mint).every(key => record.result[key] === mint[key]);
+    } catch { return false; }
   }
   async function observeReplacement(input, replacementHash) {
     const c = context(input), submitted = await submission(c, c.attempt.transactionHash), depth = BigInt(policy.policy.minimumConfirmations);
@@ -196,7 +267,7 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, now = Da
     if (locatorReceipt === null) return output(c, { state: 'pending', blockNumber: null, blockHash: null, confirmations: 0n, executionEventObserved: false });
     let proof;
     try {
-    if (submitted.kind === 'asset') proof = await proveAssetReplacement(readonlyProvider, submitted.record, c.attempt.transactionHash, replacementHash, depth);
+    if (submitted.kind === 'asset' || submitted.kind === 'test-mint') proof = await proveAssetReplacement(readonlyProvider, submitted.record, c.attempt.transactionHash, replacementHash, depth);
     else {
       const r = submitted.record;
       proof = await proveSupersededNonce(readonlyProvider, { pin: submitted.kind === 'fixed' ? r.pin : r.deployment,
@@ -213,5 +284,6 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, now = Da
     return output(c, { state: 'superseded-at-depth', blockNumber: proof.blockNumber, blockHash: proof.blockHash,
       confirmations: proof.confirmations, executionEventObserved: false }, proof.replacementHash);
   }
-  return Object.freeze({ identity, observationPolicy: policy, assessChild, observe, observeReplacement });
+  return Object.freeze({ identity, observationPolicy: policy, assessChild, observe, observeReplacement, observeMintResult, verifyMintInventoryRecord });
 }
+

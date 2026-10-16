@@ -5,11 +5,14 @@ import { encodeCall, encodeCallWithTail } from '../src/codec/abi.ts';
 import { freezeChildOperation, normalizeExistingOperation } from '../src/agent/taskContract.ts';
 import { hashControlBytes } from '../src/controls/authorization.ts';
 import { isAddressInput } from '../src/xiongan/address.ts';
+import { encodeTestSeriesMint, testSeriesMintRequest } from './task-test-mint-contract.mjs';
 
 export function encodeTaskOperationCall(operation, resolvedAccount = null) {
   const op = normalizeExistingOperation(operation);
   let to, data, value = '0';
   switch (op.kind) {
+    case 'artfi-test-series-mint': { const mint = encodeTestSeriesMint(testSeriesMintRequest(op));
+      to = mint.to; data = mint.data; value = mint.valueWei; break; }
     case 'native-transfer': to = op.recipient; data = '0x'; value = op.valueWei; break;
     case 'erc20-transfer': to = op.contract; data = encodeCall('transfer(address,uint256)', ['address', 'uint256'], [op.recipient, BigInt(op.amount)]); break;
     case 'erc721-transfer': to = op.contract; data = encodeCall('safeTransferFrom(address,address,uint256)', ['address', 'address', 'uint256'], [op.actor, op.recipient, BigInt(op.tokenId)]); break;
@@ -38,3 +41,4 @@ export function encodeExactTaskOperation(input, resolvedAccount = null) {
     throw new Error('TASK_RECEIPT_ENCODING_MISMATCH');
   return Object.freeze({ to: to.toLowerCase(), data, value });
 }
+

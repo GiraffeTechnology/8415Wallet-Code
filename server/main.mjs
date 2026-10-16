@@ -13,15 +13,28 @@ import { createOtpSenderFromEnvironment } from './mail-otp.mjs';
 import { bootstrapTaskListingRuntime, ensureTaskListingServerCondition } from './task-listing-bootstrap.mjs';
 import { createTaskExactRuntime } from './task-exact-runtime.mjs';
 import { composeTaskAuthOptions } from './task-runtime-composition.mjs';
+import { createTaskTestAssetAuthorization } from './task-test-asset-authorization.mjs';
+import { bootstrapTaskExactConfiguration } from './task-exact-bootstrap.mjs';
+import { createTaskReceiptAdapter } from './task-receipt-adapter.mjs';
 
 /** Reusable process-level entry for an already reviewed server capability object.
  * HTTP request data is never passed as listingRuntime or auth options. */
-export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, now = Date.now }) {
+export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, testAssetEvidenceVerifier = null, now = Date.now }) {
   validateAuthConfig(config);
-  const exact = createTaskExactRuntime({ store, serverConfiguration: exactServerConfiguration, now });
+  if (exactServerConfiguration !== null && config.exact?.enabled) throw Error('TASK_EXACT_DUPLICATE_CONFIG_REFUSED');
+  const fixedExact = exactServerConfiguration ?? await bootstrapTaskExactConfiguration(config.exact);
+  const inventoryObserver = fixedExact === null ? null : createTaskReceiptAdapter({ provider: fixedExact.provider,
+    observationPolicy: fixedExact.observationPolicy, now });
+  const testAuthorization = config.taskTestAssets == null ? null : await createTaskTestAssetAuthorization({
+    inventory: config.taskTestAssets, authorizedWallets: config.accounts.flatMap(user => user.wallets),
+    verifyMintEvidence: testAssetEvidenceVerifier, store,
+    verifyInventoryRecord: inventoryObserver?.verifyMintInventoryRecord, now });
+  const exact = createTaskExactRuntime({ store, serverConfiguration: fixedExact === null ? null : {
+    ...fixedExact, testAssetPins: testAuthorization?.executionPins ?? [] }, now });
   const listing = listingRuntime ?? await bootstrapTaskListingRuntime({ configuration: config.listing, store, authStatePath: config.statePath, now });
   try {
   const handler = createAuthService({ origin: config.origin, tenant: config.tenant, accounts: config.accounts, store, verifyCa, sendOtp, now,
+    taskTestAuthorization: testAuthorization,
     ...composeTaskAuthOptions({ exact: exact.authOptions, listing: listing.runtime.authOptions }) });
   listing.runtime.connectAuthorization(handler.taskListingAuthorization);
   const background = createTaskBackgroundRunner({ store, continuation: handler.taskBackground, now });
@@ -85,3 +98,4 @@ export async function startAuthFromEnvironment({ exactServerConfiguration = null
   } catch (error) { await runtime?.stop(); await store.close(); throw error; }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await startAuthFromEnvironment();
+
