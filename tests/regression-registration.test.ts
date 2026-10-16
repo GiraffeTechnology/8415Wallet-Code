@@ -26,6 +26,8 @@ const RUN_ELSEWHERE: Record<string, string> = {
   // Named directly by a workflow step, not by any package script.
   'task-authorization-browser.test.mjs': 'ci.yml',
   'task-static-module-closure.test.mjs': 'ci.yml',
+  // Imports dist/browser/browser.js, so it can only run after the build step.
+  'readonly-panel-browser-lifecycle.test.mjs': 'ci.yml',
 };
 
 const files = readdirSync(new URL('tests', root)).filter((name) => name.endsWith('.test.mjs'));

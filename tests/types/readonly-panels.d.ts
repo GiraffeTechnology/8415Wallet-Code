@@ -24,3 +24,17 @@ declare module '*web/kit-read-panel.mjs' {
 declare module '*web/watchtower-read-panel.mjs' {
   export function mountWatchtowerRead(options: any): { clear(): void } | undefined;
 }
+
+declare module '*helpers/readonly-panel-harness.mjs' {
+  export const SECRET: string;
+  export const CONTRACT: string;
+  export function declarationFile(): { size: number; text(): Promise<string> };
+  export function inputsOf(host: any, type: string): any[];
+  export function runPanelLifecycleCases(panel: {
+    label: string;
+    mount: (options: any) => { clear(): void } | undefined;
+    readKey: string;
+    errorKey: string;
+    prepare: (host: any) => void;
+  }): void;
+}
