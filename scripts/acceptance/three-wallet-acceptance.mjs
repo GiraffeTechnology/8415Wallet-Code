@@ -10,6 +10,7 @@ const PROMPT_FILE = '1NvTIC0hnoc9xCRt50zALq0z5qIJAC3kz';
 const PROMPT_HASHES = Object.freeze({
   '1.0': '251e811836f26c05bc4a0a4b2e3f729b5e0fe1f7ea0f1a751fb7e14524ca3180',
   '1.1': '8d11cdca84445575b5e8ab3ae68d72df26dc6ce11ec1fee34095598ac951f59d',
+  '1.2': '16693ee8e14ff50d9b3a082f0335e3814b4186407323ba988015267d1fa0ebf3',
 });
 const FINAL = '8415WALLET-THREE-WALLET-ONCHAIN-ACCEPTANCE-FINAL.md';
 const GENESIS = '0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b';
@@ -284,8 +285,13 @@ async function blockedReport(manifest, context) {
     prd_file_id: manifest.prd?.fileId, prd_sha256: manifest.prd?.sha256, generated_at_utc: utc(),
     status: 'BLOCKED', three_wallet_acceptance: 'BLOCKED', full_prd_delivery: 'NOT_ACCEPTED', production_ready: false,
     run_manifest: manifest, source_preflight: context,
+    ...(context.promptVersion === '1.2' ? { delivery_owner: 'ArtFi control 2 PM; sole FINAL and unified result email owner',
+      executor_scope: 'Wallet2: scoped tests, Wallet-scope fixes and regressions; Operations: actual deployment and READY' } : {}),
     warning: 'Formal blocker escalation only. No tests, UI, Agent execution or on-chain flow is accepted by this report generator.' };
-  await writeExclusive(path.join(context.runPath, FINAL), '# BLOCKED\n\n```json\n' + JSON.stringify(data, null, 2) + '\n```\n\nTesting is not full PRD delivery. Continue remaining authorized PRD work after the test/fix cycle.\n');
+  const continuation = context.promptVersion === '1.2'
+    ? 'This is a PM-owned local escalation artifact, not a Wallet2 final delivery. Wallet2 and Operations return internal evidence to the PM; only the PM updates the original FINAL and sends the unified result email. The task remains open until actual acceptance; other full-PRD development retains its assigned owners.'
+    : 'Testing is not full PRD delivery. Continue remaining authorized PRD work after the test/fix cycle.';
+  await writeExclusive(path.join(context.runPath, FINAL), '# BLOCKED\n\n```json\n' + JSON.stringify(data, null, 2) + '\n```\n\n' + continuation + '\n');
 }
 
 async function main() {
