@@ -6,6 +6,11 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 const TASK = 'WALLET-3W-HOODI-20261015-01';
+const PROMPT_FILE = '1NvTIC0hnoc9xCRt50zALq0z5qIJAC3kz';
+const PROMPT_HASHES = Object.freeze({
+  '1.0': '251e811836f26c05bc4a0a4b2e3f729b5e0fe1f7ea0f1a751fb7e14524ca3180',
+  '1.1': '8d11cdca84445575b5e8ab3ae68d72df26dc6ce11ec1fee34095598ac951f59d',
+});
 const FINAL = '8415WALLET-THREE-WALLET-ONCHAIN-ACCEPTANCE-FINAL.md';
 const GENESIS = '0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b';
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -45,7 +50,8 @@ async function gates(manifest, mode) {
   requireThat(process.platform === 'linux', 'LINUX_ONLY_NO_WINDOWS_TESTS');
   const [major, minor] = process.versions.node.split('.').map(Number);
   requireThat(major > 22 || major === 22 && minor >= 18, 'EXISTING_NODE_22_18_OR_NEWER_REQUIRED');
-  requireThat(manifest.schema === '8415wallet-three-wallet-run/1' && manifest.taskId === TASK && manifest.promptVersion === '1.0', 'MANIFEST_IDENTITY_REFUSED');
+  requireThat(manifest.schema === '8415wallet-three-wallet-run/1' && manifest.taskId === TASK && Object.hasOwn(PROMPT_HASHES, manifest.promptVersion), 'MANIFEST_IDENTITY_REFUSED');
+  requireThat(manifest.prompt?.fileId === PROMPT_FILE && manifest.prompt.sha256 === PROMPT_HASHES[manifest.promptVersion], 'PROMPT_CONTENT_IDENTITY_REQUIRED');
   requireThat(/^[a-f0-9]{40}$/.test(manifest.source?.commit) && /^[a-f0-9]{40}$/.test(manifest.source?.tree) && /^[a-f0-9]{64}$/.test(manifest.source?.lockSha256), 'EXACT_SOURCE_PINS_REQUIRED');
   const offline = mode === 'regress';
   let approval, approvalSha256;
@@ -58,6 +64,7 @@ async function gates(manifest, mode) {
     approvalSha256 = manifest.offlineApproval.sha256;
     requireThat(approval.schema === '8415wallet-offline-execution-approval/1' && approval.status === 'APPROVED' &&
       approval.scope === 'offline-regression-only' && approval.taskId === TASK && approval.sourceCommit === manifest.source.commit &&
+      approval.promptVersion === manifest.promptVersion &&
       approval.sourceTree === manifest.source.tree && approval.lockSha256 === manifest.source.lockSha256 &&
       typeof approval.authorizationRef === 'string' && approval.authorizationRef.trim().length > 0 && approval.authorizationRef !== 'UNRESOLVED',
       'EXACT_OFFLINE_EXECUTION_NOT_APPROVED');
@@ -90,7 +97,8 @@ async function gates(manifest, mode) {
   const runPath = path.join(output.resolved, TASK, manifest.runId);
   requireThat(within(output.resolved, runPath), 'OUTPUT_SCOPE_REFUSED');
   return { root: root.resolved, cache: cache.resolved, temporary: temporary.resolved, output: output.resolved, runPath,
-    source: manifest.source, authorizationKind: offline ? 'offline-regression-only' : 'full-environment-ready',
+    source: manifest.source, promptVersion: manifest.promptVersion, promptSha256: manifest.prompt.sha256,
+    authorizationKind: offline ? 'offline-regression-only' : 'full-environment-ready',
     authorizationSha256: approvalSha256,
     ...(offline ? { offlineAllowedScripts: approval.allowedScripts, offlineAuthorizationRef: approval.authorizationRef }
       : { opsReadySha256: approvalSha256 }),

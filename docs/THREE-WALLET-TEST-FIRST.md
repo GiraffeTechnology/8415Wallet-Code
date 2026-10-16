@@ -1,6 +1,8 @@
 # Three-wallet test-first orchestration
 
-This is authored, unexecuted source for WALLET-3W-HOODI-20261015-01, prompt 1.0. No syntax check, Windows/Linux product test, deployment, signing or transaction has been performed for this runner. It uses Node built-ins and must not install tools or create replacement infrastructure.
+This is authored source for WALLET-3W-HOODI-20261015-01. This repaired source has NOT_RUN validation status. Wallet2's reported syntax/entry-denial results bind only to frozen ae677eaf, not this repair. No Windows/Linux product test, deployment, signing or transaction has been performed by this development task. It uses Node built-ins and must not install tools or create replacement infrastructure.
+
+The runner accepts explicit prompt versions 1.0 and 1.1 only, bound to fixed file ID 1NvTIC0hnoc9xCRt50zALq0z5qIJAC3kz and respectively SHA256 251e811836f26c05bc4a0a4b2e3f729b5e0fe1f7ea0f1a751fb7e14524ca3180 and 8d11cdca84445575b5e8ab3ae68d72df26dc6ce11ec1fee34095598ac951f59d. Both were fully read as fetched UTF-8 text. The latest example is explicitly 1.1, 32247 bytes/mtime2026-10-16T00:17:45.726Z. A version/hash mismatch is refused; old 1.0 inputs/results are not relabeled. Offline approval must name the same promptVersion. v1.1's actual SIN deployment, UI/Agent, chain and report/email requirements are not implemented or accepted by this runner; Wallet2 remains the sole test executor/report owner under the latest direct role assignment, which supersedes older in-document role wording.
 
 ## Execution boundary
 

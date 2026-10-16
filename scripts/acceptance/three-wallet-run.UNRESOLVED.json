@@ -1,11 +1,11 @@
 {
   "schema": "8415wallet-three-wallet-run/1",
   "taskId": "WALLET-3W-HOODI-20261015-01",
-  "promptVersion": "1.0",
+  "promptVersion": "1.1",
   "runId": "UNRESOLVED",
   "prompt": {
     "fileId": "1NvTIC0hnoc9xCRt50zALq0z5qIJAC3kz",
-    "sha256": "251e811836f26c05bc4a0a4b2e3f729b5e0fe1f7ea0f1a751fb7e14524ca3180"
+    "sha256": "8d11cdca84445575b5e8ab3ae68d72df26dc6ce11ec1fee34095598ac951f59d"
   },
   "prd": {
     "fileId": "1v-9sLNAldySXuMK-xjaG7qaMNpcftIjv",
