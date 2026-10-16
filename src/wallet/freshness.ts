@@ -1,3 +1,4 @@
+import { TransportError } from '../sdk/errors.ts';
 import type { Bytes32 } from '../sdk/types.ts';
 import type { Freshness, WatchtowerBinding } from '../sdk/watchtower.ts';
 
@@ -92,13 +93,30 @@ export function noWatchtower(): FreshnessView {
 
 export async function buildFreshnessView(binding: WatchtowerBinding): Promise<FreshnessView> {
   const { reader, assetId } = binding;
-  const { status, age } = await reader.freshnessOf(assetId);
+  const answer = await reader.freshnessOf(assetId);
+  if (answer === null || typeof answer !== 'object' ||
+    typeof answer.status !== 'string' || !Object.hasOwn(DISPLAY_BY_STATUS, answer.status) ||
+    typeof answer.age !== 'bigint' || answer.age < 0n) {
+    throw new TransportError('freshnessOf', 'malformed freshness response');
+  }
+  const { status, age } = answer;
 
   let finalityDepth: bigint | undefined;
+  let policy: unknown;
+  let policyAnswered = false;
   try {
-    finalityDepth = (await reader.policyOf(assetId)).finalityDepth;
+    policy = await reader.policyOf(assetId);
+    policyAnswered = true;
   } catch {
-    finalityDepth = undefined;
+    // Optional policy read failed: preserve the reported status, with depth unavailable.
+  }
+  if (policyAnswered) {
+    const depth = policy !== null && typeof policy === 'object'
+      ? (policy as { finalityDepth?: unknown }).finalityDepth : undefined;
+    if (typeof depth !== 'bigint' || depth < 0n) {
+      throw new TransportError('policyOf', 'malformed finalityDepth response');
+    }
+    finalityDepth = depth;
   }
 
   const display = DISPLAY_BY_STATUS[status];
