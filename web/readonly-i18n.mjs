@@ -1,10 +1,13 @@
 /** Fixed first-party labels only. Never translate observations, metadata or terms. */
 import { paint, presentation } from './i18n.mjs';
 import catalog from './locales/readonly-panels.mjs';
+import custody from './locales/custody-panels.mjs';
+const catalogs = Object.freeze(Object.fromEntries(Object.entries(catalog).map(([language, messages]) =>
+  [language, Object.freeze({ ...messages, ...custody[language] })])));
 export function readOnlyText(key, language = 'en') {
-  const values = catalog[language] ?? catalog.en;
-  if (!Object.hasOwn(catalog.en, key)) throw new Error('READONLY_MESSAGE_UNKNOWN');
-  return values[key] ?? catalog.en[key];
+  const values = catalogs[language] ?? catalogs.en;
+  if (!Object.hasOwn(catalogs.en, key)) throw new Error('READONLY_MESSAGE_UNKNOWN');
+  return values[key] ?? catalogs.en[key];
 }
 export const readOnlyMessage = key => {
   readOnlyText(key);
@@ -15,3 +18,4 @@ export const readOnlyPaint = (element, key) => paint(element, readOnlyMessage(ke
 export function readOnlyLabel(label, key, document = globalThis.document) {
   const text = document.createElement('span'); readOnlyPaint(text, key); label.append(text); return text;
 }
+

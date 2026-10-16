@@ -1,21 +1,23 @@
+import { paint, presentation } from './i18n.mjs';
+import { readOnlyPaint, readOnlyText } from './readonly-i18n.mjs';
 import { readAuditDownload } from './audit-export.mjs';
 /** Explicit authenticated reads and local download; no storage, upload or registry resolution. */
 export function mountAuditExport({ root, login, getContext, document = globalThis.document, window = globalThis }) {
   const host = root?.querySelector('[data-page="native"]');
   if (!host) return;
   const panel = document.createElement('section'); panel.className = 'card';
-  const heading = document.createElement('h2'); heading.textContent = 'Custody audit export';
+  const heading = document.createElement('h2'); readOnlyPaint(heading, 'audit.title');
   const help = document.createElement('p');
-  help.textContent = 'Read and preview the selected token’s public register entries and gap transitions, then download locally. Sequential reads are not an atomic snapshot or certification. Registry references remain opaque. At most 512 entries and 2 MiB per export; these are UI work limits.';
-  const read = document.createElement('button'); read.type = 'button'; read.textContent = 'Read audit preview';
-  const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Download reviewed JSON'; save.disabled = true;
+  readOnlyPaint(help, 'audit.help');
+  const read = document.createElement('button'); read.type = 'button'; readOnlyPaint(read, 'audit.read');
+  const save = document.createElement('button'); save.type = 'button'; readOnlyPaint(save, 'audit.save'); save.disabled = true;
   const status = document.createElement('p'); status.setAttribute('role','status');
   const preview = document.createElement('pre');
   panel.append(heading, help, read, save, status, preview); host.append(panel);
   let epoch = 0, busy = false, result = null, selected = null, binding = null;
   function clear() {
     epoch++; busy = false; result = null; selected = null; binding = null;
-    preview.textContent = ''; status.textContent = ''; read.disabled = false; save.disabled = true;
+    preview.textContent = ''; paint(status, ''); read.disabled = false; save.disabled = true;
   }
   function current(ticket) {
     if (ticket !== epoch || document.visibilityState === 'hidden' || host.hidden) throw new Error('AUDIT_VIEW_CHANGED');
@@ -32,11 +34,11 @@ export function mountAuditExport({ root, login, getContext, document = globalThi
       const value = await readAuditDownload({ ...selected, guard: () => current(ticket) });
       await login.check(); current(ticket);
       result = value; preview.textContent = value.json;
-      status.textContent = value.semantics + (value.gapsAvailable ? '' : ' Gap history unavailable; this does not mean no gaps occurred.');
+      paint(status, presentation(language => readOnlyText('audit.ok', language) + (value.gapsAvailable ? '' : ' ' + readOnlyText('audit.gaps', language))));
       save.disabled = false;
     } catch {
       if (ticket === epoch) { result = null; preview.textContent = ''; save.disabled = true;
-        status.textContent = 'Audit export unavailable or selection changed. No file, transaction or upload was produced.'; }
+        readOnlyPaint(status, 'audit.error'); }
     } finally { if (ticket === epoch) { busy = false; read.disabled = false; } }
   });
   save.addEventListener('click', async () => {
@@ -49,7 +51,7 @@ export function mountAuditExport({ root, login, getContext, document = globalThi
       try {
         const anchor = document.createElement('a'); anchor.href = url; anchor.download = result.filename;
         panel.append(anchor); anchor.click(); anchor.remove();
-        status.textContent = 'Local download requested. Protect the file if its public account history is sensitive. This is not chain acceptance.';
+        readOnlyPaint(status, 'audit.download');
       } finally { window.setTimeout(() => window.URL.revokeObjectURL(url), 1000); }
     } catch { if (ticket === epoch) clear(); }
     finally { if (ticket === epoch) { busy = false; save.disabled = !result; } }
@@ -61,3 +63,4 @@ export function mountAuditExport({ root, login, getContext, document = globalThi
   window.addEventListener('pagehide', clear); login.subscribe(clear);
   return { clear };
 }
+

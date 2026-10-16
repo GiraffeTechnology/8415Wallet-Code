@@ -1,22 +1,24 @@
+import { paint } from './i18n.mjs';
+import { readOnlyPaint, readOnlyLabel } from './readonly-i18n.mjs';
 import { readFeedContinuity } from './feed-continuity.mjs';
 /** Local configuration review only. It cannot install a watchtower or probe an imported endpoint. */
 export function mountFeedContinuity({ root, login, getContext, document = globalThis.document, window = globalThis }) {
   const host = root?.querySelector('[data-page="native"]'); if (!host) return;
   const panel = document.createElement('section'); panel.className = 'card';
-  const heading = document.createElement('h2'); heading.textContent = 'Watchtower feed continuity declarations';
+  const heading = document.createElement('h2'); readOnlyPaint(heading, 'feed.title');
   const help = document.createElement('p');
-  help.textContent = 'Review an existing configuration record, oldest asserted feed first and current asserted feed last. Pairing and migration links remain UNVERIFIED. This does not select a feed, change settings or establish finality.';
-  const label = document.createElement('label'); label.textContent = 'Configuration JSON (up to 16 KiB)';
+  readOnlyPaint(help, 'feed.help');
+  const label = document.createElement('label'); readOnlyLabel(label, 'feed.file', document);
   const file = document.createElement('input'); file.type = 'file'; file.accept = '.json,application/json'; label.append(file);
-  const read = document.createElement('button'); read.type = 'button'; read.textContent = 'Review declarations against selected projection';
-  const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Download declaration review'; save.disabled = true;
+  const read = document.createElement('button'); read.type = 'button'; readOnlyPaint(read, 'feed.read');
+  const save = document.createElement('button'); save.type = 'button'; readOnlyPaint(save, 'feed.save'); save.disabled = true;
   const status = document.createElement('p'); status.setAttribute('role','status');
   const preview = document.createElement('pre');
   panel.append(heading, help, label, read, save, status, preview); host.append(panel);
   let epoch = 0, busy = false, binding = null, selected = null, output = null;
   function clear() {
     epoch++; busy = false; binding = null; selected = null; output = null;
-    preview.textContent = ''; status.textContent = ''; save.disabled = true; read.disabled = false;
+    preview.textContent = ''; paint(status, ''); save.disabled = true; read.disabled = false;
   }
   function guard(ticket) {
     if (ticket !== epoch || host.hidden || document.visibilityState === 'hidden') throw new Error('FEED_REVIEW_CHANGED');
@@ -36,11 +38,11 @@ export function mountFeedContinuity({ root, login, getContext, document = global
       const value = await readFeedContinuity({ ...selected, text, guard: () => guard(ticket) });
       await login.check(); guard(ticket);
       output = JSON.stringify(value, null, 2) + '\n'; preview.textContent = output;
-      status.textContent = 'Projection identity matched at read time. Feed pairing and predecessor continuity remain UNVERIFIED configuration; no feed RPC or settings write occurred.';
+      readOnlyPaint(status, 'feed.ok');
       save.disabled = false;
     } catch {
       if (ticket === epoch) { output = null; preview.textContent = ''; save.disabled = true;
-        status.textContent = 'Review unavailable: check the exact configuration and selected projection. No configuration was applied.'; }
+        readOnlyPaint(status, 'feed.error'); }
     } finally { if (ticket === epoch) { busy = false; read.disabled = false; } }
   });
   save.addEventListener('click', async () => {
@@ -52,7 +54,7 @@ export function mountFeedContinuity({ root, login, getContext, document = global
       try {
         const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'feed-continuity-unverified.json';
         panel.append(anchor); anchor.click(); anchor.remove();
-        status.textContent = 'Local review download requested. Every feed relationship remains UNVERIFIED; protect the downloaded record.';
+        readOnlyPaint(status, 'feed.download');
       } finally { window.setTimeout(() => window.URL.revokeObjectURL(url), 1000); }
     } catch { if (ticket === epoch) clear(); }
     finally { if (ticket === epoch) { busy = false; save.disabled = !output; } }
@@ -65,3 +67,4 @@ export function mountFeedContinuity({ root, login, getContext, document = global
   login.subscribe(() => { clear(); file.value = ''; });
   return { clear };
 }
+
