@@ -1,4 +1,5 @@
-import { detectConformance } from '../sdk/conformance.ts';
+import { TransportError } from '../sdk/errors.ts';
+import { detectConformance, requireProjectionConformance } from '../sdk/conformance.ts';
 import { ZERO_BYTES32, type Address, type Instant, type TokenId } from '../sdk/types.ts';
 import type { Erc8415Reader } from '../sdk/port.ts';
 import { buildSettlementLog } from './settlementLog.ts';
@@ -52,6 +53,18 @@ export async function buildRiskSurfaces(
   options: { readonly account?: Address } = {},
 ): Promise<RiskSurfaceView> {
   const conformance = await detectConformance(reader);
+  requireProjectionConformance(reader, conformance);
+  if (conformance.settlement) {
+    const required = ['openGapOf', 'settlement', 'verificationProfile'] as const;
+    for (const method of required) {
+      if (typeof reader[method] !== 'function') {
+        throw new TransportError(method, 'reader capability unavailable for advertised settlement interface');
+      }
+    }
+    if (options.account !== undefined && typeof reader.isSettlementAuthority !== 'function') {
+      throw new TransportError('isSettlementAuthority', 'reader capability unavailable for advertised settlement interface');
+    }
+  }
   const observedAt = await reader.chainInstant();
   const latest = await reader.currentEntry(tokenId);
 
@@ -77,8 +90,8 @@ export async function buildRiskSurfaces(
   });
 
   // Held-open gap, measured by supersessions.
-  const log = await buildSettlementLog(reader, tokenId);
-  const supersessions = log.episodes.filter((episode) => episode.closure === 'superseded').length;
+  const log = conformance.settlement ? await buildSettlementLog(reader, tokenId) : undefined;
+  const supersessions = log?.episodes.filter((episode) => episode.closure === 'superseded').length ?? 0;
   const openGap =
     conformance.settlement && reader.openGapOf !== undefined
       ? await reader.openGapOf(tokenId)
@@ -86,7 +99,9 @@ export async function buildRiskSurfaces(
   surfaces.push({
     id: 'held-open-gap',
     heading: 'Supersessions on this token',
-    finding: log.available
+    finding: !conformance.settlement
+      ? 'This contract advertises no settlement interface; no gap or supersession observation is reported.'
+      : log?.available
       ? `${supersessions} settlement(s) on this token were superseded rather than ` +
         `admitted or cancelled. A gap is ${openGap === ZERO_BYTES32 ? 'not ' : ''}open now.`
       : 'Logs could not be read, so supersessions cannot be counted. Absence of a ' +
