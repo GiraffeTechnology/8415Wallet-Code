@@ -18,9 +18,10 @@ const MAX_REPRESENTABLE_SECONDS = 8_640_000_000_000n;
  * thing the projection was asked about.
  *
  * A `uint64` reaches far past representable calendar time. That is not a
- * hypothetical: an admitted far-future `effectiveAt` permanently ends a
- * token's projection, so it is a value the wallet exists to show. It is
- * reported as the integer rather than silently rendered as an invalid date.
+ * hypothetical: an admitted far-future `effectiveAt` blocks every later entry
+ * that is not further ahead still, so it is a value the wallet exists to show.
+ * It is reported as the integer rather than silently rendered as an invalid
+ * date.
  */
 export function formatInstant(instant: Instant): string {
   if (instant < 0n || instant > MAX_REPRESENTABLE_SECONDS) {

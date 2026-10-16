@@ -170,10 +170,13 @@ export async function buildRiskSurfaces(
         ? "The latest entry's effective time is at or before now."
         : `The latest entry's effective time is ${drift} seconds ahead of now.`,
     meaning:
-      'Later entries must have strictly greater effective times within uint64. ' +
-      'A far-future effective time constrains subsequent effective times, ' +
-      'but does not by itself prove that no later entry can ' +
-      'be admitted or that the state is unrecoverable. At the uint64 maximum, ' +
+      'Later entries must have strictly greater effective times within uint64, ' +
+      'so this value blocks every later entry whose effective time is not ' +
+      'greater than it. That bounds admission; it ' +
+      'does not by itself prove that no later entry can ' +
+      'be admitted or that the state is unrecoverable. A greater effective ' +
+      'time may still be admitted, subject to the limit the profile itself ' +
+      'puts on how far ahead one may be. At the uint64 maximum, ' +
       'no greater effective time is representable. Assess the actual value ' +
       'and the profile; this measurement is not a finality verdict.',
     present: drift > FAR_FUTURE_DRIFT,

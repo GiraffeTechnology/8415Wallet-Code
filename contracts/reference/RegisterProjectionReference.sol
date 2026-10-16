@@ -158,9 +158,11 @@ contract RegisterProjectionReference is IERC721, IRegisterProjection, IProjectio
 
     uint64 public constant MAX_SETTLEMENT_PERIOD = 30 days;
 
-    // An effective time far ahead of the present permanently ends the projection
-    // for a token, because effectiveAt strictly increases and no later entry
-    // could exceed it. The reference profile bounds it; a profile MAY differ.
+    // effectiveAt strictly increases, so an admitted effective time ahead of
+    // the present blocks every later entry that is not further ahead still.
+    // That bounds admission, not the projection: once the clock advances, a
+    // greater effective time is admissible again. This bound keeps that window
+    // short; a profile MAY differ. Only the uint64 maximum is terminal.
     uint64 public constant MAX_EFFECTIVE_AHEAD = 30 days;
 
     // Merkle domain separation. Without distinct tags an internal node and a

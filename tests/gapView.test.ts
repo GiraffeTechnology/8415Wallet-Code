@@ -223,14 +223,20 @@ describe('risk surfaces', () => {
     contract.finalizeSettlement(OPEN_GAP_ID, {
       recordCommitment: commitment('d'),
       registryReference: `0x${'fd'.repeat(32)}`,
-      // Ten years out: no later entry can ever exceed it.
+      // Ten years out. Admissible only where no profile bound applies: the
+      // reference profile caps effectiveAt at MAX_EFFECTIVE_AHEAD ahead of the
+      // block clock and would revert EffectiveAtTooFar on this value.
       effectiveAt: T.asOf + 10n * 365n * 24n * 60n * 60n,
       proofData: '0x',
     });
     const far = await buildRiskSurfaces(reader2, TOKEN);
     const surface = far.surfaces.find((item) => item.id === 'far-future-effective-time');
     assert.equal(surface?.present, true);
-    assert.match(surface?.meaning ?? '', /permanently ends the projection/);
+    // The measurement states what the value blocks and declines a finality
+    // verdict. tests/riskSurfaces-future.test.ts pins the same wording, so the
+    // two cannot drift back into contradicting each other.
+    assert.match(surface?.meaning ?? '', /blocks every later entry/);
+    assert.doesNotMatch(surface?.meaning ?? '', /permanently ends the projection/);
   });
 
   test('report authority without approving it', async () => {

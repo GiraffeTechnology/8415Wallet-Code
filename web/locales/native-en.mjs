@@ -124,7 +124,7 @@ export default Object.freeze({
   "protocol.123": "Effective time ahead of now",
   "protocol.124": "The latest entry's effective time is at or before now.",
   "protocol.125": "The latest entry's effective time is {v0} seconds ahead of now.",
-  "protocol.126": "Effective times strictly increase, so an admitted effective time far in the future permanently ends the projection for that token: no later entry can exceed it. Nothing in the ERC bounds how far ahead one may be; a profile that cannot rule it out inherits an unrecoverable state.",
+  "protocol.126": "Effective times strictly increase, so an admitted effective time in the future blocks every later entry whose effective time is not greater than it. That bounds admission; it does not by itself permanently end the projection. A greater effective time may still be admitted, subject to the limit the profile itself puts on how far ahead one may be, and the reference profile caps that distance, so the block lifts as the chain clock advances. Only the uint64 maximum is terminal, because no greater value is representable.",
   "protocol.127": "Every entry links to its predecessor by commitment, versions are consecutive, effective times strictly increase, and each interval is closed at its successor. Commitments are compared, never recomputed: the register’s contents are off chain and the wallet cannot see them.",
   "protocol.128": "One or more links do not hold. These are the invariants that make an instant resolve to exactly one holder, so a projection that breaks them cannot be relied on. The entries are shown exactly as read.",
   "protocol.129": "An entry was appended. Instants before its effective time are now final; instants at or after it are not.",
