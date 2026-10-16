@@ -54,8 +54,8 @@ export class ContractIdentityPin {
 
     const registerId = await this.#reader.registerId();
     this.#assertSource();
-    if (registerId === ZERO_BYTES32) {
-      throw new IdentityChangedError('registerId', 'a nonzero identifier', registerId);
+    if (!isNonzeroIdentifier(registerId)) {
+      throw new IdentityChangedError('registerId', 'a nonzero bytes32 identifier', 'invalid bytes32 response');
     }
 
     let verificationProfile: Bytes32 | undefined;
@@ -63,11 +63,11 @@ export class ContractIdentityPin {
       requireSettlementConformance(this.#reader, conformance);
       verificationProfile = await this.#reader.verificationProfile!();
       this.#assertSource();
-      if (verificationProfile === ZERO_BYTES32) {
+      if (!isNonzeroIdentifier(verificationProfile)) {
         throw new IdentityChangedError(
           'verificationProfile',
-          'a nonzero identifier',
-          verificationProfile,
+          'a nonzero bytes32 identifier',
+          'invalid bytes32 response',
         );
       }
     }
@@ -112,4 +112,10 @@ export class ContractIdentityPin {
       throw new IdentityChangedError('address', this.#source.address, current.address);
     }
   }
+}
+
+/** Validate untrusted adapter values before they can establish an identity pin. */
+function isNonzeroIdentifier(value: unknown): value is Bytes32 {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value) &&
+    value.toLowerCase() !== ZERO_BYTES32;
 }
