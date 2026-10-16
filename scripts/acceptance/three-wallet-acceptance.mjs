@@ -280,7 +280,7 @@ async function blockedReport(manifest, context) {
   requireThat(manifest.cases.every(row => row.caseId && row.level && allowed.has(row.status) && row.actual && row.evidenceRefs &&
     (row.status !== 'PASS' || row.evidenceRefs.length > 0)), 'CASE_STATUS_OR_EVIDENCE_MISSING');
   requireThat(manifest.blockers.every(row => row.action && row.target && row.reason && row.owner && row.resumeCondition), 'PRECISE_BLOCKERS_REQUIRED');
-  const data = { task_id: TASK, prompt_version: '1.0', prompt_file_id: manifest.prompt?.fileId, prompt_sha256: manifest.prompt?.sha256,
+  const data = { task_id: TASK, prompt_version: context.promptVersion, prompt_file_id: manifest.prompt?.fileId, prompt_sha256: context.promptSha256,
     prd_file_id: manifest.prd?.fileId, prd_sha256: manifest.prd?.sha256, generated_at_utc: utc(),
     status: 'BLOCKED', three_wallet_acceptance: 'BLOCKED', full_prd_delivery: 'NOT_ACCEPTED', production_ready: false,
     run_manifest: manifest, source_preflight: context,
@@ -303,3 +303,4 @@ async function main() {
 }
 main().catch(error => { console.error(JSON.stringify({ taskId: TASK, status: error.message === 'REGRESSION_COMMAND_FAILED' ? 'FAIL' : 'BLOCKED', code: /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'RUNNER_IO_OR_NETWORK_FAILURE',
   rawErrorHidden: true, transactionsSent: 0, fullPrdDelivery: 'NOT_ACCEPTED' })); process.exitCode = 1; });
+
