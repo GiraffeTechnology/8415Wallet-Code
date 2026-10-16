@@ -63,8 +63,11 @@ export async function buildRiskSurfaces(
     id: 'stalled-register',
     heading: 'How long the latest entry has stood',
     finding:
-      `The latest entry (v${latest.version}) took effect at ${latest.effectiveAt}; ` +
-      `${standing} seconds have passed since. No entry has been admitted after it.`,
+      standing < 0n
+        ? `The latest entry (v${latest.version}) has effective time ${latest.effectiveAt}, ` +
+          `${-standing} seconds ahead of now; no elapsed standing time is reported.`
+        : `The latest entry (v${latest.version}) took effect at ${latest.effectiveAt}; ` +
+          `${standing} seconds have passed since. No entry has been admitted after it.`,
     meaning:
       'Finality depends on a later entry existing. A register that stops ' +
       'producing entries leaves recent instants permanently non-final, and ' +
@@ -152,10 +155,12 @@ export async function buildRiskSurfaces(
         ? "The latest entry's effective time is at or before now."
         : `The latest entry's effective time is ${drift} seconds ahead of now.`,
     meaning:
-      'Effective times strictly increase, so an admitted effective time far in ' +
-      'the future permanently ends the projection for that token: no later ' +
-      'entry can exceed it. Nothing in the ERC bounds how far ahead one may ' +
-      'be; a profile that cannot rule it out inherits an unrecoverable state.',
+      'Later entries must have strictly greater effective times within uint64. ' +
+      'A far-future effective time constrains subsequent effective times, ' +
+      'but does not by itself prove that no later entry can ' +
+      'be admitted or that the state is unrecoverable. At the uint64 maximum, ' +
+      'no greater effective time is representable. Assess the actual value ' +
+      'and the profile; this measurement is not a finality verdict.',
     present: drift > FAR_FUTURE_DRIFT,
   });
 
