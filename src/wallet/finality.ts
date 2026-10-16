@@ -65,17 +65,44 @@ export function describeFinality(input: {
   }
 
   const uncovered = firstEffectiveAt !== undefined && instant < firstEffectiveAt;
+  const atOrAfterLatest = latestEffectiveAt !== undefined && instant >= latestEffectiveAt;
+  const completeBounds = firstEffectiveAt !== undefined && latestEffectiveAt !== undefined;
+
+  if (completeBounds && firstEffectiveAt > latestEffectiveAt) {
+    return {
+      ...base,
+      display: reported ? 'final' : 'provisional',
+      label: reported ? 'Final — reported; entry boundaries inconsistent' :
+        'Not final — reported; entry boundaries inconsistent',
+      explanation: `The first entry's effective time (${firstEffectiveAt}) is after the ` +
+        `latest entry's (${latestEffectiveAt}). The wallet preserves the reported ` +
+        `answer (${reported}) but cannot explain it as a valid projection interval. ` +
+        'These observations may be inconsistent; they are not legal finality.',
+    };
+  }
 
   if (reported) {
+    const inconsistent = uncovered || atOrAfterLatest;
     const explanation = uncovered
       ? `The contract reports this instant as final although it precedes the first ` +
         `entry's effective time (${firstEffectiveAt}), which the finality rule does ` +
-        `not allow. Treat this contract's answers with suspicion.`
-      : `No entry admitted in the future can change the holder at this instant: it ` +
-        `is at or after the first entry's effective time (${firstEffectiveAt ?? 'unknown'}) ` +
-        `and strictly before the latest entry's (${latestEffectiveAt ?? 'unknown'}). ` +
-        `This is finality of the projection's answer, not legal finality.`;
-    return { ...base, display: 'final', label: LABELS.final, explanation };
+        `not allow. Treat these observations as inconsistent.`
+      : atOrAfterLatest
+        ? `The contract reports this instant as final although it is at or after the ` +
+          `latest entry's effective time (${latestEffectiveAt}). The final interval ` +
+          'ends strictly before that boundary. Treat these observations as inconsistent.'
+        : !completeBounds
+          ? 'The contract reports this instant as final, but the first or latest entry ' +
+            'boundary was not obtained. The wallet preserves that answer without ' +
+            'claiming to have established its interval. This is not legal finality.'
+          : `No entry admitted in the future can change the holder at this instant: it ` +
+            `is at or after the first entry's effective time (${firstEffectiveAt}) ` +
+            `and strictly before the latest entry's (${latestEffectiveAt}). ` +
+            `This is finality of the projection's answer, not legal finality.`;
+    return { ...base, display: 'final',
+      label: inconsistent ? 'Final — reported; observations inconsistent' :
+        completeBounds ? LABELS.final : 'Final — reported; interval not verified',
+      explanation };
   }
 
   if (uncovered) {
@@ -90,13 +117,32 @@ export function describeFinality(input: {
     };
   }
 
+  if (!completeBounds) {
+    return { ...base, display: 'provisional',
+      label: 'Not final — reported; coverage not established',
+      explanation: 'The contract reports false, but the first or latest entry boundary ' +
+        'was not obtained. That answer alone does not distinguish an uncovered instant ' +
+        'from a covered provisional one. The wallet does not invent either boundary ' +
+        'or a holder from it. This is not a statement of legal finality.' };
+  }
+
+  if (!atOrAfterLatest) {
+    return { ...base, display: 'provisional',
+      label: 'Not final — reported; observations inconsistent',
+      explanation: `The contract reports false although this instant is at or after ` +
+        `the first entry's effective time (${firstEffectiveAt}) and strictly before ` +
+        `the latest entry's (${latestEffectiveAt}). Those boundaries describe the ` +
+        'final interval. The wallet preserves the false answer, flags the inconsistent ' +
+        'observations, and does not present a normal provisional explanation.' };
+  }
+
   return {
     ...base,
     display: 'provisional',
     label: LABELS.provisional,
     explanation:
       `This instant is at or after the latest entry's effective time ` +
-      `(${latestEffectiveAt ?? 'unknown'}), so a later admission may carry an earlier ` +
+      `(${latestEffectiveAt}), so a later admission may carry an earlier ` +
       `effective time and supersede this answer. It becomes final once an entry with a ` +
       `later effective time is admitted — including a confirming entry naming the same ` +
       `holder. This is not a statement of legal finality either way.`,
