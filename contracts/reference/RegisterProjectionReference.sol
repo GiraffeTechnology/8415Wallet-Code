@@ -160,9 +160,11 @@ contract RegisterProjectionReference is IERC721, IRegisterProjection, IProjectio
 
     // effectiveAt strictly increases, so an admitted effective time ahead of
     // the present blocks every later entry that is not further ahead still.
-    // That bounds admission, not the projection: once the clock advances, a
-    // greater effective time is admissible again. This bound keeps that window
-    // short; a profile MAY differ. Only the uint64 maximum is terminal.
+    // That bounds admission, not the projection: a later entry may still be
+    // admitted once one is actually registered with a strictly greater
+    // effectiveAt and this profile's time rules satisfied. This bound keeps
+    // that window short; a profile MAY differ. Only the uint64 maximum is
+    // terminal, because no greater value is representable.
     uint64 public constant MAX_EFFECTIVE_AHEAD = 30 days;
 
     // Merkle domain separation. Without distinct tags an internal node and a

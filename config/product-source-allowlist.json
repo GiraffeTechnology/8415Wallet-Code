@@ -488,8 +488,8 @@
     {
       "path": "contracts/reference/RegisterProjectionReference.sol",
       "mode": "100644",
-      "git_blob_sha1": "d36f10c61f638be5c3faa5f8b5c6c49eb892fb47",
-      "sha256": "d54c1427ed83519df42739332a13a69acda34cc31cf13beaed5dc319aeae1b7f"
+      "git_blob_sha1": "6cff78cb56a483b1740f1f98ac63e448563377df",
+      "sha256": "da628c8cb09dbcbbbe1bfa3f90f65acdcae96f5de37054365359389ceede2ad3"
     },
     {
       "path": "contracts/test/ControlOwnerAdversary.sol",
@@ -584,8 +584,8 @@
     {
       "path": "docs/ERC-8415-Wallet-PRD.md",
       "mode": "100644",
-      "git_blob_sha1": "9033e1898cd9d9f2f79966562688a9399b90a518",
-      "sha256": "5cc8f5f8b1bca355eb12aafacd52ffe7d2f75da32df448bf11c5e7aeb00b8ed5"
+      "git_blob_sha1": "4ef288c41a5b5876fd7020dd167af6f0e01c5a0a",
+      "sha256": "7415f8d2d02b4217457e62d369a42815d9b7ea9bfef398066521755b861a49da"
     },
     {
       "path": "docs/INTEGRATION-BOUNDARIES.md",
@@ -1592,8 +1592,8 @@
     {
       "path": "src/sdk/types.ts",
       "mode": "100644",
-      "git_blob_sha1": "796d404c4d714922cd7170b8729849eba92fd3f4",
-      "sha256": "cceddbfd728d25d4d802c5d2a777942d016a6cff7e91d3ed3b21db4515bbb55d"
+      "git_blob_sha1": "8c2394de4d5db49f0589120c8876fec70c613d33",
+      "sha256": "fd9f1c36ade40f6c5d719cae5340657169730e9de3791c9ec823c61da1ff5115"
     },
     {
       "path": "src/sdk/watchtower.ts",
@@ -1772,8 +1772,8 @@
     {
       "path": "src/wallet/riskSurfaces.ts",
       "mode": "100644",
-      "git_blob_sha1": "65ccfc41381f4c9e0fe7780b388e62c3f6e19e50",
-      "sha256": "e6c88debdc7097d9e6420c6aeb27cb11e598abf73238316cffcc9c2fc730ad06"
+      "git_blob_sha1": "f95d2ef394bfd318fab6b0c81042ebb8f9abca0e",
+      "sha256": "bf7ce139e456dd46386e00cc447bbd233f67977b5adff228fb2746d9b61a8a13"
     },
     {
       "path": "src/wallet/session.ts",
@@ -2090,20 +2090,20 @@
     {
       "path": "web/locales/native-en.mjs",
       "mode": "100644",
-      "git_blob_sha1": "50034b54cc819b7e048a09188b9769f7578b0139",
-      "sha256": "bb287a5f89062891d3ebd5b44ad3b80339ce984465a5f38d7efc42f5f7f205ea"
+      "git_blob_sha1": "25a946af45812b4a9e18d1b164dcc30d7f57c8a4",
+      "sha256": "16ca000aa7c42ebc286251e4e4b4b985639d4c20b9db18ca5b4be7774c5c49aa"
     },
     {
       "path": "web/locales/native-es.mjs",
       "mode": "100644",
-      "git_blob_sha1": "7080b211360da0da1ff2246c57c246e80540008a",
-      "sha256": "e6081e83f8c5a65119f20f43cf4882de3609ccbaf2b8afe8eae1c1c98301f2e4"
+      "git_blob_sha1": "1123cd9cdad10630c53b9af019f7d726dcb2972a",
+      "sha256": "a8b27bc1da6b2989f96c86e046e9c1d73af73b7c30746b791934f0dfcab9a6a6"
     },
     {
       "path": "web/locales/native-fr.mjs",
       "mode": "100644",
-      "git_blob_sha1": "3e6042063a8c2e44cbfc963b3e8859cdbd2b99e2",
-      "sha256": "19ccd95b6d6ea036d79c2b5af817d828478c974c911202cd79dc71a2f537a809"
+      "git_blob_sha1": "3b3ec59e382817b10255401089678ec3a32f5eb6",
+      "sha256": "97095ce5763d58f9387183b1451a8f95bcb7baf04fd94c1d7ec453c292e1b687"
     },
     {
       "path": "web/locales/native-fragments.mjs",
@@ -2114,20 +2114,20 @@
     {
       "path": "web/locales/native-ja.mjs",
       "mode": "100644",
-      "git_blob_sha1": "08f4932b4f4a1f564bbd797c2bf3a2f20266eed5",
-      "sha256": "b1cb220c7bc849054f5d48814f94acff926d750121a2f9d3b655e9ff37e9ca68"
+      "git_blob_sha1": "86bf16ef5d52b2442141de492b0dc5757516e237",
+      "sha256": "48915bd00c5eae3306eb707767a704697123a56eb88cdf30d2d4da4fbaeba6fb"
     },
     {
       "path": "web/locales/native-zh-Hans.mjs",
       "mode": "100644",
-      "git_blob_sha1": "61d6e3307cd2043017f7e034b708968053b961f0",
-      "sha256": "d862cee27b624f1395dd6c88521515a0d1c60b77523760bd4f21ca8c58c20a50"
+      "git_blob_sha1": "c9f3542f22e73c39a4115bd5df49470b6c671128",
+      "sha256": "f9e700fe577951c397be82b621dcc3553b7d2eae7e9112907350b8c188b53bbd"
     },
     {
       "path": "web/locales/native-zh-Hant.mjs",
       "mode": "100644",
-      "git_blob_sha1": "86afaa16a38b70122e3c113aa1a7028c8dce8dc7",
-      "sha256": "a5c248ee1fd34223f4ccf1b881eeda8a49f1c45ae4765b0e95da64de83724743"
+      "git_blob_sha1": "6e5f19963db000c67ddd9829f54b3e0c0656c68f",
+      "sha256": "21f049bb13676a84983b6b0e4427999ac10df41cf212d8e971f1df158282824c"
     },
     {
       "path": "web/locales/readonly-panels.mjs",

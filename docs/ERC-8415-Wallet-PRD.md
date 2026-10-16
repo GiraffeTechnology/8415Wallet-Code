@@ -428,11 +428,13 @@ behalf:
   proofs are accepted. The user decides whether they accept them;
 - **far-future effective time** — an admitted `effectiveAt` ahead of now
   blocks every later entry whose `effectiveAt` is not greater than it. That
-  bounds admission; it does not by itself permanently end the projection, since
-  a greater `effectiveAt` may still be admitted subject to the limit the
-  profile itself puts on how far ahead one may be. Only the `uint64` maximum is
-  terminal, because no greater value is representable. Surface the measured
-  value if present; do not report it as finality.
+  bounds admission; it does not by itself permanently end the projection. A
+  later entry may still be admitted, but only once one is actually registered:
+  a strictly greater `effectiveAt`, genuine registration evidence, and the time
+  rules the profile applies, including its limit on how far ahead an
+  `effectiveAt` may be. Only the `uint64` maximum is terminal, because no
+  greater value is representable. Surface the measured value if present; do not
+  report it as finality.
 
 These are reported as facts. The wallet does not score them, does not produce
 a safe/unsafe verdict, and does not invent a remedy from these observations.

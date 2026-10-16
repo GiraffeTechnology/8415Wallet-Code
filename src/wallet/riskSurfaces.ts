@@ -174,9 +174,11 @@ export async function buildRiskSurfaces(
       'so this value blocks every later entry whose effective time is not ' +
       'greater than it. That bounds admission; it ' +
       'does not by itself prove that no later entry can ' +
-      'be admitted or that the state is unrecoverable. A greater effective ' +
-      'time may still be admitted, subject to the limit the profile itself ' +
-      'puts on how far ahead one may be. At the uint64 maximum, ' +
+      'be admitted or that the state is unrecoverable. A later entry may ' +
+      'still be admitted, but only once one is actually registered: a ' +
+      'strictly greater effective time, genuine registration evidence, and ' +
+      'the time rules the profile applies, including its limit on how far ' +
+      'ahead an effective time may be. At the uint64 maximum, ' +
       'no greater effective time is representable. Assess the actual value ' +
       'and the profile; this measurement is not a finality verdict.',
     present: drift > FAR_FUTURE_DRIFT,
