@@ -303,4 +303,3 @@ async function main() {
 }
 main().catch(error => { console.error(JSON.stringify({ taskId: TASK, status: error.message === 'REGRESSION_COMMAND_FAILED' ? 'FAIL' : 'BLOCKED', code: /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'RUNNER_IO_OR_NETWORK_FAILURE',
   rawErrorHidden: true, transactionsSent: 0, fullPrdDelivery: 'NOT_ACCEPTED' })); process.exitCode = 1; });
-
