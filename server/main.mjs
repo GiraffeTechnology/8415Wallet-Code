@@ -11,15 +11,18 @@ import { protectSocketDirectory } from './socket-path.mjs';
 import { validateAuthConfig } from './config-validation.mjs';
 import { createOtpSenderFromEnvironment } from './mail-otp.mjs';
 import { bootstrapTaskListingRuntime, ensureTaskListingServerCondition } from './task-listing-bootstrap.mjs';
+import { createTaskExactRuntime } from './task-exact-runtime.mjs';
+import { composeTaskAuthOptions } from './task-runtime-composition.mjs';
 
 /** Reusable process-level entry for an already reviewed server capability object.
  * HTTP request data is never passed as listingRuntime or auth options. */
-export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, now = Date.now }) {
+export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, now = Date.now }) {
   validateAuthConfig(config);
+  const exact = createTaskExactRuntime({ store, serverConfiguration: exactServerConfiguration, now });
   const listing = listingRuntime ?? await bootstrapTaskListingRuntime({ configuration: config.listing, store, authStatePath: config.statePath, now });
   try {
   const handler = createAuthService({ origin: config.origin, tenant: config.tenant, accounts: config.accounts, store, verifyCa, sendOtp, now,
-    ...listing.runtime.authOptions });
+    ...composeTaskAuthOptions({ exact: exact.authOptions, listing: listing.runtime.authOptions }) });
   listing.runtime.connectAuthorization(handler.taskListingAuthorization);
   const background = createTaskBackgroundRunner({ store, continuation: handler.taskBackground, now });
   const server = createServer(handler);
@@ -51,10 +54,12 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
       started = true; background.start();
     } catch (error) { await stop(); throw error; }
   }
-  return Object.freeze({ handler, server, background, listingState: listing.runtime.state, listingCode: listing.runtime.code, start, stop });
+  return Object.freeze({ handler, server, background, exactState: exact.state, exactCode: exact.code, listingState: listing.runtime.state, listingCode: listing.runtime.code, start, stop });
   } catch (error) { try { await listing.stop(); } catch { /* Preserve the original construction failure. */ } throw error; }
 }
-export async function startAuthFromEnvironment() {
+/** Ports can only come from reviewed server code, never the JSON configuration.
+ * CLI/installed defaults remain disabled until the fixed capability is bound. */
+export async function startAuthFromEnvironment({ exactServerConfiguration = null } = {}) {
   const configPath = process.env.WALLET_AUTH_CONFIG;
   if (!configPath) throw Error('WALLET_AUTH_CONFIG_REQUIRED');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
@@ -66,13 +71,14 @@ export async function startAuthFromEnvironment() {
   try {
     const verifyCa = config.ca ? await createCaVerifier(config.ca) : null;
     const sendOtp = createOtpSenderFromEnvironment(process.env, config.mail);
-    runtime = await createAuthRuntime({ config, store, verifyCa, sendOtp });
+    runtime = await createAuthRuntime({ config, store, verifyCa, sendOtp, exactServerConfiguration });
     runtime.server.on('error', async error => {
       process.stderr.write(`AUTH_LISTENER_FAILED_${/^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : 'UNKNOWN'}\n`);
       await runtime.stop(); await store.close(); process.exitCode = 1;
     });
     await runtime.start();
     process.stdout.write('8415wallet auth service listening. No credentials logged.\n');
+    if (runtime.exactState === 'disabled') process.stdout.write(`${runtime.exactCode}\n`);
     if (runtime.listingState === 'disabled') process.stdout.write(`${runtime.listingCode}\n`);
     for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, async () => { await runtime.stop(); await store.close(); });
     return runtime;
