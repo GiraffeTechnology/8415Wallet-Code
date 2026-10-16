@@ -65,9 +65,16 @@ export class RpcErc8415Reader implements Erc8415Reader {
     address: Address,
     options: RpcReaderOptions = {},
   ) {
+    const logWindow = options.logWindow ?? DEFAULT_LOG_WINDOW;
+    if (logWindow <= 0n) {
+      throw new ValueOutOfRangeError('logWindow', logWindow);
+    }
+    if (options.fromBlock !== undefined && options.fromBlock < 0n) {
+      throw new ValueOutOfRangeError('fromBlock', options.fromBlock);
+    }
     this.#transport = transport;
     this.source = { chainId, address };
-    this.#logWindow = options.logWindow ?? DEFAULT_LOG_WINDOW;
+    this.#logWindow = logWindow;
     this.#configuredFromBlock = options.fromBlock;
   }
 
