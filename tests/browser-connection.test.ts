@@ -65,6 +65,17 @@ function fixture(profile = 'v3') {
     RpcErc8415Reader: class {}, Eip1193ReadTransport: class {}, BrowserPublicOperationStore: class {},
     renderAssetView: (v: unknown) => typeof v === 'string' ? v : JSON.stringify(v),
     renderCollisions: (v: unknown) => JSON.stringify(v),
+    // The fixture strips app.mjs imports and injects every name the source
+    // uses, so each optional panel mounted at load time needs an entry here.
+    // Without one the sandbox throws ReferenceError before any handler runs,
+    // which fails every case in this file rather than the panel's own tests.
+    // The panels are covered by their own suites; these stubs only let the
+    // connection lifecycle under test execute.
+    mountAssetWorkspace: () => {},
+    mountAuditExport: () => {},
+    mountFeedContinuity: () => {},
+    mountWatchtowerRead: () => {},
+    mountKitRead: () => {},
     CollisionScanError: class extends Error {},
     verifyControlDeployment: () => hooks.verify(),
     controlRpc: (_p: unknown, method: string) => method === 'eth_requestAccounts' ? hooks.request() : hooks.chain(),
