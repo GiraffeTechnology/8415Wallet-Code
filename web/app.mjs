@@ -417,3 +417,14 @@ mountWatchtowerRead({
   },
 });
 
+
+import { mountKitRead } from './kit-read-panel.mjs';
+mountKitRead({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId') };
+  },
+});
+

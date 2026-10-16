@@ -37,3 +37,8 @@ export { RpcWatchtowerReader } from './adapters/rpc/watchtowerRpcReader.ts';
 export { buildFreshnessView } from './wallet/freshness.ts';
 export { renderFreshness } from './wallet/renderFreshness.ts';
 
+
+// Optional projection acceleration composed with the selected direct-chain reader.
+export { KitProjectionApi } from './adapters/kit/kitApi.ts';
+export { KitErc8415Reader } from './adapters/kit/kitReader.ts';
+
