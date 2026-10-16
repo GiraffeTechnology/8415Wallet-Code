@@ -65,8 +65,12 @@ test('rendered acquisition and registration disclose protection without inventin
   const text = renderAcquisitionDisclosure(acquisition);
   assert.match(acquisition.boundary, /This disclosure does not score the token/);
   assert.match(acquisition.boundary, /not a grant or an executable transfer approval/);
-  assert.match(text, /explicit, enforceable acceptance/);
-  assert.match(text, /payment approval alone does not establish/);
+  // The renderer wraps the disclosure, so a phrase can carry a line break and
+  // indentation in the middle. Assert the unwrapped point for the exact wording
+  // and keep the rendered checks tolerant of reflow.
+  assert.ok(acquisition.points.some((point) => /explicit, enforceable acceptance/.test(point)));
+  assert.match(text, /explicit,\s+enforceable\s+acceptance/);
+  assert.match(text, /payment approval\s+alone does not establish/);
   assert.doesNotMatch(text, /Nothing is wrong/);
   assert.match(renderRegistration(await session.registration(TOKEN)), /registration lag alone/);
 });
