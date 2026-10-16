@@ -33,6 +33,7 @@
     }
   ],
   "opsReady": { "file": "UNRESOLVED", "sha256": "UNRESOLVED" },
+  "offlineApproval": { "file": "UNRESOLVED", "sha256": "UNRESOLVED" },
   "paths": {
     "workspace": "UNRESOLVED", "cache": "UNRESOLVED", "temporary": "UNRESOLVED", "output": "UNRESOLVED"
   },

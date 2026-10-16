@@ -41,26 +41,46 @@ async function directory(file) {
   requireThat(stat.isDirectory() && resolved !== '/', 'EXISTING_POSIX_DIRECTORY_REQUIRED');
   return { resolved, device: stat.dev };
 }
-async function gates(manifest) {
+async function gates(manifest, mode) {
   requireThat(process.platform === 'linux', 'LINUX_ONLY_NO_WINDOWS_TESTS');
   const [major, minor] = process.versions.node.split('.').map(Number);
   requireThat(major > 22 || major === 22 && minor >= 18, 'EXISTING_NODE_22_18_OR_NEWER_REQUIRED');
   requireThat(manifest.schema === '8415wallet-three-wallet-run/1' && manifest.taskId === TASK && manifest.promptVersion === '1.0', 'MANIFEST_IDENTITY_REFUSED');
   requireThat(/^[a-f0-9]{40}$/.test(manifest.source?.commit) && /^[a-f0-9]{40}$/.test(manifest.source?.tree) && /^[a-f0-9]{64}$/.test(manifest.source?.lockSha256), 'EXACT_SOURCE_PINS_REQUIRED');
-  requireThat(manifest.rpcEnv === 'HOODI_RPC_URL', 'EXISTING_RPC_BINDING_REQUIRED');
-  requireThat(manifest.opsReady?.file && /^[a-f0-9]{64}$/.test(manifest.opsReady.sha256), 'OPS_READY_REFERENCE_REQUIRED');
-  requireThat(await hashFile(manifest.opsReady.file) === manifest.opsReady.sha256, 'OPS_READY_HASH_MISMATCH');
-  const ready = await jsonFile(manifest.opsReady.file);
-  requireThat(ready.status === 'READY' && ready.taskId === TASK && ready.sourceCommit === manifest.source.commit && ready.sourceTree === manifest.source.tree,
-    'EXACT_WALLET_ENVIRONMENT_NOT_READY');
+  const offline = mode === 'regress';
+  let approval, approvalSha256;
+  if (offline) {
+    // An existing scoped execution approval is not a whole-environment READY receipt.
+    // Never fabricate either document, or treat this format as a grant of authority.
+    requireThat(manifest.offlineApproval?.file && /^[a-f0-9]{64}$/.test(manifest.offlineApproval.sha256), 'OFFLINE_EXECUTION_APPROVAL_REFERENCE_REQUIRED');
+    requireThat(await hashFile(manifest.offlineApproval.file) === manifest.offlineApproval.sha256, 'OFFLINE_EXECUTION_APPROVAL_HASH_MISMATCH');
+    approval = await jsonFile(manifest.offlineApproval.file);
+    approvalSha256 = manifest.offlineApproval.sha256;
+    requireThat(approval.schema === '8415wallet-offline-execution-approval/1' && approval.status === 'APPROVED' &&
+      approval.scope === 'offline-regression-only' && approval.taskId === TASK && approval.sourceCommit === manifest.source.commit &&
+      approval.sourceTree === manifest.source.tree && approval.lockSha256 === manifest.source.lockSha256 &&
+      typeof approval.authorizationRef === 'string' && approval.authorizationRef.trim().length > 0 && approval.authorizationRef !== 'UNRESOLVED',
+      'EXACT_OFFLINE_EXECUTION_NOT_APPROVED');
+    requireThat(Array.isArray(approval.allowedScripts) && approval.allowedScripts.length > 0 &&
+      approval.allowedScripts.every(item => typeof item === 'string' && scripts.has(item)) &&
+      new Set(approval.allowedScripts).size === approval.allowedScripts.length, 'OFFLINE_SCRIPT_SCOPE_REQUIRED');
+  } else {
+    requireThat(manifest.rpcEnv === 'HOODI_RPC_URL', 'EXISTING_RPC_BINDING_REQUIRED');
+    requireThat(manifest.opsReady?.file && /^[a-f0-9]{64}$/.test(manifest.opsReady.sha256), 'OPS_READY_REFERENCE_REQUIRED');
+    requireThat(await hashFile(manifest.opsReady.file) === manifest.opsReady.sha256, 'OPS_READY_HASH_MISMATCH');
+    approval = await jsonFile(manifest.opsReady.file);
+    approvalSha256 = manifest.opsReady.sha256;
+    requireThat(approval.status === 'READY' && approval.taskId === TASK && approval.sourceCommit === manifest.source.commit && approval.sourceTree === manifest.source.tree,
+      'EXACT_WALLET_ENVIRONMENT_NOT_READY');
+    requireThat(typeof manifest.projectPrefix === 'string' && manifest.projectPrefix.length > 0 && manifest.projectPrefix === approval.projectPrefix, 'WALLET_PROJECT_PREFIX_REQUIRED');
+  }
   const root = await directory(manifest.paths?.workspace), cache = await directory(manifest.paths?.cache),
     temporary = await directory(manifest.paths?.temporary), output = await directory(manifest.paths?.output);
   for (const [name, value] of [['workspace', root], ['cache', cache], ['temporary', temporary], ['output', output]]) {
     // Direct owner instruction on 2026-10-16 permits task writes on the system disk.
     // Exact existing task path approval remains mandatory; no automatic directory allocation.
-    requireThat(ready.paths?.[name] === value.resolved, 'EXACT_APPROVED_POSIX_MAPPING_REQUIRED');
+    requireThat(approval.paths?.[name] === value.resolved, 'EXACT_APPROVED_POSIX_MAPPING_REQUIRED');
   }
-  requireThat(typeof manifest.projectPrefix === 'string' && manifest.projectPrefix.length > 0 && manifest.projectPrefix === ready.projectPrefix, 'WALLET_PROJECT_PREFIX_REQUIRED');
   requireThat(await git(root.resolved, 'rev-parse', 'HEAD') === manifest.source.commit && await git(root.resolved, 'rev-parse', 'HEAD^{tree}') === manifest.source.tree, 'CHECKOUT_SOURCE_MISMATCH');
   const dirty = await git(root.resolved, 'status', '--porcelain=v1', '--untracked-files=normal');
   // Do not reset, stash, clean or silently test a different dirty tree.
@@ -70,7 +90,11 @@ async function gates(manifest) {
   const runPath = path.join(output.resolved, TASK, manifest.runId);
   requireThat(within(output.resolved, runPath), 'OUTPUT_SCOPE_REFUSED');
   return { root: root.resolved, cache: cache.resolved, temporary: temporary.resolved, output: output.resolved, runPath,
-    source: manifest.source, opsReadySha256: manifest.opsReady.sha256, node: process.version, platform: process.platform, checkedAt: utc() };
+    source: manifest.source, authorizationKind: offline ? 'offline-regression-only' : 'full-environment-ready',
+    authorizationSha256: approvalSha256,
+    ...(offline ? { offlineAllowedScripts: approval.allowedScripts, offlineAuthorizationRef: approval.authorizationRef }
+      : { opsReadySha256: approvalSha256 }),
+    node: process.version, platform: process.platform, checkedAt: utc() };
 }
 async function writeExclusive(file, value) {
   await fs.writeFile(file, typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
@@ -199,6 +223,7 @@ async function regress(manifest, context) {
   // Validate the complete batch before starting its first command.
   for (const item of manifest.regressions) {
     requireThat(item && /^[A-Z0-9_-]+$/.test(item.caseId) && scripts.has(item.script) && typeof pkg.scripts?.[item.script] === 'string', 'REGRESSION_COMMAND_REFUSED');
+    requireThat(context.authorizationKind === 'offline-regression-only' && context.offlineAllowedScripts.includes(item.script), 'REGRESSION_OUTSIDE_OFFLINE_APPROVAL');
     requireThat(!caseIds.has(item.caseId), 'DUPLICATE_REGRESSION_CASE_REFUSED');
     caseIds.add(item.caseId);
     requireThat(typeof item.executionAuthorizationRef === 'string' && item.executionAuthorizationRef.trim().length > 0 && item.executionAuthorizationRef !== 'UNRESOLVED' && item.priorRefusalCleared === true && Number.isSafeInteger(item.timeoutMs) && item.timeoutMs > 0 && item.timeoutMs <= 3600000,
@@ -258,7 +283,7 @@ async function blockedReport(manifest, context) {
 async function main() {
   const [mode, file] = process.argv.slice(2);
   requireThat(modes.has(mode) && file && process.argv.length === 4, 'USAGE_MODE_AND_EXACT_MANIFEST_REQUIRED');
-  const manifest = await jsonFile(file), context = await gates(manifest);
+  const manifest = await jsonFile(file), context = await gates(manifest, mode);
   await newRun(context, mode);
   if (mode === 'chain-read') await chainRead(manifest, context);
   if (mode === 'transaction-read') await transactionRead(manifest, context);
