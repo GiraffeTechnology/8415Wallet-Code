@@ -92,8 +92,18 @@ export function noWatchtower(): FreshnessView {
 }
 
 export async function buildFreshnessView(binding: WatchtowerBinding): Promise<FreshnessView> {
-  const { reader, assetId } = binding;
+  const { reader, assetId, provenance, claimedRegisterId } = binding;
+  const selected: WatchtowerBinding = { reader, assetId, provenance,
+    ...(claimedRegisterId === undefined ? {} : { claimedRegisterId }) };
+  const source = Object.freeze({ chainId: reader.source.chainId, address: reader.source.address });
+  const assertSource = () => {
+    if (reader.source.chainId !== source.chainId ||
+      reader.source.address.toLowerCase() !== source.address.toLowerCase()) {
+      throw new TransportError('watchtower source', 'source identity changed during freshness observation');
+    }
+  };
   const answer = await reader.freshnessOf(assetId);
+  assertSource();
   if (answer === null || typeof answer !== 'object' ||
     typeof answer.status !== 'string' || !Object.hasOwn(DISPLAY_BY_STATUS, answer.status) ||
     typeof answer.age !== 'bigint' || answer.age < 0n) {
@@ -110,6 +120,7 @@ export async function buildFreshnessView(binding: WatchtowerBinding): Promise<Fr
   } catch {
     // Optional policy read failed: preserve the reported status, with depth unavailable.
   }
+  assertSource();
   if (policyAnswered) {
     const depth = policy !== null && typeof policy === 'object'
       ? (policy as { finalityDepth?: unknown }).finalityDepth : undefined;
@@ -122,14 +133,12 @@ export async function buildFreshnessView(binding: WatchtowerBinding): Promise<Fr
   const display = DISPLAY_BY_STATUS[status];
   return {
     assetId,
-    source: reader.source,
+    source,
     binding: {
-      provenance: binding.provenance,
-      ...(binding.claimedRegisterId === undefined
-        ? {}
-        : { claimedRegisterId: binding.claimedRegisterId }),
+      provenance,
+      ...(claimedRegisterId === undefined ? {} : { claimedRegisterId }),
     },
-    bindingNote: bindingNote(binding),
+    bindingNote: bindingNote(selected),
     reported: status,
     display,
     label: LABELS[display],
