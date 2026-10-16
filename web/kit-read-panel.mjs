@@ -1,3 +1,5 @@
+import { paint } from './i18n.mjs';
+import { readOnlyPaint, readOnlyLabel } from './readonly-i18n.mjs';
 import { KitProjectionApi, KitErc8415Reader, WalletSession, renderAssetView, renderTemporalQuery } from '../dist/browser/browser.js';
 import { readKitDisplay } from './kit-read.mjs';
 
@@ -5,19 +7,19 @@ import { readKitDisplay } from './kit-read.mjs';
 export function mountKitRead({ root, login, getContext, document = globalThis.document, window = globalThis }) {
   const host = root?.querySelector('[data-page="native"]'); if (!host) return;
   const panel = document.createElement('section'); panel.className = 'card';
-  const heading = document.createElement('h2'); heading.textContent = 'Optional Kit projection reader';
+  const heading = document.createElement('h2'); readOnlyPaint(heading, 'kit.title');
   const help = document.createElement('p');
-  help.textContent = 'Enter only an existing approved same-origin Kit base path. No endpoint is configured by default. Direct-chain reading stays independent; this does not change the active wallet or authorize a transaction.';
-  const pathLabel = document.createElement('label'); pathLabel.textContent = 'Existing same-origin Kit base path';
+  readOnlyPaint(help, 'kit.help');
+  const pathLabel = document.createElement('label'); readOnlyLabel(pathLabel, 'kit.path', document);
   const basePath = document.createElement('input'); basePath.type = 'text'; basePath.autocomplete = 'off'; pathLabel.append(basePath);
-  const instantLabel = document.createElement('label'); instantLabel.textContent = 'Historical projection query instant (Unix seconds)';
+  const instantLabel = document.createElement('label'); readOnlyLabel(instantLabel, 'instant', document);
   const instant = document.createElement('input'); instant.type = 'text'; instant.inputMode = 'numeric'; instantLabel.append(instant);
-  const read = document.createElement('button'); read.type = 'button'; read.textContent = 'Read through Kit with chain identity checks';
+  const read = document.createElement('button'); read.type = 'button'; readOnlyPaint(read, 'kit.read');
   const status = document.createElement('p'); status.setAttribute('role', 'status');
   const output = document.createElement('pre'); output.style.whiteSpace = 'pre-wrap'; output.style.overflowWrap = 'anywhere';
   panel.append(heading, help, pathLabel, instantLabel, read, status, output); host.append(panel);
   let epoch = 0, busy = false, binding = null, selected = null;
-  function clear() { epoch++; busy = false; binding = null; selected = null; status.textContent = ''; output.textContent = ''; read.disabled = false; }
+  function clear() { epoch++; busy = false; binding = null; selected = null; paint(status, ''); output.textContent = ''; read.disabled = false; }
   function guard(ticket) {
     if (ticket !== epoch || host.hidden || document.visibilityState === 'hidden') throw new Error('KIT_SELECTION_CHANGED');
     login.assert(binding);
@@ -49,9 +51,9 @@ export function mountKitRead({ root, login, getContext, document = globalThis.do
         } });
       await login.check(); guard(ticket);
       output.textContent = [renderAssetView(value.asset), renderTemporalQuery(value.temporal), ...value.notes].join('\n\n');
-      status.textContent = 'Kit/chain identity matched for these sequential reads. This is a display only, not execution authority or an atomic snapshot.';
+      readOnlyPaint(status, 'kit.ok');
     } catch {
-      if (ticket === epoch) { output.textContent = ''; status.textContent = 'Kit observation unavailable or disagreed with the chain. No source was preferred and no cached or direct-chain fallback was substituted.'; }
+      if (ticket === epoch) { output.textContent = ''; readOnlyPaint(status, 'kit.error'); }
     } finally { if (ticket === epoch) { busy = false; read.disabled = false; } }
   });
   basePath.addEventListener('input', clear); instant.addEventListener('input', clear);
@@ -64,3 +66,4 @@ export function mountKitRead({ root, login, getContext, document = globalThis.do
   login.subscribe(() => { clear(); basePath.value = ''; instant.value = ''; });
   return { clear };
 }
+

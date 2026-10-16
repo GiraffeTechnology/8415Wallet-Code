@@ -1,3 +1,5 @@
+import { paint } from './i18n.mjs';
+import { readOnlyPaint, readOnlyLabel } from './readonly-i18n.mjs';
 import { RpcWatchtowerReader, Eip1193ReadTransport, buildFreshnessView,
   renderFreshness, renderTemporalQuery } from '../dist/browser/browser.js';
 import { readWatchtowerComparison } from './watchtower-read.mjs';
@@ -6,14 +8,14 @@ import { readWatchtowerComparison } from './watchtower-read.mjs';
 export function mountWatchtowerRead({ root, login, getContext, document = globalThis.document, window = globalThis }) {
   const host = root?.querySelector('[data-page="native"]'); if (!host) return;
   const panel = document.createElement('section'); panel.className = 'card';
-  const heading = document.createElement('h2'); heading.textContent = 'Optional watchtower freshness';
+  const heading = document.createElement('h2'); readOnlyPaint(heading, 'wt.title');
   const help = document.createElement('p');
-  help.textContent = 'Read the current asserted feed from an existing continuity declaration, through your selected provider. Feed pairing remains UNVERIFIED. Freshness is not projection finality; no watchtower is required for standalone use.';
-  const fileLabel = document.createElement('label'); fileLabel.textContent = 'Existing feed declaration JSON (up to 16 KiB)';
+  readOnlyPaint(help, 'wt.help');
+  const fileLabel = document.createElement('label'); readOnlyLabel(fileLabel, 'wt.file', document);
   const file = document.createElement('input'); file.type = 'file'; file.accept = '.json,application/json'; fileLabel.append(file);
-  const instantLabel = document.createElement('label'); instantLabel.textContent = 'Projection query instant (Unix seconds)';
+  const instantLabel = document.createElement('label'); readOnlyLabel(instantLabel, 'instant', document);
   const instant = document.createElement('input'); instant.type = 'text'; instant.inputMode = 'numeric'; instantLabel.append(instant);
-  const read = document.createElement('button'); read.type = 'button'; read.textContent = 'Read projection and optional current feed';
+  const read = document.createElement('button'); read.type = 'button'; readOnlyPaint(read, 'wt.read');
   const status = document.createElement('p'); status.setAttribute('role', 'status');
   const projection = document.createElement('pre'), feedOutput = document.createElement('pre');
   for (const output of [projection, feedOutput]) { output.style.whiteSpace = 'pre-wrap'; output.style.overflowWrap = 'anywhere'; }
@@ -21,7 +23,7 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
   let epoch = 0, busy = false, binding = null, selected = null;
   function clear() {
     epoch++; busy = false; binding = null; selected = null;
-    projection.textContent = ''; feedOutput.textContent = ''; status.textContent = ''; read.disabled = false;
+    projection.textContent = ''; feedOutput.textContent = ''; paint(status, ''); read.disabled = false;
   }
   function guard(ticket) {
     if (ticket !== epoch || host.hidden || document.visibilityState === 'hidden') throw new Error('WATCHTOWER_SELECTION_CHANGED');
@@ -59,10 +61,10 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
         'Register/feed pairing: UNVERIFIED_CONFIGURATION. Predecessor links: UNVERIFIED, not queried.',
         renderFreshness(value.freshness), ...value.notes,
       ].join('\n\n');
-      status.textContent = 'Sequential current reads, not an atomic or historical-chain snapshot. No runtime configuration changed; no action is authorized.';
+      readOnlyPaint(status, 'wt.ok');
     } catch {
       if (ticket === epoch) { projection.textContent = ''; feedOutput.textContent = '';
-        status.textContent = 'Observation unavailable. Check the selected projection, exact declaration and same-chain provider. No cached result or predecessor status substituted.'; }
+        readOnlyPaint(status, 'wt.error'); }
     } finally { if (ticket === epoch) { busy = false; read.disabled = false; } }
   });
   file.addEventListener('change', clear); instant.addEventListener('input', clear);
@@ -75,3 +77,4 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
   login.subscribe(() => { clear(); file.value = ''; instant.value = ''; });
   return { clear };
 }
+
