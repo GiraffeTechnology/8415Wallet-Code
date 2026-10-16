@@ -121,6 +121,7 @@
       "server/task-native-listing-composition.mjs",
       "server/task-operation-encoding.mjs",
       "server/task-receipt-adapter.mjs",
+      "server/task-receipt-runtime.mjs",
       "server/task-runtime-import-probe.mjs",
       "vendor/artfi-task-listing-runtime-1.0.0.tgz"
     ],
@@ -706,8 +707,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "9cf8c7bb08fc7bf1a36d49f6860129c7f4ee280f",
-      "sha256": "a5f87706514e5191c354524911b60c0b318c7f4333f5aeed9977572172fd74a0"
+      "git_blob_sha1": "f8ed5b14732c24a368634972cdb048d3ac542d6c",
+      "sha256": "3c9cba2f5dc0ccaa27e50e8d9597c16e8fe1060047285269e2b76264a2e548dd"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -772,8 +773,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "329fd2407e7c7097abb45db7727407e0f1b11b50",
-      "sha256": "db1856a1182809ab327eb04f247e29872e7bc15ea1762924cc7710d2eaec49e6"
+      "git_blob_sha1": "614ab1931faa995757eb2261fe40fb33f172e424",
+      "sha256": "d599d434853633842f3d1c99f5885c59910fef34a3508325b8e91db4eb867fca"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -916,8 +917,8 @@
     {
       "path": "server/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "499dba656a56f5621619f587ad7b3cc951b7b74e",
-      "sha256": "591882940b34fed487f7884147dbea3910740225d5bddad2ee4af4520a755967"
+      "git_blob_sha1": "77c76d3feb6dcc21263345259550e88786a1f2be",
+      "sha256": "a2a105f433ce4b3002c7498f5817521e6c8ddd26084cfef85c284d3a0858ed59"
     },
     {
       "path": "server/task-background-runner.mjs",
@@ -940,8 +941,8 @@
     {
       "path": "server/task-journal-capabilities.mjs",
       "mode": "100644",
-      "git_blob_sha1": "cb3c4a8e3dd6faa368aa7875fa055415fa129612",
-      "sha256": "79f7a6ae319eae738e5d9882fad9db028c6d398a2673025f793b2644e7ba0338"
+      "git_blob_sha1": "4dca62d502d78d404c641944bbd60ab8c07f74c2",
+      "sha256": "35907d7d0c5821d3234ce7e5255deedcbada0105723bec2892c4aaa946586b2e"
     },
     {
       "path": "server/task-listing-bootstrap.mjs",
@@ -1010,10 +1011,16 @@
       "sha256": "017f0c64afbf11bdcf81a9a5f152cdd5078b7db4ef5a32ceef80cf6328725c4b"
     },
     {
+      "path": "server/task-receipt-runtime.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "444b5ef860738704d5e1e3fc1546395e3096b22d",
+      "sha256": "f51cb20ba65967d795c8d9a606056ba204bd77aa60be7d8c8574d8d5151622fb"
+    },
+    {
       "path": "server/task-runtime-import-probe.mjs",
       "mode": "100644",
-      "git_blob_sha1": "5cde48e002627d383e038480539e31c23e83c1b0",
-      "sha256": "a0b834aa0e1e721ba0372194953cf666107bb2ac3a822498c37a2e8ef5f9420b"
+      "git_blob_sha1": "e5165096eb667691290754faf15429bfb4f0f0c5",
+      "sha256": "3fc29dc1f89e3a66d2e1b415591fab753b240aa92fa4212bb26ddf2175705244"
     },
     {
       "path": "src/adapters/kit/kitApi.ts",

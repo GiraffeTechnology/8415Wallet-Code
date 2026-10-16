@@ -893,8 +893,61 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     requireThat(spent<=BigInt(grant.task.policy.fees.totalWei),'TASK_TOTAL_FEE_LIMIT');
     return {grant,scope,spent,phases,nonce:scope.nonce};
   }
+  /** Read-only phase view for journal preparation. No wire, no attempt, no
+   * nonce claim: it cannot consume the single permitted attempt for a phase. */
+  function receiptPreparation(values,found,claimed,purpose){
+    const {context,ckey,gkey,okey,nkey}=found;
+    requireThat(values[queueKey]?.entries?.includes(gkey),'TASK_BACKGROUND_GRANT_REFUSED',403);
+    const credential=values[ckey],grant=readGrant(values[gkey],context,claimed.taskDigest);
+    const checked=assertPrincipal(context,credential);
+    requireThat(!checked || typeof checked.then!=='function','TASK_BACKGROUND_CONFIG_REFUSED',500);
+    requireThat(grant.task.policy.intent.kind==='artfi-receipt' && grant.valuationPolicy===undefined &&
+      grant.task.policy.taskId===claimed.taskId && grant.reference===claimed.grantReference &&
+      grant.executor.digest===claimed.executorDigest,'TASK_RECEIPT_GRANT_BINDING_REFUSED',403);
+    // Creating a plan binds the live grant policy version. Review and observation
+    // accept the version the attempt was made under, as readState does, so a
+    // revoked or expired grant can still be reconciled rather than stranded.
+    requireThat(claimed.grantPolicyVersion===(purpose==='prepare' ? grant.grantPolicyVersion
+      : values[okey]?.binding?.grantPolicyVersion ?? (grant.status==='revoked'
+        ? (BigInt(grant.grantPolicyVersion)-1n).toString() : grant.grantPolicyVersion)),
+    'TASK_RECEIPT_GRANT_BINDING_REFUSED',403);
+    const slot=receiptPhaseScope(grant.task,claimed.phase);
+    requireThat(slot.planDigest===claimed.planDigest && slot.journalBindingHash===claimed.journalBindingHash,
+      'TASK_RECEIPT_PLAN_BINDING_REFUSED',403);
+    const attempts=normalizeReceiptAttempts(grant.task,grant.receiptAttempts??[]);
+    if(purpose==='prepare'){
+      // A plan may only be created while the phase is still unspent. Review and
+      // observation stay available after revoke or expiry for reconciliation.
+      requireActive(grant,credential);
+      requireThat(!attempts.some(r=>r.phase===claimed.phase) && values[okey]===null && values[nkey]===null,
+        'TASK_RECEIPT_ALREADY_ATTEMPTED');
+    }
+    const scope=immutable(structuredClone({phase:slot.phase,nonce:slot.nonce,planDigest:slot.planDigest,
+      journalBindingHash:slot.journalBindingHash,actor:grant.task.policy.actor,chainId:grant.task.policy.chainId,
+      escrow:grant.task.policy.intent.escrow,runtimeCodeHash:grant.task.policy.intent.runtimeCodeHash,
+      segmentId:grant.task.policy.intent.segmentId,
+      maximumFeeWei:(BigInt(slot.gasLimit)*BigInt(slot.maxFeePerGasWei)).toString()}));
+    const snapshot=immutable(structuredClone({task:grant.task,executor:grant.executor,scope,
+      expiresAtMs:Number(BigInt(grant.task.policy.expiresAt)*1000n)}));
+    requireThat(Number.isSafeInteger(snapshot.expiresAtMs),'TASK_RECEIPT_EXPIRY_REFUSED');
+    return snapshot;
+  }
   const receiptAuthorization=Object.freeze({
     assertIndependentStore(candidate){requireThat(candidate!==store,'TASK_RECEIPT_STORE_REENTRY_REFUSED',500);},
+
+    /** Opens the grant read gate without writing, so the ArtFi native journal can
+     * create or re-read its plan for a phase before the one permitted send. */
+    async withPreparation(rawClaimed,purpose,action){
+      requireThat(['prepare','review','observe'].includes(purpose),'TASK_RECEIPT_PURPOSE_REFUSED',400);
+      requireThat(typeof action==='function','TASK_RECEIPT_ACTION_REFUSED',400);
+      const claimed=immutable(structuredClone(rawClaimed)),found=await locateReceipt(claimed);
+      const keys=[queueKey,found.ckey,found.gkey,found.okey,found.nkey];
+      return store.withReadGate(keys,async values=>{
+        const current=()=>receiptPreparation(values,found,claimed,purpose);
+        const snapshot=current();
+        return action(snapshot,()=>{current();return snapshot;});
+      });
+    },
 
     async readState(rawClaimed){
       const claimed=immutable(structuredClone(rawClaimed)),found=await locateReceipt(claimed);
