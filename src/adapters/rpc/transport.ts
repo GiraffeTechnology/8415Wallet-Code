@@ -23,11 +23,6 @@ export type CallTransport = {
   codeAt(address: Address, blockNumber: bigint): Promise<string>;
 };
 
-type JsonRpcResponse = {
-  result?: unknown;
-  error?: { code?: number; message?: string; data?: string };
-};
-
 /**
  * JSON-RPC transport over HTTP.
  *
@@ -101,12 +96,13 @@ export class HttpCallTransport implements CallTransport {
   }
 
   async #request(method: string, params: unknown[]): Promise<unknown> {
+    const id = this.#nextId++;
     let response: Response;
     try {
       response = await fetch(this.#endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: this.#nextId++, method, params }),
+        body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
       });
     } catch (error) {
       throw new TransportError(method, `did not complete: ${String(error)}`);
@@ -116,24 +112,50 @@ export class HttpCallTransport implements CallTransport {
       throw new TransportError(method, `HTTP ${response.status}`);
     }
 
-    let payload: JsonRpcResponse;
+    let decoded: unknown;
     try {
-      payload = (await response.json()) as JsonRpcResponse;
+      decoded = await response.json();
     } catch (error) {
       throw new TransportError(method, `reply is not JSON: ${String(error)}`);
     }
 
-    if (payload.error) {
-      const { code, message, data } = payload.error;
+    if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) {
+      throw new TransportError(method, 'reply is not a JSON-RPC response object');
+    }
+    const payload = decoded as Record<string, unknown>;
+    if (payload.jsonrpc !== '2.0' || payload.id !== id) {
+      throw new TransportError(method, 'reply has an invalid JSON-RPC version or request id');
+    }
+    const hasResult = Object.hasOwn(payload, 'result');
+    const hasError = Object.hasOwn(payload, 'error');
+    if (hasResult === hasError) {
+      throw new TransportError(method, 'reply must contain exactly one of result or error');
+    }
+
+    if (hasError) {
+      const error = payload.error;
+      if (error === null || typeof error !== 'object' || Array.isArray(error)) {
+        throw new TransportError(method, 'reply has an invalid JSON-RPC error object');
+      }
+      const detail = error as Record<string, unknown>;
+      if (typeof detail.code !== 'number' || !Number.isInteger(detail.code) ||
+          typeof detail.message !== 'string') {
+        throw new TransportError(method, 'reply has an invalid JSON-RPC error code or message');
+      }
+      const code = detail.code;
+      const message = detail.message;
+      // JSON-RPC permits structured error data; only string data is suitable
+      // for the existing EVM revert decoder.
+      const data = typeof detail.data === 'string' ? detail.data : undefined;
       // A revert is something a contract does, and only `eth_call` executes
       // contract code. Every other method's error is the node declining to
       // answer — a rate limit, an over-wide range, an outage — and reporting
       // one as a revert states something about the contract that the contract
       // never said.
       if (method === 'eth_call' && isExecutionRevert(code, message, data)) {
-        throw new ContractRevertError(message ?? 'execution reverted', data);
+        throw new ContractRevertError(message, data);
       }
-      throw new TransportError(method, message ?? `error ${code ?? 'unknown'}`, code);
+      throw new TransportError(method, message, code);
     }
     return payload.result;
   }
@@ -144,7 +166,7 @@ export class HttpCallTransport implements CallTransport {
  *
  * Geth signals a revert with code 3 and carries the ABI-encoded error in
  * `data`; the reference implementation's seventeen custom errors all arrive
- * that way. Nodes that omit the code still say so in the message. Anything
+ * that way. Other valid node errors may say so in the message. Anything
  * else on `eth_call` — a rate limit, a timeout, an invalid-params complaint —
  * is the node, not the contract.
  *
