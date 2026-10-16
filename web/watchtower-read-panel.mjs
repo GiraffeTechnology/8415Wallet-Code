@@ -18,12 +18,13 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
   const read = document.createElement('button'); read.type = 'button'; readOnlyPaint(read, 'wt.read');
   const status = document.createElement('p'); status.setAttribute('role', 'status');
   const projection = document.createElement('pre'), feedOutput = document.createElement('pre');
+  const tradingSummary = document.createElement('p'), tradingCaveat = document.createElement('p');
   for (const output of [projection, feedOutput]) { output.style.whiteSpace = 'pre-wrap'; output.style.overflowWrap = 'anywhere'; }
-  panel.append(heading, help, fileLabel, instantLabel, read, status, projection, feedOutput); host.append(panel);
+  panel.append(heading, help, fileLabel, instantLabel, read, status, projection, feedOutput, tradingSummary, tradingCaveat); host.append(panel);
   let epoch = 0, busy = false, binding = null, selected = null;
   function clear() {
     epoch++; busy = false; binding = null; selected = null;
-    projection.textContent = ''; feedOutput.textContent = ''; paint(status, ''); read.disabled = false;
+    projection.textContent = ''; feedOutput.textContent = ''; paint(tradingSummary, ''); paint(tradingCaveat, ''); paint(status, ''); read.disabled = false;
   }
   function guard(ticket) {
     if (ticket !== epoch || host.hidden || document.visibilityState === 'hidden') throw new Error('WATCHTOWER_SELECTION_CHANGED');
@@ -59,12 +60,14 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
       feedOutput.textContent = [
         `Asserted feed: chain ${value.assertedCurrentFeed.chainId} / ${value.assertedCurrentFeed.address} / ${value.assertedCurrentFeed.assetId}`,
         'Register/feed pairing: UNVERIFIED_CONFIGURATION. Predecessor links: UNVERIFIED, not queried.',
-        renderFreshness(value.freshness), value.tradingObservation.summary,
-        value.tradingObservation.caveat, ...value.notes,
+        renderFreshness(value.freshness), ...value.notes,
       ].join('\n\n');
+      readOnlyPaint(tradingSummary, 'trade.' + value.tradingObservation.interpretation);
+      readOnlyPaint(tradingCaveat, 'trade.caveat');
       readOnlyPaint(status, 'wt.ok');
     } catch {
       if (ticket === epoch) { projection.textContent = ''; feedOutput.textContent = '';
+        paint(tradingSummary, ''); paint(tradingCaveat, '');
         readOnlyPaint(status, 'wt.error'); }
     } finally { if (ticket === epoch) { busy = false; read.disabled = false; } }
   });
