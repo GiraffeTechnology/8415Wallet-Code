@@ -406,3 +406,14 @@ mountFeedContinuity({
     return { wallet: plainWallet, tokenId: number('tokenId') };
   },
 });
+
+import { mountWatchtowerRead } from './watchtower-read-panel.mjs';
+mountWatchtowerRead({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment || !provider) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId'), provider };
+  },
+});
+

@@ -31,3 +31,9 @@ export { openHoodiJourneyRead } from './wallet/hoodiJourneyProvider.ts';
 
 export { readAssetWorkspace, readRegisterHistoryPage } from './wallet/assetWorkspace.ts';
 export { renderAssetWorkspace } from './wallet/renderAssetWorkspace.ts';
+
+// Optional read-only watchtower presentation; never projection finality or transaction authority.
+export { RpcWatchtowerReader } from './adapters/rpc/watchtowerRpcReader.ts';
+export { buildFreshnessView } from './wallet/freshness.ts';
+export { renderFreshness } from './wallet/renderFreshness.ts';
+
