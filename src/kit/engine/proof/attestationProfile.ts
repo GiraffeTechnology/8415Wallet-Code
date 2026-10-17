@@ -78,7 +78,9 @@ export class Ed25519AttestationProfile implements ProofProfile {
     // years is a standing permission nobody reviews.
     const now = this.#clock.now();
     if (expiresAt <= now) return refused('the attestation has expired');
-    if (expiresAt - now > MAX_ATTESTATION_WINDOW) return refused('the attestation window is too long');
+    if (expiresAt - now > MAX_ATTESTATION_WINDOW) {
+      return refused(`the attestation window is too long: at most ${MAX_ATTESTATION_WINDOW} seconds`);
+    }
 
     let raw: Buffer;
     try {

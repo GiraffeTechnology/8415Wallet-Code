@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { divergentToken, TOKEN, commitment } from '../src/adapters/memory/scenarios.ts';
-import { detectCollisions, COLLISION_SCAN_MAX_ENTRIES } from '../src/wallet/collisions.ts';
+import { detectCollisions, COLLISION_SCAN_MAX_ENTRIES, COLLISION_SCAN_MAX_TOKENS } from '../src/wallet/collisions.ts';
 import { NonConformantContractError, IdentityChangedError, ProjectionNotInitialized } from '../src/sdk/errors.ts';
 import { WalletSession } from '../src/wallet/session.ts';
 
@@ -86,4 +86,24 @@ test('session collision reads share the identity established by earlier views', 
   await wallet.assetView(TOKEN);
   reader.registerId = async () => commitment('e');
   await assert.rejects(wallet.collisions([TOKEN]), IdentityChangedError);
+});
+
+test('a refused scan budget states the limit it refused at', async () => {
+  // The code already named which budget; the number it enforced was only in
+  // the source, so a caller could not see how much smaller to ask.
+  const { reader } = divergentToken();
+  const tooMany = Array.from({ length: COLLISION_SCAN_MAX_TOKENS + 1 }, (_, index) => BigInt(index + 1));
+  await assert.rejects(detectCollisions(reader, tooMany), (error: any) => {
+    assert.equal(error.code, 'COLLISION_TOKEN_BUDGET_REFUSED');
+    assert.equal(error.limit, COLLISION_SCAN_MAX_TOKENS);
+    assert.match(error.message, new RegExp(`limit ${COLLISION_SCAN_MAX_TOKENS}`));
+    return true;
+  });
+  const { reader: wide } = divergentToken();
+  wide.entryCount = async () => BigInt(COLLISION_SCAN_MAX_ENTRIES + 1);
+  await assert.rejects(detectCollisions(wide, [TOKEN]), (error: any) => {
+    assert.equal(error.code, 'COLLISION_ENTRY_BUDGET_REFUSED');
+    assert.equal(error.limit, COLLISION_SCAN_MAX_ENTRIES);
+    return true;
+  });
 });

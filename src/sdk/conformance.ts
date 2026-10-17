@@ -1,4 +1,4 @@
-import { ContractRevertError, NonConformantContractError } from './errors.ts';
+import { ContractRevertError, NonConformantContractError, TransportError } from './errors.ts';
 import {
   INTERFACE_ID_ERC165,
   INTERFACE_ID_PROJECTION_SETTLEMENT,
@@ -25,23 +25,32 @@ import type { Conformance } from './types.ts';
  * node was down, which is a cause the wallet never established.
  */
 export async function detectConformance(reader: Erc8415Reader): Promise<Conformance> {
-  const supports = async (interfaceId: string): Promise<boolean> => {
+  const supports = async (interfaceId: string): Promise<boolean | undefined> => {
     try {
-      return await reader.supportsInterface(interfaceId);
+      const answer = await reader.supportsInterface(interfaceId);
+      if (typeof answer !== 'boolean') {
+        throw new TransportError('supportsInterface', `non-boolean result for ${interfaceId}`);
+      }
+      return answer;
     } catch (error) {
-      if (error instanceof ContractRevertError) return false;
+      if (error instanceof ContractRevertError) return undefined;
       throw error;
     }
   };
 
   const erc165 = await supports(INTERFACE_ID_ERC165);
-  if (!erc165) {
+  if (erc165 !== true) {
+    return { erc165: false, projection: false, settlement: false };
+  }
+  // ERC-165 requires a successful false response to the invalid identifier.
+  // A revert is not that response; an always-true fallback is not ERC-165.
+  if ((await supports('0xffffffff')) !== false) {
     return { erc165: false, projection: false, settlement: false };
   }
   return {
-    erc165,
-    projection: await supports(INTERFACE_ID_REGISTER_PROJECTION),
-    settlement: await supports(INTERFACE_ID_PROJECTION_SETTLEMENT),
+    erc165: true,
+    projection: (await supports(INTERFACE_ID_REGISTER_PROJECTION)) === true,
+    settlement: (await supports(INTERFACE_ID_PROJECTION_SETTLEMENT)) === true,
   };
 }
 

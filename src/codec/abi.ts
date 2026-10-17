@@ -65,16 +65,32 @@ function encodeWord(type: StaticType, value: AbiValue): string {
 function decodeWord(type: StaticType, word: string): AbiValue {
   switch (type) {
     case 'uint256':
-    case 'uint64':
-    case 'uint8':
       return BigInt(`0x${word}`);
-    case 'bool':
-      return BigInt(`0x${word}`) !== 0n;
+    case 'uint64':
+    case 'uint8': {
+      const value = BigInt(`0x${word}`);
+      const bits = type === 'uint64' ? 64n : 8n;
+      if (value >= 1n << bits) throw new ValueOutOfRangeError(`ABI ${type}`, value);
+      return value;
+    }
+    case 'bool': {
+      const value = BigInt(`0x${word}`);
+      if (value !== 0n && value !== 1n) {
+        throw new ValueOutOfRangeError('ABI bool must be 0 or 1', value);
+      }
+      return value === 1n;
+    }
     case 'address':
+      if (!/^0{24}$/.test(word.slice(0, 24))) {
+        throw new ValueOutOfRangeError('ABI address has nonzero high padding', 0n);
+      }
       return `0x${word.slice(24)}`;
     case 'bytes32':
       return `0x${word}`;
     case 'bytes4':
+      if (!/^0{56}$/.test(word.slice(8))) {
+        throw new ValueOutOfRangeError('ABI bytes4 has nonzero trailing padding', 0n);
+      }
       return `0x${word.slice(0, 8)}`;
   }
 }
@@ -110,7 +126,13 @@ export function encodeWords(
  * zero-filled: a truncated response must not become a plausible-looking answer.
  */
 export function decodeResult(types: readonly StaticType[], data: string): AbiValue[] {
+  if (typeof data !== 'string') {
+    throw new ValueOutOfRangeError('return payload must be hexadecimal ABI words', 0n);
+  }
   const body = stripPrefix(data).toLowerCase();
+  if (body.length % WORD_HEX !== 0 || /[^0-9a-f]/.test(body)) {
+    throw new ValueOutOfRangeError('return payload must be whole hexadecimal ABI words', 0n);
+  }
   if (body.length < types.length * WORD_HEX) {
     throw new ValueOutOfRangeError(
       `return payload for ${types.length} word(s) (got ${body.length / 2} bytes)`,

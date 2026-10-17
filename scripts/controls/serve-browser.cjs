@@ -14,6 +14,20 @@ web.add('task-listing-results.mjs');
 for (const module of ['task-activity.mjs','task-activity-ui.mjs','asset-workspace-panel.mjs','hoodi-journey-panel.mjs']) web.add(module);
 web.add('task-ui.mjs'); web.add('task-authorization.mjs'); web.add('task-authorization-ui.mjs');
 web.add('tenant-password-routing.mjs'); web.add('tenant-password-ui.mjs'); web.add('tenant-password-routing.json');
+// Every module reachable from index.html must be listed, including the ones a
+// panel pulls in. A module app.mjs imports but this set omits 404s, so the
+// panel is dead in the served app; tests/task-static-module-closure.test.mjs
+// walks the whole graph and is what catches an omission here.
+// Read-only panels and their own modules.
+web.add('hoodi-journey-panel.mjs');
+web.add('asset-workspace-panel.mjs');
+web.add('audit-export-panel.mjs'); web.add('audit-export.mjs');
+web.add('feed-continuity-panel.mjs'); web.add('feed-continuity.mjs');
+web.add('watchtower-read-panel.mjs'); web.add('watchtower-read.mjs');
+web.add('kit-read-panel.mjs'); web.add('kit-read.mjs');
+web.add('task-activity-ui.mjs'); web.add('task-activity.mjs');
+// Shared by those panels. The locales they read are served by the web/locales/ rule.
+web.add('readonly-i18n.mjs'); web.add('trading-observation.mjs');
 const mime={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8'};
 const server=http.createServer((req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cache-Control','no-store');

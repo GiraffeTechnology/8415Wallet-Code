@@ -386,3 +386,45 @@ mountAssetWorkspace({
       payments: releaseProfile?.features.linkedResponsibilities ? session?.payments : null };
   },
 });
+
+import { mountAuditExport } from './audit-export-panel.mjs';
+mountAuditExport({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment || !provider) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId') };
+  },
+});
+
+import { mountFeedContinuity } from './feed-continuity-panel.mjs';
+mountFeedContinuity({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment || !provider) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId') };
+  },
+});
+
+import { mountWatchtowerRead } from './watchtower-read-panel.mjs';
+mountWatchtowerRead({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment || !provider) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId'), provider };
+  },
+});
+
+
+import { mountKitRead } from './kit-read-panel.mjs';
+mountKitRead({
+  root: el('wallet-private'), login: walletLogin,
+  getContext: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment) fail('CONTROL_CONNECTION_REQUIRED');
+    return { wallet: plainWallet, tokenId: number('tokenId') };
+  },
+});
+

@@ -54,16 +54,34 @@ export type AlignmentView = {
 /**
  * Finality of the present instant.
  *
- * Read from `isFinalAsOf`, not assumed. The rule guarantees the present is
- * never final — it is at or after the latest entry's effective time — but the
- * wallet is forbidden from recomputing finality, so it asks and reports what
- * it was told. A `true` here would mean the contract contradicts the rule, and
- * that is worth seeing rather than asserting away.
+ * Read from `isFinalAsOf`, not assumed: the wallet is forbidden from
+ * recomputing finality. What it may do is read the two boundaries the rule is
+ * stated over — where the register's cover begins, and the latest effective
+ * time — and place the answer it was given against them.
+ *
+ * The rule is one comparison: an instant is final when it is at or after the
+ * first entry's effective time and strictly before the latest entry's. So the
+ * present is provisional whenever the latest effective time has passed, which
+ * is the ordinary case, and it is final, legitimately, while an admitted
+ * entry's effective time is still ahead of the present — that entry is the
+ * later one the rule asks for. Reporting that as an inconsistency would be
+ * wrong. So would inferring anything from a clock that has advanced: a clock
+ * admits nothing, only a registered entry does.
  */
 export type PresentFinalityView = {
   readonly instant: Instant;
   readonly final: boolean;
   readonly latestEffectiveAt: Instant;
+  /**
+   * Where the register's cover begins: the first entry's effective time.
+   * Absent when that boundary was not obtained, which is never read as cover
+   * present or absent.
+   */
+  readonly coveredFrom?: Instant;
+  /** `latestEffectiveAt > instant`, compared from two read values. */
+  readonly laterEntryAdmitted: boolean;
+  /** How the contract's own answer stands against the rule's comparison. */
+  readonly agreement: 'consistent' | 'disagrees' | 'unverifiable';
   readonly explanation: string;
 };
 
@@ -210,6 +228,15 @@ export async function buildAssetView(
   const latest = await reader.currentEntry(tokenId);
 
   const presentFinal = await reader.isFinalAsOf(tokenId, observedAt);
+  // The rule's lower boundary. A reader that will not give it leaves the
+  // reported answer unverifiable here; cover is never assumed from its
+  // absence, in either direction.
+  let coveredFrom: Instant | undefined;
+  try {
+    coveredFrom = (await reader.entryAt(tokenId, 1n)).effectiveAt;
+  } catch {
+    coveredFrom = undefined;
+  }
 
   return {
     identity,
@@ -231,12 +258,12 @@ export async function buildAssetView(
       aligned: owner === latest.holder,
       note: owner === latest.holder ? NOTE_ALIGNED : NOTE_DIVERGED,
     },
-    presentFinality: {
-      instant: observedAt,
-      final: presentFinal,
-      latestEffectiveAt: latest.effectiveAt,
-      explanation: explainPresentFinality(presentFinal, observedAt, latest.effectiveAt),
-    },
+    presentFinality: buildPresentFinality(
+      presentFinal,
+      observedAt,
+      latest.effectiveAt,
+      coveredFrom,
+    ),
     gap: await buildGapView(reader, tokenId, conformance, observedAt),
     settlementPeriod:
       conformance.settlement && reader.settlementPeriod !== undefined
@@ -250,23 +277,100 @@ export async function buildAssetView(
   };
 }
 
+function buildPresentFinality(
+  final: boolean,
+  observedAt: Instant,
+  latestEffectiveAt: Instant,
+  coveredFrom: Instant | undefined,
+): PresentFinalityView {
+  const laterEntryAdmitted = latestEffectiveAt > observedAt;
+  // Undefined stays undefined: an unobtained boundary is not a missing cover.
+  const covered = coveredFrom === undefined ? undefined : coveredFrom <= observedAt;
+  // What the rule's comparison yields, where both of its sides are known.
+  const ruled = laterEntryAdmitted ? covered : false;
+  const agreement =
+    ruled === undefined ? 'unverifiable' : ruled === final ? 'consistent' : 'disagrees';
+  return {
+    instant: observedAt,
+    final,
+    latestEffectiveAt,
+    ...(coveredFrom === undefined ? {} : { coveredFrom }),
+    laterEntryAdmitted,
+    agreement,
+    explanation: explainPresentFinality(
+      final,
+      observedAt,
+      latestEffectiveAt,
+      coveredFrom,
+      laterEntryAdmitted,
+      agreement,
+    ),
+  };
+}
+
 function explainPresentFinality(
   final: boolean,
   observedAt: Instant,
   latestEffectiveAt: Instant,
+  coveredFrom: Instant | undefined,
+  laterEntryAdmitted: boolean,
+  agreement: PresentFinalityView['agreement'],
 ): string {
+  const suspicion = `Treat this contract's answers with suspicion.`;
+  if (agreement === 'unverifiable') {
+    return (
+      `The register's first effective time was not obtained, so whether the ` +
+      `present instant (${observedAt}) is covered cannot be checked here. An entry ` +
+      `effective at ${latestEffectiveAt} is admitted and is still ahead of the present. ` +
+      `The contract's answer — ${final ? 'final' : 'not final'} — is reported as given, ` +
+      `and is neither confirmed nor contradicted.`
+    );
+  }
+  if (agreement === 'disagrees') {
+    if (final && !laterEntryAdmitted) {
+      return (
+        `The contract reports the present instant (${observedAt}) as final, which ` +
+        `the finality rule does not allow here: it is at or after the latest entry's ` +
+        `effective time (${latestEffectiveAt}), so no later entry exists to make it ` +
+        `final. ${suspicion}`
+      );
+    }
+    if (final) {
+      return (
+        `The contract reports the present instant (${observedAt}) as final, but the ` +
+        `register's cover begins only at ${coveredFrom}, so no entry covers this ` +
+        `instant. ${suspicion}`
+      );
+    }
+    return (
+      `An entry effective at ${latestEffectiveAt} is admitted and is still ahead of ` +
+      `the present instant (${observedAt}), which the register covers from ` +
+      `${coveredFrom}, so the rule makes this instant final. The contract reports it ` +
+      `as not final. ${suspicion}`
+    );
+  }
   if (final) {
     return (
-      `The contract reports the present instant (${observedAt}) as final, which ` +
-      `the finality rule does not allow: it is at or after the latest entry's ` +
-      `effective time (${latestEffectiveAt}). Treat this contract's answers with suspicion.`
+      `An entry effective at ${latestEffectiveAt} is admitted and is still ahead of ` +
+      `the present instant (${observedAt}), which the register covers from ` +
+      `${coveredFrom}. That admitted entry is the later one the rule asks for, so ` +
+      `this instant is final under the rule, and the contract agrees. A clock ` +
+      `advancing would not change that: only a registered entry admits anything.`
+    );
+  }
+  if (laterEntryAdmitted) {
+    return (
+      `The present instant (${observedAt}) is before the register's first effective ` +
+      `time (${coveredFrom}), so no entry covers it and it is not final. The entry ` +
+      `effective at ${latestEffectiveAt} is admitted, but cover begins at ${coveredFrom}.`
     );
   }
   return (
     `The present instant is at or after the latest entry's effective time ` +
     `(${latestEffectiveAt}), so it is provisional, as every present instant is. ` +
     `It becomes final once an entry with a later effective time is admitted — ` +
-    `including a confirming entry naming the same holder.`
+    `including a confirming entry naming the same holder. Admission is what does ` +
+    `it; the clock advancing on its own admits nothing.`
   );
 }
 

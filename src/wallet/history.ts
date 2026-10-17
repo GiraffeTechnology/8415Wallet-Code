@@ -25,7 +25,8 @@ export type LinkFault =
   | 'previous-commitment-mismatch'
   | 'version-not-consecutive'
   | 'effective-time-not-increasing'
-  | 'interval-not-closed-at-successor';
+  | 'interval-not-closed-at-successor'
+  | 'latest-entry-has-closed-interval';
 
 export type HistoryEntryView = {
   readonly entry: RegisterEntry;
@@ -114,6 +115,7 @@ function checkLink(
   const faults: LinkFault[] = [];
 
   if (previous === undefined) {
+    if (entry.version !== 1n) faults.push('version-not-consecutive');
     if (entry.previousCommitment !== ZERO_BYTES32) {
       faults.push('first-entry-has-nonzero-previous');
     }
@@ -133,6 +135,9 @@ function checkLink(
   // time, not at the moment the chain learned of it.
   if (next !== undefined && entry.supersededAt !== next.effectiveAt) {
     faults.push('interval-not-closed-at-successor');
+  }
+  if (next === undefined && entry.supersededAt !== 0n) {
+    faults.push('latest-entry-has-closed-interval');
   }
 
   return faults;

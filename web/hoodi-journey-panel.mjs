@@ -20,6 +20,17 @@ if (root) {
   output.setAttribute('aria-live', 'polite');
   output.style.whiteSpace = 'pre-wrap'; output.style.overflowWrap = 'anywhere';
   panel.append(title, help, input, button, output); root.append(panel);
+  // Each refusal says which rule refused and the bound it enforced. The codes
+  // are tagged rather than matched on message text, so a backend failure can
+  // never present itself as one of them; anything untagged stays generic.
+  const REFUSALS = Object.freeze({
+    EVIDENCE_FILE_REQUIRED: 'EVIDENCE_FILE_REQUIRED: choose an evidence JSON file',
+    EVIDENCE_FILE_TOO_LARGE: 'EVIDENCE_FILE_TOO_LARGE: at most 65536 bytes',
+    EVIDENCE_INTEGER_INVALID: 'EVIDENCE_INTEGER_INVALID: integer fields must be decimal strings, not JSON numbers',
+    EVIDENCE_ENVELOPE_INVALID: 'EVIDENCE_ENVELOPE_INVALID: exactly the keys original and laterV3',
+    EVIDENCE_SESSION_MISMATCH: 'EVIDENCE_SESSION_MISMATCH: the signed-in account, chain 560048 and tenant must match the manifest',
+  });
+  const refuse = code => { const error = new Error(code); error.evidenceCode = code; throw error; };
   let generation = 0, pending = false;
   const clear = () => { generation++; input.value = ''; output.textContent = ''; pending = false; };
   const refresh = () => {
@@ -43,34 +54,39 @@ if (root) {
       await walletLogin.check(); const session = walletLogin.assert(binding);
       if (currentGeneration !== generation || document.visibilityState === 'hidden') return;
       const file = input.files?.[0];
-      if (!file || file.size > 65536) throw new Error('EVIDENCE_FILE_REQUIRED');
+      if (!file) refuse('EVIDENCE_FILE_REQUIRED');
+      if (file.size > 65536) refuse('EVIDENCE_FILE_TOO_LARGE');
+      pending = true; refresh();
       const text = await file.text(); walletLogin.assert(binding);
       if (currentGeneration !== generation) return;
       const envelope = JSON.parse(text, (key, value) => {
         if (!integers.has(key)) return value;
         if (typeof value !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(value)) {
-          throw new Error('EVIDENCE_INTEGER_INVALID');
+          refuse('EVIDENCE_INTEGER_INVALID');
         }
         return BigInt(value);
       });
       if (!envelope || Object.keys(envelope).sort().join(',') !== 'laterV3,original') {
-        throw new Error('EVIDENCE_ENVELOPE_INVALID');
+        refuse('EVIDENCE_ENVELOPE_INVALID');
       }
       const manifest = envelope.original.manifest;
       const currentWallet = manifest.wallets.find(w =>
         typeof w.account === 'string' && w.account.toLowerCase() === session.account.toLowerCase());
       if (session.chainId !== '560048' || !currentWallet ||
-          session.tenant && session.tenant !== currentWallet.tenant) throw new Error('EVIDENCE_SESSION_MISMATCH');
+          session.tenant && session.tenant !== currentWallet.tenant) refuse('EVIDENCE_SESSION_MISMATCH');
       const pinned = await openHoodiJourneyRead(walletLogin.provider(), manifest);
       walletLogin.assert(binding); if (currentGeneration !== generation) return;
       const report = await compareHoodiReleaseHistory(envelope.original, envelope.laterV3, pinned);
       walletLogin.assert(binding); await walletLogin.check(); walletLogin.assert(binding);
       if (currentGeneration !== generation) return;
       output.textContent = renderHoodiReleaseHistory(report);
-    } catch {
+    } catch (error) {
       // Never display/log backend text, raw JSON, signatures or session details.
       if (binding) {
-        try { walletLogin.assert(binding); if (currentGeneration === generation) output.textContent = 'HOODI_EVIDENCE_UNAVAILABLE'; }
+        try {
+          walletLogin.assert(binding);
+          if (currentGeneration === generation) output.textContent = REFUSALS[error?.evidenceCode] ?? 'HOODI_EVIDENCE_UNAVAILABLE';
+        }
         catch { clear(); }
       }
     } finally {

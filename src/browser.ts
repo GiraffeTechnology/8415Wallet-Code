@@ -20,6 +20,8 @@ export { TransactionWouldRevertError } from './sdk/transactions.ts';
 export { LegacyClearingSession, parseLegacyClearingState, parseLegacyClearingDeployment, legacyTradeKey, CLEARING_NOTES } from './wallet/legacyClearingSession.ts';
 export type { Erc20Balance, Erc20Metadata, AssetReview, AssetState, AssetStore, AssetTransaction, AssetReceipt } from './xiongan/externalAssets.ts';
 export * from './agent/taskContract.ts';
+export { assetBoundedTaskFees, committedFeeWei, AssetBudgetError } from './agent/assetBudget.ts';
+export type { AssetBoundedFees } from './agent/assetBudget.ts';
 export * from './agent/receiptObservation.ts';
 
 export { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from './agent/receiptTask.ts';
@@ -31,3 +33,14 @@ export { openHoodiJourneyRead } from './wallet/hoodiJourneyProvider.ts';
 
 export { readAssetWorkspace, readRegisterHistoryPage } from './wallet/assetWorkspace.ts';
 export { renderAssetWorkspace } from './wallet/renderAssetWorkspace.ts';
+
+// Optional read-only watchtower presentation; never projection finality or transaction authority.
+export { RpcWatchtowerReader } from './adapters/rpc/watchtowerRpcReader.ts';
+export { buildFreshnessView } from './wallet/freshness.ts';
+export { renderFreshness } from './wallet/renderFreshness.ts';
+
+
+// Optional projection acceleration composed with the selected direct-chain reader.
+export { KitProjectionApi } from './adapters/kit/kitApi.ts';
+export { KitErc8415Reader } from './adapters/kit/kitReader.ts';
+

@@ -18,16 +18,21 @@ const MAX_REPRESENTABLE_SECONDS = 8_640_000_000_000n;
  * thing the projection was asked about.
  *
  * A `uint64` reaches far past representable calendar time. That is not a
- * hypothetical: an admitted far-future `effectiveAt` permanently ends a
- * token's projection, so it is a value the wallet exists to show. It is
- * reported as the integer rather than silently rendered as an invalid date.
+ * hypothetical: an admitted far-future `effectiveAt` blocks every later entry
+ * that is not further ahead still, without being terminal in itself, and is a
+ * value the wallet must preserve rather than infer terminal state or protocol
+ * finality from. It is reported as the integer rather than silently rendered
+ * as an invalid date.
  */
 export function formatInstant(instant: Instant): string {
   if (instant < 0n || instant > MAX_REPRESENTABLE_SECONDS) {
     return `${instant} (beyond representable calendar time)`;
   }
   const iso = new Date(Number(instant) * 1000).toISOString();
-  return `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC (${instant})`;
+  // Expanded ISO years have a sign and six digits, so the date is not always
+  // ten characters. Split at the separator rather than shifting the clock.
+  const separator = iso.indexOf('T');
+  return `${iso.slice(0, separator)} ${iso.slice(separator + 1, separator + 9)} UTC (${instant})`;
 }
 
 /**

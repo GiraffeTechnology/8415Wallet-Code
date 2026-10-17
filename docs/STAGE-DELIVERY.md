@@ -140,8 +140,9 @@ No runtime dependencies. The two dev dependencies are `typescript` and
 
 **Instants are `bigint`, not `number`.** A conforming contract may carry an
 `effectiveAt` anywhere in `uint64`, and a far-future one is a state the wallet
-must report accurately — it permanently ends the projection for that token.
-Narrowing to a double would round exactly the values worth reporting.
+must report accurately — it blocks every later entry that is not further ahead
+still, without being terminal in itself. Narrowing to a double would round
+exactly the values worth reporting.
 `tests/codec.test.ts` pins this with a value beyond `Number.MAX_SAFE_INTEGER`.
 
 **Keccak-256 is carried in-repo.** Node's `crypto` offers SHA3-256, which uses

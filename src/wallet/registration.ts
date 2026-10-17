@@ -58,9 +58,11 @@ export type RegistrationView = {
   readonly registerId: Bytes32;
 };
 
-const NEVER_BLOCKS =
-  'Your token is not blocked and never will be by this. It can be transferred ' +
-  'at any time; only the register is behind.';
+const REGISTRATION_TRANSFER_BOUNDARY =
+  'The token is not blocked by registration lag alone: lag itself imposes no ' +
+  'registrar transfer lock. This view is not a transfer approval. Independent ' +
+  'control restrictions and enforceable acceptance of active inherited conditions ' +
+  'must be established separately for protected forwarding.';
 
 const SERIAL =
   'Registration is sequential and physical: the token can change hands on ' +
@@ -103,8 +105,9 @@ export function describeRegistration(view: AssetView): RegistrationView {
                 'whether a trade can be unwound, by whom, on what terms — is governed by ' +
                 'the terms you agreed with your counterparty. It is not decided by this ' +
                 'protocol and not by this wallet.'
-              : 'The register has until this time under the agreed window. Nothing is ' +
-                'wrong while it has not passed.',
+              : 'The register has until this time under the agreed window. The deadline ' +
+                'has not passed; that fact alone is not an assessment of the trade ' +
+                'or its independent control conditions.',
           }
         : undefined,
     registering: inFlight,
@@ -123,11 +126,11 @@ const HEADLINES: Record<RegistrationState, string> = {
 };
 
 const ACTIONS: Record<RegistrationState, string> = {
-  level: 'Nothing. The register and the position agree.',
-  registering: 'Wait. There is nothing for you to do and nothing to fix.',
+  level: 'No registration action is implied by their agreement. Independent transfer conditions remain separate.',
+  registering: 'Wait. Registration lag alone leaves nothing to fix. This is not a transfer approval; independent control conditions remain separate.',
   'registering-with-more-behind':
-    'Wait. There is nothing for you to do. Each transfer is recorded in turn, so ' +
-    'yours follows the one in flight.',
+    'Wait. Each transfer is recorded in turn, so yours follows the one in flight. ' +
+    'This registration status does not establish independent forwarding conditions.',
   'behind-with-nothing-in-flight':
     'Wait, and watch the register. No change is currently in flight, so nothing ' +
     'will move until the registrar opens one.',
@@ -144,14 +147,14 @@ function meaningFor(
     case 'level':
       return (
         `The register confirms ${parties.confirmed}, which is also the current ` +
-        `position. Nothing is pending. ${NEVER_BLOCKS}`
+        `position. Nothing is pending. ${REGISTRATION_TRANSFER_BOUNDARY}`
       );
     case 'registering':
       return (
         `A previous transfer has not yet been recorded by the register. This is not a ` +
         `failure and not an error — it is the register catching up. The change in ` +
         `flight will record ${parties.inFlight}, bringing the register level with the ` +
-        `position. ${SERIAL} ${NEVER_BLOCKS}`
+        `position. ${SERIAL} ${REGISTRATION_TRANSFER_BOUNDARY}`
       );
     case 'registering-with-more-behind':
       return (
@@ -159,19 +162,19 @@ function meaningFor(
         `the register catching up. The change in flight records ${parties.inFlight}, but ` +
         `the position has already moved on to ${parties.position}, so at least one more ` +
         `registration must follow this one before the register is level. ${SERIAL} ` +
-        `${NEVER_BLOCKS}`
+        `${REGISTRATION_TRANSFER_BOUNDARY}`
       );
     case 'behind-with-nothing-in-flight':
       return (
         `The register confirms ${parties.confirmed} while the position is ` +
         `${parties.position}, and no change is currently in flight to record the ` +
         `difference. This is not a failure; it means the registrar has not yet opened ` +
-        `one. ${SERIAL} ${NEVER_BLOCKS}`
+        `one. ${SERIAL} ${REGISTRATION_TRANSFER_BOUNDARY}`
       );
     case 'no-gap-interface':
       return (
         'This contract offers no settlement interface, so it never reports a change ' +
-        `in flight. The register confirms ${parties.confirmed}. ${NEVER_BLOCKS}`
+        `in flight. The register confirms ${parties.confirmed}. ${REGISTRATION_TRANSFER_BOUNDARY}`
       );
   }
 }

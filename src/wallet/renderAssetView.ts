@@ -45,8 +45,19 @@ export function renderAssetView(view: AssetView, translate: (text: string) => st
   wrap(view.alignment.note);
   write();
 
-  write(`FINALITY OF THE PRESENT  ·  ${view.presentFinality.final ? 'Final' : 'Provisional'}`);
-  wrap(view.presentFinality.explanation);
+  // The answer and how it stands against the rule are two separate facts: a
+  // final present instant is legitimate while an admitted entry's effective
+  // time is still ahead of it, so the qualifier carries the disagreement
+  // rather than the word Final doing it.
+  const finality = view.presentFinality;
+  const standing =
+    finality.agreement === 'consistent'
+      ? ''
+      : finality.agreement === 'disagrees'
+        ? '  ·  disagrees with the rule'
+        : '  ·  boundary not obtained';
+  write(`FINALITY OF THE PRESENT  ·  ${finality.final ? 'Final' : 'Provisional'}${standing}`);
+  wrap(finality.explanation);
   write();
 
   write(`SETTLEMENT GAP  ·  ${gapHeadline(view)}`);

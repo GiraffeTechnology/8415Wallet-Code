@@ -165,8 +165,9 @@ describe('the derived reads are checked rather than assumed', () => {
 describe('integers survive the wire', () => {
   test('an instant beyond a double is carried exactly', async () => {
     // 2^53 + 1 is the first instant a JSON number cannot hold. An entry that
-    // takes effect far enough in the future ends a projection permanently,
-    // which is exactly the value worth reporting accurately.
+    // takes effect far enough in the future blocks every later entry whose
+    // effective time is not greater than it, which is exactly the value worth
+    // reporting accurately.
     const beyondDouble = (1n << 53n) + 1n;
     const fetchOne = async () => ({
       status: 200,
