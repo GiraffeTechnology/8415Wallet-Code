@@ -137,6 +137,7 @@
       "server/task-test-nft721-binding.mjs",
       "server/task-test-nft721-contract.mjs",
       "server/task-test-nft721-metadata.mjs",
+      "server/task-verification-policy.mjs",
       "vendor/artfi-task-listing-runtime-1.0.0.tgz"
     ],
     "application": [
@@ -1142,6 +1143,12 @@
       "sha256": "bc65f7aa613459bfc3a42a4ebf97b7dbd67890be48864ba141469dc86f1e7ad0"
     },
     {
+      "path": "server/task-verification-policy.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "bf95ad37a9bc3ca5a180f2a63960453314e01e6c",
+      "sha256": "67e345c273153515c7da9d834ae4aa19f80dd449313f1c7a6032f50eb8c8c800"
+    },
+    {
       "path": "src/adapters/kit/kitApi.ts",
       "mode": "100644",
       "git_blob_sha1": "bcf6381bbcf0ce5d9980235c5e4630d76ccf81fa",
@@ -1540,8 +1547,8 @@
     {
       "path": "src/kit/engine/proof/attestationProfile.ts",
       "mode": "100644",
-      "git_blob_sha1": "60b77933bbe805eb814eb0b57b0c95c95b13eb01",
-      "sha256": "1eea2f0ac3b1ebe5633845097c8620a79238b15c1d33ae70bbb7d3e32f5adc32"
+      "git_blob_sha1": "748527cc88a5448b10c77079e3820882a4309c87",
+      "sha256": "1f244c2a59b477c74270c3e5b56b8cecf3cd866ab99f9958627d9f3f31bff9b3"
     },
     {
       "path": "src/kit/engine/proof/binding.ts",

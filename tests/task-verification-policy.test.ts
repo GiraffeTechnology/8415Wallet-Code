@@ -3,7 +3,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Wallet } from 'ethers';
 import { hashPassword } from '../server/crypto.mjs';
-import { MemoryCredentialStore } from '../server/store.mjs';
+import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
+import { randomBytes } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createTaskVerificationPolicyService, readTaskVerificationPolicy, readCredentialTaskVerificationPolicy, taskVerificationPolicyKey } from '../server/task-verification-policy.mjs';
 
 const wallet = new Wallet('0x' + '1'.repeat(64)); // Public synthetic fixture, never a production wallet.
@@ -124,6 +128,37 @@ test('restart and unrelated implementation-version changes do not revert persist
   assert.notEqual(taskVerificationPolicyKey({ ...selectedScope, agentId: 'another-agent' }), restarted.keyFor(f.session));
   assert.equal(readTaskVerificationPolicy(null, { ...selectedScope, agentId: 'another-agent' }).mode, 'ON');
   assert.equal(f.deliveries.length, 1); // Status/restart never delivers a new verification challenge.
+});
+
+test('encrypted credential store restart preserves OFF without retaining transient factor proof', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'wallet-policy-fixture-'));
+  const statePath = join(directory, 'credentials.json'), key = randomBytes(32);
+  const f = fixture();
+  let encrypted = await openEncryptedStore(statePath, key);
+  try {
+    await encrypted.transaction('fixture:alice', () => f.store.read('fixture:alice'));
+    const options = { ...f.options, store: encrypted, credentialFor: () => encrypted.read('fixture:alice') };
+    const service = createTaskVerificationPolicyService(options);
+    const change = await service.prepare(f.session, { expectedRevision: '0', identityMethod: 'wallet' });
+    await service.verify(f.session, { changeId: change.request.changeId, changeDigest: change.changeDigest,
+      signature: await wallet.signMessage(change.message!) });
+    const code = f.deliveries[0]!.code;
+    await service.confirm(f.session, { changeId: change.request.changeId, changeDigest: change.changeDigest, code });
+    const ciphertext = await readFile(statePath, 'utf8');
+    for (const text of ['taskVerificationPolicies', change.changeDigest, code, 'alice@example.invalid']) assert.ok(!ciphertext.includes(text));
+    await encrypted.close();
+    encrypted = await openEncryptedStore(statePath, key);
+    const restarted = createTaskVerificationPolicyService({ ...options, store: encrypted });
+    const restored = await restarted.status(f.session);
+    assert.equal(restored.mode, 'OFF'); assert.equal(restored.revision, '1');
+    assert.equal(restored.changes[0]!.changeDigest, change.changeDigest);
+    assert.equal(f.deliveries.length, 1);
+    await assert.rejects(restarted.confirm(f.session, { changeId: change.request.changeId,
+      changeDigest: change.changeDigest, code }), /EXPIRED/);
+  } finally {
+    await encrypted.close(); key.fill(0);
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('exact scope and ledger reject replay, omitted factors and forged effective mode', async () => {

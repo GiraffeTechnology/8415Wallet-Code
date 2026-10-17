@@ -70,6 +70,22 @@ const rejects = (run: () => unknown): void => {
   });
 };
 
+test('canonical base64 public keys beginning with 0x are not decoded as hex', () => {
+  const raw = Buffer.alloc(32); raw[0] = 0xd3; raw[1] = 0x10;
+  const base64 = raw.toString('base64');
+  assert.ok(base64.startsWith('0x'));
+  for (const key of [base64, `0x${raw.toString('hex')}`]) {
+    assert.doesNotThrow(() => new Ed25519AttestationProfile({
+      trustedIssuers: { 'landreg.example': key }, clock: new TestClock(1_000n),
+    }));
+  }
+  for (const key of [`${base64} `, `${base64}!`, '0xzz', '0x123']) {
+    assert.throws(() => new Ed25519AttestationProfile({
+      trustedIssuers: { 'landreg.example': key }, clock: new TestClock(1_000n),
+    }));
+  }
+});
+
 test('a trusted issuer attestation admits', () => {
   const s = scene();
   const result = s.store.admit(TOKEN, candidate, {

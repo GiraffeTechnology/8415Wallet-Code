@@ -95,8 +95,17 @@ export class Ed25519AttestationProfile implements ProofProfile {
   }
 }
 
-const decode = (value: string): Buffer =>
-  value.startsWith('0x') ? Buffer.from(value.slice(2), 'hex') : Buffer.from(value, 'base64');
+const decode = (value: string): Buffer => {
+  // A canonical base64 key can itself start with the characters "0x".
+  // Select hexadecimal only when the complete value is byte-aligned hex;
+  // Buffer.from alone silently truncates malformed input in either encoding.
+  if (/^0x(?:[a-fA-F0-9]{2})+$/.test(value)) return Buffer.from(value.slice(2), 'hex');
+  const raw = Buffer.from(value, 'base64');
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || raw.toString('base64') !== value) {
+    throw new TypeError('attestation bytes must be canonical base64 or 0x-hex');
+  }
+  return raw;
+};
 
 /** Accepts a raw 32-byte key; wraps it in the Ed25519 SPKI prefix. */
 const publicKeyFrom = (value: string): KeyObject => {
