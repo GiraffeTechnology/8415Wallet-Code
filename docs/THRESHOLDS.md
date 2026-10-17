@@ -124,9 +124,9 @@ override, not bounds that refuse.
 | `COLLISION_SCAN_MAX_ENTRIES` | 2048 | entries | one interactive scan | local | `COLLISION_ENTRY_BUDGET_REFUSED`, carrying `limit` |
 | `REGISTER_HISTORY_MAX_LIMIT` | 64, default 16 | entries | one history page | local | `WORKSPACE_PAGE_LIMIT_REFUSED`, stating range and value asked |
 | Evidence file | 65 536 | bytes | one uploaded evidence file | local | `EVIDENCE_FILE_TOO_LARGE`, stating the bound |
-| `json()` bound | 32 768 | bytes | one task or child document | local | `TASK_SIZE_REFUSED`, bound not stated |
-| `MAX_PAGE` | 100 | records | one Kit API page; also the default | local | route rejects the request; cap not stated |
-| `MAX_ATTESTATION_WINDOW` | 86 400 | seconds | one attestation's validity | local | refused as "the attestation window is too long"; bound not stated |
+| `MAX_DOCUMENT_BYTES` | 32 768 | bytes | one task or child document | local | `TASK_SIZE_REFUSED`, stating the bound and the size received |
+| `MAX_PAGE` | 100 | records | one Kit API page; also the default | local | `MALFORMED_PAGE` with a message naming the bound that failed |
+| `MAX_ATTESTATION_WINDOW` | 86 400 | seconds | one attestation's validity | local | refused, stating at most that many seconds |
 | `DEFAULT_BODY_LIMIT` | 65 536 | bytes | Kit API request body | local | a **default**: `createApi(options, bodyLimit)` overrides it |
 | `DEFAULT_TIMEOUT_MS` | 10 000 | milliseconds | one Kit or adapter request | local | a **default**, caller-settable |
 | `DEFAULT_LOG_WINDOW` | 10 000 | blocks | one RPC log query span | local | a **default**; a non-positive override is refused as `ValueOutOfRangeError` |
@@ -135,10 +135,11 @@ override, not bounds that refuse.
 | `MAX_EFFECTIVE_AHEAD` | 30 days | seconds | an admitted effective time | local, profile term | `EffectiveAtTooFar()` |
 | `MAX_SETTLEMENT_PERIOD` | 30 days | seconds | a gap deadline | local, profile term | `DeadlineTooFar()` |
 
-Still unnamed in their refusals, and recorded rather than changed: the task
-document bound, the Kit page cap and the attestation window state no number,
-and the two service bounds are in files held by another writer. Changing the
-first three is a small, independent follow-up; the last two need that writer.
+Every bound above now states itself when it refuses, except the two service
+bounds in files held by another writer: `MAX_STORE_BYTES` and the fills and
+anchors caps. Those are recorded rather than changed, and the minimal
+integration is to add the number to the existing refusal text, exactly as the
+rest of this table now does.
 
 ## Derived, not a judgement
 

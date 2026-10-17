@@ -1154,8 +1154,8 @@
     {
       "path": "src/agent/taskContract.ts",
       "mode": "100644",
-      "git_blob_sha1": "9510d2dff19bb21eaf45986301f2d44275ed1f73",
-      "sha256": "6a87889ca9768269fed4fc0d894162188657a5af4b2e43e9953c4e6a127212c5"
+      "git_blob_sha1": "153d311ba674b34c3f0c9bc9f8aa50a7a2ec1a71",
+      "sha256": "80a542d23669e5d8b99ca7fa23a6cb7efa08819c0c0b5f7a0f8879e102e613e6"
     },
     {
       "path": "src/browser.ts",
@@ -1334,8 +1334,8 @@
     {
       "path": "src/kit/api/routes.ts",
       "mode": "100644",
-      "git_blob_sha1": "e32c202a15320098dd68ed8936e30503965f3596",
-      "sha256": "11f255be735e4647987981289298d58b62d1a285843df2591107fa262e600e9b"
+      "git_blob_sha1": "162c134abdf3e649d93d4f42966dfd07bcec5288",
+      "sha256": "2bb6e802af503677bcde902941ff8f577566b07daa466b135bfc0cb6ddf7851a"
     },
     {
       "path": "src/kit/api/serialize.ts",
@@ -1442,8 +1442,8 @@
     {
       "path": "src/kit/engine/proof/attestationProfile.ts",
       "mode": "100644",
-      "git_blob_sha1": "60b77933bbe805eb814eb0b57b0c95c95b13eb01",
-      "sha256": "1eea2f0ac3b1ebe5633845097c8620a79238b15c1d33ae70bbb7d3e32f5adc32"
+      "git_blob_sha1": "0114fcfebca1a1e223dcf324bdc9f0fb6f7b7a14",
+      "sha256": "861ba27fc805d6c1c97de6d543ddd1c1f426db212df65f0a9d10f828761d7389"
     },
     {
       "path": "src/kit/engine/proof/binding.ts",

@@ -71,7 +71,10 @@ test('strict schemas reject hidden signatures, calldata, approval flags and exec
 });
 test('bounded JSON and exact integer/address/origin formats fail closed', () => {
   assert.throws(() => parseTaskPolicy('x'), /TASK_JSON_REFUSED/);
-  assert.throws(() => parseTaskPolicy(' '.repeat(32769)), /TASK_SIZE_REFUSED/);
+  // The bound and the size received, so an oversized document is actionable.
+  assert.throws(() => parseTaskPolicy(' '.repeat(32769)),
+    /TASK_SIZE_REFUSED: at most 32768 bytes, received 32769/);
+  assert.throws(() => parseTaskPolicy(''), /TASK_SIZE_REFUSED: at most 32768 bytes, received 0/);
   for (const value of ['01', '-1', '1.0', 1, (1n << 256n).toString()]) assert.throws(() => normalizeExistingOperation({ ...operation, tokenId: value }), /TASK_INTEGER_REFUSED/);
   for (const origin of ['https://example.com/', 'https://example.com/path', 'http://example.com', 'https://user:pass@example.com', 'https://example.com?secret=x']) assert.throws(() => freezeTaskPolicy({ ...policyInput(), origin }), /TASK_ORIGIN_REFUSED/);
   const valid = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';

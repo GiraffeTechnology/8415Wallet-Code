@@ -66,9 +66,12 @@ function freeze<T>(value: T): Readonly<T> {
   }
   return value;
 }
+/** One task or child document. A work limit on untrusted input, not a protocol rule. */
+const MAX_DOCUMENT_BYTES = 32768;
 function json(textValue: string): unknown {
-  refuse(typeof textValue === 'string' && textValue.length > 0 && new TextEncoder().encode(textValue).length <= 32768,
-    'TASK_SIZE_REFUSED');
+  const bytes = typeof textValue === 'string' ? new TextEncoder().encode(textValue).length : 0;
+  refuse(typeof textValue === 'string' && textValue.length > 0 && bytes <= MAX_DOCUMENT_BYTES,
+    'TASK_SIZE_REFUSED', `at most ${MAX_DOCUMENT_BYTES} bytes, received ${bytes}`);
   try { return JSON.parse(textValue); } catch { throw new TaskContractError('TASK_JSON_REFUSED'); }
 }
 /**
