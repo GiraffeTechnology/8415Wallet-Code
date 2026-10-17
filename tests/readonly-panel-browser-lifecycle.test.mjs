@@ -1,6 +1,7 @@
 import { mountKitRead } from '../web/kit-read-panel.mjs';
 import { mountWatchtowerRead } from '../web/watchtower-read-panel.mjs';
 import { declarationFile, inputsOf, runPanelLifecycleCases } from './helpers/readonly-panel-harness.mjs';
+import { runTaskActivityCases } from './helpers/task-activity-harness.mjs';
 
 /**
  * The read-only panels that import dist/browser/browser.js at module scope.
@@ -33,3 +34,6 @@ runPanelLifecycleCases({
     inputsOf(host, 'text')[0].value = '1000';
   },
 });
+
+// Needs the build too: task-authorization imports four dist/browser modules.
+runTaskActivityCases();
