@@ -618,12 +618,16 @@ approval, delegation, upgrade or alternate transfer path.
 
 Every child operation MUST be checked against the active grant and current state,
 including its actual transaction payload, nonce, value, asset, recipient, fees,
-remaining budget, price evidence and accepted inherited conditions. Preserve the
-same review and permission threshold as the corresponding human-operated action.
-Where those checks and the trusted signer are implemented, the agent completes
-all authorized preparation, execution and receipt verification without requiring
-another human business action for every button. Missing enforcement blocks the
-operation; it is not permission to bypass an external wallet confirmation.
+remaining budget, price evidence and accepted inherited conditions. These are
+machine-enforced authority checks, not a requirement for repeated human verification.
+When the human owner has disabled per-operation verification through the two-factor
+change specified in Section 6.3.1, the agent MUST complete operations within the
+existing authorized scope without requesting any further human verification.
+This includes preparation, signing through the authorized signer, submission,
+continuation and receipt verification. Missing execution capability is a concrete
+implementation blocker, not missing human consent. An external signer that still
+requires a human prompt is not an implemented unattended execution path; the wallet
+MUST support a compatible authorized path rather than claim OFF is operational.
 
 Illustrative task: sell one specified NFT only at a sale price strictly greater
 than USD 500. The approved terms must define the exact token/chain, settlement
@@ -640,18 +644,74 @@ conditions. This example grants no authority to perform a real transaction.
 Support standard RFC 6238 TOTP applications, including Google Authenticator and
 FreeOTP, in the mobile DApp task-authorization flow; no native 8415wallet app is
 required by this scope. The 8415wallet page displays the exact task, material
-terms, limits and expiry, and obtains human confirmation and any required code.
+terms, limits and expiry. With per-operation verification ON, it obtains the
+human confirmation and code required by the applicable authorization policy.
+With the switch OFF under Section 6.3.1, execution within the already authorized
+scope MUST NOT invoke this human-verification flow again.
 The verifier binds that confirmation to the displayed task digest/version and
 issues a short-lived, purpose-bound, replay-resistant authorization proof. After
 successful verification, the agent automatically resumes the same task within its
-authorized limits. Any necessary step-up authentication belongs in this flow; a
-separate login followed by manual business operation is not task completion.
+authorized limits. Step-up verification applies when enabling the OFF policy or
+when a genuinely new authorization is needed outside the existing scope; it MUST
+NOT be reintroduced for each operation already covered by OFF. A separate login
+followed by manual business operation is not task completion.
 
 A standard TOTP app generates a code: it is not assumed to show transaction terms
 or provide push approval. The wallet's authorization page and verifier supply
 context binding. TOTP is neither a blockchain signature nor a substitute for an
 authorized transaction signer. Login, recovery and task-authorization proofs have
 distinct purposes and cannot be substituted for one another.
+
+## 6.3.1 Owner-controlled per-operation verification switch
+
+The wallet MUST expose a clearly labelled **Per-operation human verification**
+switch with explicit ON and OFF states. The human owner may set it to OFF only
+after successfully completing two independent, already-established verification
+factors bound to that exact policy change. An agent, ordinary session, imported
+configuration or self-declared approval cannot make that change on the owner's
+behalf. The control must explain the affected wallet/account, agent authority and
+scope before the human confirms OFF. Two independent factors are required for
+this change; the wallet must not add an unrelated third approval or recurring
+confirmation as a prerequisite.
+
+After the verified OFF change, the agent may operate the wallet within all
+applicable, still-valid authorizations without asking the human for any
+per-operation verification. The wallet MUST NOT request a password, TOTP, email
+OTP, device confirmation, manual signature prompt, repeated login, approval click
+or equivalent human intervention merely to execute or continue an in-scope
+operation. This is a product capability, not a testnet-only exception.
+
+The OFF policy must be persisted and enforced at the authoritative execution
+boundary. Restart, page refresh, agent continuation, source-version changes or
+handoff between execution components must not silently turn it back ON or
+require the same human authorization again. Reconcile all applicable historical
+authorizations; only an explicit revocation, replacement, expiry or genuine scope
+change affects their validity. A browser-only flag is not sufficient.
+
+OFF removes repeated human verification, not the authorized scope. Account,
+agent, chain, asset, destination, amount/fee limits and any expressly authorized
+expiry remain enforceable by machine. It does not create unlimited token
+approvals, expose keys, change recovery/security methods or authorize unrelated
+accounts, chains or assets. An authorization expressed as the entirety of a
+specified asset balance is a defined asset-bounded limit, not a missing numeric
+budget; execution must calculate available funds, reserved amounts and actual
+fees without asking for a redundant numeric authorization.
+
+The owner must be able to re-enable ON or revoke the affected agent authority.
+The system must atomically apply and audit the effective policy revision before
+the next not-yet-submitted operation. Already submitted or unknown-outcome
+transactions must be reconciled without duplicate submission. Changing security
+methods and account recovery remain separate from ordinary agent operations.
+
+Acceptance must demonstrate: rejection of OFF without both independent factors;
+successful owner-authorized OFF; multiple in-scope operations and background
+continuations with zero further human-verification prompts; persistence across
+restart/refresh; rejection of out-of-scope operations without expanding authority;
+correct behavior after ON/revocation; preserved nonce, balance and unknown-outcome
+safety; and an audit record of the owner-verified policy change and every operation.
+Source implementation, local tests and genuine unattended runtime acceptance must
+be reported separately. This requirement is not evidence that it is already
+implemented or deployed.
 
 ## 6.4 Authorization-method changes
 
@@ -671,7 +731,9 @@ account management, including enabling/disabling such a method. Require combined
 independent verification bound to the exact requested change: for example, OTP to
 the previously verified reserved email plus proof from another already-bound
 trusted device, or the original password plus that email OTP. Existing additional
-required authenticator/recovery checks are retained. A single session or single
+required authenticator/recovery checks are retained for those method-management
+and recovery operations. The per-operation verification switch is governed by
+Section 6.3.1 and must not inherit extra recurring human-verification gates. A single session or single
 OTP is insufficient; a newly added device cannot attest to its own trust, and a
 User-Agent string or IP address is not a trusted-device proof.
 
