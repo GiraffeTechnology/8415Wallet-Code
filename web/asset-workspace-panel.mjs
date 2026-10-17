@@ -36,23 +36,24 @@ export function mountAssetWorkspace({ root, login, getContext }) {
   login.subscribe(() => { clear(); instant.value = ''; sequence.value = ''; logs.checked = false; refresh(); });
   document.addEventListener('wallet:summary-stale', () => { clear(); refresh(); });
   for (const event of ['input', 'change']) document.getElementById('tokenId')?.addEventListener(event, () => { clear(); refresh(); });
-  globalThis.addEventListener('pagehide', clear);
-  globalThis.addEventListener('pageshow', clear);
+  globalThis.addEventListener('pagehide', () => { clear(); refresh(); });
+  globalThis.addEventListener('pageshow', () => { clear(); refresh(); });
   for (const item of [instant, sequence, logs]) item.addEventListener('input', () => { clear(); refresh(); });
   select.addEventListener('change', () => { try { login.assert(); render(); } catch { clear(); refresh(); } });
   async function read(startVersion = 1n) {
-    if (pending) return;
+    if (pending || document.visibilityState === 'hidden') return;
     const epoch = ++generation; let binding;
+    pending = true; refresh();
     report = null; nextVersion = null; output.textContent = '';
     try {
       binding = login.capture(); await login.check(); const authenticated = login.assert(binding);
+      if (epoch !== generation || document.visibilityState === 'hidden') return;
       const context = getContext();
       if (!context?.wallet || context.wallet.reader.source.chainId.toString() !== authenticated.chainId) throw new Error('WORKSPACE_CONTEXT_REQUIRED');
       if (!/^(0|[1-9][0-9]{0,19})$/.test(instant.value)) throw new Error('WORKSPACE_INSTANT_REQUIRED');
       const sequenceId = sequence.value.trim();
       if (sequenceId && !/^0x[0-9a-f]{64}$/.test(sequenceId)) throw new Error('WORKSPACE_SEQUENCE_REFUSED');
       if (sequenceId && !context.linkedReader) throw new Error('WORKSPACE_LINKED_UNAVAILABLE');
-      pending = true; refresh();
       const options = { historyStart: startVersion, historyLimit: 16, includeLogs: logs.checked };
       if (sequenceId) options.linked = {
         sequenceId, reader: context.linkedReader,

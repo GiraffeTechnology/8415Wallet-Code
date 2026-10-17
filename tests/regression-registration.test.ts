@@ -28,6 +28,8 @@ const RUN_ELSEWHERE: Record<string, string> = {
   'task-static-module-closure.test.mjs': 'ci.yml',
   // Imports dist/browser/browser.js, so it can only run after the build step.
   'readonly-panel-browser-lifecycle.test.mjs': 'ci.yml',
+  // Asserts the built browser bundle's own files, so it needs the same step.
+  'task-activity-integration-boundaries.test.mjs': 'ci.yml',
 };
 
 const files = readdirSync(new URL('tests', root)).filter((name) => name.endsWith('.test.mjs'));

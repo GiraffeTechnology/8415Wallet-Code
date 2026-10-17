@@ -1,0 +1,71 @@
+{
+  "schema": "8415wallet-three-wallet-run/1",
+  "taskId": "WALLET-3W-HOODI-20261015-01",
+  "promptVersion": "1.2",
+  "runId": "UNRESOLVED",
+  "prompt": {
+    "fileId": "1NvTIC0hnoc9xCRt50zALq0z5qIJAC3kz",
+    "sha256": "16693ee8e14ff50d9b3a082f0335e3814b4186407323ba988015267d1fa0ebf3",
+    "bytes": 49956,
+    "modifiedTime": "2026-10-16T08:06:53.184Z"
+  },
+  "prd": {
+    "fileId": "1v-9sLNAldySXuMK-xjaG7qaMNpcftIjv",
+    "sha256": "f4fd311e5f23e1bdb294e07d304ad3495387bdda6785c993a60e52740a9d6a2c",
+    "hashMeaning": "SHA256 of complete fetched UTF-8 text; not a Drive revision id or deployed code hash"
+  },
+  "source": {
+    "commit": "UNRESOLVED",
+    "tree": "UNRESOLVED",
+    "lockSha256": "UNRESOLVED"
+  },
+  "knownCandidatesNotSelectedForExecution": [
+    {
+      "pr": 99,
+      "commit": "80f4272ef040750f2f4ad2235f9b1ae1b5bd1af1",
+      "tree": "018728dc7244f06317afd8c4ab6be506d6ff599e",
+      "ciRun": 38795871189,
+      "ciObservation": "completed/failure; three jobs runner_id=0 and zero steps; no executed tests established"
+    },
+    {
+      "pr": 101,
+      "commit": "bd0bc0913b5231ba8aff2bd12bcf89a0e3fa4e7f",
+      "tree": "5c1ceac49dc3ae8a391db9c94ad1c04339bc0c58",
+      "relationship": "Own initial-development stack via PR100/98; not automatically combined with PR99"
+    }
+  ],
+  "opsReady": { "file": "UNRESOLVED", "sha256": "UNRESOLVED" },
+  "offlineApproval": { "file": "UNRESOLVED", "sha256": "UNRESOLVED" },
+  "paths": {
+    "workspace": "UNRESOLVED", "cache": "UNRESOLVED", "temporary": "UNRESOLVED", "output": "UNRESOLVED"
+  },
+  "projectPrefix": "UNRESOLVED",
+  "rpcEnv": "HOODI_RPC_URL",
+  "wallets": [
+    { "name": "Xiongan", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" },
+    { "name": "Giraffe", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" },
+    { "name": "Lala", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" }
+  ],
+  "contracts": [],
+  "transactionApproval": {
+    "asset": "UNRESOLVED", "contract": "UNRESOLVED", "tokenId": "UNRESOLVED", "roles": "UNRESOLVED",
+    "amount": "UNRESOLVED", "perGasLimit": "UNRESOLVED", "feeRateLimit": "UNRESOLVED", "totalBudget": "UNRESOLVED",
+    "expiry": "UNRESOLVED", "confirmations": "UNRESOLVED", "allowedRecipients": "UNRESOLVED"
+  },
+  "regressions": [],
+  "observedTransactions": [],
+  "artifacts": [],
+  "cases": [],
+  "formalBlockerEscalation": false,
+  "threeWalletAcceptance": "NOT_RUN",
+  "fullPrdDelivery": "NOT_ACCEPTED",
+  "productionReady": false,
+  "deliveryResponsibilities": {
+    "pm": "ArtFi control 2: sole original FINAL update and unified result email",
+    "wallet2": "116 business tests, Wallet-scope repairs, Linux regressions and real SIN UI/Agent/Hoodi evidence",
+    "operations": "Actual deployment, exact READY and repair redeployment",
+    "authority": "Descriptive inventory only; not approval, READY or a new grant"
+  },
+  "sequence": ["preflight", "approved-linux-regression-and-fix-cycle", "supervised-real-ui-agent-and-hoodi-evidence", "exact-source-ci-review-deployment-acceptance", "pm-unified-final-and-email-with-other-prd-owners-retained"],
+  "notice": "Input inventory only. Not runnable approval, not an acceptance report and not the FINAL deliverable. Do not guess missing values."
+}

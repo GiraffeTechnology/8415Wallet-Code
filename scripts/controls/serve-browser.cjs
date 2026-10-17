@@ -11,6 +11,7 @@ const web=new Set(['index.html','login-core.mjs','wallet-auth.mjs','account-auth
 web.add('method-change-ui.mjs');
 web.add('enrollment-qr.mjs'); web.add('qr-generator.mjs');
 web.add('task-listing-results.mjs');
+for (const module of ['task-activity.mjs','task-activity-ui.mjs','asset-workspace-panel.mjs','hoodi-journey-panel.mjs']) web.add(module);
 web.add('task-ui.mjs'); web.add('task-authorization.mjs'); web.add('task-authorization-ui.mjs');
 web.add('tenant-password-routing.mjs'); web.add('tenant-password-ui.mjs'); web.add('tenant-password-routing.json');
 // Every module reachable from index.html must be listed, including the ones a

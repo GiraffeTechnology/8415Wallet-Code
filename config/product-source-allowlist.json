@@ -738,8 +738,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "be7f0571521cfa473f581b2f2ba144cce418b6c9",
-      "sha256": "03c54c8bf72dc2a7b9ca95d648707131770dd8e5389e96df7db4120aaa630dc2"
+      "git_blob_sha1": "8dc55c7808e07c5d7a6a63e51273566f04883869",
+      "sha256": "2822bad0fa9f2a1173549bc42e070b617c3cec0c248c6bd18df19bae7e699cbf"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -1902,8 +1902,8 @@
     {
       "path": "web/asset-workspace-panel.mjs",
       "mode": "100644",
-      "git_blob_sha1": "892f57ebc410255f05fab3271e5429642c863ae7",
-      "sha256": "0869010ac968fb50a80ccb37560de39e1c84dcae5c47bb35ec3a0c2cb3081149"
+      "git_blob_sha1": "c8965cfb412f3d09c2d3f7bb8982879090f3a090",
+      "sha256": "b73334d4070b532abba21d97cf37c3a3011b274b147d565ae797b631f24289be"
     },
     {
       "path": "web/assets/clock.svg",
@@ -2028,8 +2028,8 @@
     {
       "path": "web/hoodi-journey-panel.mjs",
       "mode": "100644",
-      "git_blob_sha1": "ace1fd7cea3e033aefa0f8bdc2c22ca80d1c7ac6",
-      "sha256": "c8f81d15d2c8dcf721a07b838c410f74d52aec2abf531cb9bc873fcc85222d60"
+      "git_blob_sha1": "ca3a1d6302b9ba62f5c7a6bc5922d7373923d9ec",
+      "sha256": "9a2f64b4a793d89701b19d8a48d8f060b966faa96e0028953afe6ed8aaa9dbb8"
     },
     {
       "path": "web/i18n.mjs",
@@ -2250,8 +2250,8 @@
     {
       "path": "web/task-activity.mjs",
       "mode": "100644",
-      "git_blob_sha1": "adad3dfda5e672cc5b4bf1ccb4dc4d83fa002628",
-      "sha256": "de017b43b2572042ffd4ed9e663448f1f5ba13f8d93efeea46610b4f1ae087c3"
+      "git_blob_sha1": "4a341074add9260d9eba16c43c1d50a70b90c503",
+      "sha256": "8ec42f7216609a1e217eda9954f7e2bf40a3818cea7a2e1e1aa2c96ec920c1bf"
     },
     {
       "path": "web/task-authorization-ui.mjs",
