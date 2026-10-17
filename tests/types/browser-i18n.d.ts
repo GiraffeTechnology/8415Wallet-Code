@@ -27,3 +27,8 @@ declare module '*web/native-i18n.mjs' {
   export function clearingReviewDisplay(review: any, notes: string): any;
   export function clearingDisplay(observation: any): any;
 }
+/** The source English catalog: every protocol string the native renderers emit. */
+declare module '*web/locales/native-en.mjs' {
+  const catalog: Readonly<Record<string, string>>;
+  export default catalog;
+}

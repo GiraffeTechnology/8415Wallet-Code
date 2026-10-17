@@ -83,9 +83,11 @@ export async function buildRiskSurfaces(
           `${standing} seconds have passed since. No entry has been admitted after it.`,
     meaning:
       'Finality depends on a later entry existing. A register that stops ' +
-      'producing entries leaves recent instants permanently non-final, and ' +
-      'anything waiting on them waits indefinitely. This is a liveness ' +
-      'dependency on the register and its profile, not a safety defect.',
+      'producing entries leaves recent instants non-final for as long as it ' +
+      'stays stopped, and anything waiting on them waits with them; a ' +
+      'genuine later entry, once registered, makes them final. The clock ' +
+      'running on does not do it. This is a liveness dependency on the ' +
+      'register and its profile, not a safety defect.',
     present: standing > 0n,
   });
 

@@ -61,7 +61,7 @@ test('logged-out navigation cannot authenticate or display account facts; linked
 });
 test('native summary preserves owner/holder, contract finality and gap independence; errors clear cached facts', () => {
   const f = fixture(); f.login({ account: '0xaccount', chainId: '1' });
-  f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'ready', view: { tokenId: 8415n, tradeablePosition: { owner: 'OWNER' }, confirmedHolder: { holder: 'HOLDER', version: 3n }, presentFinality: { final: false }, gap: { kind: 'none' }, observedAt: 99n } } });
+  f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'ready', view: { tokenId: 8415n, tradeablePosition: { owner: 'OWNER' }, confirmedHolder: { holder: 'HOLDER', version: 3n }, presentFinality: { final: false, agreement: 'consistent' }, gap: { kind: 'none' }, observedAt: 99n } } });
   assert.equal(f.el('native-owner').textContent, 'OWNER'); assert.equal(f.el('native-holder').textContent, 'HOLDER'); assert.equal(f.el('native-finality').textContent, 'Provisional'); assert.equal(f.el('native-gap').textContent, 'No open gap'); assert.equal(f.el('native-freshness').textContent, 'Freshness not read');
   f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'error' } }); assert.equal(f.el('native-owner').textContent, '—'); assert.equal(f.el('native-holder').textContent, '—');
   f.login(null); f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'ready', view: {} } }); assert.equal(f.el('native-owner').textContent, '—');
@@ -83,10 +83,46 @@ test('Back dismisses review without overwriting the target history entry', () =>
   f.windowEvents.dispatchEvent({ type: 'popstate', state: { walletPage: 'overview' } });
   assert.equal(f.page('overview').hidden, false); assert.equal(f.el('asset-ack').checked, false); assert.equal(f.history.length, before);
 });
+/** The rule's own comparison decides the badge, not the boolean alone. */
+const nativeView = (presentFinality: Record<string, unknown>) => ({
+  type: 'wallet:native-view', detail: { state: 'ready', view: { tokenId: 1n,
+    tradeablePosition: { owner: 'SAME' }, confirmedHolder: { holder: 'SAME', version: 3n },
+    presentFinality, gap: { kind: 'none' }, observedAt: 99n } },
+});
 test('anomalous present-finality true never paints a green settled badge', () => {
   const f = fixture(); f.login({ account: 'ACCOUNT', chainId: '1' });
-  f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'ready', view: { tokenId: 1n, tradeablePosition: { owner: 'SAME' }, confirmedHolder: { holder: 'SAME', version: 3n }, presentFinality: { final: true }, gap: { kind: 'none' }, observedAt: 99n } } });
+  f.events.dispatchEvent(nativeView({ final: true, agreement: 'disagrees' }));
   assert.match(f.el('native-finality').textContent, /protocol inconsistency/); assert.equal(f.el('native-finality').className, 'badge danger'); assert.match(f.el('native-status').textContent, /contrary to the protocol rule/);
+});
+test('a present instant a later entry covers is final without being called an inconsistency', () => {
+  const f = fixture(); f.login({ account: 'ACCOUNT', chainId: '1' });
+  f.events.dispatchEvent(nativeView({ final: true, agreement: 'consistent' }));
+  assert.match(f.el('native-finality').textContent, /a later entry covers it/);
+  assert.doesNotMatch(f.el('native-finality').textContent, /inconsisten/i);
+  assert.equal(f.el('native-finality').className, 'badge ');
+  assert.match(f.el('native-status').textContent, /only a registered entry does/);
+});
+test('withholding finality the rule grants is an inconsistency too', () => {
+  const f = fixture(); f.login({ account: 'ACCOUNT', chainId: '1' });
+  f.events.dispatchEvent(nativeView({ final: false, agreement: 'disagrees' }));
+  assert.match(f.el('native-finality').textContent, /protocol inconsistency/);
+  assert.equal(f.el('native-finality').className, 'badge danger');
+  assert.match(f.el('native-status').textContent, /not treat this response as settled/);
+});
+test('an unobtained boundary is shown as unchecked, in either direction', () => {
+  for (const final of [true, false]) {
+    const f = fixture(); f.login({ account: 'ACCOUNT', chainId: '1' });
+    f.events.dispatchEvent(nativeView({ final, agreement: 'unverifiable' }));
+    assert.match(f.el('native-finality').textContent, /boundary not obtained/);
+    assert.equal(f.el('native-finality').className, 'badge warning');
+    assert.match(f.el('native-status').textContent, /neither confirmed nor contradicted/);
+  }
+});
+test('a standing the view did not state never paints a settled badge', () => {
+  const f = fixture(); f.login({ account: 'ACCOUNT', chainId: '1' });
+  f.events.dispatchEvent(nativeView({ final: true }));
+  assert.doesNotMatch(f.el('native-finality').textContent, /a later entry covers it/);
+  assert.match(f.el('native-finality').textContent, /boundary not obtained/);
 });
 test('BFCache restoration creates a usable new avatar controller', async () => {
   const f = fixture(); await new Promise(resolve => setImmediate(resolve)); f.windowEvents.dispatchEvent({ type: 'pagehide' }); f.windowEvents.dispatchEvent({ type: 'pageshow', persisted: true }); await new Promise(resolve => setImmediate(resolve));

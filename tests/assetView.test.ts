@@ -17,8 +17,14 @@ import {
   confirmingEntryToken,
   divergentToken,
   projectionOnlyToken,
+  reference,
+  settlementId,
 } from '../src/adapters/memory/scenarios.ts';
-import { NonConformantContractError, ProjectionNotInitialized } from '../src/sdk/errors.ts';
+import {
+  NonConformantContractError,
+  ProjectionNotInitialized,
+  TransportError,
+} from '../src/sdk/errors.ts';
 import { delegateReader } from './support/delegateReader.ts';
 import { buildAssetView } from '../src/wallet/assetView.ts';
 import { renderAssetView } from '../src/wallet/renderAssetView.ts';
@@ -96,15 +102,114 @@ describe('finality of the present', () => {
   });
 
   test('flags a contract that reports the present as final', async () => {
-    // The finality rule forbids it. If a contract says otherwise, the wallet
-    // reports what it was told and says the answer is not to be trusted —
-    // rather than quietly substituting the rule's answer.
+    // Here the latest effective time has passed, so no later entry exists to
+    // make the present final and the rule forbids this answer. The wallet
+    // reports what it was told and says it is not to be trusted — rather than
+    // quietly substituting the rule's answer.
     const { reader } = divergentToken();
     const lying = delegateReader(reader, { isFinalAsOf: async () => true });
 
     const view = await buildAssetView(lying, TOKEN);
     assert.equal(view.presentFinality.final, true);
+    assert.equal(view.presentFinality.laterEntryAdmitted, false);
+    assert.equal(view.presentFinality.agreement, 'disagrees');
     assert.match(view.presentFinality.explanation, /does not allow/);
+  });
+
+  /** Admits through the open gap with an effective time still ahead of now. */
+  const admitAhead = (contract: MemoryRegisterContract, ahead = 86_400n) =>
+    contract.finalizeSettlement(OPEN_GAP_ID, {
+      recordCommitment: commitment('d'),
+      registryReference: reference('d'),
+      effectiveAt: T.asOf + ahead,
+      proofData: '0x',
+    });
+
+  test('a present instant a still-future entry covers is final, and that is not an anomaly', async () => {
+    const { contract, reader } = divergentToken();
+    admitAhead(contract);
+
+    const view = await buildAssetView(reader, TOKEN);
+    assert.equal(view.presentFinality.final, true);
+    assert.equal(view.presentFinality.laterEntryAdmitted, true);
+    assert.equal(view.presentFinality.coveredFrom, T.v1);
+    assert.equal(view.presentFinality.agreement, 'consistent');
+    assert.doesNotMatch(view.presentFinality.explanation, /suspicion|does not allow/);
+    assert.match(view.presentFinality.explanation, /only a registered entry admits anything/);
+    assert.match(renderAssetView(view), /FINALITY OF THE PRESENT {2}· {2}Final$/m);
+  });
+
+  test('the clock reaching that effective time admits nothing and returns the present to provisional', async () => {
+    const { contract, reader } = divergentToken();
+    admitAhead(contract);
+    const covered = await buildAssetView(reader, TOKEN);
+    contract.advanceTo(T.asOf + 86_400n);
+
+    const after = await buildAssetView(reader, TOKEN);
+    assert.equal(
+      after.confirmedHolder.entryCount,
+      covered.confirmedHolder.entryCount,
+      'time passing must not add an entry',
+    );
+    assert.equal(after.confirmedHolder.version, covered.confirmedHolder.version);
+    assert.equal(after.presentFinality.final, false);
+    assert.equal(after.presentFinality.laterEntryAdmitted, false);
+    assert.equal(after.presentFinality.agreement, 'consistent');
+    assert.match(after.presentFinality.explanation, /clock advancing on its own admits nothing/);
+  });
+
+  test('a present instant before the first effective time is not final, and the entry ahead does not cover it', async () => {
+    // A register whose only entry is still to take effect: its cover has not
+    // begun, so the instant is uncovered rather than merely provisional.
+    const contract = new MemoryRegisterContract({ now: T.beforeFirstEntry });
+    contract.mint(TOKEN, ALICE);
+    contract.grantSettlementAuthority(TOKEN, REGISTRAR);
+    const id = settlementId('9');
+    contract.beginSettlement(
+      REGISTRAR, TOKEN, id, CAROL, commitment('5'), T.beforeFirstEntry + 7n * 86_400n,
+    );
+    contract.finalizeSettlement(id, {
+      recordCommitment: commitment('9'), registryReference: reference('9'),
+      effectiveAt: T.v1, proofData: '0x',
+    });
+
+    const view = await buildAssetView(new MemoryErc8415Reader(contract), TOKEN);
+    assert.equal(view.presentFinality.final, false);
+    assert.equal(view.presentFinality.laterEntryAdmitted, true);
+    assert.equal(view.presentFinality.coveredFrom, T.v1);
+    assert.equal(view.presentFinality.agreement, 'consistent');
+    assert.match(view.presentFinality.explanation, /before the register's first effective/);
+  });
+
+  test('a boundary the reader will not give leaves the answer unverified in either direction', async () => {
+    const { contract, reader } = divergentToken();
+    admitAhead(contract);
+    const withheld = delegateReader(reader, {
+      entryAt: async (tokenId, version) => {
+        if (version === 1n) throw new TransportError('entryAt', 'the first entry is unavailable');
+        return reader.entryAt(tokenId, version);
+      },
+    });
+
+    const view = await buildAssetView(withheld, TOKEN);
+    assert.equal(view.presentFinality.final, true);
+    assert.equal(view.presentFinality.coveredFrom, undefined);
+    assert.equal(view.presentFinality.agreement, 'unverifiable');
+    assert.match(view.presentFinality.explanation, /neither confirmed nor contradicted/);
+    assert.match(renderAssetView(view), /Final {2}· {2}boundary not obtained/);
+  });
+
+  test('withholding finality the rule grants is a disagreement, not an ordinary provisional present', async () => {
+    const { contract, reader } = divergentToken();
+    admitAhead(contract);
+    const denying = delegateReader(reader, { isFinalAsOf: async () => false });
+
+    const view = await buildAssetView(denying, TOKEN);
+    assert.equal(view.presentFinality.final, false);
+    assert.equal(view.presentFinality.laterEntryAdmitted, true);
+    assert.equal(view.presentFinality.agreement, 'disagrees');
+    assert.match(view.presentFinality.explanation, /reports it\s+as not final/);
+    assert.match(renderAssetView(view), /Provisional {2}· {2}disagrees with the rule/);
   });
 });
 
