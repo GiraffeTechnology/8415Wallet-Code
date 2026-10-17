@@ -13,7 +13,11 @@ export function syntheticPackage(root, label = '', { mailSupported = true } = {}
   const pkg = { name: '8415wallet', version: '0.1.0', license: 'CC0-1.0', dependencies: { ethers: '^6.17.0' } };
   const lock = { name: pkg.name, lockfileVersion: 3, packages: { '': { dependencies: pkg.dependencies }, 'node_modules/ethers': { version: '6.17.0', resolved: 'https://registry.npmjs.org/ethers/-/ethers-6.17.0.tgz', integrity: 'sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' } } };
   put(source, 'package.json', JSON.stringify(pkg)); put(source, 'package-lock.json', JSON.stringify(lock));
-  const git = args => execFileSync('git', args, { cwd: source, stdio: 'pipe' });
+  // gc.auto and maintenance.auto let git commit fork a background process
+  // that is still writing inside .git when the test's teardown removes the
+  // tree, which surfaced in CI as ENOTEMPTY on rmdir of .git/info.
+  const git = args => execFileSync('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', ...args],
+    { cwd: source, stdio: 'pipe' });
   git(['init', '-q']); git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Synthetic installation package']);
   const identity = captureAuthSource(source);
   for (const path of files) put(runtime, path, readFileSync(join(source, path)));
