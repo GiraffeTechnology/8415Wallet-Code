@@ -23,7 +23,11 @@ async function fixture(t, options = {}) {
     state.methods.push(method);
     if (method === 'eth_chainId') return '0x88bb0';
     if (method === 'eth_getBalance') return '0xffffffffffffffff';
-    if (method === 'eth_getBlockByNumber' && params[0] === '0x0') return {number:'0x0',hash:'0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b'};
+    // Block zero is what the fixed-genesis check reads; a case can replace it.
+    if (method === 'eth_getBlockByNumber' && params[0] === '0x0') {
+      return options.genesis === null ? null
+        : {number:'0x0',hash:options.genesis ?? '0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b'};
+    }
     if (method === 'eth_getCode') return '0x';
     if (method === 'eth_getTransactionCount') return '0x7';
     if (method === 'eth_call') return '0x';
@@ -145,3 +149,25 @@ test('revocation during external signing prevents raw dispatch through the stand
   assert.equal((await f.call('tasks/status', { taskDigest })).effectiveStatus, 'revoked');
 });
 
+
+// Chain560048 with another genesis is another chain. The refusal code itself is
+// asserted at the unit boundary in task-exact-chain-state.test.mjs; across the
+// entry handler it must stay a generic refusal, so what these pin is the
+// observable outcome: block zero was read, the operation did not proceed, and
+// no internal detail crossed the boundary. The same flow on the real genesis
+// signs and broadcasts once, two tests above, which is the control.
+for (const [label, genesis] of [
+  ['a replaced genesis block', `0x${'c'.repeat(64)}`],
+  ['no genesis block at all', null],
+]) {
+  test(`the standard entry refuses to execute against ${label}, without signing`, async t => {
+    const f = await fixture(t, { genesis }), reserved = await f.reserve();
+    await assert.rejects(f.call('tasks/execute', f.operation(reserved)), error => {
+      assert.doesNotMatch(String(error), /GENESIS|0x0|chain-state/i, 'the refusal leaked its internals');
+      return true;
+    });
+    assert.ok(f.state.methods.includes('eth_getBlockByNumber'), 'block zero was never read');
+    assert.equal(f.state.signed, 0, 'a refused chain reached the signer');
+    assert.equal(f.state.broadcasts, 0);
+  });
+}

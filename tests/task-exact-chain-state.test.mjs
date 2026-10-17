@@ -35,3 +35,28 @@ test('malformed balances and uint256 cost overflow refuse without any signing or
     {actor,valueWei:((1n<<256n)-1n).toString(),gasLimit:'1',maxFeePerGasWei:'1'}),/COST_OVERFLOW/);
 });
 
+const onHoodi=block=>({async request({method}){return method==='eth_chainId'?'0x88bb0':block;}});
+test('a block zero that is missing, renumbered or unhashed is refused, and case is not significant',async()=>{
+  for(const block of [null,undefined,{number:'0x1',hash:HOODI_GENESIS},{number:'0x0',hash:null},
+      {number:'0x0'},{number:'0x0',hash:HOODI_GENESIS.slice(0,-1)+'c'}]) {
+    await assert.rejects(verifyTaskExactChain(onHoodi(block),'560048'),/GENESIS_REFUSED|QUANTITY_REFUSED/);
+  }
+  // The same genesis in upper case is the same block, and is accepted.
+  await verifyTaskExactChain(onHoodi({number:'0x0',hash:'0x'+HOODI_GENESIS.slice(2).toUpperCase()}),'560048');
+});
+test('a chain that answers with another id or a malformed quantity is refused before any block read',async()=>{
+  for(const [answer,expected] of [['0x1',/CHAIN_ID_REFUSED/],['0xaa36a7',/CHAIN_ID_REFUSED/],
+      ['0x',/QUANTITY_REFUSED/],['0x0001',/QUANTITY_REFUSED/],['560048',/QUANTITY_REFUSED/],[null,/QUANTITY_REFUSED/]]) {
+    const methods=[];
+    await assert.rejects(verifyTaskExactChain({async request({method}){methods.push(method);
+      if(method==='eth_chainId')return answer;assert.fail('refused chains must not reach a block read');}},'560048'),expected);
+    assert.deepEqual(methods,['eth_chainId']);
+  }
+});
+test('the funding summary is frozen and reports the block it was read at',async()=>{
+  const provider={async request(){return '0x'+(10n**21n).toString(16);}};
+  const summary=await verifyTaskExactFunding(provider,{actor,valueWei:'1',gasLimit:'21000',maxFeePerGasWei:'2',block:'0x2a'});
+  assert.ok(Object.isFrozen(summary));
+  assert.equal(summary.block,'0x2a');
+  assert.equal(summary.maximumCostWei,(1n+21000n*2n).toString());
+});
