@@ -141,6 +141,7 @@
       "src/adapters/rpc/watchtowerRpcReader.ts",
       "src/adapters/signing/eip1193ReadTransport.ts",
       "src/adapters/signing/eip1193Signer.ts",
+      "src/agent/assetBudget.ts",
       "src/agent/receiptObservation.ts",
       "src/agent/receiptTask.ts",
       "src/agent/taskContract.ts",
@@ -1140,6 +1141,12 @@
       "sha256": "25f599f0e145c5e955127b25d05d16ed005838f67226a2129d8a3032cba7ecff"
     },
     {
+      "path": "src/agent/assetBudget.ts",
+      "mode": "100644",
+      "git_blob_sha1": "073a098000aa8247a2a2586e473437b90e08a2e7",
+      "sha256": "970850e3930f984790a9c5bf1916b33da3ed72b46979dc9f2fbd94d493145e32"
+    },
+    {
       "path": "src/agent/receiptObservation.ts",
       "mode": "100644",
       "git_blob_sha1": "57d7d12ae53f33bc86096a8630c5312071a3f7e6",
@@ -1160,8 +1167,8 @@
     {
       "path": "src/browser.ts",
       "mode": "100644",
-      "git_blob_sha1": "b3cebef1ac78df0338ddacc7d368ba46c53f32e7",
-      "sha256": "c4212a8f865a90b1a55336ecb04d9a0e49de8b06170fd0617e9ea2705d2d6526"
+      "git_blob_sha1": "d368cadb317a79f5738c2d282d33de363788a398",
+      "sha256": "1b53c75e2f214e0f7c76a2191c77b936375e10ff57b9501a22d64f1156b2b82f"
     },
     {
       "path": "src/cli/args.ts",

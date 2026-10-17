@@ -168,11 +168,25 @@ asset-bounded form, which is why it reads as a missing budget.
 The resolution is not a new schema field. The budget is the wallet's relevant
 asset total for the chain, read and filled in, less whatever is still
 committed: no number is guessed in advance, and no unlimited sentinel is
-introduced. Reservations that are submitted or of unknown outcome stay
-committed, because an unknown outcome may already have spent its fee.
+introduced.
 
-What that needs is the chain read for the asset total and the call that fills
-the result into the policy at authorization time, both on the execution path
-held by another writer, which still checks actual funds before signing because
-a read is not a claim on external state. Recorded here for that coordination
-rather than changed here. No threshold was relaxed in the meantime.
+`src/agent/assetBudget.ts` is that calculation. `assetBoundedTaskFees` takes
+the total as read, subtracts the fees of every reservation that is not
+cancelled — a submitted or unknown-outcome reservation stays committed,
+because an unknown outcome may already have spent its fee — and returns the
+`perOperationWei` and `totalWei` the policy requires, so the existing grant
+machinery enforces the bound. With no ceiling given, both are the whole
+spendable total, which is the asset-bounded authorization in the form the
+schema already accepts. A ceiling above the spendable total is refused rather
+than clamped, because the caller asked for authority it cannot have, and a
+total that is zero or fully committed is refused as
+`TASK_ASSET_BUDGET_EMPTY` stating both figures, so the condition can never
+again present itself as a missing budget. The function is pure, so it is
+tested without a provider, and its output round-trips through
+`freezeTaskPolicy` and `assessChildScope`.
+
+What remains is the read and the call: the chain read for the asset total, and
+filling the result into the policy at authorization time, both on the
+execution path held by another writer, which still checks actual funds before
+signing because a read is not a claim on external state. Recorded here for
+that coordination. No threshold was relaxed.
