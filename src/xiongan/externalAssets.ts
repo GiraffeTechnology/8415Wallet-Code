@@ -4,7 +4,7 @@ import { keccak256Utf8 } from '../codec/keccak.ts';
 import { isAddressInput } from './address.ts';
 import { controlHex, controlRpc, controlPendingNonce, hashControlBytes, isControlProviderRejection, requireControlAdapter as check } from '../controls/authorization.ts';
 
-export const ASSET_CHAINS = Object.freeze({ '1': 'Ethereum', '8453': 'Base', '11155111': 'Sepolia', '84532': 'Base Sepolia' });
+export const ASSET_CHAINS = Object.freeze({ '1': 'Ethereum', '8453': 'Base', '11155111': 'Sepolia', '84532': 'Base Sepolia', '560048': 'Hoodi' });
 type PublicObject = Record<string, unknown>;
 export type AssetTransaction = { from: string; to: string; chainId: string; value: string; data: string; nonce: string };
 export type Erc20Metadata = { name: string | null; symbol: string | null; decimals: number | null };

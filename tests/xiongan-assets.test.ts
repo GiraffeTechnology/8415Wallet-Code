@@ -55,7 +55,7 @@ function fixture(chainId = '1', guard: () => void = () => {}) {
       if (flags.account !== undefined) account = flags.account;
     } };
 }
-for (const chain of ['1', '8453', '11155111', '84532']) test(`external EOA ${chain}: exact ETH review, one wallet request, receipt and acknowledgement`, async () => {
+for (const chain of ['1', '8453', '11155111', '84532', '560048']) test(`external EOA ${chain}: exact ETH review, one wallet request, receipt and acknowledgement`, async () => {
   const f = fixture(chain), s = f.session(); const balance = await s.balance(); assert.equal(balance.chainId, chain);
   const review = await s.prepare(f.request()); assert.equal(f.sends(), 0); assert.equal(review.transaction.to, recipient);
   await s.submit(review, review.digest); assert.equal(f.sends(), 1); assert.equal((await s.reconcile()).state, 'confirmed');
