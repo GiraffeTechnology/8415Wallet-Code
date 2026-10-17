@@ -30,7 +30,9 @@ function closure(entry) {
   }; visit(resolve(root, entry)); return [...paths].map(path => relative(root, path)).sort();
 }
 test('declared receipt runtime closure equals the actual non-type import graph exactly', () => {
-  assert.deepEqual([...TASK_RECEIPT_RUNTIME_FILES].sort(), closure('server/task-receipt-adapter.mjs'));
+  // Same three modules as the signer port declares: they affect this port's
+  // trusted runtime while importing it, and are named rather than inferred.
+  assert.deepEqual([...TASK_RECEIPT_RUNTIME_FILES].sort(), [...new Set([...closure('server/task-receipt-adapter.mjs'), 'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs'])].sort());
   assert.equal(TASK_RECEIPT_RUNTIME_FILES.length, new Set(TASK_RECEIPT_RUNTIME_FILES).size);
 });
 test('exact native-TS runtime closure loads alone, missing dependencies refuse, source changes change identity', () => {
