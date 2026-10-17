@@ -1,7 +1,7 @@
 /** A private exact-byte Node copy for installation fixtures, never a host runtime change. */
 import assert from 'node:assert/strict';
-import { constants, createReadStream } from 'node:fs';
-import { chmod, copyFile, lstat, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { chmod, readFile, writeFile, lstat, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -20,7 +20,9 @@ export async function independentNode() {
   const node = join(root, 'node');
   try {
     await chmod(root, 0o700);
-    await copyFile(source, node, constants.COPYFILE_EXCL);
+    // Create a caller-owned inode rather than relying on host copy semantics.
+    // Exclusive creation preserves refusal of existing files and symlinks.
+    await writeFile(node, await readFile(source), { flag: 'wx', mode: 0o600 });
     await chmod(node, 0o755);
     const stat = await lstat(node);
     assert.ok(stat.isFile() && !stat.isSymbolicLink());

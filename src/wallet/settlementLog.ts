@@ -1,3 +1,4 @@
+import { InvariantViolationError } from '../sdk/errors.ts';
 import {
   decodeLog,
   tokenFilter,
@@ -5,7 +6,7 @@ import {
   type EventName,
 } from '../sdk/events.ts';
 import type { Erc8415Reader } from '../sdk/port.ts';
-import type { Bytes32, GapStatus, Instant, TokenId } from '../sdk/types.ts';
+import type { Bytes32, GapStatus, Instant, Settlement, TokenId } from '../sdk/types.ts';
 
 /**
  * The gap-transition log for a token.
@@ -70,8 +71,11 @@ const NOTE_UNAVAILABLE =
   'here either. Absence below is not evidence that none occurred.';
 
 const NOTE_AVAILABLE =
-  'Every gap this token has had, and how each ended. A closure that admitted ' +
-  'nothing is shown as such; it is not an omission.';
+  'Gap transitions returned by this reader for this token, and how each ended. ' +
+  'A closure that admitted nothing is shown as such. Reader retention and omitted ' +
+  'logs can limit coverage; this is not proof that every historical gap is present. ' +
+  'When a settlement record cannot be read, its episode remains log-derived and ' +
+  'openedAt stays unknown.';
 
 /** `GapStatus` as the contract reports it, mapped to what it means for a reader. */
 const CLOSURE_BY_STATUS: Record<GapStatus, ClosureKind> = {
@@ -104,12 +108,22 @@ export async function buildSettlementLog(
     return { tokenId, available: false, episodes: [], events: [], note: NOTE_UNAVAILABLE };
   }
 
+  const contractAddress = reader.source.address;
   const collected: Erc8415Event[] = [];
   for (const name of SETTLEMENT_EVENTS) {
-    const logs = await reader.getLogs(tokenFilter(reader.source.address, name, tokenId));
+    const logs = await reader.getLogs(tokenFilter(contractAddress, name, tokenId));
     for (const log of logs) {
+      if (typeof log.address !== 'string' ||
+          log.address.toLowerCase() !== contractAddress.toLowerCase()) {
+        throw new InvariantViolationError('settlement-log-scope',
+          'returned log belongs to a different contract');
+      }
       const decoded = decodeLog(log);
-      if (decoded !== undefined) collected.push(decoded);
+      if (decoded === undefined || decoded.kind !== name || decoded.tokenId !== tokenId) {
+        throw new InvariantViolationError('settlement-log-scope',
+          'returned log does not match the requested event and token');
+      }
+      collected.push(decoded);
     }
   }
   collected.sort(
@@ -120,7 +134,7 @@ export async function buildSettlementLog(
   return {
     tokenId,
     available: true,
-    episodes: await enrich(reader, foldEpisodes(collected)),
+    episodes: await enrich(reader, tokenId, foldEpisodes(collected)),
     events: collected,
     note: NOTE_AVAILABLE,
   };
@@ -136,29 +150,39 @@ export async function buildSettlementLog(
  */
 async function enrich(
   reader: Erc8415Reader,
+  tokenId: TokenId,
   episodes: readonly GapEpisode[],
 ): Promise<GapEpisode[]> {
   if (reader.settlement === undefined) return [...episodes];
 
   const enriched: GapEpisode[] = [];
   for (const episode of episodes) {
+    let record: Settlement;
     try {
-      const record = await reader.settlement(episode.settlementId);
-      const closure = CLOSURE_BY_STATUS[record.status];
-      enriched.push({
-        ...episode,
-        openedAt: record.openedAt,
-        deadline: record.deadline,
-        expectedHolder: record.expectedHolder,
-        initiator: record.initiator,
-        closure,
-        meaning: MEANING[closure],
-      });
+      record = await reader.settlement(episode.settlementId);
     } catch {
-      // The record could not be read. The log-derived episode stands, with
-      // openedAt left absent rather than filled in.
+      // A failed optional record read cannot supply current-state facts.
+      // Preserve the log-derived episode, with openedAt explicitly unknown.
       enriched.push(episode);
+      continue;
     }
+    // Successfully returned records are not allowed to cross this token scope.
+    // Do not catch these invariant failures as an optional-read fallback.
+    if (record.tokenId !== tokenId || record.status === 'NONE' ||
+        !Object.hasOwn(CLOSURE_BY_STATUS, record.status)) {
+      throw new InvariantViolationError('settlement-record-scope',
+        'returned settlement has a different token or no valid observed status');
+    }
+    const closure = CLOSURE_BY_STATUS[record.status];
+    enriched.push({
+      ...episode,
+      openedAt: record.openedAt,
+      deadline: record.deadline,
+      expectedHolder: record.expectedHolder,
+      initiator: record.initiator,
+      closure,
+      meaning: MEANING[closure],
+    });
   }
   return enriched;
 }

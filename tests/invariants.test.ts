@@ -116,8 +116,10 @@ describe('entries are never overwritten, deleted, reordered or skipped', () => {
   });
 
   test('a profile bound rejects an effectiveAt too far ahead of the clock', () => {
-    // Unbounded, an admitted far-future effective time permanently ends the
-    // projection for that token: no later entry could ever exceed it.
+    // Unbounded, an admitted far-future effective time blocks every later
+    // entry that is not further ahead still, for as long as the clock takes to
+    // reach it. A profile bound keeps that window short; this asserts the bound
+    // refuses, not that the projection ends.
     const bounded = new MemoryRegisterContract({
       now: T.v1,
       maxEffectiveAtDrift: 24n * 60n * 60n,

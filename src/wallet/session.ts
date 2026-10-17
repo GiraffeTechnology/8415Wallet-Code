@@ -1,3 +1,4 @@
+import { detectConformance } from '../sdk/conformance.ts';
 import { ContractIdentityPin } from '../sdk/identity.ts';
 import type { Erc8415Reader } from '../sdk/port.ts';
 import {
@@ -12,7 +13,7 @@ import {
   type TransactionRequest,
   type TransactionSigner,
 } from '../sdk/transactions.ts';
-import type { Address, Instant, TokenId } from '../sdk/types.ts';
+import type { Address, Conformance, Instant, TokenId } from '../sdk/types.ts';
 import type { WatchtowerBinding } from '../sdk/watchtower.ts';
 import { describeAcquisition, type AcquisitionDisclosure } from './acquisition.ts';
 import { buildAssetView, type AssetView } from './assetView.ts';
@@ -133,7 +134,7 @@ export class WalletSession {
    * describes.
    */
   ownershipHistory(tokenId: TokenId): Promise<OwnershipHistoryView> {
-    return buildOwnershipHistory(this.reader, tokenId);
+    return this.#readPinned(() => buildOwnershipHistory(this.reader, tokenId));
   }
 
   history(tokenId: TokenId): Promise<HistoryView> {
@@ -141,15 +142,18 @@ export class WalletSession {
   }
 
   settlementLog(tokenId: TokenId): Promise<SettlementLogView> {
-    return buildSettlementLog(this.reader, tokenId);
+    return this.#readPinned(conformance => conformance.settlement
+      ? buildSettlementLog(this.reader, tokenId)
+      : Promise.resolve({ tokenId, available: false, episodes: [], events: [],
+        note: 'This contract advertises no settlement interface; no settlement history is reported. This is not an assertion that no gaps occurred.' }));
   }
 
   riskSurfaces(tokenId: TokenId): Promise<RiskSurfaceView> {
-    return buildRiskSurfaces(
+    return this.#readPinned(() => buildRiskSurfaces(
       this.reader,
       tokenId,
       this.#account === undefined ? {} : { account: this.#account },
-    );
+    ));
   }
 
   /**
@@ -201,6 +205,15 @@ export class WalletSession {
       );
     }
     return signer.sendTransaction(request);
+  }
+
+  /** Bind legacy read views to the same identity as the other session views. */
+  async #readPinned<T>(read: (conformance: Conformance) => Promise<T>): Promise<T> {
+    const conformance = await detectConformance(this.reader);
+    await this.identity.read(conformance);
+    const result = await read(conformance);
+    await this.identity.read(await detectConformance(this.reader));
+    return result;
   }
 
   #requireAccount(): Address {

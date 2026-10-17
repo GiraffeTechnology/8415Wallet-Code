@@ -252,3 +252,219 @@ test('a disabled receipt runtime refuses every capability path', async () => {
   assert.throws(() => disabled.consumeCapability({}, CONSUMER), /TASK_RECEIPT_NOT_CONFIGURED/);
   assert.throws(() => disabled.connectAuthorization({}), /TASK_RECEIPT_NOT_CONFIGURED/);
 });
+
+for (const gate of ['withPreparation', 'withAuthorization']) {
+  test(`${gate} keeps the validated journal binding when the caller mutates its claim`, async () => {
+    const f = fixture(), g = await f.grant(), x = f.operation(g, 'funded');
+    const original = structuredClone(x.claimed);
+    let consumed = false;
+    const action = async () => {
+      const request = f.journalScope(g, 'funded', 'get');
+      // A self-consistent journal request for the substituted principal must
+      // still be refused, even though the caller changed its original claim.
+      const forged = structuredClone(request);
+      for (const key of ['grantReference', 'grantPolicyVersion', 'operationId']) {
+        forged.principal[key] = x.claimed[key];
+      }
+      const { kind, ...binding } = forged.principal;
+      forged.nativeOperationId = `native_${sha(binding)}`;
+      forged.operation.id = forged.nativeOperationId;
+      forged.requestDigest = sha({ action: 'get', operation: forged.operation });
+      await assert.rejects(() => f.runtime.withCapability(forged, async () => {}), /TASK_JOURNAL_PRINCIPAL_REFUSED/);
+      await f.runtime.withCapability(request, async capability => {
+        const claim = f.runtime.consumeCapability({ capability, peerId: PEER, action: 'get',
+          nativeOperationId: request.nativeOperationId, planDigest: '', requestDigest: request.requestDigest }, CONSUMER);
+        for (const key of ['grantReference', 'grantPolicyVersion', 'operationId']) {
+          assert.equal(claim.principal[key], original[key]);
+        }
+        consumed = true;
+      });
+      return h('a');
+    };
+    const pending = gate === 'withPreparation'
+      ? f.authority.withPreparation(x.claimed, 'prepare', action)
+      : f.authority.withAuthorization(x.claimed, x.wire, action);
+    // Both authority methods have cloned the binding and suspended at their
+    // first await; the runtime must never read this caller-owned object again.
+    Object.assign(x.claimed, { grantReference: 'substituted-reference', grantPolicyVersion: '999', operationId: 'substituted-operation' });
+    await pending;
+    assert.equal(consumed, true);
+    const state = await f.authority.readState(original);
+    assert.equal(state.status, gate === 'withPreparation' ? 'not-attempted' : 'submitted');
+    await f.store.close();
+  });
+
+  test(`${gate} refuses readState reentry without blocking subsequent reads`, async () => {
+    const f = fixture(), g = await f.grant(), x = f.operation(g, 'funded');
+    const action = async () => {
+      assert.throws(() => f.authority.readState(x.claimed), /TASK_RECEIPT_GATE_REENTRY_REFUSED/);
+      return h('a');
+    };
+    if (gate === 'withPreparation') await f.authority.withPreparation(x.claimed, 'prepare', action);
+    else await f.authority.withAuthorization(x.claimed, x.wire, action);
+    assert.equal(f.runtime.inHeldGate(), false);
+    const state = await f.authority.readState(x.claimed);
+    assert.equal(state.status, gate === 'withPreparation' ? 'not-attempted' : 'submitted');
+    await f.store.close();
+  });
+}
+
+test('stopped receipt runtime does not consume an unattempted phase', async () => {
+  const f = fixture(), g = await f.grant();
+  f.runtime.stop();
+  let called = false;
+  await assert.rejects(async () => f.send(g, 'funded', async () => { called = true; return h('a'); }));
+  assert.equal(called, false);
+  const status = await f.call('status', { taskDigest: g.task.digest });
+  assert.deepEqual(status.receiptAttempts, [], 'a stopped runtime must refuse before persisting an attempt or occupying the nonce');
+  await f.store.close();
+});
+
+test('stopped receipt runtime rejects late connection before consulting authority', async () => {
+  const f = fixture();
+  const runtime = createTaskReceiptRuntime({ store: f.store, journalStore: f.journalStore,
+    peerId: PEER, consumerPeerId: CONSUMER, digest: sha, nativeDigest: sha });
+  runtime.stop();
+  let consulted = false;
+  assert.throws(() => runtime.connectAuthorization({ ...f.service.receiptAuthorization,
+    assertIndependentStore() { consulted = true; } }), /TASK_RECEIPT_RUNTIME_STOPPED/);
+  assert.equal(consulted, false);
+  await f.store.close();
+});
+
+for (const gate of ['withPreparation', 'withAuthorization']) {
+  test(`stopped receipt runtime rejects nested authority calls inside ${gate}`, async () => {
+    const f = fixture(), g = await f.grant(), x = f.operation(g, 'funded');
+    const action = async () => {
+      f.runtime.stop();
+      assert.throws(() => f.authority.readState(x.claimed), /TASK_RECEIPT_RUNTIME_STOPPED/);
+      assert.throws(() => f.authority.withPreparation(x.claimed, 'observe', async () => {}), /TASK_RECEIPT_RUNTIME_STOPPED/);
+      assert.throws(() => f.authority.withAuthorization(x.claimed, x.wire, async () => h('a')), /TASK_RECEIPT_RUNTIME_STOPPED/);
+      return h('a');
+    };
+    if (gate === 'withPreparation') await f.authority.withPreparation(x.claimed, 'prepare', action);
+    else await f.authority.withAuthorization(x.claimed, x.wire, action);
+    // Stopping cannot erase an attempt already in progress or its observed result.
+    const state = await f.service.receiptAuthorization.readState(x.claimed);
+    assert.equal(state.status, gate === 'withPreparation' ? 'not-attempted' : 'submitted');
+    await f.store.close();
+  });
+}
+
+for (const pause of ['locate', 'reservation-queue']) {
+  test(`stopped receipt runtime refuses before reservation at ${pause}`, async () => {
+    const f = fixture(), g = await f.grant();
+    let called = false, entered, release;
+    const arrival = new Promise(resolve => { entered = resolve; });
+    const blocked = new Promise(resolve => { release = resolve; });
+    const original = f.store.transactionMany.bind(f.store);
+    if (pause === 'reservation-queue') f.store.transactionMany = (keys, update) => original(keys, async values => {
+      entered(); await blocked; return update(values);
+    });
+    const pending = f.send(g, 'funded', async () => { called = true; return h('a'); });
+    if (pause === 'reservation-queue') await arrival;
+    f.runtime.stop(); release();
+    await assert.rejects(pending, /TASK_RECEIPT_RUNTIME_STOPPED/);
+    f.store.transactionMany = original;
+    assert.equal(called, false);
+    assert.deepEqual((await f.call('status', { taskDigest: g.task.digest })).receiptAttempts, []);
+    const restored = createTaskReceiptRuntime({ store: f.store, journalStore: f.journalStore,
+      peerId: PEER, consumerPeerId: CONSUMER, digest: sha, nativeDigest: sha });
+    const authority = restored.connectAuthorization(f.service.receiptAuthorization);
+    const x = f.operation(g, 'funded');
+    const sent = await authority.withAuthorization(x.claimed, x.wire, async () => h('b'));
+    assert.equal(sent.transactionHash, h('b'), 'the original phase and nonce remain available');
+    restored.stop();
+    await f.store.close();
+  });
+}
+
+test('stopped receipt runtime drains only the already reserved send', async () => {
+  const f = fixture(), g = await f.grant();
+  const original = f.store.transactionMany.bind(f.store);
+  let once = true, called = 0;
+  f.store.transactionMany = async (keys, update) => {
+    const result = await original(keys, update);
+    if (once) { once = false; f.runtime.stop(); }
+    return result;
+  };
+  await f.send(g, 'funded', async () => {
+    called++;
+    const request = f.journalScope(g, 'funded', 'update');
+    await f.runtime.withCapability(request, async capability => {
+      const claim = f.runtime.consumeCapability({ capability, peerId: PEER, action: 'update',
+        nativeOperationId: request.nativeOperationId, planDigest: request.planDigest, requestDigest: request.requestDigest }, CONSUMER);
+      assert.equal(claim.receiptPhase, 'funded');
+    });
+    return h('a');
+  });
+  assert.equal(called, 1);
+  assert.throws(() => f.send(g, 'funded'), /TASK_RECEIPT_RUNTIME_STOPPED/);
+  const status = await f.call('status', { taskDigest: g.task.digest });
+  assert.equal(status.receiptAttempts.length, 1);
+  assert.equal(status.receiptAttempts[0].status, 'submitted');
+  assert.equal(status.receiptAttempts[0].transactionHash, h('a'));
+  await f.store.close();
+});
+
+for (const failure of ['sync', 'async']) {
+  test(`stopped receipt runtime closes capability registry after ${failure} gate failure`, async () => {
+    const store = {}, journalStore = {};
+    const runtime = createTaskReceiptRuntime({ store, journalStore, peerId: PEER, consumerPeerId: CONSUMER, digest: sha, nativeDigest: sha });
+    const authority = runtime.connectAuthorization({ assertIndependentStore() {}, readState() {}, withPreparation() {},
+      withAuthorization() { runtime.stop(); if (failure === 'sync') throw Error('SYNTHETIC_GATE_FAILURE');
+        return Promise.reject(Error('SYNTHETIC_GATE_FAILURE')); }
+    });
+    await assert.rejects(async () => authority.withAuthorization({}, {}, async () => {}), /SYNTHETIC_GATE_FAILURE/);
+    assert.throws(() => runtime.consumeCapability({}, CONSUMER), /TASK_JOURNAL_CAPABILITY_STOPPED/);
+  });
+}
+
+test('stopped receipt runtime revokes preparation tokens while a send is queued', async () => {
+  const f = fixture(), g = await f.grant(), x = f.operation(g, 'funded');
+  let release, issued, token, called = false;
+  const ready = new Promise(resolve => { issued = resolve; });
+  const hold = new Promise(resolve => { release = resolve; });
+  const request = f.journalScope(g, 'funded', 'get');
+  const preparing = f.authority.withPreparation(x.claimed, 'prepare', async () => {
+    await f.runtime.withCapability(request, async capability => { token = capability; issued(); await hold; });
+    await assert.rejects(() => f.runtime.withCapability(request, async () => {}), /TASK_RECEIPT_RUNTIME_STOPPED/);
+  });
+  await ready;
+  // This caller is outside preparation's async context, but queues behind its store gate.
+  const pending = f.send(g, 'funded', async () => { called = true; return h('a'); });
+  const refused = assert.rejects(pending, /TASK_RECEIPT_RUNTIME_STOPPED/);
+  f.runtime.stop();
+  assert.throws(() => f.runtime.consumeCapability({ capability: token, peerId: PEER,
+    action: 'get', nativeOperationId: request.nativeOperationId, planDigest: '', requestDigest: request.requestDigest }, CONSUMER),
+    /TASK_RECEIPT_RUNTIME_STOPPED/);
+  release(); await preparing; await refused;
+  assert.equal(called, false);
+  assert.deepEqual((await f.call('status', { taskDigest: g.task.digest })).receiptAttempts, []);
+  assert.throws(() => f.runtime.consumeCapability({}, CONSUMER), /TASK_JOURNAL_CAPABILITY_STOPPED/);
+  await f.store.close();
+});
+
+test('receipt reservation refuses an asynchronous lifecycle guard before consuming nonce', async () => {
+  const f = fixture(), g = await f.grant(), x = f.operation(g, 'funded');
+  await assert.rejects(() => f.service.receiptAuthorization.withAuthorization(x.claimed, x.wire, async () => h('a'), async () => {}),
+    /TASK_RECEIPT_ACTION_REFUSED/);
+  assert.deepEqual((await f.call('status', { taskDigest: g.task.digest })).receiptAttempts, []);
+  await f.store.close();
+});
+
+test('stopped receipt runtime drains a reservation whose persistence has started', async () => {
+  const f = fixture(), g = await f.grant();
+  const original = f.store.persist.bind(f.store);
+  let once = true, called = false;
+  f.store.persist = async data => {
+    if (once) { once = false; f.runtime.stop(); }
+    return original(data);
+  };
+  await f.send(g, 'funded', async () => { called = true; return h('a'); });
+  assert.equal(called, true);
+  const status = await f.call('status', { taskDigest: g.task.digest });
+  assert.equal(status.receiptAttempts.length, 1);
+  assert.equal(status.receiptAttempts[0].status, 'submitted');
+  await f.store.close();
+});

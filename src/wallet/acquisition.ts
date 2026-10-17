@@ -22,10 +22,11 @@ export type AcquisitionDisclosure = {
 };
 
 const BOUNDARY =
-  'These are facts, not advice. This wallet does not score the token, does not ' +
-  'say whether acquiring is wise, and does not prevent you from doing so. ' +
-  'Whether this risk is acceptable is your decision, and what happens if it ' +
-  'goes wrong is governed by the terms you agree with your counterparty.';
+  'These are facts, not advice. This disclosure does not score the token, does not ' +
+  'say whether acquiring is wise, and does not prevent you from making a decision. ' +
+  'It is not a grant or an executable transfer approval. Whether this risk is ' +
+  'acceptable is your decision; independent controls and the terms you agree ' +
+  'with your counterparty still apply.';
 
 export function describeAcquisition(view: AssetView, at: Instant): AcquisitionDisclosure {
   const registration = describeRegistration(view);
@@ -66,7 +67,8 @@ export function describeAcquisition(view: AssetView, at: Instant): AcquisitionDi
         (view.gap.cancellable
           ? `, and that time has already passed. Under the terms in force, a window ` +
             `that has passed may itself be a signal worth asking about.`
-          : `. Nothing is wrong while that has not passed.`),
+          : `. The agreed deadline has not passed; that alone does not establish that ` +
+            `the trade or its independent conditions are acceptable.`),
     );
   }
 
@@ -87,6 +89,14 @@ export function describeAcquisition(view: AssetView, at: Instant): AcquisitionDi
         : ` under profile ${view.identity.verificationProfile}. Whether you accept that ` +
           `register and those proof rules is your decision to make before relying on any ` +
           `of this.`),
+  );
+
+  points.push(
+    'Registration lag itself imposes no registrar transfer lock. Protected linked ' +
+      'receipt or forwarding separately requires explicit, enforceable acceptance ' +
+      'of the exact leg terms and all still-active inherited conditions through ' +
+      'the responsible control. Wallet connection, a notification or payment approval ' +
+      'alone does not establish that protection. This disclosure does not verify it.',
   );
 
   return {

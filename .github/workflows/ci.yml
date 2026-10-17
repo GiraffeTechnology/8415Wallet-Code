@@ -62,7 +62,7 @@ jobs:
       - name: Browser entry
         run: |
           npm run wallet:browser:build
-          node --test tests/task-static-module-closure.test.mjs
+          node --test tests/task-static-module-closure.test.mjs tests/readonly-panel-browser-lifecycle.test.mjs
 
       # No genuine wallet, network RPC, user keys or user signatures. Reuse the existing hosted runner;
       # this step does not provision infrastructure or establish device acceptance.

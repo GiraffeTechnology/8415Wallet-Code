@@ -86,7 +86,7 @@ const route = (store: ProjectionStore, request: ApiRequest, clock: Clock): ApiRe
 
   if (request.method === 'GET' && tail[0] === 'entries' && tail.length === 1) {
     const page = parsePage(request.query);
-    if (page === undefined) return json(400, { error: 'MALFORMED_PAGE' });
+    if (typeof page === 'string') return json(400, { error: 'MALFORMED_PAGE', message: page });
     const all = store.entries(tokenId);
     const entries = all.slice(page.offset, page.offset + page.limit);
     return json(200, {
@@ -162,11 +162,16 @@ const route = (store: ProjectionStore, request: ApiRequest, clock: Clock): ApiRe
   return json(404, { error: 'NOT_FOUND' });
 };
 
-const parsePage = (query: Readonly<Record<string, string>> = {}): { offset: number; limit: number } | undefined => {
+/**
+ * A refused page says which bound it failed and what that bound is. MAX_PAGE is
+ * both the default and the maximum, and a caller cannot see either from a bare
+ * MALFORMED_PAGE.
+ */
+const parsePage = (query: Readonly<Record<string, string>> = {}): { offset: number; limit: number } | string => {
   const offset = query['offset'] === undefined ? 0 : Number(query['offset']);
   const limit = query['limit'] === undefined ? MAX_PAGE : Number(query['limit']);
-  if (!Number.isSafeInteger(offset) || offset < 0) return undefined;
-  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_PAGE) return undefined;
+  if (!Number.isSafeInteger(offset) || offset < 0) return 'offset must be an integer of 0 or more';
+  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_PAGE) return `limit must be 1 to ${MAX_PAGE}`;
   return { offset, limit };
 };
 

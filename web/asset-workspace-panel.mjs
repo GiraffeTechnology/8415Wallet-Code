@@ -1,0 +1,82 @@
+import { readAssetWorkspace, renderAssetWorkspace } from '../dist/browser/browser.js';
+
+/** Mounted by the existing app, with its original connected session references. */
+export function mountAssetWorkspace({ root, login, getContext }) {
+  if (!root) return;
+  const panel = document.createElement('section');
+  panel.setAttribute('aria-label', 'Asset and responsibility workspace');
+  const title = document.createElement('h2'); title.textContent = 'Asset and history workspace';
+  const instant = document.createElement('input');
+  instant.type = 'text'; instant.inputMode = 'numeric'; instant.placeholder = 'Unix instant (seconds)';
+  instant.setAttribute('aria-label', 'Historical query instant as integer seconds');
+  const sequence = document.createElement('input'); sequence.type = 'text';
+  sequence.placeholder = 'Optional responsibility sequence ID';
+  sequence.setAttribute('aria-label', 'Optional responsibility sequence ID');
+  const logs = document.createElement('input'); logs.type = 'checkbox';
+  const logsLabel = document.createElement('label');
+  logsLabel.append(logs, document.createTextNode('Read full dual histories (bounded, optional)'));
+  const load = document.createElement('button'); load.type = 'button'; load.textContent = 'Read asset workspace';
+  const next = document.createElement('button'); next.type = 'button'; next.textContent = 'Next register-history page';
+  const select = document.createElement('select'); select.setAttribute('aria-label', 'Workspace section');
+  for (const [value, label] of [
+    ['asset', 'Asset'], ['temporal', 'Historical instant'], ['register-history', 'Register history'],
+    ['dual-history', 'Dual histories'], ['responsibility', 'Responsibility window'], ['payments', 'Optional payments'],
+  ]) { const option = document.createElement('option'); option.value = value; option.textContent = label; select.append(option); }
+  const output = document.createElement('pre'); output.setAttribute('aria-live', 'polite');
+  output.style.whiteSpace = 'pre-wrap'; output.style.overflowWrap = 'anywhere';
+  panel.append(title, instant, sequence, logsLabel, load, next, select, output); root.append(panel);
+  let generation = 0, report = null, nextVersion = null, pending = false;
+  const clear = () => { generation++; report = null; nextVersion = null; pending = false; output.textContent = ''; };
+  const refresh = () => {
+    let authenticated = false; try { login.assert(); authenticated = true; } catch { clear(); }
+    for (const item of [load, select, instant, sequence, logs]) item.disabled = !authenticated || pending;
+    next.disabled = !authenticated || pending || nextVersion === null;
+  };
+  const render = () => { if (report) output.textContent = renderAssetWorkspace(report, select.value); };
+  login.subscribe(() => { clear(); instant.value = ''; sequence.value = ''; logs.checked = false; refresh(); });
+  document.addEventListener('wallet:summary-stale', () => { clear(); refresh(); });
+  for (const event of ['input', 'change']) document.getElementById('tokenId')?.addEventListener(event, () => { clear(); refresh(); });
+  globalThis.addEventListener('pagehide', clear);
+  globalThis.addEventListener('pageshow', clear);
+  for (const item of [instant, sequence, logs]) item.addEventListener('input', () => { clear(); refresh(); });
+  select.addEventListener('change', () => { try { login.assert(); render(); } catch { clear(); refresh(); } });
+  async function read(startVersion = 1n) {
+    if (pending) return;
+    const epoch = ++generation; let binding;
+    report = null; nextVersion = null; output.textContent = '';
+    try {
+      binding = login.capture(); await login.check(); const authenticated = login.assert(binding);
+      const context = getContext();
+      if (!context?.wallet || context.wallet.reader.source.chainId.toString() !== authenticated.chainId) throw new Error('WORKSPACE_CONTEXT_REQUIRED');
+      if (!/^(0|[1-9][0-9]{0,19})$/.test(instant.value)) throw new Error('WORKSPACE_INSTANT_REQUIRED');
+      const sequenceId = sequence.value.trim();
+      if (sequenceId && !/^0x[0-9a-f]{64}$/.test(sequenceId)) throw new Error('WORKSPACE_SEQUENCE_REFUSED');
+      if (sequenceId && !context.linkedReader) throw new Error('WORKSPACE_LINKED_UNAVAILABLE');
+      pending = true; refresh();
+      const options = { historyStart: startVersion, historyLimit: 16, includeLogs: logs.checked };
+      if (sequenceId) options.linked = {
+        sequenceId, reader: context.linkedReader,
+        readBlockHash: async number => {
+          const block = await context.provider.request({
+            method: 'eth_getBlockByNumber', params: ['0x' + number.toString(16), false],
+          });
+          login.assert(binding);
+          if (!block || typeof block.hash !== 'string') throw new Error('WORKSPACE_BLOCK_UNAVAILABLE');
+          return block.hash.toLowerCase();
+        },
+        ...(context.payments ? { payments: context.payments } : {}),
+      };
+      const result = await readAssetWorkspace(context.wallet, context.tokenId, BigInt(instant.value), options);
+      login.assert(binding); await login.check(); login.assert(binding);
+      const latestContext = getContext();
+      if (epoch !== generation || latestContext.wallet !== context.wallet || latestContext.tokenId !== context.tokenId) return;
+      report = result; nextVersion = result.registerHistory.state === 'ready' ? result.registerHistory.value.nextVersion : null;
+      render();
+    } catch {
+      if (binding) { try { login.assert(binding); if (epoch === generation) output.textContent = 'WORKSPACE_UNAVAILABLE'; } catch { clear(); } }
+    } finally { if (epoch === generation) { pending = false; refresh(); } }
+  }
+  load.addEventListener('click', () => read());
+  next.addEventListener('click', () => { if (nextVersion !== null) { select.value = 'register-history'; void read(nextVersion); } });
+  refresh();
+}
