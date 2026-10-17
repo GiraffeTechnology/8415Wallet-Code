@@ -98,10 +98,16 @@ test('the window is bounded on both sides', () => {
     profile: s.profile.id, remoteHeight: HEIGHT, payload: s.attest(1_000n),
   }));
   // Valid for longer than the profile allows: a standing permission nobody reviews.
-  rejects(() => s.store.admit(TOKEN, candidate, {
+  // The refusal states the bound it enforced, which is chosen here rather than
+  // required by the ERC, so a caller is not left to guess it.
+  assert.throws(() => s.store.admit(TOKEN, candidate, {
     profile: s.profile.id, remoteHeight: HEIGHT,
     payload: s.attest(1_000n + MAX_ATTESTATION_WINDOW + 1n),
-  }));
+  }), (error: any) => {
+    assert.equal(error.code, 'PROOF_PROFILE_REJECTED');
+    assert.match(String(error.message), new RegExp(`at most ${MAX_ATTESTATION_WINDOW} seconds`));
+    return true;
+  });
 
   const ok = s.attest(1_000n + MAX_ATTESTATION_WINDOW);
   assert.equal(s.store.admit(TOKEN, candidate, {

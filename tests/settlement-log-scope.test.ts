@@ -65,9 +65,12 @@ test('a failed optional record read preserves log facts without inventing opened
   });
   const view = await buildSettlementLog(partial, TOKEN);
   assert.equal(view.available, true);
-  assert.equal(view.episodes.length, 1);
-  assert.equal(view.episodes[0]?.openedAt, undefined);
-  assert.equal(view.episodes[0]?.closure, 'still-open');
+  // This token has three closed gaps and one still open, folded in admission
+  // order, so the open one is last. A failed record read leaves every episode
+  // log-derived, and none of them gains an openedAt.
+  assert.equal(view.episodes.length, 4);
+  assert.ok(view.episodes.every((episode) => episode.openedAt === undefined));
+  assert.equal(view.episodes.at(-1)?.closure, 'still-open');
   assert.match(view.note, /log-derived/);
   assert.match(view.note, /not proof that every historical gap is present/);
 });
@@ -76,8 +79,11 @@ test('valid scoped transitions preserve current enrichment and ordered events', 
   const { reader } = await fixture();
   const view = await buildSettlementLog(reader, TOKEN);
   assert.equal(view.available, true);
-  assert.equal(view.episodes.length, 1);
-  assert.equal(view.episodes[0]?.closure, 'still-open');
-  assert.notEqual(view.episodes[0]?.openedAt, undefined);
+  assert.equal(view.episodes.length, 4);
+  const open = view.episodes.at(-1);
+  assert.equal(open?.closure, 'still-open');
+  assert.notEqual(open?.openedAt, undefined);
+  // A readable record enriches every episode, not only the open one.
+  assert.ok(view.episodes.every((episode) => episode.openedAt !== undefined));
   assert.ok(view.events.every((event) => event.tokenId === TOKEN));
 });

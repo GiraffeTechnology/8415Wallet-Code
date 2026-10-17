@@ -198,9 +198,9 @@ a fact about who holds an asset is worse than one that reports nothing.
   refusal, not a superseded entry labelled "current".
 - **Integers survive the wire.** Every instant, version and token id crosses
   as a decimal string and is read as a `bigint`. `Number` is never involved:
-  an `effectiveAt` far enough in the future to end a projection permanently is
-  exactly the value worth reporting accurately, and it does not survive a
-  double.
+  an `effectiveAt` far enough in the future to block every later entry whose
+  effective time is not greater than it is exactly the value worth reporting
+  accurately, and it does not survive a double.
 - **The base URL cannot leak the key.** Plain http to a non-loopback host, or
   a URL carrying embedded credentials, is refused at construction.
 

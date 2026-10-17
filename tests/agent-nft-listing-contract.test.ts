@@ -106,3 +106,15 @@ test('submission references, unknown status and paged budgets cannot be intercha
   const page = normalizeTaskBudgetPage({ schema: '8415-task-budget-page/2', taskDigest: t.digest, revision: '2', cursor: null, nextCursor: null, reservations: attempted.reservations });
   assert.deepEqual(assembleTaskBudgetPages([page]), attempted);
 });
+
+test('the listing chain policy names itself, the set it checks and the chain asked', () => {
+  // This is the third of the three chain policies and it shares one code with
+  // the other two, so the detail is what distinguishes which refused.
+  try {
+    listing({ chainId: '560048' });
+    throw new Error('expected a refusal');
+  } catch (error: any) {
+    assert.equal(error.code, 'TASK_CHAIN_REFUSED');
+    assert.equal(error.detail, 'NFT listing operations accept chain 1, 8453, 11155111, 84532; asked 560048');
+  }
+});
