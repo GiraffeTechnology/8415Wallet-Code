@@ -83,8 +83,29 @@ function sameObservationContext(value, expected) {
 const completionStates = new Set(['not-attempted', 'outcome-unknown', 'awaiting-evidence', 'completed-at-observation-depth', 'failed-at-observation-depth', 'listed-awaiting-evidence', 'listing-partial', 'listing-observed-at-depth', 'listing-unknown', 'listing-reorg']);
 /** A display projection of verified mint evidence, never an approval or inventory
  * registration. Historical/unavailable evidence stays labelled by its envelope. */
+function normalizeTestNFT721Result(raw,op,observation) {
+ const names=['schema','taskId','sourceTaskId','taskIdBytes32','artifactDigest','chainId','collection','runtimeCodeHash','issuer',
+   'sourceHash','assetKind','metadataHash','metadataURI','transactionHash','blockHash','blockNumber','tokenId','standard','quantity','testOnly','finality'];
+ insist(raw&&[Object.prototype,null].includes(Object.getPrototypeOf(raw)),'TASK_TEST_MINT_RESULT_REFUSED');
+ const d=Object.getOwnPropertyDescriptors(raw);
+ insist(Reflect.ownKeys(d).length===names.length&&names.every(k=>Object.hasOwn(d,k)&&Object.hasOwn(d[k],'value')),'TASK_TEST_MINT_RESULT_REFUSED');
+ insist(observation&&observation.state==='confirmed-at-depth'&&observation.effect==='exact-operation-observed'&&
+   raw.schema==='8415-wallet-test-nft721-result/1'&&raw.taskId===op.taskId&&raw.sourceTaskId===op.sourceTaskId&&
+   raw.taskIdBytes32===op.taskIdBytes32&&raw.artifactDigest===op.artifactDigest&&raw.chainId===op.chainId&&
+   raw.collection===op.collection.contract&&raw.runtimeCodeHash===op.collection.runtimeCodeHash&&raw.issuer===op.actor&&
+   raw.sourceHash===op.sourceHash&&raw.assetKind===op.assetKind&&raw.metadataHash===op.metadataHash&&raw.metadataURI===op.metadataURI&&
+   raw.transactionHash===observation.originalTransactionHash&&raw.blockHash===observation.blockHash&&
+   typeof raw.blockNumber==='string'&&/^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/.test(raw.blockNumber)&&BigInt(raw.blockNumber)===BigInt(observation.blockNumber)&&
+   typeof raw.tokenId==='string'&&/^[1-9][0-9]{0,77}$/.test(raw.tokenId)&&BigInt(raw.tokenId)<(1n<<256n)&&
+   raw.standard==='ERC-721'&&raw.quantity==='1'&&raw.testOnly===true&&raw.finality==='canonical-at-observed-block-not-finality',
+   'TASK_TEST_MINT_RESULT_BINDING_REFUSED');
+ return freeze(Object.fromEntries(names.map(k=>[k,raw[k]])));
+}
+
 export function normalizeTestMintResult(raw, task, observation) {
   if (raw === null) return null;
+  if(task.policy.intent.kind==='exact-operation'&&task.policy.intent.operation.kind==='artfi-test-nft721-mint')
+    return normalizeTestNFT721Result(raw,task.policy.intent.operation,observation);
   const names = ['schema','taskId','chainId','collection','runtimeCodeHash','issuer','transactionHash','blockHash','blockNumber',
     'tokenId','standard','quantity','artworkId','masterArtworkHash','metadataHash','metadataURI','distributionWallet','testOnly','finality'];
   insist(raw && [Object.prototype, null].includes(Object.getPrototypeOf(raw)), 'TASK_TEST_MINT_RESULT_REFUSED');
@@ -114,7 +135,7 @@ function observationView(value, task, executor, budget, authorization, allowFres
   const listing = budget?.schema === '8415-task-budget/2' || value.valuationPolicy !== undefined;
   if (listing) insist(value.observations.length === 0, 'TASK_LISTING_OBSERVATION_REFUSED');
   const observations = value.observations.map(entry => {
-    const mint = task.policy.intent.kind === 'exact-operation' && task.policy.intent.operation.kind === 'artfi-test-series-mint';
+    const mint = task.policy.intent.kind === 'exact-operation' && ['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation.kind);
     insist(entry && Object.keys(entry).sort().join(',') === (mint ? 'available,mintResult,observation,operationId' : 'available,observation,operationId') && typeof entry.available === 'boolean' &&
       typeof entry.operationId === 'string' && (!entry.available || entry.observation !== null), 'TASK_OBSERVATION_RESPONSE_REFUSED');
     const reservation = budget?.reservations.find(item => item.operationId === entry.operationId);
@@ -422,4 +443,5 @@ export class TaskAuthorizationFlow {
     } catch (error) { if (this.#current(epoch)) { this.#busy = false; this.#paint({ phase: 'uncertain', error: this.#error(error) }); } }
   }
 }
+
 

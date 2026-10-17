@@ -1,3 +1,5 @@
+import { normalizeTestNFT721Bindings, verifyTestNFT721OperationPreflight, readTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
+import { captureTestNFT721MetadataVerifier } from './task-test-nft721-metadata.mjs';
 import { verifyTaskExactChain, verifyTaskExactFunding } from './task-exact-chain-state.mjs';
 /** Optional server-owned sign-only injection. No credential loading, key storage,
  * default signer, eth_sendTransaction, signer-side filling, or recovery resend. */
@@ -20,7 +22,7 @@ export const TASK_EXACT_SIGNER_RUNTIME_FILES = Object.freeze([
   'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
   'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-listing-transport.mjs',
   'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
-  'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs', 'server/task-exact-operation-planner.mjs',
+  'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs', 'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs', 'server/task-exact-operation-planner.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts',
@@ -59,8 +61,9 @@ const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_get
  * exact maxFee. Policy and external signer provenance bind the executor digest.
  */
 export function createTaskExactSignerAdapter({ provider, externalSigner, signerIdentity, store,
-  maxPriorityFeePerGasWei, agentId, agentVersion, plannerFeeRule = null, testAssetPins = [], now = Date.now }) {
+  maxPriorityFeePerGasWei, agentId, agentVersion, plannerFeeRule = null, testAssetPins = [], testMint721Bindings = [], testNFT721Metadata = null, now = Date.now }) {
   const pins = normalizeTestAssetPins(testAssetPins);
+  const mint721Bindings=normalizeTestNFT721Bindings(testMint721Bindings), metadata=captureTestNFT721MetadataVerifier(testNFT721Metadata);
   check(provider && typeof provider.request === 'function' && externalSigner && typeof externalSigner.signExactTransaction === 'function' &&
     store && typeof store.readMany === 'function' && typeof store.transactionMany === 'function' &&
     typeof store.withReadSnapshot === 'function' && typeof now === 'function', 'TASK_EXACT_CONFIG_REQUIRED');
@@ -70,10 +73,10 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   const priority = uint(maxPriorityFeePerGasWei);
   const planningRule = plannerFeeRule === null ? null : normalizeTaskExactFeeRule(plannerFeeRule);
   check(planningRule === null || planningRule.maxPriorityFeePerGasWei === maxPriorityFeePerGasWei, 'TASK_EXACT_PLANNER_PRIORITY_MISMATCH');
-  const planner = planningRule === null ? null : createTaskExactOperationPlanner({ provider, feeRule: planningRule, testAssetPins: pins, now });
+  const planner = planningRule === null ? null : createTaskExactOperationPlanner({ provider, feeRule: planningRule, testAssetPins: pins, testMint721Bindings: mint721Bindings, testNFT721Metadata: metadata, now });
   const identity = freeze({ schema: '8415-task-executor/1', agentId: identifier(agentId), agentVersion: identifier(agentVersion),
     adapterId: '8415wallet:external-exact-signer', adapterVersion: '2',
-    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, ethersVersion, signer, maxPriorityFeePerGasWei, testAssetPins: pins, planner: planner?.identity ?? null }))}` });
+    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, ethersVersion, signer, maxPriorityFeePerGasWei, testAssetPins: pins, mint721Bindings, metadataIdentity: metadata?.identity ?? null, planner: planner?.identity ?? null }))}` });
   const executorDigest = `0x${sha(JSON.stringify(identity))}`;
   // Capture all configured methods once. No endpoint, signer, fee policy or
   // account selection can be supplied by HTTP JSON or swapped after approval.
@@ -136,6 +139,10 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
       }
       if (op.kind === 'artfi-test-series-mint') await verifyTestSeriesMintPreflight({
         request: testSeriesMintRequest(op), provider: readonlyProvider, allowedWallets: [op.actor, op.distributionWallet] });
+      if(op.kind==='artfi-test-nft721-mint') {
+        check(metadata!==null,'TASK_TEST_721_METADATA_NOT_ADMITTED');await metadata.verify(op);
+        await verifyTestNFT721OperationPreflight({operation:op,bindings:mint721Bindings,provider:readonlyProvider});
+      }
       await verifyTaskExactFunding(readonlyProvider, { actor: op.actor, valueWei: tx.value.toString(),
         gasLimit: child.fees.gasLimit, maxFeePerGasWei: child.fees.maxFeePerGasWei });
       check(quantity(await rpc('eth_getTransactionCount', [op.actor, 'pending'])) === BigInt(child.nonce), 'TASK_EXACT_NONCE_MISMATCH');
@@ -273,5 +280,6 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   }
   return Object.freeze({ identity, verify, send, recover, ...(planner === null ? {} : { plan }) });
 }
+
 
 

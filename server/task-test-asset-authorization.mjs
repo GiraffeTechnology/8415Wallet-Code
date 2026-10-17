@@ -1,3 +1,5 @@
+import { normalizeTestNFT721Bindings, testNFT721OperationRequest } from './task-test-nft721-binding.mjs';
+import { createTaskNFT721MetadataVerifier } from './task-test-nft721-metadata.mjs';
 /** Server-owned scoped test inventory. It is not a browser registration API.
  * Mint evidence is checked by the fixed server verifier before NFT exemptions
  * become available. Planned mints require no future receipt or token ID.
@@ -55,7 +57,19 @@ export async function createTaskTestAssetAuthorization({ inventory, authorizedWa
     const k = JSON.stringify([a.taskId, a.actor, a.contract, a.sourceHash]);
     if (seen.has(k)) fail(); seen.add(k);
     if (a.mint?.state === 'planned') {
-      keys(a.mint, ['state']); // No invented future transaction, block or ID.
+      if (Object.hasOwn(a.mint,'deployment')) {
+        keys(a.mint,['state','deployment','metadataPublication','metadataTimeoutMs']);
+        if(chainId!=='560048'||a.standard!=='ERC-721'||a.actor!==a.issuer)fail();
+        const binding=normalizeTestNFT721Bindings([{taskId:a.taskId,binding:a.mint.deployment}])[0].binding;
+        if(binding.chainId!==chainId||binding.collection!==a.contract||binding.runtimeCodeHash!==a.runtimeCodeHash||binding.issuer!==a.issuer)fail();
+        const p=a.mint.metadataPublication;
+        createTaskNFT721MetadataVerifier({publications:[p],timeoutMs:a.mint.metadataTimeoutMs});
+        if(p.taskId!==a.taskId||p.sourceHash!==a.sourceHash||p.chainId!==chainId)fail();
+        testNFT721OperationRequest({kind:'artfi-test-nft721-mint',taskId:a.taskId,sourceTaskId:binding.taskId,
+          taskIdBytes32:binding.taskIdBytes32,artifactDigest:binding.artifactDigest,chainId,actor:a.actor,
+          collection:{contract:a.contract,runtimeCodeHash:a.runtimeCodeHash},sourceHash:a.sourceHash,
+          assetKind:p.assetKind,metadataHash:p.metadataHash,metadataURI:p.uri});
+      } else keys(a.mint, ['state']); // No invented future transaction, block or ID.
     } else {
       keys(a.mint, ['state', 'transactionHash', 'blockHash', 'tokenIds']);
       if (a.mint.state !== 'confirmed' || typeof verifyMintEvidence !== 'function') fail();
@@ -68,6 +82,11 @@ export async function createTaskTestAssetAuthorization({ inventory, authorizedWa
     }
     assets.push(a);
   }
+  const admitted=assets.filter(a=>a.mint.state==='planned'&&a.mint.deployment);
+  const mint721Bindings=normalizeTestNFT721Bindings(admitted.map(a=>({taskId:a.taskId,binding:a.mint.deployment})));
+  if(new Set(admitted.map(a=>a.mint.metadataTimeoutMs)).size>1)fail();
+  const metadataVerifier=admitted.length?createTaskNFT721MetadataVerifier({publications:admitted.map(a=>a.mint.metadataPublication),
+    timeoutMs:admitted[0].mint.metadataTimeoutMs}):null;
   // Reconcile only inventory-declared sources, never scan unrelated credentials.
   if (store !== null) {
     if (typeof store.read !== 'function') fail();
@@ -75,13 +94,14 @@ export async function createTaskTestAssetAuthorization({ inventory, authorizedWa
       const key = testMintInventoryKey(chainId, a.contract, a.sourceHash), record = await store.read(key);
       if (record?.available === true && typeof verifyInventoryRecord === 'function' &&
           record.schema === '8415-task-test-mint-inventory/1' &&
-          await verifyInventoryRecord(structuredClone(record)) === true) verified.set(key, structuredClone(record));
+          await verifyInventoryRecord(structuredClone(record), {mint721Bindings,metadataVerifier}) === true) verified.set(key, structuredClone(record));
     }
   }
   const live = () => { const time = now(); return Number.isSafeInteger(time) && time >= 0 && BigInt(Math.floor(time / 1000)) < BigInt(expiresAt); };
   const principal = (p) => live() && p?.chainId === chainId && p.origin === origin && p.tenant === tenant && wallets.includes(p.actor);
   const matchingAssets = p => assets.filter(a => a.taskId === p.taskId && a.actor === p.actor && a.contract === p.intent.operation.contract);
   return Object.freeze({
+    mint721Bindings, metadataVerifier,
     executionPins: normalizeTestAssetPins(assets.map(a => ({ taskId:a.taskId, actor:a.actor, chainId,
       contract:a.contract, runtimeCodeHash:a.runtimeCodeHash }))),
     allows(task) {
@@ -89,6 +109,12 @@ export async function createTaskTestAssetAuthorization({ inventory, authorizedWa
       if (!principal(p) || typeof p.expiresAt !== 'string' || !/^[1-9][0-9]{0,19}$/.test(p.expiresAt) ||
           BigInt(p.expiresAt) > BigInt(expiresAt) || p.intent.kind !== 'exact-operation' || !op ||
           op.chainId !== p.chainId || op.actor !== p.actor) return false;
+      if (op.kind === 'artfi-test-nft721-mint') return chainId==='560048'&&op.taskId===p.taskId&&assets.some(a=>
+        a.taskId===p.taskId&&a.actor===op.actor&&a.standard==='ERC-721'&&a.issuer===op.actor&&a.contract===op.collection.contract&&
+        a.runtimeCodeHash===op.collection.runtimeCodeHash&&a.sourceHash===op.sourceHash&&a.mint.state==='planned'&&
+        a.mint.deployment?.artifactDigest===op.artifactDigest&&a.mint.deployment.taskId===op.sourceTaskId&&
+        a.mint.deployment.taskIdBytes32===op.taskIdBytes32&&a.mint.metadataPublication.assetKind===op.assetKind&&
+        a.mint.metadataPublication.metadataHash===op.metadataHash&&a.mint.metadataPublication.uri===op.metadataURI);
       if (op.kind === 'artfi-test-series-mint') return chainId === '560048' && op.taskId === p.taskId &&
         wallets.includes(op.distributionWallet) && assets.some(a => a.taskId === p.taskId && a.actor === p.actor &&
           a.issuer === p.actor && a.standard === 'ERC-1155' && a.contract === op.collection?.contract &&
@@ -103,7 +129,7 @@ export async function createTaskTestAssetAuthorization({ inventory, authorizedWa
         if (a.mint.state === 'confirmed') return a.mint.tokenIds.includes(op.tokenId);
         const record = verified.get(testMintInventoryKey(chainId, a.contract, a.sourceHash)), result = record?.result;
         return Boolean(record?.available === true && result?.chainId === chainId && result.collection === a.contract &&
-          result.runtimeCodeHash === a.runtimeCodeHash && result.issuer === a.issuer && result.masterArtworkHash === a.sourceHash &&
+          result.runtimeCodeHash === a.runtimeCodeHash && result.issuer === a.issuer && (result.sourceHash ?? result.masterArtworkHash) === a.sourceHash &&
           result.standard === a.standard && result.tokenId === op.tokenId);
       });
     },
@@ -112,7 +138,7 @@ export async function createTaskTestAssetAuthorization({ inventory, authorizedWa
     // evidence before reusing a persisted record under a new process.
     acceptCommittedMintRecord(record) {
       if (!record || record.schema !== '8415-task-test-mint-inventory/1' || !record.result) return;
-      const r = record.result, key = testMintInventoryKey(r.chainId, r.collection, r.masterArtworkHash);
+      const r = record.result, key = testMintInventoryKey(r.chainId, r.collection, (r.sourceHash ?? r.masterArtworkHash));
       if (!assets.some(a => a.contract === r.collection && a.sourceHash === r.masterArtworkHash && a.issuer === r.issuer &&
           a.runtimeCodeHash === r.runtimeCodeHash && a.standard === r.standard) || r.chainId !== chainId) return;
       if (record.available === true) verified.set(key, structuredClone(record)); else verified.delete(key);
@@ -124,4 +150,5 @@ export async function createTaskTestAssetAuthorization({ inventory, authorizedWa
     },
   });
 }
+
 

@@ -1,3 +1,5 @@
+import { normalizeTestNFT721Bindings, verifyTestNFT721OperationPreflight, readTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
+import { captureTestNFT721MetadataVerifier } from './task-test-nft721-metadata.mjs';
 import { verifyTaskExactChain } from './task-exact-chain-state.mjs';
 /** Read-only receipt observation for the existing bounded operations. No keys,
  * signing, transaction submission, market execution or budget mutation. */
@@ -25,7 +27,7 @@ export const TASK_RECEIPT_RUNTIME_FILES = Object.freeze([
   'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
   'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-listing-transport.mjs',
   'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
-  'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
+  'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs', 'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs', 'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
   'src/codec/abi.ts', 'src/codec/keccak.ts', 'src/controls/accounts.ts', 'src/controls/authorization.ts',
   'src/controls/client.ts', 'src/controls/execution.ts', 'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
 ]);
@@ -46,10 +48,11 @@ const quantity = value => { check(typeof value === 'string' && /^0x(?:0|[1-9a-f]
 const pin = (value, chainId) => ({ chainId: BigInt(chainId), controller: value.contract, runtimeCodeHash: value.runtimeCodeHash });
 /** Server-owned provider and policy are captured once. Browser JSON cannot
  * select an endpoint, reduce depth or replace verifier methods. */
-export function createTaskReceiptAdapter({ provider, observationPolicy, testAssetPins = [], now = Date.now }) {
+export function createTaskReceiptAdapter({ provider, observationPolicy, testAssetPins = [], testMint721Bindings = [], testNFT721Metadata = null, now = Date.now }) {
   const pins = normalizeTestAssetPins(testAssetPins);
+  const mint721Bindings=normalizeTestNFT721Bindings(testMint721Bindings), metadata=captureTestNFT721MetadataVerifier(testNFT721Metadata);
   const identity = normalizeObservationVerifier({ verifierId: '8415wallet:task-receipt', verifierVersion: '1',
-    verifierImplementationDigest: '0x' + sha256(JSON.stringify({ sourceDigest: implementationDigest, testAssetPins: pins })) });
+    verifierImplementationDigest: '0x' + sha256(JSON.stringify({ sourceDigest: implementationDigest, testAssetPins: pins, mint721Bindings, metadataIdentity: metadata?.identity ?? null })) });
   check(provider && typeof provider.request === 'function' && typeof now === 'function', 'TASK_RECEIPT_CONFIG_REFUSED');
   const request = provider.request.bind(provider), policy = freezeTaskObservationPolicy(observationPolicy);
   const allowed = new Set(['eth_chainId', 'eth_getTransactionReceipt', 'eth_getTransactionByHash', 'eth_getBlockByNumber',
@@ -112,7 +115,7 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, testAsse
           indexed: [wordAddress(deposit ? op.actor : account.account), wordAddress(deposit ? account.account : op.destination), wordUint(BigInt(op.tokenId))],
           dataHash: hashControlBytes('0x') } } };
     }
-    return { kind: op.kind === 'artfi-test-series-mint' ? 'test-mint' : 'asset', record: { ...base, to, data, value: hex(value) } };
+    return { kind: ['artfi-test-series-mint','artfi-test-nft721-mint'].includes(op.kind) ? 'test-mint' : 'asset', record: { ...base, to, data, value: hex(value) } };
   }
   function output(c, observed, replacementHash = null) {
     const time = now(); check(Number.isSafeInteger(time) && time >= 0, 'TASK_RECEIPT_CLOCK_REFUSED');
@@ -192,6 +195,10 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, testAsse
       await verifyTestSeriesMintPreflight({ request: testSeriesMintRequest(op), provider: readonlyProvider,
         allowedWallets: [op.actor, op.distributionWallet] });
     }
+    if(c.child.child.operation.kind==='artfi-test-nft721-mint') {
+      check(metadata!==null,'TASK_TEST_721_METADATA_NOT_ADMITTED');await metadata.verify(c.child.child.operation);
+      await verifyTestNFT721OperationPreflight({operation:c.child.child.operation,bindings:mint721Bindings,provider:readonlyProvider});
+    }
     return Object.freeze({ taskDigest: c.task.digest, childDigest: c.child.digest, executorDigest: c.executorDigest,
       observationPolicyDigest: policy.digest, ...identity, capability: 'exact-operation-observable' });
   }
@@ -205,6 +212,12 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, testAsse
     else if (submitted.kind === 'fixed') observed = await receiptFixed(readonlyProvider, submitted.record, depth);
     else observed = await new ResponsibilityControlClient(readonlyProvider, submitted.record.deployment).receipt(submitted.record, depth);
     return output(c, await operationBinding(c, observed));
+  }
+  async function readMint(c) {
+    const operation=c.child.child.operation;
+    return operation.kind==='artfi-test-nft721-mint' ? readTestNFT721OperationResult({operation,bindings:mint721Bindings,
+      provider:readonlyProvider,transactionHash:c.attempt.transactionHash}) : readTestSeriesMintResult({request:testSeriesMintRequest(operation),
+      provider:readonlyProvider,transactionHash:c.attempt.transactionHash});
   }
   async function observeMintTransaction(c, expected, depth) {
     const rpc = (method, params) => readonlyProvider.request({ method, params });
@@ -234,18 +247,19 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, testAsse
       check((await rpc('eth_getBlockByNumber', [hex(number), false]))?.hash?.toLowerCase() === blockHash, 'TASK_RECEIPT_SNAPSHOT_REORGED');
       return result('reverted', confirmations);
     }
-    const mint = await readTestSeriesMintResult({ request: testSeriesMintRequest(c.child.child.operation),
-      provider: readonlyProvider, transactionHash: c.attempt.transactionHash });
+    const mint = await readMint(c);
     check(mint.blockHash === blockHash && BigInt(mint.blockNumber) === number, 'TASK_RECEIPT_MINT_BINDING_REFUSED');
     return result('confirmed', confirmations);
   }
   async function observeMintResult(input, observation) {
     const c = context(input);
-    check(c.child.child.operation.kind === 'artfi-test-series-mint', 'TASK_RECEIPT_MINT_KIND_REFUSED');
+    check(['artfi-test-series-mint','artfi-test-nft721-mint'].includes(c.child.child.operation.kind), 'TASK_RECEIPT_MINT_KIND_REFUSED');
     const checked = bindTaskObservation(observation, { ...c, verifier: identity });
     check(checked.state === 'confirmed-at-depth' && checked.effect === 'exact-operation-observed', 'TASK_RECEIPT_MINT_DEPTH_REQUIRED');
-    const mint = await readTestSeriesMintResult({ request: testSeriesMintRequest(c.child.child.operation),
-      provider: readonlyProvider, transactionHash: c.attempt.transactionHash });
+    if(c.child.child.operation.kind==='artfi-test-nft721-mint') {
+      check(metadata!==null,'TASK_TEST_721_METADATA_NOT_ADMITTED');await metadata.verify(c.child.child.operation);
+    }
+    const mint = await readMint(c);
     check(mint.blockHash === checked.blockHash && BigInt(mint.blockNumber) === BigInt(checked.blockNumber), 'TASK_RECEIPT_MINT_BINDING_REFUSED');
     return mint;
   }
@@ -289,5 +303,6 @@ export function createTaskReceiptAdapter({ provider, observationPolicy, testAsse
   }
   return Object.freeze({ identity, observationPolicy: policy, assessChild, observe, observeReplacement, observeMintResult, verifyMintInventoryRecord });
 }
+
 
 

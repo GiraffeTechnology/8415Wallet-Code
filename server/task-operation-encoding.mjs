@@ -1,3 +1,5 @@
+import { encodeTestNFT721Mint } from './task-test-nft721-contract.mjs';
+import { testNFT721OperationRequest } from './task-test-nft721-binding.mjs';
 /** Pure, closed-list encoding shared by execution and receipt observation.
  * A resolved controlled account is supplied by the caller's trusted reader,
  * never selected from the child's wire target. No arbitrary calldata is input. */
@@ -11,6 +13,8 @@ export function encodeTaskOperationCall(operation, resolvedAccount = null) {
   const op = normalizeExistingOperation(operation);
   let to, data, value = '0';
   switch (op.kind) {
+    case 'artfi-test-nft721-mint': { const mint=encodeTestNFT721Mint(testNFT721OperationRequest(op));
+      to=mint.to;data=mint.data;value=mint.valueWei;break; }
     case 'artfi-test-series-mint': { const mint = encodeTestSeriesMint(testSeriesMintRequest(op));
       to = mint.to; data = mint.data; value = mint.valueWei; break; }
     case 'native-transfer': to = op.recipient; data = '0x'; value = op.valueWei; break;
@@ -41,4 +45,5 @@ export function encodeExactTaskOperation(input, resolvedAccount = null) {
     throw new Error('TASK_RECEIPT_ENCODING_MISMATCH');
   return Object.freeze({ to: to.toLowerCase(), data, value });
 }
+
 

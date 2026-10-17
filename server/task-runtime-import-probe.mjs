@@ -27,3 +27,7 @@ import './main.mjs';
 
 import './task-exact-chain-state.mjs';
 
+
+import './task-test-nft721-binding.mjs';
+import './task-test-nft721-metadata.mjs';
+

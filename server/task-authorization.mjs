@@ -1,3 +1,4 @@
+import { normalizeTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
 import { normalizeListingResult, listingCompletion } from '../web/task-listing-results.mjs';
 /** Durable bounded task grants. Login is not operation authorization.
  * No signer, market verifier or receipt verifier is supplied by this module.
@@ -369,9 +370,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   async function prepare(body, session) {
     const withValuation = body !== null && typeof body === 'object' && Object.hasOwn(body, 'valuationPolicy'); fields(body, withValuation ? ['policy', 'valuationPolicy'] : ['policy']);
     const task = freezeAuthorizedTask(body.policy); checkTask(task, session);
-    requireThat(task.policy.intent.operation?.kind !== 'artfi-test-series-mint' || testFactorAllowed(task),
+    requireThat(!['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation?.kind) || testFactorAllowed(task),
       'TASK_TEST_MINT_INVENTORY_REQUIRED', 403);
-    requireThat(task.policy.intent.operation?.kind !== 'artfi-test-series-mint' || typeof receipt?.observeMintResult === 'function',
+    requireThat(!['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation?.kind) || typeof receipt?.observeMintResult === 'function',
       'TASK_TEST_MINT_OBSERVER_NOT_CONNECTED', 503);
     requireThat(channelContexts === null || Object.hasOwn(channelContexts, task.policy.intent.kind), 'TASK_CHANNEL_NOT_CONFIGURED', 503);
     const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(task);
@@ -676,8 +677,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         'TASK_OBSERVATION_REPLACEMENT_REFUSED', 400);
       requireThat(receipt.observeReplacement, 'TASK_REPLACEMENT_VERIFIER_NOT_CONNECTED', 503);
     }
-    const mintOperation = context.child.child.operation.kind === 'artfi-test-series-mint' ? context.child.child.operation : null;
-    const mintKey = mintOperation === null ? null : testMintInventoryKey(mintOperation.chainId, mintOperation.collection.contract, mintOperation.masterArtworkHash);
+    const mintOperation = ['artfi-test-series-mint','artfi-test-nft721-mint'].includes(context.child.child.operation.kind) ? context.child.child.operation : null;
+    const mintKey = mintOperation === null ? null : testMintInventoryKey(mintOperation.chainId, mintOperation.collection.contract, mintOperation.sourceHash ?? mintOperation.masterArtworkHash);
     const startedAt = seconds(); let observation = null, mintResult = null, failure = null;
     try {
       const raw = await (replacementHash === null ? receipt.observe(input) : receipt.observeReplacement(input, replacementHash));
@@ -689,6 +690,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       if (mintOperation !== null && observation.state === 'confirmed-at-depth') {
         requireThat(observation.effect === 'exact-operation-observed' && typeof receipt.observeMintResult === 'function', 'TASK_TEST_MINT_OBSERVER_NOT_CONNECTED', 503);
         mintResult = await receipt.observeMintResult(input, observation);
+        if(mintOperation.kind==='artfi-test-nft721-mint') mintResult=normalizeTestNFT721OperationResult(mintResult,mintOperation,observation);
+        else {
         fields(mintResult, ['schema','taskId','chainId','collection','runtimeCodeHash','issuer','transactionHash','blockHash','blockNumber',
           'tokenId','standard','quantity','artworkId','masterArtworkHash','metadataHash','metadataURI','distributionWallet','testOnly','finality']);
         requireThat(mintResult.schema === '8415-artfi-test-series-mint-result/1' && mintResult.taskId === context.grant.task.policy.taskId &&
@@ -701,6 +704,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
           mintResult.metadataHash === mintOperation.metadataHash && mintResult.metadataURI === mintOperation.metadataURI &&
           mintResult.distributionWallet === mintOperation.distributionWallet && mintResult.testOnly === true &&
           mintResult.finality === 'canonical-at-observed-block-not-finality', 'TASK_TEST_MINT_RESULT_BINDING_REFUSED', 503);
+        }
       }
     } catch (error) { failure = error; }
     const result = await transaction([ckey, gkey, okey, nkey, ...(mintKey === null ? [] : [mintKey])], values => {
@@ -1145,4 +1149,5 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   });
   return { handler, cancel, background, listingAuthorization, receiptAuthorization };
 }
+
 

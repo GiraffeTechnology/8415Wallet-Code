@@ -12,7 +12,7 @@ function configuration(value) {
   const required = ['provider', 'externalSigner', 'signerIdentity', 'maxPriorityFeePerGasWei',
     'agentId', 'agentVersion', 'observationPolicy'];
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Reflect.ownKeys(descriptors).some(key => ![...required, 'plannerFeeRule', 'testAssetPins'].includes(key)) ||
+  if (Reflect.ownKeys(descriptors).some(key => ![...required, 'plannerFeeRule', 'testAssetPins', 'testMint721Bindings', 'testNFT721Metadata'].includes(key)) ||
       required.some(key => !Object.hasOwn(descriptors, key)) ||
       Object.values(descriptors).some(field => !Object.hasOwn(field, 'value'))) refuse();
   return value;
@@ -30,12 +30,13 @@ export function createTaskExactRuntime({ store, serverConfiguration = null, now 
   const policy = freezeTaskObservationPolicy(c.observationPolicy);
   const execution = createTaskExactSignerAdapter({ provider, externalSigner, store, now,
     signerIdentity: structuredClone(c.signerIdentity), maxPriorityFeePerGasWei: c.maxPriorityFeePerGasWei,
-    agentId: c.agentId, agentVersion: c.agentVersion, testAssetPins: c.testAssetPins ?? [],
+    agentId: c.agentId, agentVersion: c.agentVersion, testAssetPins: c.testAssetPins ?? [], testMint721Bindings: c.testMint721Bindings ?? [], testNFT721Metadata: c.testNFT721Metadata ?? null,
     plannerFeeRule: c.plannerFeeRule === undefined ? null : structuredClone(c.plannerFeeRule) });
-  const receipt = createTaskReceiptAdapter({ provider, observationPolicy: policy.policy, testAssetPins: c.testAssetPins ?? [], now });
+  const receipt = createTaskReceiptAdapter({ provider, observationPolicy: policy.policy, testAssetPins: c.testAssetPins ?? [], testMint721Bindings: c.testMint721Bindings ?? [], testNFT721Metadata: c.testNFT721Metadata ?? null, now });
   return Object.freeze({ state: 'configured', code: null, authOptions: Object.freeze({
     taskExecution: execution, taskExecutorIdentity: execution.identity,
     taskReceipt: receipt, taskObservationPolicy: policy.policy,
   }) });
 }
+
 

@@ -106,8 +106,39 @@ PR213's Hoodi test-only ERC721 leaf has its own fixed four-argument mintTestNFT 
 issuer/task immutables and paired event/source/owner/URI verification. Complete
 taskId and producer-supplied taskIdBytes32 remain distinct exact fields; no hash
 derivation is invented. Artifact/deployment evidence is required before admission.
-This leaf is not yet an executable task-operation consumer and is not Charity1155,
-an ERC721 Vault result, or institutional source authority.
+The successor candidate connects this original leaf as the closed
+`artfi-test-nft721-mint` exact operation. It remains distinct from Charity1155,
+an ERC721 Vault result, or institutional source authority. Wallet authorization
+`taskId` must match its parent; `sourceTaskId/taskIdBytes32` is the producer's
+opaque original pair. The artifact digest, deployed runtime code hash and both
+task identities are separate pins, never inferred from one another.
+
+For this operation only, a planned ERC721 inventory entry includes exactly
+`state/deployment/metadataPublication/metadataTimeoutMs`. Deployment uses the
+original `8415-hoodi-test-nft-deployment/1` record. Publication uses
+`8415-hoodi-test-metadata-publication/1` and exact
+`taskId/chainId/uri/sourceHash/assetKind/metadataHash/byteLength`. Timeouts are
+explicit and consistent within the instance. Existing transfer-only planned
+entries retain the original state-only form; they cannot authorize minting.
+
+The fixed metadata verifier captures these records at server construction. It
+uses only their registered complete HTTPS route, with no redirect, credentials,
+image loading or endpoint discovery. Original bytes, SHA256, size, canonical ASCII
+JSON and the fixed PR214 TEST_ONLY profile must match. These checks explicitly
+keep source authenticity and institutional evidence false. No URI is fabricated.
+
+Planner/live pre-sign/post-sign and observer assessment require metadata and
+original immutable deployment preflight. Receipt observation binds the original
+transaction, fees, canonical depth, paired mint/Transfer events and source/owner/URI
+mappings. The concrete ERC721 result joins the existing grant/operation/nonce CAS
+inventory transaction. Failed/unknown/reorg evidence never frees a nonce or
+replays a signed intent. Restart rechecks declared sources against the current
+server deployment and metadata registrations before reusing inventory.
+
+The standard entry derives capabilities only from its server-owned inventory;
+HTTP input cannot register deployments, publications or verifier callbacks.
+The supplied compiler artifact and metadata bytes remain separate inputs: a
+runtime template is not deployed code hash, and ABI comparison is not execution.
 
 ## Evidence and remaining integration
 
@@ -136,4 +167,13 @@ change or new budget is introduced. External chain state can still change after 
 read; these checks do not promise atomic balance or economic finality.
 
 All new chain/funding regressions are authored, NOT_RUN until approved Linux execution.
+
+
+## Candidate verification boundary
+
+The ERC721 successor is authored source, NOT_RUN. Ordinary QA and post-submit fixes
+remain Bear-owned. Seven test-only changes between a8fa61f9 and d55c5237 are retained
+from the selected parent, not edited by this overlay. No parent CI result is
+inherited. No build, deployment, credential configuration, signature or chain
+broadcast is performed by this source composition.
 

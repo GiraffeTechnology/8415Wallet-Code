@@ -132,7 +132,9 @@
       "server/task-runtime-import-probe.mjs",
       "server/task-test-asset-authorization.mjs",
       "server/task-test-mint-contract.mjs",
+      "server/task-test-nft721-binding.mjs",
       "server/task-test-nft721-contract.mjs",
+      "server/task-test-nft721-metadata.mjs",
       "vendor/artfi-task-listing-runtime-1.0.0.tgz"
     ],
     "application": [
@@ -684,8 +686,8 @@
     {
       "path": "docs/TASK-RUNTIME-COMPOSITION.md",
       "mode": "100644",
-      "git_blob_sha1": "c420984301f6e8c030ce4e864e21f8d4d1946090",
-      "sha256": "6f5072fda5b14430d9032f8c51215c222bbc8163647a411a838ec4cd50d96254"
+      "git_blob_sha1": "19513cf21540d50034c6828f7dd2355c2b6fcb73",
+      "sha256": "1a5d0ef3996aee05331981f148d8fbf257405ca603b8852c7923496fd46cc939"
     },
     {
       "path": "docs/TENANT-AVATAR.md",
@@ -810,8 +812,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "31bd65fd669fb0cb7b89a855a23538ce07cd3b35",
-      "sha256": "f5868024db88d7c14194a61f4364f4c65e36eff9368f7ca839c0cc3dae63efa6"
+      "git_blob_sha1": "0c8c88d5c2d9044703d00f677c11f61f21673caf",
+      "sha256": "6a540d31067f743b05a7bd789502a3ab4ae6744bbec83fb1de16e69d3c911294"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -882,8 +884,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "3a820a3dcc282453893f111151b21316ce5d7b14",
-      "sha256": "319bdce4c3dadbbb7f0a8262809f24e90cf62021f621fe6ef86cb9a1420d286d"
+      "git_blob_sha1": "1d324036b88af6e64c97529109114edb080c111f",
+      "sha256": "9cc6942365175192ec256d1307ff490ba114915bccdccbca687c990a81f37183"
     },
     {
       "path": "server/method-change-service.mjs",
@@ -954,8 +956,8 @@
     {
       "path": "server/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "db80a461f058c05d9202355cc1b8541fc1b62bfb",
-      "sha256": "e36035f05b6a5e2c821e88c3073444841cd5682002179e22faa7e48c7e6771e9"
+      "git_blob_sha1": "292e106f02fa6c986be24ff62a954ffb39a273ed",
+      "sha256": "9d5f49acdaf43fb45eece6891c4e19ed06abcea89b4795ba410225a69c1cd3ba"
     },
     {
       "path": "server/task-background-runner.mjs",
@@ -984,14 +986,14 @@
     {
       "path": "server/task-exact-operation-planner.mjs",
       "mode": "100644",
-      "git_blob_sha1": "93c69cea01032d478e935b8bebdd26955a8a3f9f",
-      "sha256": "a7f023c30f17ea5decc7dcb9f0b21fd8e9d83833311a353158caae34d90e4556"
+      "git_blob_sha1": "0837d422b7fa3d39b17cbf2a6c8a2f4a3218705a",
+      "sha256": "e027a045dc52a1abaf12a3d5ed4b8389738c0890092dcd95372fdee623f67e4c"
     },
     {
       "path": "server/task-exact-runtime.mjs",
       "mode": "100644",
-      "git_blob_sha1": "fb715d0cb66aa9c4e01bafc512de2f2096e0c24a",
-      "sha256": "6fc78a0966170ba8174817eba39660c222c3a5adad8a9a4d6872cbc63557887e"
+      "git_blob_sha1": "aadff60c077087a14383055f728a1a5334aa2f54",
+      "sha256": "7dcdb529c4c82e7b74a60b16bc52a3b140953fd30890b82fd6e764378389cffe"
     },
     {
       "path": "server/task-exact-sign-only.mjs",
@@ -1002,8 +1004,8 @@
     {
       "path": "server/task-exact-signer-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "c57e5f4c0cf21148b32768952a07ba136b59ce46",
-      "sha256": "e2b7ba33aee074836593932907c194ee2beedaf013ff642f886a3e3763becfb6"
+      "git_blob_sha1": "5e500872aa6ded847837fdf78a7293c47652847e",
+      "sha256": "fa43f90c25b879e3982833d0693b7fdd81e7700db3f7520b99e4c307cba26a32"
     },
     {
       "path": "server/task-journal-capabilities.mjs",
@@ -1068,14 +1070,14 @@
     {
       "path": "server/task-operation-encoding.mjs",
       "mode": "100644",
-      "git_blob_sha1": "39fafdc5cd1de188c23ebaacd563a06221633c49",
-      "sha256": "8081a92c19bece7267608ad10419fa753475b76b1772706c3559eb35866d38b9"
+      "git_blob_sha1": "cff536499f827365c42001d402a80434deeee107",
+      "sha256": "6ac0d5d158d5112759be4e7a4a8891707f3c7c26c4013a6cd81415c7949d9792"
     },
     {
       "path": "server/task-receipt-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "94807d3a33aa7fdfe5b6c7f99f50cfb098a296b6",
-      "sha256": "6c9177f30d3c17104df8fc5c3294ca4a14269a45b6e5eb4c47e25de69bcb3f5d"
+      "git_blob_sha1": "8b5bc25e440ecf959fd95919041176e54bc2dc10",
+      "sha256": "581b820f5dd4e928608da05097af4717660cb42c77971464488d4c0a33a837c1"
     },
     {
       "path": "server/task-receipt-runtime.mjs",
@@ -1092,14 +1094,14 @@
     {
       "path": "server/task-runtime-import-probe.mjs",
       "mode": "100644",
-      "git_blob_sha1": "a303af47e12211aa8985efbc2912c6d504bfa108",
-      "sha256": "f7a713c6259d611764bddf72ef587972759a5f29e7a312e55a59330aff266cbd"
+      "git_blob_sha1": "58f0345fdc425041e941cc7294cfcb2ff1c8385d",
+      "sha256": "1ecc399c5ec453a8f98912eb5b4757b04e3f0711be88999347d51e95078f91fa"
     },
     {
       "path": "server/task-test-asset-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "d24fa179de56e40efae136b54ef86b5fc9596288",
-      "sha256": "f324c482308a1b419e9fe8612602c0a0224c96d5f68661422c45ad0a8398828f"
+      "git_blob_sha1": "e0f3d0086c56793ffb87922964330ac8e88b96d1",
+      "sha256": "5bfdc1b16e8cd8be541f9d5d1623ddf4e11bd29e823d6c771c63f38b39f584b2"
     },
     {
       "path": "server/task-test-mint-contract.mjs",
@@ -1108,10 +1110,22 @@
       "sha256": "a417de4b6d180f332c0374b053cb8b03fc7b1116b9ec35e1453ce6d91c9407a0"
     },
     {
+      "path": "server/task-test-nft721-binding.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "b44ac1aa20d02545509c9a13594903fd3265ec61",
+      "sha256": "316a65dff980bb27a45f434d123034812ec125af755abeeb3bb4a20ea1a9b4db"
+    },
+    {
       "path": "server/task-test-nft721-contract.mjs",
       "mode": "100644",
       "git_blob_sha1": "34e6aa5f62cbd49578ec4ce574a189ac52fae022",
       "sha256": "312afe165905fb7edbb1c6b8ff0ab34efc412fe55eede4036f6f1472429ff8b8"
+    },
+    {
+      "path": "server/task-test-nft721-metadata.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "87af46560019b0b269246233257577b604e1f767",
+      "sha256": "bc65f7aa613459bfc3a42a4ebf97b7dbd67890be48864ba141469dc86f1e7ad0"
     },
     {
       "path": "src/adapters/kit/kitApi.ts",
@@ -1224,8 +1238,8 @@
     {
       "path": "src/agent/taskContract.ts",
       "mode": "100644",
-      "git_blob_sha1": "b55e2891aecba8a76bb61d2d827e5623b906bcc5",
-      "sha256": "15b038aa23339d0e4e302ffa7405f1bf2b3b5f4a839296cd2ed89ed51c61b4e2"
+      "git_blob_sha1": "a4fb75703ba1f40a020fdeae33cb78fb75451e5c",
+      "sha256": "114de5a5c0563038bfdc3d1e233837658376a3614795659f4e0dff90009586b2"
     },
     {
       "path": "src/browser.ts",
@@ -2304,8 +2318,8 @@
     {
       "path": "web/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "2c987c6529496d1b0fc5bb5fbfd92d59fd4e1abe",
-      "sha256": "ef1a4db41737dd74a05110779c608d2f05c2c80664fd9f6470281c4b58b010b8"
+      "git_blob_sha1": "d7935e1c90c4c1b221e8a676794f57981174c360",
+      "sha256": "c6918cbe067b585bde4c56dacb66ab68f736d3a81b2e2adce71eaa3ce252ed57"
     },
     {
       "path": "web/task-listing-results.mjs",

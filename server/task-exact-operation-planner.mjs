@@ -1,3 +1,5 @@
+import { normalizeTestNFT721Bindings, verifyTestNFT721OperationPreflight, readTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
+import { captureTestNFT721MetadataVerifier } from './task-test-nft721-metadata.mjs';
 import { verifyTaskExactChain, verifyTaskExactFunding } from './task-exact-chain-state.mjs';
 /** Optional read-only proposal planner. No key, signer, store or broadcast port.
  * Server configuration only; HTTP input cannot provide a fee rule or provider.
@@ -14,7 +16,7 @@ import { encodeTaskOperationCall } from './task-operation-encoding.mjs';
 import { testSeriesMintRequest, verifyTestSeriesMintPreflight } from './task-test-mint-contract.mjs';
 
 export const TASK_EXACT_PLANNER_RUNTIME_FILES = Object.freeze([
-  'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-exact-operation-planner.mjs', 'server/task-operation-encoding.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs',
+  'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-exact-operation-planner.mjs', 'server/task-operation-encoding.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs', 'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts',
@@ -76,13 +78,14 @@ export function normalizeTaskExactFeeRule(input) {
   return freeze(rule);
 }
 
-export function createTaskExactOperationPlanner({ provider, feeRule, testAssetPins = [], now = Date.now }) {
+export function createTaskExactOperationPlanner({ provider, feeRule, testAssetPins = [], testMint721Bindings = [], testNFT721Metadata = null, now = Date.now }) {
   const pins = normalizeTestAssetPins(testAssetPins);
+  const mint721Bindings=normalizeTestNFT721Bindings(testMint721Bindings), metadata=captureTestNFT721MetadataVerifier(testNFT721Metadata);
   check(typeof now === 'function', 'TASK_PLAN_CONFIG_REQUIRED');
   const rule = normalizeTaskExactFeeRule(feeRule), readonlyProvider = createTaskPlannerReadProvider(provider);
   const rpc = (method, params = []) => readonlyProvider.request({ method, params });
   const identity = freeze({ schema: '8415-task-planner/1', plannerId: '8415wallet:exact-operation-planner', plannerVersion: '1',
-    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, feeRule: rule, testAssetPins: pins }))}` });
+    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, feeRule: rule, testAssetPins: pins, mint721Bindings, metadataIdentity: metadata?.identity ?? null }))}` });
   function seconds() { const time = now(); check(Number.isSafeInteger(time) && time >= 0, 'TASK_PLAN_CLOCK_REFUSED'); return BigInt(Math.floor(time / 1000)); }
   async function plan(input) {
     fields(input, ['task', 'budget', 'executor', 'grantPolicyVersion']);
@@ -148,6 +151,10 @@ export function createTaskExactOperationPlanner({ provider, feeRule, testAssetPi
     if (op.kind === 'artfi-test-series-mint') await verifyTestSeriesMintPreflight({
       request: testSeriesMintRequest(op), provider: readonlyProvider, snapshotBlock: block,
       allowedWallets: [op.actor, op.distributionWallet] });
+    if(op.kind==='artfi-test-nft721-mint') {
+      check(metadata!==null,'TASK_TEST_721_METADATA_NOT_ADMITTED');await metadata.verify(op);
+      await verifyTestNFT721OperationPreflight({operation:op,bindings:mint721Bindings,provider:readonlyProvider,snapshotBlock:block});
+    }
     const transaction = { from: op.actor, to: encoded.to, data: encoded.data, value: hex(encoded.value), chainId: hex(op.chainId),
       nonce: hex(nonce), type: '0x2', gas: hex(gasCap), maxFeePerGas: hex(maxFee), maxPriorityFeePerGas: hex(priority), accessList: [] };
     const estimate = quantity(await rpc('eth_estimateGas', [transaction, rule.simulationBlock]));
@@ -181,5 +188,6 @@ export function createTaskExactOperationPlanner({ provider, feeRule, testAssetPi
   }
   return Object.freeze({ identity, plan });
 }
+
 
 

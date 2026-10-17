@@ -14,6 +14,7 @@ const release = verifyAuthDirectory(root);
 assert.equal(release.runtime.authStateSemantics, AUTH_STATE_SEMANTICS);
 assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, [
   'server/task-runtime-import-probe.mjs', 'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
+  'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
   'server/task-exact-chain-state.mjs',
   'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs',
   'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
@@ -125,5 +126,6 @@ try {
 } finally {
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await store.close();
 }
+
 
 

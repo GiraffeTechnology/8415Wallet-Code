@@ -23,14 +23,19 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
   validateAuthConfig(config);
   if (exactServerConfiguration !== null && config.exact?.enabled) throw Error('TASK_EXACT_DUPLICATE_CONFIG_REFUSED');
   const fixedExact = exactServerConfiguration ?? await bootstrapTaskExactConfiguration(config.exact);
-  const inventoryObserver = fixedExact === null ? null : createTaskReceiptAdapter({ provider: fixedExact.provider,
-    observationPolicy: fixedExact.observationPolicy, now });
+  let inventoryObserver=null;
   const testAuthorization = config.taskTestAssets == null ? null : await createTaskTestAssetAuthorization({
     inventory: config.taskTestAssets, authorizedWallets: config.accounts.flatMap(user => user.wallets),
     verifyMintEvidence: testAssetEvidenceVerifier, store,
-    verifyInventoryRecord: inventoryObserver?.verifyMintInventoryRecord, now });
+    verifyInventoryRecord: async(record,scope)=>{
+      if(fixedExact===null)return false;
+      inventoryObserver??=createTaskReceiptAdapter({provider:fixedExact.provider,observationPolicy:fixedExact.observationPolicy,
+        testMint721Bindings:scope.mint721Bindings,testNFT721Metadata:scope.metadataVerifier,now});
+      return inventoryObserver.verifyMintInventoryRecord(record);
+    }, now });
   const exact = createTaskExactRuntime({ store, serverConfiguration: fixedExact === null ? null : {
-    ...fixedExact, testAssetPins: testAuthorization?.executionPins ?? [] }, now });
+    ...fixedExact, testAssetPins: testAuthorization?.executionPins ?? [], testMint721Bindings: testAuthorization?.mint721Bindings ?? [],
+    testNFT721Metadata: testAuthorization?.metadataVerifier ?? null }, now });
   const listing = listingRuntime ?? await bootstrapTaskListingRuntime({ configuration: config.listing, store, authStatePath: config.statePath, now });
   try {
   const handler = createAuthService({ origin: config.origin, tenant: config.tenant, accounts: config.accounts, store, verifyCa, sendOtp, now,
@@ -98,4 +103,5 @@ export async function startAuthFromEnvironment({ exactServerConfiguration = null
   } catch (error) { await runtime?.stop(); await store.close(); throw error; }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await startAuthFromEnvironment();
+
 
