@@ -42,7 +42,7 @@ export function validateAuthStateTransition(current, candidate, { rollback = fal
   fail(!rollback, 'STATE_SEMANTICS_TRANSITION_REFUSED');
 }
 export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
-  'server/task-runtime-import-probe.mjs',
+  'server/task-runtime-import-probe.mjs', 'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
   'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
   'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
   'server/task-journal-capabilities.mjs', 'server/task-receipt-runtime.mjs',

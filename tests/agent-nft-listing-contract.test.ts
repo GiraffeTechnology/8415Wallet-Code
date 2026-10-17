@@ -111,10 +111,10 @@ test('the listing chain policy names itself, the set it checks and the chain ask
   // This is the third of the three chain policies and it shares one code with
   // the other two, so the detail is what distinguishes which refused.
   try {
-    listing({ chainId: '560048' });
+    listing({ chainId: '137' });
     throw new Error('expected a refusal');
   } catch (error: any) {
     assert.equal(error.code, 'TASK_CHAIN_REFUSED');
-    assert.equal(error.detail, 'NFT listing operations accept chain 1, 8453, 11155111, 84532; asked 560048');
+    assert.equal(error.detail, 'NFT listing operations accept chain 1, 8453, 11155111, 84532, 560048; asked 137');
   }
 });

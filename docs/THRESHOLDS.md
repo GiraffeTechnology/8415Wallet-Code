@@ -83,7 +83,7 @@ and these are deployment choices.
 
 | Policy | Scope | Accepts | Refusal |
 | --- | --- | --- | --- |
-| Asset operations | native, ERC-20, ERC-721, ERC-1155 transfers | 1, 8453, 11155111, 84532 | `TASK_CHAIN_REFUSED`, detail `asset operations accept …; asked …` |
+| Asset operations | native, ERC-20, ERC-721, ERC-1155 transfers | 1, 8453, 11155111, 84532, 560048 | `TASK_CHAIN_REFUSED`, detail `asset operations accept …; asked …` |
 | Control operations | create-account, deposit, standalone-withdraw, complete, return-hop | 11155111, 560048 | `TASK_CHAIN_REFUSED`, detail `control operations accept …` |
 | NFT listing child | a listing child of an asset operation | the asset set | `TASK_CHAIN_REFUSED`, detail `NFT listing operations accept …` |
 | Session | signing in, not operating | a separate set in the authentication service, including a local development chain | that service's own refusal |
@@ -92,9 +92,14 @@ and these are deployment choices.
 `detail`, so existing consumers that match the code are unaffected.
 
 The exact-chain funding branch carries a different asset set and a fourth
-operation policy: it admits 560048 to the asset set and holds the test-series
-mint to 560048 alone. That is a property of that tree, not of this one, and is
-stated here so the two are not read as one.
+560048 is in the asset set here as well, ported from the reviewed commit
+`296e96b` that first admitted it, because the runtime composition suites
+authorize native transfers on Hoodi and the pull request that carried that
+admission was closed before reaching this base. Only the admission was ported:
+the test-series mint operation kind from the same commit, which is held to
+560048 alone, is not in this tree. Control operations and the session policy
+are unchanged, and a chain outside the applicable set is still refused with
+both the accepted set and the chain asked.
 
 ## Legs: a protocol rule and an input guard
 

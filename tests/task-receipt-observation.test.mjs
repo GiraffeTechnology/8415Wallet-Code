@@ -191,7 +191,7 @@ test('provider function and observation policy are captured; caller mutation can
   f.input.observationPolicy.minimumConfirmations = '1';
   await assert.rejects(f.adapter.observe(f.input), /POLICY_MISMATCH/);
   f.input.observationPolicy.minimumConfirmations = '2'; assert.equal((await f.adapter.observe(f.input)).state, 'confirmed-at-depth');
-  assert.equal(TASK_RECEIPT_RUNTIME_FILES.length, 14); assert.ok(Object.isFrozen(TASK_RECEIPT_RUNTIME_FILES));
+  assert.equal(TASK_RECEIPT_RUNTIME_FILES.length, 17); assert.ok(Object.isFrozen(TASK_RECEIPT_RUNTIME_FILES));
 });
 
 test('contradictory canonical original and replacement receipts never imply supersession', async () => {

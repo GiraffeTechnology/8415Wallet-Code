@@ -95,7 +95,7 @@ test('planner runtime declaration exactly matches the closed executable graph wi
 
 test('signer composition includes the complete planner graph and receipt keeps only the shared encoder', () => {
   const actual = closure([signerEntry]);
-  assert.deepEqual([...TASK_EXACT_SIGNER_RUNTIME_FILES].sort(), actual.files);
+  assert.deepEqual([...TASK_EXACT_SIGNER_RUNTIME_FILES].sort(), [...new Set([...actual.files, 'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs'])].sort());
   assert.deepEqual(actual.dependencies, ['ethers']);
   for (const path of TASK_EXACT_PLANNER_RUNTIME_FILES) assert.ok(TASK_EXACT_SIGNER_RUNTIME_FILES.includes(path), path);
   assert.equal(TASK_RECEIPT_RUNTIME_FILES.includes(plannerEntry), false);

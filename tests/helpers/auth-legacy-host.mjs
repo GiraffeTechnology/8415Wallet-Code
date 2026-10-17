@@ -17,7 +17,10 @@ export const key = Buffer.alloc(32, 0x52);
 export const record = { secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', lastStep: 92345, recoverySalt: 'synthetic-salt', recoveryHashes: ['a'.repeat(64)], revision: 3, enabledMethods: ['wallet', 'totp', 'password'], registration: { version: 1, email: 'fixture@example.invalid', verifiedAt: 42 } };
 export const confirm = 'MIGRATE-PR58-FORWARD-ONLY';
 export async function fixture(t, { empty = false } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'wal-mig-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const root = await mkdtemp(join(tmpdir(), 'wal-mig-'));
+  // Retries, because this tree holds a git repository: a removal that races
+  // anything still writing in it fails with ENOTEMPTY rather than cleaning up.
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const target = paths(join(root, 'h'), tenant), legacySource = join(target.root, 'legacy-release');
   for (const dir of [target.root, target.config, target.state, dirname(target.unit), join(root, 'nginx'), legacySource]) await mkdir(dir, { recursive: true, mode: dir === target.config || dir === target.state ? 0o700 : 0o755 });
   await chmod(target.config, 0o700); await chmod(target.state, 0o700);

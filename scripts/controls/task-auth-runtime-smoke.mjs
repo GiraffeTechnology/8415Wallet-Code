@@ -13,7 +13,7 @@ const { verifyAuthDirectory, TASK_RUNTIME_SOURCE_PATHS, AUTH_STATE_SEMANTICS } =
 const release = verifyAuthDirectory(root);
 assert.equal(release.runtime.authStateSemantics, AUTH_STATE_SEMANTICS);
 assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, [
-  'server/task-runtime-import-probe.mjs',
+  'server/task-runtime-import-probe.mjs', 'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
   'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
   'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
   'server/task-journal-capabilities.mjs', 'server/task-receipt-runtime.mjs',
@@ -31,6 +31,7 @@ const { createTaskBackgroundRunner } = await load('server/task-background-runner
 assert.equal(typeof createTaskBackgroundRunner, 'function');
 const { freezeTaskPolicy } = await load('src/agent/taskContract.ts');
 const { createAuthService } = await load('server/auth-service.mjs');
+const { createAuthRuntime } = await load('server/main.mjs');
 const { MemoryCredentialStore } = await load('server/store.mjs');
 const { base32, hashPassword, hotp } = await load('server/crypto.mjs');
 
@@ -56,6 +57,45 @@ try {
     }
     const data = await response.json(); if (data.csrf) csrf = data.csrf; return { status: response.status, data };
   };
+  // Load and construct only from this installed package, never repository
+  // fallbacks. Neither constructor starts its own listener or uses a signer.
+  const legacyHandler = handler, constructorCredential = await store.read('runtime-test:tester');
+  const configuration = { origin, tenant: 'runtime-test', port: server.address().port,
+    statePath: resolve(root, 'synthetic-constructor-state.enc'),
+    accounts: [{ username: 'tester', passwordHash, wallets: [{ account: actor, chainId: '11155111' }] }] };
+  const disabledRuntime = await createAuthRuntime({ config: configuration, store, now: () => now });
+  try {
+    handler = disabledRuntime.handler;
+    const capabilities = await call('capabilities');
+    assert.equal(capabilities.status, 200);
+    assert.equal(capabilities.data.taskAuthorization.adapterConfigured, false);
+    assert.equal(disabledRuntime.exactState, 'disabled');
+    assert.equal(disabledRuntime.exactCode, 'TASK_EXACT_NOT_CONFIGURED');
+    assert.equal(disabledRuntime.server.listening, false);
+    assert.equal((await call('tasks/resume', { taskDigest: '0x' + '4'.repeat(64) })).status, 401);
+  } finally { handler = legacyHandler; await disabledRuntime.stop(); }
+  let rpcCalls = 0, signCalls = 0;
+  const configuredRuntime = await createAuthRuntime({ config: configuration, store, now: () => now,
+    exactServerConfiguration: {
+      provider: { request() { rpcCalls++; throw Error('SYNTHETIC_CONSTRUCTOR_RPC_FORBIDDEN'); } },
+      externalSigner: { signExactTransaction() { signCalls++; throw Error('SYNTHETIC_CONSTRUCTOR_SIGN_FORBIDDEN'); } },
+      signerIdentity: { signerId: 'synthetic:installed', signerVersion: '1', implementationDigest: '0x' + '5'.repeat(64) },
+      maxPriorityFeePerGasWei: '1', agentId: 'synthetic:installed', agentVersion: '1',
+      observationPolicy: { minimumConfirmations: '2' },
+    } });
+  try {
+    handler = configuredRuntime.handler;
+    const capabilities = await call('capabilities');
+    assert.equal(capabilities.status, 200);
+    assert.equal(capabilities.data.taskAuthorization.adapterConfigured, true);
+    assert.equal(capabilities.data.taskAuthorization.executable, false);
+    assert.equal(configuredRuntime.exactState, 'configured');
+    assert.equal(configuredRuntime.server.listening, false);
+    assert.equal((await call('tasks/resume', { taskDigest: '0x' + '4'.repeat(64) })).status, 401);
+    assert.equal(rpcCalls, 0); assert.equal(signCalls, 0);
+  } finally { handler = legacyHandler; await configuredRuntime.stop(); }
+  assert.deepEqual(await store.read('runtime-test:tester'), constructorCredential);
+  await assert.rejects(createAuthRuntime({ config: { ...configuration, taskExecution: {} }, store }), /AUTH_CONFIG_FIELD_REFUSED/);
   assert.equal((await call('tasks/list', {})).status, 401);
   assert.equal((await call('bootstrap')).status, 200);
   assert.equal((await call('password', { username: 'tester', password, account: actor, chainId: '11155111' })).status, 200);

@@ -30,7 +30,7 @@ function cookies(request) {
   }
   return result;
 }
-export function createAuthService({ origin, tenant, accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null, taskReceiptHandlerId = null }) {
+export function createAuthService({ origin, tenant, accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null, taskReceiptHandlerId = null, taskChannelBindings = null }) {
   const url = loginOrigin(origin);
   requireThat(typeof tenant === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(tenant), 'AUTH_CONFIG_REFUSED', 500);
   requireThat(Array.isArray(accounts) && accounts.length > 0 && accounts.length <= 10000 && store, 'AUTH_CONFIG_REFUSED', 500);
@@ -178,7 +178,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     consumeResetProof: (session, proof, prior) => recoveryService.consumeProof(session, proof, prior), revokeAccount });
   methodChangeService = createMethodChangeService({ origin, tenant, store, directory, users, sendOtp, now,
     assertRecent: recentIndependent, credentialFor, passwordFor, methodStates, withConsumedCode, revokeAccount });
-  taskService = createTaskAuthorizationService({ origin, tenant, store, now, execution: taskExecution, executorIdentity: taskExecutorIdentity, observationPolicy: taskObservationPolicy, receipt: taskReceipt, listingExecution: taskListingExecution, listingResults: taskListingResults, receiptHandlerId: taskReceiptHandlerId,
+  taskService = createTaskAuthorizationService({ origin, tenant, store, now, execution: taskExecution, executorIdentity: taskExecutorIdentity, observationPolicy: taskObservationPolicy, receipt: taskReceipt, listingExecution: taskListingExecution, listingResults: taskListingResults, receiptHandlerId: taskReceiptHandlerId, channelBindings: taskChannelBindings,
     principalReady: directory.ready,
     assertPrincipal(principal, credential) {
       const user = users.get(principal.username);

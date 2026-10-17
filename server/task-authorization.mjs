@@ -97,7 +97,7 @@ const isListing = child => child.child.schema === '8415-nft-listing-child/1';
  */
 export function createTaskAuthorizationService({ origin, tenant, store, now = Date.now,
   assertSession, credentialFor, consumeTotp, assertPrincipal = null, principalReady = null,
-  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null }) {
+  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null, channelBindings = null }) {
   requireThat(receiptHandlerId === null || receiptHandlerId === 'artfi:whole-receipt:v1', 'TASK_RECEIPT_CONFIG_REFUSED', 500);
   requireThat(store && typeof store.transactionMany === 'function' &&
     [assertSession, credentialFor, consumeTotp, now].every(value => typeof value === 'function'), 'TASK_CONFIG_REFUSED', 500);
@@ -108,11 +108,41 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   if (listingResults !== null) {
     const configured = listingResults; listingResults = Object.freeze({ read: configured.read.bind(configured), scan: configured.scan.bind(configured) });
   }
-  requireThat(execution === null && listingExecution === null && receiptHandlerId === null ? executorIdentity === null : executorIdentity !== null, 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
+  // Legacy direct composition remains supported. New multi-channel startup must
+  // supply one explicit binding per active port and no ambiguous global facts.
+  requireThat(channelBindings !== null || [execution, listingExecution, receiptHandlerId].filter(port => port !== null).length <= 1,
+    'TASK_CHANNEL_BINDINGS_REQUIRED', 500);
+  requireThat(channelBindings === null ?
+    (execution === null && listingExecution === null && receiptHandlerId === null ? executorIdentity === null : executorIdentity !== null) :
+    executorIdentity === null && observationPolicy === null, 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
+  let channelContexts = null;
+  if (channelBindings !== null) {
+    const plain = value => value && [Object.prototype, null].includes(Object.getPrototypeOf(value));
+    requireThat(plain(channelBindings), 'TASK_CHANNEL_CONFIG_REFUSED', 500);
+    const descriptors = Object.getOwnPropertyDescriptors(channelBindings);
+    const ports = { 'exact-operation': execution !== null, 'nft-sale': listingExecution !== null, 'artfi-receipt': receiptHandlerId !== null };
+    requireThat(Reflect.ownKeys(descriptors).every(kind => Object.hasOwn(ports, kind) && Object.hasOwn(descriptors[kind], 'value')) &&
+      Object.entries(ports).every(([kind, enabled]) => Object.hasOwn(descriptors, kind) === enabled), 'TASK_CHANNEL_CONFIG_REFUSED', 500);
+    const contexts = {}, identities = new Set();
+    for (const kind of Object.keys(descriptors)) {
+      const value = descriptors[kind].value;
+      requireThat(plain(value), 'TASK_CHANNEL_CONFIG_REFUSED', 500);
+      const binding = Object.getOwnPropertyDescriptors(value);
+      requireThat(Reflect.ownKeys(binding).length === 2 && ['executorIdentity', 'observationPolicy'].every(key =>
+        Object.hasOwn(binding, key) && Object.hasOwn(binding[key], 'value')), 'TASK_CHANNEL_CONFIG_REFUSED', 500);
+      const executor = freezeTaskExecutorIdentity(binding.executorIdentity.value);
+      requireThat(executor.identity.adapterId !== 'unconfigured-signer' && !identities.has(executor.digest), 'TASK_CHANNEL_EXECUTOR_REUSE_REFUSED', 500);
+      identities.add(executor.digest);
+      const policy = binding.observationPolicy.value;
+      requireThat(kind === 'artfi-receipt' ? policy === null : policy !== null, 'TASK_CHANNEL_OBSERVATION_CONFIG_REFUSED', 500);
+      contexts[kind] = Object.freeze({ executor, observationPolicy: policy === null ? null : freezeTaskObservationPolicy(policy) });
+    }
+    channelContexts = Object.freeze(contexts);
+  }
   const executor = freezeTaskExecutorIdentity(executorIdentity ?? { schema: '8415-task-executor/1',
     agentId: '8415wallet:local-task-service', agentVersion: '1', adapterId: 'unconfigured-signer', adapterVersion: '0',
     implementationDigest: SERVICE_IMPLEMENTATION_DIGEST });
-  requireThat(execution === null && listingExecution === null && receiptHandlerId === null || executor.identity.adapterId !== 'unconfigured-signer', 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
+  requireThat(channelContexts !== null || execution === null && listingExecution === null && receiptHandlerId === null || executor.identity.adapterId !== 'unconfigured-signer', 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
   // Capture methods once; mutating a configuration object's properties cannot
   // replace the verifier/signer beneath an already reviewed executor identity.
   if (execution !== null) {
@@ -125,8 +155,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     listingExecution = Object.freeze(Object.fromEntries(['verify', 'send', 'recover', 'plan'].filter(name => typeof configured[name] === 'function')
       .map(name => [name, configured[name].bind(configured)])));
   }
-  requireThat(execution === null && listingExecution === null || observationPolicy !== null, 'TASK_OBSERVATION_POLICY_CONFIG_REQUIRED', 500);
-  const approvedObservationPolicy = observationPolicy === null ? null : freezeTaskObservationPolicy(observationPolicy);
+  requireThat(channelContexts !== null || execution === null && listingExecution === null || observationPolicy !== null, 'TASK_OBSERVATION_POLICY_CONFIG_REQUIRED', 500);
+  const approvedObservationPolicy = channelContexts === null ? (observationPolicy === null ? null : freezeTaskObservationPolicy(observationPolicy)) :
+    channelContexts['exact-operation']?.observationPolicy ?? null;
   let receiptVerifier = null;
   if (receipt !== null) {
     requireThat(typeof receipt.observe === 'function' && typeof receipt.assessChild === 'function' && approvedObservationPolicy !== null &&
@@ -135,6 +166,16 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const configured = receipt;
     receipt = Object.freeze({ assessChild: configured.assessChild.bind(configured), observe: configured.observe.bind(configured), ...(typeof configured.observeReplacement === 'function' ?
       { observeReplacement: configured.observeReplacement.bind(configured) } : {}) });
+  }
+  // Selection is always from a normalized task (or the stored grant), never a
+  // request-supplied adapter name. Removing/replacing a port suspends its grants;
+  // it never falls back to another channel's approval identity.
+  function approvalContext(task) {
+    if (channelContexts === null) return { executor, approvedObservationPolicy, receiptVerifier };
+    const kind = task.policy.intent.kind, selected = channelContexts[kind];
+    return { executor: selected?.executor ?? executor,
+      approvedObservationPolicy: selected?.observationPolicy ?? null,
+      receiptVerifier: kind === 'exact-operation' && selected ? receiptVerifier : null };
   }
   requireThat(assertPrincipal === null || typeof assertPrincipal === 'function', 'TASK_BACKGROUND_CONFIG_REFUSED', 500);
   const internalContexts = new WeakSet(), assertOwnerSession = assertSession, ownerCredentialFor = credentialFor;
@@ -197,6 +238,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     return raw;
   }
   function effectiveStatus(grant, credential) {
+    const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(grant.task);
     if (grant.status === 'revoked') return 'revoked';
     if (stamp() < grant.issuedAt || seconds() >= BigInt(grant.task.policy.expiresAt)) return 'expired';
     // Factor changes pause this principal only; they never renew or expand a task.
@@ -207,6 +249,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     return 'authorized';
   }
   function requireActive(grant, credential) {
+    const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(grant.task);
     const status = effectiveStatus(grant, credential);
     requireThat(status === 'authorized', status === 'suspended' ? (grant.executor.digest !== executor.digest ? 'TASK_EXECUTOR_REVALIDATION_REQUIRED' : grant.observationPolicy?.digest !== approvedObservationPolicy?.digest ? 'TASK_OBSERVATION_POLICY_REVALIDATION_REQUIRED' :
       !sameVerifier(grant.receiptVerifier, receiptVerifier) ? 'TASK_RECEIPT_VERIFIER_REVALIDATION_REQUIRED' : 'TASK_FACTOR_REVALIDATION_REQUIRED') : `TASK_GRANT_${status.toUpperCase()}`, 403);
@@ -223,9 +266,11 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     return { state: 'awaiting-evidence', fresh: false };
   }
   function view(grant, credential) {
+    const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(grant.task);
     const effective = effectiveStatus(grant, credential), gaps = grant.schema === '8415-task-grant/2' ?
       (listingResults ? [] : ['TASK_LISTING_OBSERVER_NOT_CONNECTED']) : execution ? ['TASK_CHILD_VERIFICATION_REQUIRED'] : [...missing,
       ...(grant.task.policy.intent.kind === 'nft-sale' ? ['MARKET_PRICE_VERIFIER_NOT_CONNECTED', 'ATOMIC_SALE_SETTLEMENT_VERIFIER_NOT_CONNECTED'] : [])];
+    if (grant.task.policy.intent.kind === 'artfi-receipt') { gaps.length = 0; gaps.push('TASK_RECEIPT_FIXED_HANDLER_REQUIRED'); }
     if (grant.task.policy.intent.kind === 'nft-sale') gaps.push(grant.schema !== '8415-task-grant/2' ? 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED' :
       grant.valuationPolicy.policy.priceAt === 'settlement' ? 'TASK_FUTURE_USD_PRICE_NOT_GUARANTEED' :
       listingExecution === null ? 'TASK_LISTING_ADAPTER_NOT_CONNECTED' : 'TASK_LISTING_VERIFICATION_REQUIRED');
@@ -239,9 +284,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       credentialRevisionAtApproval: grant.credentialRevisionAtApproval,
     }, effectiveStatus: effective, budget: grant.budget,
     ...(grant.task.policy.intent.kind === 'artfi-receipt' ? { receiptAttempts: normalizeReceiptAttempts(grant.task, grant.receiptAttempts ?? []) } : {}),
-    capabilities: { executable: false, adapterConfigured: Boolean(grant.schema === '8415-task-grant/2' ? listingExecution : execution), missing: gaps,
+    capabilities: { executable: false, adapterConfigured: Boolean(grant.task.policy.intent.kind === 'artfi-receipt' ? receiptHandlerId : grant.schema === '8415-task-grant/2' ? listingExecution : execution), missing: gaps,
       sessionRequired: true, factorRevalidationRequired: String(credential?.revision ?? 0) !== grant.credentialRevisionAtApproval && grant.status !== 'pending',
-      executorRevalidationRequired: grant.executor.digest !== executor.digest, receiptVerifierConfigured: Boolean(receipt),
+      executorRevalidationRequired: grant.executor.digest !== executor.digest, receiptVerifierConfigured: receiptVerifier !== null,
       observationPolicyRevalidationRequired: grant.observationPolicy?.digest !== approvedObservationPolicy?.digest,
       receiptVerifierRevalidationRequired: !sameVerifier(grant.receiptVerifier, receiptVerifier) } };
   }
@@ -311,6 +356,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   async function prepare(body, session) {
     const withValuation = body !== null && typeof body === 'object' && Object.hasOwn(body, 'valuationPolicy'); fields(body, withValuation ? ['policy', 'valuationPolicy'] : ['policy']);
     const task = freezeAuthorizedTask(body.policy); checkTask(task, session);
+    requireThat(channelContexts === null || Object.hasOwn(channelContexts, task.policy.intent.kind), 'TASK_CHANNEL_NOT_CONFIGURED', 503);
+    const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(task);
     requireThat(task.policy.intent.kind !== 'artfi-receipt' || receiptHandlerId !== null, 'TASK_RECEIPT_GATE_NOT_CONFIGURED', 503);
     const valuationPolicy = withValuation ? freezeNftValuationPolicy(body.valuationPolicy) : null;
     requireThat(valuationPolicy === null || task.policy.intent.kind === 'nft-sale' && valuationPolicy.policy.base.chainId === task.policy.chainId, 'TASK_VALUATION_POLICY_BINDING_REFUSED', 400);
@@ -349,6 +396,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const challenge = challenges.get(body.challengeId);
     const current = () => {
       assertSession(session); sweep();
+      requireThat(challenge, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
+      const { executor, approvedObservationPolicy } = approvalContext(challenge.task);
       requireThat(challenge && challenges.get(body.challengeId) === challenge && challenge.binding === binding(session) &&
         equal(challenge.task.digest, body.taskDigest) && equal(challenge.executor.digest, body.executorDigest) && equal(executor.digest, body.executorDigest) &&
         (challenge.valuationPolicy === null ? !withValuation : withValuation && challenge.valuationPolicy.digest === body.valuationPolicyDigest &&
@@ -467,7 +516,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         !values[nkey].permanent, 'TASK_SEND_ATTEMPT_REFUSED');
       requireThat(assessChildScope(grant.task, context.child, seconds()).state !== 'outside-declared-scope', 'TASK_CHILD_OUTSIDE_SCOPE');
       return { [ckey]: values[ckey], [gkey]: { ...grant, budget: markTaskSendAttempt(grant.budget, body.operationId, body.childDigest, body.expectedBudgetRevision) },
-        [okey]: { ...values[okey], status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: executor, attemptObservationPolicy: grant.observationPolicy, attemptReceiptVerifier: grant.receiptVerifier }, [nkey]: { ...values[nkey], permanent: true } };
+        [okey]: { ...values[okey], status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: grant.executor, attemptObservationPolicy: grant.observationPolicy, attemptReceiptVerifier: grant.receiptVerifier }, [nkey]: { ...values[nkey], permanent: true } };
     });
     // This is the sole send call. Any exception or lost response keeps the full
     // durable reservation and permanent nonce claim; neither retry nor release.
@@ -514,7 +563,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       const grant = checkOperation(values, context, body, session); requireActive(grant, values[ckey]); checkListingScope(grant, context.child);
       requireThat(grant.grantPolicyVersion === context.grant.grantPolicyVersion && values[okey].status === 'reserved' && !values[nkey].permanent, 'TASK_SEND_ATTEMPT_REFUSED');
       return { [ckey]: values[ckey], [gkey]: { ...grant, budget: markTaskSendAttempt(grant.budget, body.operationId, body.childDigest, body.expectedBudgetRevision) },
-        [okey]: { ...values[okey], status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: executor },
+        [okey]: { ...values[okey], status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: grant.executor },
         [nkey]: { ...values[nkey], permanent: true } };
     });
     let sending;
@@ -558,7 +607,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   async function recoverListing(context, body, session) {
     requireThat(listingExecution, 'TASK_LISTING_ADAPTER_NOT_CONNECTED', 503);
     requireThat(context.operation.status === 'outcome-unknown' && context.operation.attemptExecutor &&
-      executorCopy(context.operation.attemptExecutor).digest === executor.digest, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
+      executorCopy(context.operation.attemptExecutor).digest === approvalContext(context.grant.task).executor.digest, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
     const evidence = await listingExecution.recover(listingInput(context));
     requireThat(listingResultBound(evidence, context) && evidence.state === 'submitted' && evidence.transactionHash === undefined,
       'TASK_RECOVERY_NOT_ESTABLISHED');
@@ -580,7 +629,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const context = await operationContext(body, session);
     if (isListing(context.child)) return recoverListing(context, body, session);
     requireThat(execution, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503);
-    requireThat(context.operation.attemptExecutor && executorCopy(context.operation.attemptExecutor).digest === executor.digest, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
+    requireThat(context.operation.attemptExecutor && executorCopy(context.operation.attemptExecutor).digest === approvalContext(context.grant.task).executor.digest, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
     const evidence = await execution.recover(immutable(structuredClone({ task: context.grant.task, child: context.child, executor: context.operation.attemptExecutor,
       grantPolicyVersion: context.operation.attemptGrantPolicyVersion })));
     requireThat(verifiedBinding(evidence, context) && evidence.state === 'submitted' &&
@@ -593,7 +642,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const context = await operationContext(body, session), { ckey, gkey, okey, nkey, operation } = context;
     requireThat(!isListing(context.child), 'TASK_LISTING_OBSERVER_NOT_CONNECTED', 503);
     requireThat(receipt && operation.attemptReceiptVerifier !== null, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503);
-    requireThat(operation.status === 'submitted' && operation.attemptExecutor?.digest === executor.digest &&
+    requireThat(operation.status === 'submitted' && operation.attemptExecutor?.digest === approvalContext(context.grant.task).executor.digest &&
       sameVerifier(operation.attemptReceiptVerifier, receiptVerifier), 'TASK_RECEIPT_EXECUTOR_BINDING_REQUIRED', 503);
     const policy = observationPolicyCopy(operation.attemptObservationPolicy);
     requireThat(policy !== null && policy.digest === approvedObservationPolicy?.digest, 'TASK_RECEIPT_POLICY_BINDING_REQUIRED', 503);

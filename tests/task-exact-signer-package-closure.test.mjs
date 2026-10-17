@@ -75,7 +75,10 @@ console.log(JSON.stringify({ node: process.version, signerRuntimeFiles: TASK_EXA
 
 test('signer runtime declaration exactly matches local executable imports and declares ethers separately', () => {
   const actual = closure(['server/task-exact-signer-adapter.mjs']);
-  assert.deepEqual([...TASK_EXACT_SIGNER_RUNTIME_FILES].sort(), actual.files);
+  // The signer port declares three modules that import it rather than being
+  // imported by it: approval selection, channel isolation and the shared-store
+  // constructor. They are named here, so a fourth addition still fails.
+  assert.deepEqual([...TASK_EXACT_SIGNER_RUNTIME_FILES].sort(), [...new Set([...actual.files, 'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs'])].sort());
   assert.equal(TASK_EXACT_SIGNER_RUNTIME_FILES.length, new Set(TASK_EXACT_SIGNER_RUNTIME_FILES).size);
   assert.deepEqual(actual.dependencies, ['ethers']);
   assert.ok(TASK_EXACT_SIGNER_RUNTIME_FILES.includes('server/task-operation-encoding.mjs'));

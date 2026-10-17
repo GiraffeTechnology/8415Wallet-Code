@@ -12,6 +12,9 @@ import { encodeExactTaskOperation } from './task-operation-encoding.mjs';
 import { createTaskExactOperationPlanner, normalizeTaskExactFeeRule } from './task-exact-operation-planner.mjs';
 
 export const TASK_EXACT_SIGNER_RUNTIME_FILES = Object.freeze([
+  // Approval selection, channel isolation, and the shared-store constructor
+  // affect this port's trusted runtime; UI/build/test code does not.
+  'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
   'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs', 'server/task-exact-operation-planner.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
