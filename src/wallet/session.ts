@@ -48,6 +48,7 @@ export class WalletSession {
   readonly identity: ContractIdentityPin;
 
   readonly #account: Address | undefined;
+  readonly #source: { readonly chainId: bigint; readonly address: Address };
   readonly #watchtower: WatchtowerBinding | undefined;
 
   constructor(
@@ -62,6 +63,7 @@ export class WalletSession {
     this.reader = reader;
     this.identity = new ContractIdentityPin(reader);
     this.#account = options.account;
+    this.#source = Object.freeze({ chainId: reader.source.chainId, address: reader.source.address });
     this.#watchtower = options.watchtower;
   }
 
@@ -199,6 +201,23 @@ export class WalletSession {
    * that a user would have to notice.
    */
   async send(request: TransactionRequest, signer: TransactionSigner): Promise<string> {
+    // Hand the signer the same detached request this session checks. A caller
+    // retaining the original must not change its wire or review during an await.
+    request = structuredClone(request);
+    const freeze = (value: unknown): void => {
+      if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+        Object.freeze(value);
+        for (const child of Object.values(value)) freeze(child);
+      }
+    };
+    freeze(request);
+    const account = this.#requireAccount();
+    if (request.from !== account) {
+      throw new Error(`this session belongs to ${account}; the request is built for ${request.from}`);
+    }
+    if (request.chainId !== this.#source.chainId || request.to !== this.#source.address) {
+      throw new Error('this request belongs to a different chain or contract than this session');
+    }
     if (signer.account !== request.from) {
       throw new Error(
         `this request is built for ${request.from}; the signer holds ${signer.account}`,
@@ -219,7 +238,7 @@ export class WalletSession {
   #requireAccount(): Address {
     if (this.#account === undefined) {
       throw new Error(
-        'this session is watch-only: no account was supplied, so no transaction can be built',
+        'this session is watch-only: no account was supplied, so no transaction can be built or sent',
       );
     }
     return this.#account;

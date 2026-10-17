@@ -729,8 +729,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "63260fe025e6664d1e6c85a2b49384b46fccf0ff",
-      "sha256": "769257436e481e41f3245aef0769e0323c4d6819d09ed79f5e94e8d81240d1c3"
+      "git_blob_sha1": "4d117b8e4d6abee7bce9350bdc1a0e0bb8945100",
+      "sha256": "6209d7d8bfa158620c214ede24e26c6ef6e4a26cfe117b3a73b7191e09234fd1"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -1053,8 +1053,8 @@
     {
       "path": "src/adapters/kit/kitReader.ts",
       "mode": "100644",
-      "git_blob_sha1": "7518f525dc8cb9074ca83b28e04f23835dc5b635",
-      "sha256": "e7ad8888762abd84fcc59eacf70c82c329f55b937b2f89e64cb14adf6e81827c"
+      "git_blob_sha1": "9d2ebc7af8c88cbfb1b1eb6ce1fa959681a1fa21",
+      "sha256": "a23ad94dbc119a3451ffcb85fb73591d56ed92049321dd8112617ba5fe99f1b9"
     },
     {
       "path": "src/adapters/memory/encodeEvents.ts",
@@ -1131,8 +1131,8 @@
     {
       "path": "src/adapters/signing/eip1193Signer.ts",
       "mode": "100644",
-      "git_blob_sha1": "1f9f9dd5c3454a7059c6c41d16656db86159a460",
-      "sha256": "fea476800fab51fd1cdef92ae00b05e79abce97ffc1824cf19a34ce03e1e0d6e"
+      "git_blob_sha1": "3a1dda5d918e8d84409d3f53a221f168d9679ead",
+      "sha256": "063e3151aec9d968996374e281494b813604b26494bddf5aabdb769fe871a808"
     },
     {
       "path": "src/agent/README.md",
@@ -1785,8 +1785,8 @@
     {
       "path": "src/wallet/session.ts",
       "mode": "100644",
-      "git_blob_sha1": "35ae13860316effd0e0a00137740f9524ff4296c",
-      "sha256": "81f71af25fd591fe35f8a19acff2a1a09cdafbcdd18d616845bb101b59c182b8"
+      "git_blob_sha1": "33cafa2f4b3709633f8ad4cfb3c918ca05dbbcec",
+      "sha256": "d2b1288dfd5bb00751cf07d3f0f740fa1229c38d81bc013a36853703439fcbc7"
     },
     {
       "path": "src/wallet/settlementLog.ts",
