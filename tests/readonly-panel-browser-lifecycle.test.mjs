@@ -1,6 +1,7 @@
 import { mountKitRead } from '../web/kit-read-panel.mjs';
 import { mountWatchtowerRead } from '../web/watchtower-read-panel.mjs';
 import { declarationFile, inputsOf, runPanelLifecycleCases } from './helpers/readonly-panel-harness.mjs';
+import { runAssetWorkspaceCases } from './helpers/asset-workspace-harness.mjs';
 import { runTaskActivityCases } from './helpers/task-activity-harness.mjs';
 
 /**
@@ -37,3 +38,6 @@ runPanelLifecycleCases({
 
 // Needs the build too: task-authorization imports four dist/browser modules.
 runTaskActivityCases();
+
+// The workspace panel's whole closure is itself and dist/browser/browser.js.
+runAssetWorkspaceCases();

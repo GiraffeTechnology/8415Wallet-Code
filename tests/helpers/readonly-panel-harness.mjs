@@ -53,11 +53,16 @@ export class Node {
   descendants() { return this.children.flatMap(child => [child, ...child.descendants()]); }
 }
 
-/** Mirrors WalletLogin: assert throws when signed out or when a binding is stale. */
-export function fakeLogin() {
-  let session = { account: '0xowner', chainId: '1' };
+/**
+ * Mirrors WalletLogin: assert throws when signed out or when a binding is stale.
+ * The initial session is a parameter because the Hoodi panel refuses any chain
+ * but 560048 and matches the session account against its evidence manifest.
+ */
+export function fakeLogin(initial = { account: '0xowner', chainId: '1' }) {
+  let session = initial;
   let generation = 0;
   const listeners = [];
+  const provider = { request: async () => { throw new Error(SECRET); } };
   const login = {
     assert(binding) {
       if (session === null) throw new Error('LOGIN_REQUIRED');
@@ -69,7 +74,15 @@ export function fakeLogin() {
     capture() { login.assert(); return Object.freeze({ generation }); },
     async check() { login.assert(); },
     subscribe(fn) { listeners.push(fn); return () => {}; },
+    /** An identity token only: no panel reads through it without a stub. */
+    provider() { login.assert(); return provider; },
     logout() { session = null; generation += 1; for (const fn of listeners) fn(null, 'LOGIN_REQUIRED'); },
+    /**
+     * A session that changed without notifying: re-established, or switched
+     * before the subscriber ran. Nothing clears the panel, so only the
+     * binding asserts stand between a stale read and the page.
+     */
+    expire() { generation += 1; },
     subscriberCount() { return listeners.length; },
   };
   return login;
