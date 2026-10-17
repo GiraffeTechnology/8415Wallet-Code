@@ -103,7 +103,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   requireThat(receiptHandlerId === null || receiptHandlerId === 'artfi:whole-receipt:v1', 'TASK_RECEIPT_CONFIG_REFUSED', 500);
   requireThat(store && typeof store.transactionMany === 'function' &&
     [assertSession, credentialFor, consumeTotp, now].every(value => typeof value === 'function'), 'TASK_CONFIG_REFUSED', 500);
-  requireThat(execution === null || execution && ['verify', 'send', 'recover'].every(name => typeof execution[name] === 'function') && (execution.plan === undefined || typeof execution.plan === 'function'), 'TASK_ADAPTER_CONFIG_REFUSED', 500);
+  requireThat(execution === null || execution && ['verify', 'send', 'recover'].every(name => typeof execution[name] === 'function') &&
+    (execution.plan === undefined || typeof execution.plan === 'function') &&
+    (execution.recoverHistorical === undefined || typeof execution.recoverHistorical === 'function'), 'TASK_ADAPTER_CONFIG_REFUSED', 500);
   requireThat(listingExecution === null || listingExecution && ['verify', 'send', 'recover'].every(name => typeof listingExecution[name] === 'function') &&
     (listingExecution.plan === undefined || typeof listingExecution.plan === 'function') && typeof store.withReadSnapshot === 'function', 'TASK_LISTING_CONFIG_REFUSED', 500);
   requireThat(listingResults === null || ['read', 'scan'].every(name => typeof listingResults?.[name] === 'function'), 'TASK_LISTING_RESULTS_CONFIG_REFUSED', 500);
@@ -149,7 +151,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   // replace the verifier/signer beneath an already reviewed executor identity.
   if (execution !== null) {
     const configured = execution;
-    execution = Object.freeze(Object.fromEntries(['verify', 'send', 'recover', 'plan'].filter(name => typeof configured[name] === 'function')
+    execution = Object.freeze(Object.fromEntries(['verify', 'send', 'recover', 'recoverHistorical', 'plan'].filter(name => typeof configured[name] === 'function')
       .map(name => [name, configured[name].bind(configured)])));
   }
   if (listingExecution !== null) {
@@ -653,9 +655,12 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const currentExecutor = approvalContext(context.grant.task).executor;
     // Read-only evidence must preserve the historical signed attempt, not demand
     // a new owner grant solely because the implementation version changed.
-    requireThat(attemptedExecutor.identity.agentId === currentExecutor.identity.agentId &&
+    const historical = attemptedExecutor.digest !== currentExecutor.digest;
+    requireThat(!historical || typeof execution.recoverHistorical === 'function' &&
+      attemptedExecutor.identity.agentId === currentExecutor.identity.agentId &&
       attemptedExecutor.identity.adapterId === currentExecutor.identity.adapterId, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
-    const evidence = await execution.recover(immutable(structuredClone({ task: context.grant.task, child: context.child, executor: context.operation.attemptExecutor,
+    const recoverAttempt = historical ? execution.recoverHistorical : execution.recover;
+    const evidence = await recoverAttempt(immutable(structuredClone({ task: context.grant.task, child: context.child, executor: context.operation.attemptExecutor,
       grantPolicyVersion: context.operation.attemptGrantPolicyVersion })));
     requireThat(verifiedBinding(evidence, context) && evidence.state === 'submitted' &&
       /^0x[0-9a-f]{64}$/.test(evidence.transactionHash ?? '') && !/^0x0+$/.test(evidence.transactionHash), 'TASK_RECOVERY_NOT_ESTABLISHED');

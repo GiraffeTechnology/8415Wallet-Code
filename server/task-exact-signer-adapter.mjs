@@ -291,5 +291,7 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
     check(input.executor?.digest === executorDigest && JSON.stringify(input.executor.identity) === JSON.stringify(identity), 'TASK_EXACT_BINDING_REFUSED');
     return planner.plan(input);
   }
-  return Object.freeze({ identity, verify, send, recover, ...(planner === null ? {} : { plan }) });
+  // Explicit server-owned read-only capability, not a generic adapter promise
+  // or HTTP flag. Other adapters remain exact-identity-bound on recovery.
+  return Object.freeze({ identity, verify, send, recover, recoverHistorical: recover, ...(planner === null ? {} : { plan }) });
 }
