@@ -25,8 +25,31 @@ declare module '*web/watchtower-read-panel.mjs' {
   export function mountWatchtowerRead(options: any): { clear(): void } | undefined;
 }
 
+declare module '*web/task-activity-ui.mjs' {
+  export function mountTaskActivity(options: any): void;
+}
+
 declare module '*helpers/readonly-panel-harness.mjs' {
   export const SECRET: string;
+  export class Node {
+    id: string;
+    className: string;
+    textContent: string;
+    hidden: boolean;
+    disabled: boolean;
+    value: string;
+    type: string;
+    files: any[];
+    children: Node[];
+    setAttribute(name: string, value: string): void;
+    getAttribute(name: string): string | null;
+    addEventListener(name: string, fn: Function): void;
+    dispatchEvent(event: { type: string; detail?: unknown }): void;
+    click(): void;
+    append(...items: Node[]): void;
+    replaceChildren(...items: Node[]): void;
+    descendants(): Node[];
+  }
   export const CONTRACT: string;
   export function declarationFile(): { size: number; text(): Promise<string> };
   export function inputsOf(host: any, type: string): any[];
