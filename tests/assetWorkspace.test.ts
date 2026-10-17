@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { divergentToken, TOKEN, T, ALICE } from '../src/adapters/memory/scenarios.ts';
 import { TransportError } from '../src/sdk/errors.ts';
 import { WalletSession } from '../src/wallet/session.ts';
-import { readAssetWorkspace, readRegisterHistoryPage, type WorkspaceLinkedInput } from '../src/wallet/assetWorkspace.ts';
+import { readAssetWorkspace, readRegisterHistoryPage, REGISTER_HISTORY_MAX_LIMIT, type WorkspaceLinkedInput } from '../src/wallet/assetWorkspace.ts';
 import { renderAssetWorkspace } from '../src/wallet/renderAssetWorkspace.ts';
 import { delegateReader } from './support/delegateReader.ts';
 
@@ -40,7 +40,13 @@ test('register pages preserve exact admission order and lossless version cursors
 
 test('oversized history pages and nonconsecutive returned versions are refused', async () => {
   const { wallet, reader } = fixture();
-  await assert.rejects(readRegisterHistoryPage(wallet, TOKEN, 1n, 65), /WORKSPACE_INPUT_REFUSED/);
+  // The page cap is refused by name and states itself, so an oversized page is
+  // distinguishable from a malformed token id rather than sharing one code.
+  await assert.rejects(readRegisterHistoryPage(wallet, TOKEN, 1n, 65),
+    /WORKSPACE_PAGE_LIMIT_REFUSED: 1 to 64 entries per page, asked 65/);
+  await assert.rejects(readRegisterHistoryPage(wallet, TOKEN, 1n, 0), /WORKSPACE_PAGE_LIMIT_REFUSED/);
+  await assert.rejects(readRegisterHistoryPage(wallet, -1n as unknown as bigint), /WORKSPACE_INPUT_REFUSED/);
+  assert.equal((await readRegisterHistoryPage(wallet, TOKEN, 1n, REGISTER_HISTORY_MAX_LIMIT)).startVersion, 1n);
   const wrong = new WalletSession(delegateReader(reader, {
     entryAt: async (id, version) => ({ ...await reader.entryAt(id, version), version: 99n }),
   }));

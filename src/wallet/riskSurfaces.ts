@@ -44,8 +44,6 @@ const NOTE =
   'safe or unsafe verdict, and gates nothing on them. What a right does with ' +
   'them is decided by its own terms.';
 
-/** A year, as the point past which a future effective time is worth remarking on. */
-const FAR_FUTURE_DRIFT = 365n * 24n * 60n * 60n;
 
 export async function buildRiskSurfaces(
   reader: Erc8415Reader,
@@ -183,7 +181,10 @@ export async function buildRiskSurfaces(
       'ahead an effective time may be. At the uint64 maximum, ' +
       'no greater effective time is representable. Assess the actual value ' +
       'and the profile; this measurement is not a finality verdict.',
-    present: drift > FAR_FUTURE_DRIFT,
+    // Any future effective time is reported, with the distance as the fact.
+    // A threshold here would decide for the reader when the distance starts to
+    // matter, and this surface scores nothing; the id is the original one.
+    present: drift > 0n,
   });
 
   return { tokenId, observedAt, surfaces, note: NOTE };

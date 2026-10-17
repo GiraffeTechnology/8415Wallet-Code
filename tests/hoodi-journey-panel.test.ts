@@ -149,20 +149,26 @@ const hexInteger = () => {
 const numericInteger = () => JSON.stringify(evidence()).replace('"tokenId":"7"', '"tokenId":7');
 
 for (const refusal of [
-  { label: 'no file selected' },
-  { label: 'an oversized file', value: evidence(), size: 65537 },
-  { label: 'a hexadecimal integer field', value: hexInteger() },
-  { label: 'a numeric integer field', value: numericInteger() },
-  { label: 'a missing envelope half', value: { original: evidence().original } },
-  { label: 'an extra envelope key', value: { ...evidence(), extra: 1 } },
-] as { label: string; value?: unknown; size?: number }[]) {
-  test(`${refusal.label} refuses before any authenticated read`, async () => {
+  { label: 'no file selected', says: /^EVIDENCE_FILE_REQUIRED: choose an evidence JSON file$/ },
+  { label: 'an oversized file', value: evidence(), size: 65537,
+    says: /^EVIDENCE_FILE_TOO_LARGE: at most 65536 bytes$/ },
+  { label: 'a hexadecimal integer field', value: hexInteger(),
+    says: /^EVIDENCE_INTEGER_INVALID: integer fields must be decimal strings/ },
+  { label: 'a numeric integer field', value: numericInteger(),
+    says: /^EVIDENCE_INTEGER_INVALID: integer fields must be decimal strings/ },
+  { label: 'a missing envelope half', value: { original: evidence().original },
+    says: /^EVIDENCE_ENVELOPE_INVALID: exactly the keys original and laterV3$/ },
+  { label: 'an extra envelope key', value: { ...evidence(), extra: 1 },
+    says: /^EVIDENCE_ENVELOPE_INVALID: exactly the keys original and laterV3$/ },
+] as { label: string; value?: unknown; size?: number; says: RegExp }[]) {
+  test(`${refusal.label} refuses by name before any authenticated read`, async () => {
     const panel = mount();
     if ('value' in refusal) panel.select(refusal.value, refusal.size);
     panel.button?.click();
     await flush();
     assert.equal(panel.state.opens, 0, 'a refused envelope must not reach the pinned read');
-    assert.equal(panel.output?.textContent, 'HOODI_EVIDENCE_UNAVAILABLE');
+    // Which rule refused, and the bound it enforced; never the file itself.
+    assert.match(panel.output?.textContent ?? '', refusal.says);
     for (const node of panel.host.descendants()) {
       assert.doesNotMatch(node.textContent, /560048|0x7|"original"/, 'file content reached the page');
     }
@@ -180,7 +186,8 @@ for (const mismatch of [
     panel.button?.click();
     await flush();
     assert.equal(panel.state.opens, 0);
-    assert.equal(panel.output?.textContent, 'HOODI_EVIDENCE_UNAVAILABLE');
+    assert.match(panel.output?.textContent ?? '',
+      /^EVIDENCE_SESSION_MISMATCH: the signed-in account, chain 560048 and tenant must match/);
   });
 }
 
@@ -211,6 +218,8 @@ test('a failed authenticated read shows only its own message', async () => {
   await flush();
   assert.equal(panel.state.opens, 1, 'the read refused earlier, so this proves nothing about leaking');
   assert.equal(panel.state.renders, 0);
+  // An untagged failure is not one of the panel's own rules: it stays generic,
+  // so a backend error cannot present itself as a named refusal either.
   assert.equal(panel.output?.textContent, 'HOODI_EVIDENCE_UNAVAILABLE');
   for (const node of panel.host.descendants()) {
     assert.doesNotMatch(node.textContent, new RegExp(SECRET), 'backend text reached the page');
@@ -301,7 +310,7 @@ for (const clearing of [
     panel.select(evidence(), 65537);
     panel.button?.click();
     await flush();
-    assert.equal(panel.output?.textContent, 'HOODI_EVIDENCE_UNAVAILABLE');
+    assert.match(panel.output?.textContent ?? '', /^EVIDENCE_FILE_TOO_LARGE/);
     // Set by the browser, not by the panel: an empty value would prove nothing.
     (panel.input as any).value = 'picked-evidence.json';
     clearing.fire(panel);
