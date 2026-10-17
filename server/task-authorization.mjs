@@ -649,7 +649,12 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const context = await operationContext(body, session);
     if (isListing(context.child)) return recoverListing(context, body, session);
     requireThat(execution, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503);
-    requireThat(context.operation.attemptExecutor && executorCopy(context.operation.attemptExecutor).digest === approvalContext(context.grant.task).executor.digest, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
+    const attemptedExecutor = executorCopy(context.operation.attemptExecutor);
+    const currentExecutor = approvalContext(context.grant.task).executor;
+    // Read-only evidence must preserve the historical signed attempt, not demand
+    // a new owner grant solely because the implementation version changed.
+    requireThat(attemptedExecutor.identity.agentId === currentExecutor.identity.agentId &&
+      attemptedExecutor.identity.adapterId === currentExecutor.identity.adapterId, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
     const evidence = await execution.recover(immutable(structuredClone({ task: context.grant.task, child: context.child, executor: context.operation.attemptExecutor,
       grantPolicyVersion: context.operation.attemptGrantPolicyVersion })));
     requireThat(verifiedBinding(evidence, context) && evidence.state === 'submitted' &&
@@ -1149,5 +1154,3 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   });
   return { handler, cancel, background, listingAuthorization, receiptAuthorization };
 }
-
-

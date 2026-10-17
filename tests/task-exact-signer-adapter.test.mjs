@@ -65,7 +65,7 @@ async function fixture(options = {}) {
     return (options.wrongActor ? Wallet.createRandom() : wallet).signTransaction(tx);
   } };
   const execution = createTaskExactSignerAdapter({ provider, externalSigner, signerIdentity, store,
-    maxPriorityFeePerGasWei: '1', agentId: 'synthetic:agent', agentVersion: '1', now: () => state.now });
+    maxPriorityFeePerGasWei: '1', agentId: 'synthetic:agent', agentVersion: options.agentVersion ?? '1', now: () => state.now });
   const executor = freezeTaskExecutorIdentity(execution.identity);
   const session = { username: 'tester', account: actor, chainId: '11155111', id: 'synthetic:session', revision: 1,
     issuedAt: epoch, expiresAt: epoch + 900_000 };
@@ -150,6 +150,36 @@ test('a lost broadcast response recovers from full queried signed transaction wi
   const recovered = await f.call('recover', f.body(unknown)); assert.equal(recovered.outcome, 'submitted');
   assert.deepEqual([f.state.signCalls, f.state.broadcasts], before);
 });
+test('executor version upgrade reconciles original UNKNOWN without signing or replaying', async () => {
+  const f = await fixture({ lostResponse: true }), reserved = await f.start();
+  const unknown = await f.call('execute', f.body(reserved));
+  const before = await f.store.read(f.state.operationKey);
+  const upgraded = await fixture({ wallet: f.wallet, store: f.store, restart: true, agentVersion: '2' });
+  upgraded.state.visible = structuredClone(f.state.visible);
+  assert.notEqual(upgraded.executor.digest, f.executor.digest);
+  const result = await upgraded.call('recover', upgraded.body(unknown));
+  assert.equal(result.outcome, 'submitted');
+  assert.equal(result.budget.reservations[0].transactionHash, f.state.visible.hash);
+  const after = await f.store.read(f.state.operationKey);
+  assert.deepEqual(after.attemptExecutor, before.attemptExecutor);
+  assert.deepEqual(after.exactSignature, before.exactSignature);
+  assert.equal(upgraded.state.signCalls, 0); assert.equal(upgraded.state.broadcasts, 0);
+  assert.ok(!upgraded.state.methods.includes('eth_sendRawTransaction'));
+  await assert.rejects(upgraded.execution.send(f.input), /TASK_EXACT_BINDING_REFUSED/);
+});
+
+test('upgraded recovery rejects forged historical identity and leaves UNKNOWN quota reserved', async () => {
+  const f = await fixture({ lostResponse: true }), reserved = await f.start();
+  const unknown = await f.call('execute', f.body(reserved));
+  const upgraded = await fixture({ wallet: f.wallet, store: f.store, restart: true, agentVersion: '2' });
+  upgraded.state.visible = structuredClone(f.state.visible);
+  const forged = structuredClone(f.input); forged.executor.identity.agentVersion = 'forged';
+  await assert.rejects(upgraded.execution.recover(forged), /TASK_EXACT_BINDING_REFUSED/);
+  assert.equal((await f.store.read(f.state.operationKey)).status, 'outcome-unknown');
+  assert.equal((await f.status()).budget.revision, unknown.budget.revision);
+  assert.equal(upgraded.state.signCalls, 0); assert.equal(upgraded.state.broadcasts, 0);
+});
+
 test('persisted signed hash with no observed transaction stays unknown; read-only retries never resend', async () => {
   const f = await fixture({ onSign({ state }) { state.nonce = '0x8'; } }), g = await f.start();
   const unknown = await f.call('execute', f.body(g)); assert.equal(unknown.outcome, 'outcome-unknown');
@@ -404,4 +434,3 @@ test('balance lost while signer is active preserves signed UNKNOWN and never bro
   assert.equal(f.state.signCalls,1);assert.equal(f.state.broadcasts,0);
   assert.equal((await f.status()).budget.reservations[0].status,'outcome-unknown');
 });
-

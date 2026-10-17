@@ -971,8 +971,8 @@
     {
       "path": "server/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "292e106f02fa6c986be24ff62a954ffb39a273ed",
-      "sha256": "9d5f49acdaf43fb45eece6891c4e19ed06abcea89b4795ba410225a69c1cd3ba"
+      "git_blob_sha1": "6056c78aa4ac84d86e51259546bd22fa44d97e7e",
+      "sha256": "d038d0d9aef8a8fae832639402358d5ccdb38be2b2847c94117cb78134c71c90"
     },
     {
       "path": "server/task-background-runner.mjs",
@@ -1019,8 +1019,8 @@
     {
       "path": "server/task-exact-signer-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "5e500872aa6ded847837fdf78a7293c47652847e",
-      "sha256": "fa43f90c25b879e3982833d0693b7fdd81e7700db3f7520b99e4c307cba26a32"
+      "git_blob_sha1": "e10c7e2e48cd5f0c431c6c6979d2d2919ff4b589",
+      "sha256": "1ba8d1b3144dc8c663b96aba616f059b97edb52a8dd56574fd4de406d48d711f"
     },
     {
       "path": "server/task-journal-capabilities.mjs",

@@ -88,17 +88,30 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   };
   const readonlyProvider = Object.freeze({ request: ({ method, params = [] }) => rpc(method, params) });
   function seconds() { const time = now(); check(Number.isSafeInteger(time) && time >= 0, 'TASK_EXACT_CLOCK_REFUSED'); return BigInt(Math.floor(time / 1000)); }
-  function context(input) {
+  function context(input, recoveryOnly = false) {
     fields(input, ['task', 'child', 'executor', 'grantPolicyVersion']);
     const task = freezeTaskPolicy(input.task.policy), child = freezeChildOperation(input.child.child);
+    let boundExecutorDigest = executorDigest;
+    if (recoveryOnly) {
+      // Only read-only reconciliation may retain a historical executor. Verify,
+      // planning and signing remain bound to the current exact runtime identity.
+      fields(input.executor, ['identity', 'digest']);
+      fields(input.executor.identity, ['schema', 'agentId', 'agentVersion', 'adapterId', 'adapterVersion', 'implementationDigest']);
+      const prior = input.executor.identity;
+      const canonical = { schema: prior.schema, agentId: identifier(prior.agentId), agentVersion: identifier(prior.agentVersion),
+        adapterId: identifier(prior.adapterId), adapterVersion: identifier(prior.adapterVersion), implementationDigest: hash(prior.implementationDigest) };
+      check(canonical.schema === identity.schema && canonical.agentId === identity.agentId && canonical.adapterId === identity.adapterId &&
+        input.executor.digest === `0x${sha(JSON.stringify(canonical))}`, 'TASK_EXACT_BINDING_REFUSED');
+      boundExecutorDigest = input.executor.digest;
+    }
     check(task.digest === input.task.digest && child.digest === input.child.digest && child.child.taskDigest === task.digest &&
-      input.executor?.digest === executorDigest && JSON.stringify(input.executor.identity) === JSON.stringify(identity), 'TASK_EXACT_BINDING_REFUSED');
+      (recoveryOnly || input.executor?.digest === executorDigest && JSON.stringify(input.executor.identity) === JSON.stringify(identity)), 'TASK_EXACT_BINDING_REFUSED');
     uint(input.grantPolicyVersion);
     check(task.policy.intent.kind === 'exact-operation', 'TASK_ATOMIC_SALE_VERIFIER_NOT_CONNECTED');
     check(task.policy.actor === child.child.operation.actor && task.policy.chainId === child.child.operation.chainId &&
       JSON.stringify(task.policy.intent.operation) === JSON.stringify(child.child.operation) && child.child.market === null, 'TASK_EXACT_BINDING_REFUSED');
     const binding = freeze({ taskDigest: task.digest, childDigest: child.digest, chainId: child.child.operation.chainId,
-      actor: child.child.operation.actor, nonce: child.child.nonce, executorDigest, grantPolicyVersion: input.grantPolicyVersion });
+      actor: child.child.operation.actor, nonce: child.child.nonce, executorDigest: boundExecutorDigest, grantPolicyVersion: input.grantPolicyVersion });
     return { task, child, binding,
       okey: key('operation', [binding.chainId, binding.actor, child.child.operationId]),
       nkey: key('nonce', [binding.chainId, binding.actor, binding.nonce]) };
@@ -182,7 +195,7 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
     const op = values[c.okey], nonce = values[c.nkey], grant = values[j.gkey];
     check(op?.schema === '8415-task-operation/1' && op.grantKey === j.gkey && op.child?.digest === c.child.digest &&
       freezeChildOperation(op.child.child).digest === c.child.digest && op.nonceKey === c.nkey &&
-      ['outcome-unknown', 'submitted'].includes(op.status) && op.attemptExecutor?.digest === executorDigest &&
+      ['outcome-unknown', 'submitted'].includes(op.status) && op.attemptExecutor?.digest === c.binding.executorDigest &&
       op.attemptGrantPolicyVersion === c.binding.grantPolicyVersion && nonce?.permanent === true && nonce.operationKey === c.okey &&
       nonce.taskDigest === c.task.digest && nonce.childDigest === c.child.digest && grant?.task?.digest === c.task.digest &&
       freezeTaskPolicy(grant.task.policy).digest === c.task.digest, 'TASK_EXACT_ATTEMPT_REQUIRED');
@@ -251,7 +264,7 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
     return Object.freeze({ ...c.binding, transactionHash: signed.hash });
   }
   async function recover(input) {
-    const c = context(input), tx = await unsigned(c, false), j = await journalKeys(c), values = await readMany(j.keys);
+    const c = context(input, true), tx = await unsigned(c, false), j = await journalKeys(c), values = await readMany(j.keys);
     const op = journal(c, j, values, false); checkClaim(op.exactSignature, c, tx, 'signed');
     const expectedHash = op.exactSignature.transactionHash;
     // A locally signed hash proves no submission. Require full independently
@@ -280,6 +293,3 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   }
   return Object.freeze({ identity, verify, send, recover, ...(planner === null ? {} : { plan }) });
 }
-
-
-
