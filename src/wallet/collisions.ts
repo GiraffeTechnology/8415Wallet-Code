@@ -57,10 +57,13 @@ export const COLLISION_SCAN_MAX_ENTRIES = 2048;
 
 export class CollisionScanError extends Error {
   readonly code: string;
-  constructor(code: string) {
-    super(code);
+  /** The limit that refused, where one did, so the caller is not left guessing. */
+  readonly limit: number | undefined;
+  constructor(code: string, limit?: number) {
+    super(limit === undefined ? code : `${code}: limit ${limit}`);
     this.name = 'CollisionScanError';
     this.code = code;
+    this.limit = limit;
   }
 }
 
@@ -89,7 +92,7 @@ export async function detectCollisions(
   options: { readonly identityPin?: ContractIdentityPin } = {},
 ): Promise<CollisionReport> {
   if (!Array.isArray(tokenIds) || tokenIds.length === 0 || tokenIds.length > COLLISION_SCAN_MAX_TOKENS) {
-    throw new CollisionScanError('COLLISION_TOKEN_BUDGET_REFUSED');
+    throw new CollisionScanError('COLLISION_TOKEN_BUDGET_REFUSED', COLLISION_SCAN_MAX_TOKENS);
   }
   // Copy before the first await; caller mutation must not alter the review set.
   const tokens: TokenId[] = [];
@@ -116,7 +119,7 @@ export async function detectCollisions(
     }
     if (count === 0n) throw new ProjectionNotInitialized(tokenId);
     if (count > BigInt(COLLISION_SCAN_MAX_ENTRIES - entriesExamined)) {
-      throw new CollisionScanError('COLLISION_ENTRY_BUDGET_REFUSED');
+      throw new CollisionScanError('COLLISION_ENTRY_BUDGET_REFUSED', COLLISION_SCAN_MAX_ENTRIES);
     }
     for (let version = 1n; version <= count; version += 1n) {
       const entry = await reader.entryAt(tokenId, version);
@@ -144,8 +147,14 @@ function record(
   value: Bytes32,
   occurrence: CollisionOccurrence,
 ): void {
-  const existing = index.get(value);
-  if (existing === undefined) index.set(value, [occurrence]);
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value)) {
+    throw new CollisionScanError('COLLISION_BYTES32_REFUSED');
+  }
+  // Hex letter case is representation, not a different bytes32 value.
+  // Keep source entries untouched; canonicalize only the comparison key.
+  const key = value.toLowerCase();
+  const existing = index.get(key);
+  if (existing === undefined) index.set(key, [occurrence]);
   else existing.push(occurrence);
 }
 

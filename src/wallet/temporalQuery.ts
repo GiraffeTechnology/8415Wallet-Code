@@ -1,5 +1,5 @@
 import { detectConformance, requireProjectionConformance } from '../sdk/conformance.ts';
-import { ContractRevertError, ProjectionNotInitialized } from '../sdk/errors.ts';
+import { ContractRevertError, ProjectionNotInitialized, TransportError, ValueOutOfRangeError } from '../sdk/errors.ts';
 import { ContractIdentityPin, type ContractIdentity } from '../sdk/identity.ts';
 import type { Erc8415Reader } from '../sdk/port.ts';
 import type { Address, Conformance, Instant, RegisterEntry, TokenId } from '../sdk/types.ts';
@@ -104,6 +104,15 @@ export async function buildTemporalView(
   instant: Instant,
   options: TemporalQueryOptions = {},
 ): Promise<TemporalView> {
+  // Validate protocol domains before any adapter call or identity read.
+  if (typeof tokenId !== 'bigint') throw new TypeError('tokenId must be a bigint');
+  if (tokenId < 0n || tokenId >= (1n << 256n)) {
+    throw new ValueOutOfRangeError('tokenId', tokenId);
+  }
+  if (typeof instant !== 'bigint') throw new TypeError('instant must be a bigint');
+  if (instant < 0n || instant >= (1n << 64n)) {
+    throw new ValueOutOfRangeError('instant', instant);
+  }
   const conformance = await detectConformance(reader);
   requireProjectionConformance(reader, conformance);
 
@@ -159,8 +168,17 @@ async function contestOf(
   instant: Instant,
   hasSettlementInterface: boolean,
 ): Promise<ContestView> {
-  if (!hasSettlementInterface || reader.openGapOf === undefined || reader.settlement === undefined) {
+  if (!hasSettlementInterface) {
     return describeContest({ tokenId, instant, hasSettlementInterface: false, gap: undefined });
+  }
+
+  // Advertised contract conformance does not supply missing adapter methods.
+  // Refuse an unavailable read instead of asserting that the contract has no gaps.
+  if (typeof reader.openGapOf !== 'function') {
+    throw new TransportError('openGapOf', 'reader capability unavailable for advertised settlement interface');
+  }
+  if (typeof reader.settlement !== 'function') {
+    throw new TransportError('settlement', 'reader capability unavailable for advertised settlement interface');
   }
 
   const settlementId = await reader.openGapOf(tokenId);

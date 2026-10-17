@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
-import { handle } from '../../src/kit/api/routes.ts';
+import { handle, MAX_PAGE } from '../../src/kit/api/routes.ts';
 import { gateway } from './support/gateway.ts';
 import { createApi } from '../../src/kit/api/server.ts';
 import { ALICE, BOB, REFERENCE, admit, commitment, entry, harness } from './support/fixtures.ts';
@@ -212,9 +212,24 @@ test('a history listing is paged rather than returned whole', () => {
   const first = handle(h.store, { method: 'GET', path: '/projection/1/entries' }).body as { limit: number };
   assert.equal(first.limit, 100);
 
-  for (const query of [{ limit: '0' }, { limit: '101' }, { offset: '-1' }, { limit: 'all' }]) {
-    assert.equal(handle(h.store, { method: 'GET', path: '/projection/1/entries', query }).status, 400);
+  // A refused page says which bound it failed and what that bound is. MAX_PAGE
+  // is both the default and the maximum, and a bare MALFORMED_PAGE showed a
+  // caller neither.
+  for (const [query, message] of [
+    [{ limit: '0' }, `limit must be 1 to ${MAX_PAGE}`],
+    [{ limit: String(MAX_PAGE + 1) }, `limit must be 1 to ${MAX_PAGE}`],
+    [{ limit: 'all' }, `limit must be 1 to ${MAX_PAGE}`],
+    [{ limit: '1.5' }, `limit must be 1 to ${MAX_PAGE}`],
+    [{ offset: '-1' }, 'offset must be an integer of 0 or more'],
+    [{ offset: 'start' }, 'offset must be an integer of 0 or more'],
+  ] as [Record<string, string>, string][]) {
+    const refused = handle(h.store, { method: 'GET', path: '/projection/1/entries', query });
+    assert.equal(refused.status, 400);
+    assert.deepEqual(refused.body, { error: 'MALFORMED_PAGE', message });
   }
+  // The maximum itself is accepted, so the message states a bound that holds.
+  assert.equal(handle(h.store, { method: 'GET', path: '/projection/1/entries',
+    query: { limit: String(MAX_PAGE) } }).status, 200);
 });
 
 

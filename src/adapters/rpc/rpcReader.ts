@@ -65,9 +65,16 @@ export class RpcErc8415Reader implements Erc8415Reader {
     address: Address,
     options: RpcReaderOptions = {},
   ) {
+    const logWindow = options.logWindow ?? DEFAULT_LOG_WINDOW;
+    if (logWindow <= 0n) {
+      throw new ValueOutOfRangeError('logWindow', logWindow);
+    }
+    if (options.fromBlock !== undefined && options.fromBlock < 0n) {
+      throw new ValueOutOfRangeError('fromBlock', options.fromBlock);
+    }
     this.#transport = transport;
     this.source = { chainId, address };
-    this.#logWindow = options.logWindow ?? DEFAULT_LOG_WINDOW;
+    this.#logWindow = logWindow;
     this.#configuredFromBlock = options.fromBlock;
   }
 
@@ -124,7 +131,7 @@ export class RpcErc8415Reader implements Erc8415Reader {
         fromBlock: `0x${from.toString(16)}`,
         toBlock: `0x${to.toString(16)}`,
       });
-      for (const entry of raw) collected.push(toRawLog(entry));
+      for (const entry of raw) collected.push(toRawLog(entry, filter.address, from, to));
     }
     return collected;
   }
@@ -312,23 +319,36 @@ function stripsToNothing(result: string): boolean {
   return result === '0x' || result === '0X' || result === '';
 }
 
-function toRawLog(value: unknown): RawLog {
-  const log = value as {
-    address?: string;
-    topics?: string[];
-    data?: string;
-    blockNumber?: string;
-    logIndex?: string;
+function toRawLog(value: unknown, address: Address, from: bigint, to: bigint): RawLog {
+  const invalid = (): never => {
+    throw new TransportError('eth_getLogs', 'malformed, removed, or out-of-window log result');
   };
-  if (typeof log.address !== 'string' || !Array.isArray(log.topics)) {
-    throw new ValueOutOfRangeError('log payload', 0n);
-  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return invalid();
+  const log = value as Record<string, unknown>;
+  const rawAddress = log['address'];
+  const topics = log['topics'];
+  const data = log['data'];
+  const blockNumber = log['blockNumber'];
+  const logIndex = log['logIndex'];
+  const removed = log['removed'];
+  if (
+    typeof rawAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(rawAddress) ||
+    rawAddress.toLowerCase() !== address.toLowerCase() ||
+    !Array.isArray(topics) ||
+    !topics.every((topic: unknown) => typeof topic === 'string' && /^0x[0-9a-fA-F]{64}$/.test(topic)) ||
+    typeof data !== 'string' || !/^0x(?:[0-9a-fA-F]{2})*$/.test(data) ||
+    typeof blockNumber !== 'string' || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(blockNumber) ||
+    typeof logIndex !== 'string' || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(logIndex) ||
+    (removed !== undefined && removed !== false)
+  ) return invalid();
+  const number = BigInt(blockNumber);
+  if (number < from || number > to) return invalid();
   return {
-    address: log.address,
-    topics: log.topics,
-    data: log.data ?? '0x',
-    blockNumber: BigInt(log.blockNumber ?? '0x0'),
-    logIndex: BigInt(log.logIndex ?? '0x0'),
+    address: rawAddress,
+    topics: [...topics] as string[],
+    data,
+    blockNumber: number,
+    logIndex: BigInt(logIndex),
   };
 }
 

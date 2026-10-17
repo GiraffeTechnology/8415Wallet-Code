@@ -90,14 +90,30 @@ document.addEventListener('wallet:native-view', event => {
   paint(el('native-owner'), view.tradeablePosition.owner);
   paint(el('native-holder'), view.confirmedHolder.holder);
   paint(el('native-entry'), msg('design.entry', { version: view.confirmedHolder.version }));
-  paint(el('native-finality'), msg(view.presentFinality.final ? 'design.finalityAnomaly' : 'design.provisional'));
-  el('native-finality').className = `badge ${view.presentFinality.final ? 'danger' : 'warning'}`;
+  // The answer and how it stands against the rule are separate facts. A final
+  // present instant is legitimate while an admitted entry's effective time is
+  // still ahead of it, so only a disagreement is shown as an inconsistency,
+  // and an unobtained boundary is shown as neither.
+  const finality = view.presentFinality;
+  // Only a standing that is explicitly consistent earns a settled label: any
+  // other value, including one a view did not state, is shown as unchecked.
+  const standing = finality.agreement === 'consistent'
+    ? finality.final
+      ? { label: 'design.finalityCovered', note: 'design.finalityCoveredNote', tone: '' }
+      : { label: 'design.provisional', note: null, tone: 'warning' }
+    : finality.agreement === 'disagrees'
+      ? finality.final
+        ? { label: 'design.finalityAnomaly', note: 'design.finalityAnomalyNote', tone: 'danger' }
+        : { label: 'design.finalityWithheld', note: 'design.finalityWithheldNote', tone: 'danger' }
+      : { label: 'design.finalityUnverified', note: 'design.finalityUnverifiedNote', tone: 'warning' };
+  paint(el('native-finality'), msg(standing.label));
+  el('native-finality').className = `badge ${standing.tone}`;
   paint(el('native-gap'), msg(view.gap.kind === 'open' ? 'design.openGap' : view.gap.kind === 'none' ? 'design.closedGap' : 'design.noSettlement'));
   el('native-gap').className = `badge ${view.gap.kind === 'open' ? 'warning' : ''}`;
   paint(el('native-contested'), view.gap.kind === 'open' ? msg('design.contestedFrom', { instant: view.gap.openedAt }) : msg(view.gap.kind === 'none' ? 'design.notContested' : 'design.noSettlement'));
   el('native-contested').className = `badge ${view.gap.kind === 'open' ? 'danger' : ''}`;
   paint(el('native-freshness'), msg('design.freshnessUnread'));
-  paint(el('native-status'), view.presentFinality.final ? msg('design.finalityAnomalyNote') : msg('design.snapshot', { instant: view.observedAt }));
+  paint(el('native-status'), standing.note ? msg(standing.note) : msg('design.snapshot', { instant: view.observedAt }));
 });
 walletLogin.subscribe(session => {
   authenticated = !!session;

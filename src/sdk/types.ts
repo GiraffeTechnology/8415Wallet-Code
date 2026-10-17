@@ -25,8 +25,9 @@ export type TokenId = bigint;
  * Held as `bigint` rather than `number` deliberately. A conforming contract
  * may carry an `effectiveAt` anywhere in `uint64`, and the ERC names a
  * far-future effective time as a state a consumer must be able to see
- * accurately — it permanently ends the projection for that token. Narrowing to
- * a double would lose exactly the values worth reporting.
+ * accurately — it blocks every later entry that is not further ahead still,
+ * without being terminal in itself.
+ * Narrowing to a double would lose exactly the values worth reporting.
  */
 export type Instant = bigint;
 

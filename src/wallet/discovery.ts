@@ -70,13 +70,9 @@ export async function discoverHeldTokens(
   const held: HeldToken[] = [];
   const movedOn: TokenId[] = [];
   for (const tokenId of [...candidates].sort((left, right) => (left < right ? -1 : 1))) {
-    let owner: Address;
-    try {
-      owner = await reader.ownerOf(tokenId);
-    } catch {
-      // Burned, or never really there. Not held either way.
-      continue;
-    }
+    // A failed read does not establish that a token was burned or moved.
+    // Preserve the original failure rather than publish a partial held list.
+    const owner = await reader.ownerOf(tokenId);
     if (owner !== account || owner === ZERO_ADDRESS) {
       movedOn.push(tokenId);
       continue;

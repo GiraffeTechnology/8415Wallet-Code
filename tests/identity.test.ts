@@ -17,6 +17,7 @@ import { detectConformance } from '../src/sdk/conformance.ts';
 import { IdentityChangedError } from '../src/sdk/errors.ts';
 import { ContractIdentityPin } from '../src/sdk/identity.ts';
 import { ZERO_BYTES32 } from '../src/sdk/types.ts';
+import { delegateReader } from './support/delegateReader.ts';
 
 describe('contract identity', () => {
   test('is nonzero and carries the chain and address it came from', async () => {
@@ -95,43 +96,148 @@ describe('contract identity', () => {
   });
 });
 
-for (const field of ['chainId', 'address'] as const) for (const when of ['before-first-read','after-pin']) {
-  test(`identity pin boundary: ${field} drift ${when} is refused`,async()=>{
-    const {reader}=divergentToken(), pin=new ContractIdentityPin(reader), conformance=await detectConformance(reader);
-    if(when==='after-pin')await pin.read(conformance);
-    Object.assign(reader.source,field==='chainId'?{chainId:reader.source.chainId+1n}:{address:`0x${'9'.repeat(40)}`});
-    await assert.rejects(()=>pin.read(conformance),IdentityChangedError);
+describe('identity pins cannot be rewritten by consumers', () => {
+  test('the first returned identity and getter expose a frozen primitive snapshot', async () => {
+    const { reader } = divergentToken();
+    const pin = new ContractIdentityPin(reader);
+    const conformance = await detectConformance(reader);
+    const first = await pin.read(conformance);
+    const original = { ...first };
+    assert.equal(pin.pinned, first);
+    assert.equal(Object.isFrozen(first), true);
+    for (const [field, replacement] of [
+      ['chainId', 999n],
+      ['address', ALICE],
+      ['registerId', commitment('f')],
+      ['verificationProfile', commitment('e')],
+    ] as const) {
+      assert.equal(Reflect.set(first, field, replacement), false);
+    }
+    assert.deepEqual(pin.pinned, original);
+    assert.deepEqual(await pin.read(conformance), original);
   });
-}
-test('identity pin boundary: returned identity cannot rewrite the session pin',async()=>{
-  const {reader}=divergentToken(), pin=new ContractIdentityPin(reader), conformance=await detectConformance(reader);
-  const observed=await pin.read(conformance), original=observed.registerId;
-  assert.equal(Reflect.set(observed,'registerId',`0x${'9'.repeat(64)}`),false);
-  assert.equal(Reflect.set(pin.pinned!,'chainId',999n),false);
-  assert.equal(pin.pinned?.registerId,original);
-  assert.deepEqual(await pin.read(conformance),observed);
-});
-test('identity pin boundary: source drift during identity await cannot publish mixed evidence',async()=>{
-  const {reader}=divergentToken(), original=reader.registerId.bind(reader);
-  reader.registerId=async()=>{Object.assign(reader.source,{chainId:reader.source.chainId+1n});return original();};
-  const pin=new ContractIdentityPin(reader),conformance=await detectConformance(reader);
-  await assert.rejects(()=>pin.read(conformance),IdentityChangedError);
-  assert.equal(pin.pinned,undefined);
+
+  test('the getter cannot be used to bless a changed register identifier', async () => {
+    const { reader } = divergentToken();
+    let registerId = await reader.registerId();
+    const bound = delegateReader(reader, { registerId: async () => registerId });
+    const pin = new ContractIdentityPin(bound);
+    const conformance = await detectConformance(bound);
+    const first = await pin.read(conformance);
+    registerId = commitment('f');
+    assert.equal(Reflect.set(pin.pinned!, 'registerId', registerId), false);
+    await assert.rejects(pin.read(conformance), IdentityChangedError);
+    assert.equal(pin.pinned, first);
+  });
+
+  test('a returned object cannot bless a changed verification profile', async () => {
+    const { reader } = divergentToken();
+    let profile = await reader.verificationProfile();
+    const bound = delegateReader(reader, { verificationProfile: async () => profile });
+    const pin = new ContractIdentityPin(bound);
+    const conformance = await detectConformance(bound);
+    const first = await pin.read(conformance);
+    profile = commitment('e');
+    assert.equal(Reflect.set(first, 'verificationProfile', profile), false);
+    await assert.rejects(pin.read(conformance), IdentityChangedError);
+    assert.equal(pin.pinned, first);
+  });
+
+  test('projection-only snapshots stay frozen with an absent profile', async () => {
+    const { reader } = projectionOnlyToken();
+    const pin = new ContractIdentityPin(reader);
+    const conformance = await detectConformance(reader);
+    const first = await pin.read(conformance);
+    assert.equal(first.verificationProfile, undefined);
+    assert.equal(Object.isFrozen(first), true);
+    assert.equal(Reflect.set(first, 'verificationProfile', commitment('e')), false);
+    assert.deepEqual(await pin.read(conformance), first);
+  });
 });
 
-for (const field of ['registerId', 'verificationProfile'] as const) {
-  for (const bad of [undefined, null, '0x12']) {
-    test(`identity pin malformed: ${field} ${String(bad)} rejects without pinning and permits retry`, async () => {
+describe('identity pins remain bound to their reader source', () => {
+  for (const field of ['chainId', 'address'] as const) {
+    for (const phase of ['before first read', 'after pinning'] as const) {
+      test(`rejects changed ${field} ${phase} even with identical register facts`, async () => {
+        const { reader } = divergentToken();
+        const source = { ...reader.source };
+        let identityReads = 0;
+        const bound = delegateReader(reader, {
+          source,
+          registerId: async () => { identityReads += 1; return reader.registerId(); },
+        });
+        const pin = new ContractIdentityPin(bound);
+        const conformance = await detectConformance(bound);
+        if (phase === 'after pinning') await pin.read(conformance);
+        const originalPin = pin.pinned;
+        const priorReads = identityReads;
+        if (field === 'chainId') source.chainId += 1n;
+        else source.address = ALICE;
+        await assert.rejects(pin.read(conformance), (error: unknown) => {
+          assert.ok(error instanceof IdentityChangedError);
+          assert.match(error.message, new RegExp(field + ' changed'));
+          return true;
+        });
+        assert.equal(identityReads, priorReads, 'refuse before new identity reads');
+        assert.equal(pin.pinned, originalPin);
+      });
+    }
+  }
+
+  for (const method of ['registerId', 'verificationProfile'] as const) {
+    test(`a source change during awaited ${method} cannot establish a pin`, async () => {
       const { reader } = divergentToken();
-      const original = reader[field].bind(reader);
-      let malformed = true;
-      reader[field] = async () => malformed ? bad as never : original();
-      const pin = new ContractIdentityPin(reader);
-      const conformance = await detectConformance(reader);
-      await assert.rejects(() => pin.read(conformance), IdentityChangedError);
+      const source = { ...reader.source };
+      const changeSource = async () => {
+        const value = await reader[method]();
+        source.chainId += 1n;
+        return value;
+      };
+      const bound = delegateReader(reader, {
+        source,
+        ...(method === 'registerId'
+          ? { registerId: changeSource }
+          : { verificationProfile: changeSource }),
+      });
+      const pin = new ContractIdentityPin(bound);
+      const conformance = await detectConformance(bound);
+      await assert.rejects(pin.read(conformance), IdentityChangedError);
       assert.equal(pin.pinned, undefined);
-      malformed = false;
-      assert.ok(await pin.read(conformance));
     });
   }
-}
+
+  // A malformed answer must not establish a pin, and must not poison the pin
+  // either: the next conforming answer still pins. Ported from the offline
+  // identity-session work, where this was the one case not already covered.
+  for (const field of ['registerId', 'verificationProfile'] as const) {
+    for (const bad of [undefined, null, '0x12']) {
+      test(`a malformed ${field} answer (${String(bad)}) refuses without pinning and permits a retry`, async () => {
+        const { reader } = divergentToken();
+        let malformed = true;
+        const bound = delegateReader(reader, {
+          [field]: async () => (malformed ? (bad as never) : reader[field]!()),
+        });
+        const pin = new ContractIdentityPin(bound);
+        const conformance = await detectConformance(bound);
+        await assert.rejects(pin.read(conformance), IdentityChangedError);
+        assert.equal(pin.pinned, undefined);
+        malformed = false;
+        assert.ok(await pin.read(conformance));
+      });
+    }
+  }
+
+  test('address case alone remains compatible and the captured label is stable', async () => {
+    const { reader } = divergentToken();
+    const source = { ...reader.source };
+    const bound = delegateReader(reader, { source });
+    const pin = new ContractIdentityPin(bound);
+    const conformance = await detectConformance(bound);
+    const first = await pin.read(conformance);
+    source.address = '0x' + source.address.slice(2).toUpperCase();
+    const next = await pin.read(conformance);
+    assert.deepEqual(next, first);
+    assert.equal(next.address, first.address);
+    assert.equal(Object.isFrozen(next), true);
+  });
+});
