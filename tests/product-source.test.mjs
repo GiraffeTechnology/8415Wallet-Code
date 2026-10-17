@@ -78,6 +78,20 @@ test('checked-in reviewed Wallet boundary has all exact entries mandatory', () =
   assert.equal(Object.hasOwn(currentPolicy, 'upstream'), false);
 });
 
+test('only the exact public requirement pin is admitted from general configuration', t => {
+  const f = fixture(t);
+  assert.ok(MANDATORY_PATHS.includes('config/current-prd.json'));
+  assert.ok(loadPolicy(f.policyPath, f.options.expectedAllowlistSha256).policy.entries.some(entry => entry.path === 'config/current-prd.json'));
+  const original = structuredClone(f.policy);
+  for (const path of ['config/private.json', 'config/current-prd.private.json', 'config/current-prd.json/secret.json', 'config/other/current-prd.json']) {
+    f.policy = structuredClone(original);
+    f.policy.entries.push({ path, mode: '100644', git_blob_sha1: '1'.repeat(40), sha256: '2'.repeat(64) });
+    f.policy.entries.sort((a, b) => a.path < b.path ? -1 : 1);
+    f.policy.mandatory.documentation.push(path); writePolicy(f);
+    assert.throws(() => loadPolicy(f.policyPath, f.options.expectedAllowlistSha256), /PATH_ALLOWLIST_REFUSED/);
+  }
+});
+
 test('reviewed policy legal notice and companion guide preserve distribution boundaries', () => {
   const notice = currentPolicy.entries.find(entry => entry.path === 'THIRD_PARTY_NOTICES.md');
   assert.equal(notice.git_blob_sha1, '5e1aa6fb3fb450da4c957a9398ebb9f962cd9625');

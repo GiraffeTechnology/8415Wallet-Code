@@ -82,7 +82,7 @@ deployment parameters; do not guess RPCs, signer bindings, contracts or credenti
 
 8415wallet is a general-purpose wallet; ERC-8415 support is additive. Xiongan is
 a V2 tenant, not another product. V2 and V3 DApp Betas remain distinct from SDK
-artifacts. Preserve supported existing asset interfaces, the standalone wallet
+artifacts. Preserve existing wallet and asset standards and supported interfaces, the standalone wallet
 and optional linked mode. ArtFi, Oracle, another wallet or payment adapter is not
 mandatory for standalone use.
 
@@ -91,8 +91,11 @@ fr, es and ja. Fixed UI text may be localized; signed terms, addresses, raw
 transaction values, identifiers and source token metadata may not be translated.
 Changing locale must not reload, reauthenticate, reset consent or send transactions.
 
-An origin includes scheme, host and port. Preserve journals and unknown outcomes
-at their original origins. Protect keys, databases, evidence, locks, shared
+A web origin is scheme, host **and port**. Preserve journals and unknown outcomes
+at their original origins; silently moving to a different origin strands them all.
+The product entry is 8415wallet.com; read docs/STANDARDS-COMPATIBILITY.md for the
+bounded native ERC-8415 and existing asset interface coverage, not universal validation.
+Protect keys, databases, evidence, locks, shared
 services and other-task dirty changes. At most two usable rollback versions may
 be retained in addition to production and active build/acceptance inputs; cleanup
 requires exact reference reconciliation and recovery-verified archival, not blind deletion.
@@ -113,7 +116,8 @@ controls scheduling.
 For native ERC-8415 implementation, also read the protocol specification and
 interfaces in GiraffeTechnology/ERC-8415 and the referenced discussion; where
 discussion and the ERC disagree, the ERC wins. Frozen ERC-165 interface IDs are
-0x6309e170 and 0xf4a7d71b. Never alter protocol semantics inside this wallet.
+`0x6309e170` for `IRegisterProjection` and `0xf4a7d71b` for `IProjectionSettlement`.
+Never alter protocol semantics inside this wallet.
 
 ---
 
