@@ -61,13 +61,28 @@ async function section<T>(read: () => Promise<T>): Promise<WorkspaceSection<T>> 
   }
 }
 
+/**
+ * Work limits for one interactive page, not protocol or chain-lifetime limits.
+ * They are exported and refused by name so a caller is told which bound it met.
+ */
+export const REGISTER_HISTORY_DEFAULT_LIMIT = 16;
+export const REGISTER_HISTORY_MAX_LIMIT = 64;
+
 /** Bounded navigation of the existing append-only register; no sorting/filtering or holder inference. */
 export async function readRegisterHistoryPage(
-  wallet: WalletSession, tokenId: bigint, startVersion = 1n, limit = 16,
+  wallet: WalletSession, tokenId: bigint, startVersion = 1n,
+  limit = REGISTER_HISTORY_DEFAULT_LIMIT,
 ): Promise<RegisterHistoryPage> {
+  // The page size is its own refusal: it is the one input here a caller can
+  // reasonably retry smaller, and a shared code left it indistinguishable from
+  // a malformed token id.
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > REGISTER_HISTORY_MAX_LIMIT) {
+    throw new Error(
+      `WORKSPACE_PAGE_LIMIT_REFUSED: 1 to ${REGISTER_HISTORY_MAX_LIMIT} entries per page, asked ${limit}`,
+    );
+  }
   requireWorkspace(typeof tokenId === 'bigint' && tokenId >= 0n &&
-    typeof startVersion === 'bigint' && startVersion >= 1n &&
-    Number.isSafeInteger(limit) && limit >= 1 && limit <= 64);
+    typeof startVersion === 'bigint' && startVersion >= 1n);
   const reader = wallet.reader;
   const conformance = await detectConformance(reader);
   requireProjectionConformance(reader, conformance);

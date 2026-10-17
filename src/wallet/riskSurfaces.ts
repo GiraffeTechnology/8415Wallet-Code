@@ -44,8 +44,6 @@ const NOTE =
   'safe or unsafe verdict, and gates nothing on them. What a right does with ' +
   'them is decided by its own terms.';
 
-/** A year, as the point past which a future effective time is worth remarking on. */
-const FAR_FUTURE_DRIFT = 365n * 24n * 60n * 60n;
 
 export async function buildRiskSurfaces(
   reader: Erc8415Reader,
@@ -83,9 +81,11 @@ export async function buildRiskSurfaces(
           `${standing} seconds have passed since. No entry has been admitted after it.`,
     meaning:
       'Finality depends on a later entry existing. A register that stops ' +
-      'producing entries leaves recent instants permanently non-final, and ' +
-      'anything waiting on them waits indefinitely. This is a liveness ' +
-      'dependency on the register and its profile, not a safety defect.',
+      'producing entries leaves recent instants non-final for as long as it ' +
+      'stays stopped, and anything waiting on them waits with them; a ' +
+      'genuine later entry, once registered, makes them final. The clock ' +
+      'running on does not do it. This is a liveness dependency on the ' +
+      'register and its profile, not a safety defect.',
     present: standing > 0n,
   });
 
@@ -181,7 +181,10 @@ export async function buildRiskSurfaces(
       'ahead an effective time may be. At the uint64 maximum, ' +
       'no greater effective time is representable. Assess the actual value ' +
       'and the profile; this measurement is not a finality verdict.',
-    present: drift > FAR_FUTURE_DRIFT,
+    // Any future effective time is reported, with the distance as the fact.
+    // A threshold here would decide for the reader when the distance starts to
+    // matter, and this surface scores nothing; the id is the original one.
+    present: drift > 0n,
   });
 
   return { tokenId, observedAt, surfaces, note: NOTE };
