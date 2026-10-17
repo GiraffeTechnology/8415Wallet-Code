@@ -191,7 +191,18 @@ test('provider function and observation policy are captured; caller mutation can
   f.input.observationPolicy.minimumConfirmations = '1';
   await assert.rejects(f.adapter.observe(f.input), /POLICY_MISMATCH/);
   f.input.observationPolicy.minimumConfirmations = '2'; assert.equal((await f.adapter.observe(f.input)).state, 'confirmed-at-depth');
-  assert.equal(TASK_RECEIPT_RUNTIME_FILES.length, 14); assert.ok(Object.isFrozen(TASK_RECEIPT_RUNTIME_FILES));
+  // The trusted runtime surface this port digests. A bare count went stale at
+  // 14 while the real list grew to 25, and a count proves nothing anyway, so
+  // assert what matters here: it cannot be mutated to redirect reads, it names
+  // no duplicates, it carries no test or UI code, and it still names the
+  // adapter and the shared encoder. Its membership is checked against the
+  // computed import graph by task-exact-planner-package-closure.
+  assert.ok(Object.isFrozen(TASK_RECEIPT_RUNTIME_FILES));
+  assert.equal(new Set(TASK_RECEIPT_RUNTIME_FILES).size, TASK_RECEIPT_RUNTIME_FILES.length);
+  assert.deepEqual(TASK_RECEIPT_RUNTIME_FILES.filter(path => /^(?:tests|web)\//.test(path)), []);
+  for (const path of ['server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs']) {
+    assert.ok(TASK_RECEIPT_RUNTIME_FILES.includes(path), path);
+  }
 });
 
 test('contradictory canonical original and replacement receipts never imply supersession', async () => {

@@ -396,6 +396,12 @@ test('balance lost while signer is active preserves signed UNKNOWN and never bro
   const f=await fixture({onSign({state}){state.balance='0x0';}}),reserved=await f.start();
   const result=await f.call('execute',f.body(reserved));assert.equal(result.outcome,'outcome-unknown');
   assert.equal(f.state.signCalls,1);assert.equal(f.state.broadcasts,0);
-  await f.call('recover',f.body(result));assert.equal(f.state.signCalls,1);assert.equal(f.state.broadcasts,0);
+  // Nothing was broadcast, so eth_getTransactionByHash has nothing to return
+  // and recovery cannot be established. Refusing is the required outcome: it
+  // keeps the signed attempt UNKNOWN instead of concluding "not mined", which
+  // is the only reading that would license a resend.
+  await assert.rejects(f.call('recover',f.body(result)),/TASK_EXACT_RECOVERY_NOT_ESTABLISHED/);
+  assert.equal(f.state.signCalls,1);assert.equal(f.state.broadcasts,0);
+  assert.equal((await f.status()).budget.reservations[0].status,'outcome-unknown');
 });
 

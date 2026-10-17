@@ -79,12 +79,27 @@ test('bounded JSON and exact integer/address/origin formats fail closed', () => 
   assert.throws(() => normalizeExistingOperation({ ...operation, recipient: valid.replace('aA', 'AA') }), /TASK_ADDRESS_REFUSED/);
   assert.throws(() => normalizeExistingOperation({ ...operation, recipient: a('0') }), /TASK_ADDRESS_REFUSED/);
 });
+const mint = (chainId: string) => ({ kind: 'artfi-test-series-mint', chainId, actor, taskId: 'mint-1',
+  collection: { contract, runtimeCodeHash: h('6') }, artworkId: h('7'), masterArtworkHash: h('8'),
+  metadataHash: h('9'), distributionWallet: buyer, metadataURI: 'https://example.com/meta.json' });
 test('the existing asset and controlled-account chain policies remain separate', () => {
-  for (const chainId of ['1', '8453', '11155111', '84532']) assert.equal(normalizeExistingOperation({ ...operation, chainId }).chainId, chainId);
+  // The scoped test-asset flow admitted 560048 to ASSET_CHAINS, so an asset
+  // operation on Hoodi is now accepted and this no longer refuses. The three
+  // lists stay distinct, and each still refuses what it does not name.
+  for (const chainId of ['1', '8453', '11155111', '84532', '560048']) assert.equal(normalizeExistingOperation({ ...operation, chainId }).chainId, chainId);
   const controller = { contract: a('4'), runtimeCodeHash: h('5') };
   for (const chainId of ['11155111', '560048']) assert.equal(normalizeExistingOperation({ kind: 'create-account', chainId, actor, controller }).chainId, chainId);
-  assert.throws(() => normalizeExistingOperation({ kind: 'create-account', chainId: '1', actor, controller }), /TASK_CHAIN_REFUSED/);
-  assert.throws(() => normalizeExistingOperation({ ...operation, chainId: '560048' }), /TASK_CHAIN_REFUSED/);
+  // Control operations stay narrower than asset operations.
+  for (const chainId of ['1', '8453', '84532']) assert.throws(() => normalizeExistingOperation({ kind: 'create-account', chainId, actor, controller }), /TASK_CHAIN_REFUSED/);
+  // A chain in neither list is refused for both shapes.
+  for (const chainId of ['137', '10']) {
+    assert.throws(() => normalizeExistingOperation({ ...operation, chainId }), /TASK_CHAIN_REFUSED/);
+    assert.throws(() => normalizeExistingOperation({ kind: 'create-account', chainId, actor, controller }), /TASK_CHAIN_REFUSED/);
+  }
+  // The test-series mint is Hoodi-only: every other chain is refused, which is
+  // the narrowest of the three policies and the one widening must not relax.
+  assert.equal(normalizeExistingOperation(mint('560048')).chainId, '560048');
+  for (const chainId of ['1', '8453', '11155111', '84532', '137']) assert.throws(() => normalizeExistingOperation(mint(chainId)), /TASK_CHAIN_REFUSED/);
 });
 test('all nine existing bounded operation kinds have canonical representations', () => {
   const identity = { chainId: '11155111', actor }, controller = { contract: a('4'), runtimeCodeHash: h('5') }, token = { contract, runtimeCodeHash: h('6') };
