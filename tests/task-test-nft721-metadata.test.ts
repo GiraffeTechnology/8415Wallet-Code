@@ -3,9 +3,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createTaskNFT721MetadataVerifier,verifyTestNFT721Metadata} from '../server/task-test-nft721-metadata.mjs';
-const h=n=>'0x'+n.repeat(64),actor='0x'+'1'.repeat(40),collection='0x'+'2'.repeat(40);
+const h=(n:string)=>'0x'+n.repeat(64),actor='0x'+'1'.repeat(40),collection='0x'+'2'.repeat(40);
+type MetadataBody={name:string;description:string;image?:string;properties:{testOnly:boolean;chainId:number;assetKind:number;
+ sourceSha256:string;realWorldValue:boolean;legalTitle:boolean;institutionalSourceEvidence:boolean}};
+type RequestOptions={method:string;redirect:string;credentials:string;referrerPolicy:string;headers:{accept:string}};
+type RedirectFixture={status:number;redirected:boolean;headers:Headers};
 const description='TESTNET / NO REAL-WORLD VALUE / NO LEGAL EFFECT. Task-generated isolated technical input. No real warehouse, custody, institutional evidence, physical title, donation or production rights are asserted.';
-function fixture(change=v=>v,encode=v=>JSON.stringify(v,null,2)+'\n') {
+function fixture(change:(v:MetadataBody)=>MetadataBody=v=>v,encode:(v:MetadataBody)=>string=v=>JSON.stringify(v,null,2)+'\n') {
  const body=change({name:'Simulated warehouse record - TESTNET',description,properties:{testOnly:true,chainId:560048,assetKind:0,
    sourceSha256:h('6').slice(2),realWorldValue:false,legalTitle:false,institutionalSourceEvidence:false}});
  const bytes=Buffer.from(encode(body)),metadataHash='0x'+createHash('sha256').update(bytes).digest('hex');
@@ -14,14 +18,14 @@ function fixture(change=v=>v,encode=v=>JSON.stringify(v,null,2)+'\n') {
    artifactDigest:h('4'),chainId:'560048',actor,collection:{contract:collection,runtimeCodeHash:h('5')},sourceHash:h('6'),assetKind:0,metadataHash,metadataURI:uri};
  const publication={schema:'8415-hoodi-test-metadata-publication/1',taskId:operation.taskId,chainId:'560048',uri,sourceHash:operation.sourceHash,
    assetKind:0,metadataHash,byteLength:bytes.length};
- const calls=[];
- const request=async(url,options)=>{calls.push({url,options});return new Response(bytes,{status:200,headers:{'content-type':'application/json; charset=utf-8','content-length':String(bytes.length)}});};
+ const calls:{url:string;options:RequestOptions}[]=[];
+ const request=async(url:string,options:RequestOptions):Promise<Response|RedirectFixture>=>{calls.push({url,options});return new Response(bytes,{status:200,headers:{'content-type':'application/json; charset=utf-8','content-length':String(bytes.length)}});};
  return {operation,publication,timeoutMs:1000,fetch:request,bytes,calls};
 }
 test('exact server-registered HTTPS raw bytes preserve hash/length and explicitly do not assert source authority',async()=>{
  const f=fixture(),result=await verifyTestNFT721Metadata(f);assert.equal(result.metadataHash,f.operation.metadataHash);
  assert.equal(result.byteLength,f.bytes.length);assert.equal(result.sourceAuthenticity,false);assert.equal(result.institutionalSourceEvidence,false);
- assert.equal(f.calls.length,1);const {url,options}=f.calls[0];assert.equal(url,f.publication.uri);
+ assert.equal(f.calls.length,1);const {url,options}=f.calls[0]!;assert.equal(url,f.publication.uri);
  assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.equal(options.credentials,'omit');
  assert.equal(options.referrerPolicy,'no-referrer');assert.deepEqual(options.headers,{accept:'application/json'});
 });
@@ -33,7 +37,7 @@ test('server factory captures registrations and refuses unregistered task JSON b
  await assert.rejects(verifier.verify({...f.operation,taskId:'unknown'}),/METADATA_REFUSED/);assert.equal(f.calls.length,count);
 });
 test('metadata registrations and timeout bind identity; no construction performs a read',()=>{
- const f=fixture(),make=(publications,timeoutMs)=>createTaskNFT721MetadataVerifier({publications,timeoutMs,fetch:f.fetch});
+ const f=fixture(),make=(publications:unknown[],timeoutMs:number)=>createTaskNFT721MetadataVerifier({publications,timeoutMs,fetch:f.fetch});
  const first=make([f.publication],1000);assert.notEqual(first.identity.configurationDigest,make([f.publication],2000).identity.configurationDigest);
  assert.notEqual(first.identity.configurationDigest,make([],1000).identity.configurationDigest);assert.equal(f.calls.length,0);
  assert.throws(()=>make([f.publication,f.publication],1000),/METADATA_REFUSED/);
@@ -46,20 +50,20 @@ test('a request cannot invent a publication origin/path, query, userinfo or alte
  }
 });
 test('noncanonical JSON, hidden fields, value/title claims and wrong source/kind refuse even with a matching raw digest',async()=>{
- const changes=[v=>({...v,image:'https://example.invalid/image'}),v=>({...v,description:'real warehouse'}),
+ const changes:((v:MetadataBody)=>MetadataBody)[]=[v=>({...v,image:'https://example.invalid/image'}),v=>({...v,description:'real warehouse'}),
    v=>({...v,properties:{...v.properties,legalTitle:true}}),v=>({...v,properties:{...v.properties,institutionalSourceEvidence:true}}),
    v=>({...v,properties:{...v.properties,sourceSha256:h('7').slice(2)}}),v=>({...v,properties:{...v.properties,assetKind:1}})];
  for(const change of changes)await assert.rejects(verifyTestNFT721Metadata(fixture(change)),/METADATA_REFUSED/);
- for(const encode of [v=>JSON.stringify(v),v=>JSON.stringify(v,null,2)+'\r\n',v=>'\ufeff'+JSON.stringify(v,null,2)+'\n',
-   v=>JSON.stringify(v,null,2).replace('"properties": {','"name":"duplicate",\n  "properties": {')+'\n'])
+ for(const encode of [(v:MetadataBody)=>JSON.stringify(v),(v:MetadataBody)=>JSON.stringify(v,null,2)+'\r\n',(v:MetadataBody)=>'\ufeff'+JSON.stringify(v,null,2)+'\n',
+   (v:MetadataBody)=>JSON.stringify(v,null,2).replace('"properties": {','"name":"duplicate",\n  "properties": {')+'\n'])
    await assert.rejects(verifyTestNFT721Metadata(fixture(v=>v,encode)),/METADATA_REFUSED/);
 });
 test('changed raw bytes, oversized stream, redirect and non-JSON/error responses never establish readback',async()=>{
- for(const make of [f=>new Response(Buffer.concat([f.bytes,Buffer.from(' ')]),{headers:{'content-type':'application/json'}}),
-   f=>new Response(Buffer.from(f.bytes.toString().replace('TESTNET','testnet')),{headers:{'content-type':'application/json'}}),
-   f=>new Response(f.bytes,{status:503,headers:{'content-type':'application/json'}}),
-   f=>new Response(f.bytes,{headers:{'content-type':'text/html'}}),
-   f=>({status:200,redirected:true,headers:new Headers({'content-type':'application/json'})})]) {
+ for(const make of [(f:ReturnType<typeof fixture>)=>new Response(Buffer.concat([f.bytes,Buffer.from(' ')]),{headers:{'content-type':'application/json'}}),
+   (f:ReturnType<typeof fixture>)=>new Response(Buffer.from(f.bytes.toString().replace('TESTNET','testnet')),{headers:{'content-type':'application/json'}}),
+   (f:ReturnType<typeof fixture>)=>new Response(f.bytes,{status:503,headers:{'content-type':'application/json'}}),
+   (f:ReturnType<typeof fixture>)=>new Response(f.bytes,{headers:{'content-type':'text/html'}}),
+   (_f:ReturnType<typeof fixture>)=>({status:200,redirected:true,headers:new Headers({'content-type':'application/json'})})]) {
    const f=fixture();f.fetch=async()=>make(f);await assert.rejects(verifyTestNFT721Metadata(f),/METADATA_REFUSED/);
  }
 });

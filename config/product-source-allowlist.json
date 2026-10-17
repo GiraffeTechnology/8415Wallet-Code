@@ -1245,8 +1245,8 @@
     {
       "path": "src/agent/taskContract.ts",
       "mode": "100644",
-      "git_blob_sha1": "a4fb75703ba1f40a020fdeae33cb78fb75451e5c",
-      "sha256": "114de5a5c0563038bfdc3d1e233837658376a3614795659f4e0dff90009586b2"
+      "git_blob_sha1": "102e204cf924e0da8485e308a3537e4504128dab",
+      "sha256": "b0d67b35bd31e15f61e5ad2a686659358e6d35bde5d744ae38400b02f75df07c"
     },
     {
       "path": "src/browser.ts",

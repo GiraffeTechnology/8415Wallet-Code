@@ -113,7 +113,7 @@ export function normalizeExistingOperation(value: unknown): ExistingOperation {
       new TextEncoder().encode(r.metadataURI).length <= 512 && !/[\x00-\x20\x7f]/.test(r.metadataURI), 'TASK_TEST_MINT_METADATA_REFUSED');
     return freeze({ ...identity, kind, taskId:text(r.taskId), sourceTaskId:text(r.sourceTaskId), taskIdBytes32:hash(r.taskIdBytes32),
       artifactDigest:hash(r.artifactDigest), collection:pin(r.collection), sourceHash:hash(r.sourceHash),
-      assetKind:r.assetKind, metadataHash:hash(r.metadataHash), metadataURI:r.metadataURI });
+      assetKind:r.assetKind as 0 | 1, metadataHash:hash(r.metadataHash), metadataURI:r.metadataURI });
   }
   if (kind === 'artfi-test-series-mint') {
     refuse(identity.chainId === '560048', 'TASK_CHAIN_REFUSED');

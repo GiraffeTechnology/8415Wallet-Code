@@ -6,25 +6,27 @@ import {encodeTestNFT721Mint} from '../server/task-test-nft721-contract.mjs';
 import {hashControlBytes} from '../src/controls/authorization.ts';
 import {normalizeTestNFT721Bindings,testNFT721BindingForOperation,testNFT721OperationRequest,
   normalizeTestNFT721OperationResult} from '../server/task-test-nft721-binding.mjs';
-const h=n=>'0x'+n.repeat(64),actor='0x'+'1'.repeat(40),collection='0x'+'2'.repeat(40);
-const operation=()=>({kind:'artfi-test-nft721-mint',taskId:'wallet:mint:synthetic:1',sourceTaskId:'producer:original:synthetic',
+const h=(n:string)=>'0x'+n.repeat(64),actor='0x'+'1'.repeat(40),collection='0x'+'2'.repeat(40);
+const operation=()=>({kind:'artfi-test-nft721-mint' as const,taskId:'wallet:mint:synthetic:1',sourceTaskId:'producer:original:synthetic',
   taskIdBytes32:h('3'),artifactDigest:h('4'),chainId:'560048',actor,
-  collection:{contract:collection,runtimeCodeHash:h('5')},sourceHash:h('6'),assetKind:0,metadataHash:h('7'),
+  collection:{contract:collection,runtimeCodeHash:h('5')},sourceHash:h('6'),assetKind:0 as const,metadataHash:h('7'),
   metadataURI:'ipfs://synthetic-test-only'});
-const row=op=>({taskId:op.taskId,binding:{schema:'8415-hoodi-test-nft-deployment/1',artifactDigest:op.artifactDigest,
+const row=(op:ReturnType<typeof operation>)=>({taskId:op.taskId,binding:{schema:'8415-hoodi-test-nft-deployment/1',artifactDigest:op.artifactDigest,
   chainId:op.chainId,collection:op.collection.contract,runtimeCodeHash:op.collection.runtimeCodeHash,issuer:op.actor,
   taskId:op.sourceTaskId,taskIdBytes32:op.taskIdBytes32}});
-const taskFor=op=>freezeTaskPolicy({schema:'8415-agent-task/1',taskId:op.taskId,tenant:'default',
+const taskFor=(op:ReturnType<typeof operation>)=>freezeTaskPolicy({schema:'8415-agent-task/1',taskId:op.taskId,tenant:'default',
   origin:'https://wallet.example.invalid',chainId:op.chainId,actor:op.actor,expiresAt:'2000',
   fees:{perOperationWei:'1000000',totalWei:'1000000'},intent:{kind:'exact-operation',operation:op}});
 test('Wallet authorization task and opaque producer task pair remain separate exact fields',()=>{
   const op=operation(),task=taskFor(op),rows=normalizeTestNFT721Bindings([row(op)]);
   assert.notEqual(op.taskId,op.sourceTaskId);assert.equal(testNFT721OperationRequest(op).taskId,op.sourceTaskId);
   assert.equal(testNFT721OperationRequest(op).taskIdBytes32,op.taskIdBytes32);
+  assert.ok(task.policy.intent.kind==='exact-operation');
   assert.equal(testNFT721BindingForOperation(rows,task.policy.intent.operation).taskId,op.sourceTaskId);
+  assert.ok(rows[0]);
   assert.ok(Object.isFrozen(rows)&&Object.isFrozen(rows[0])&&Object.isFrozen(rows[0].binding));
   const raw=row(op);const captured=normalizeTestNFT721Bindings([raw]);raw.binding.taskIdBytes32=h('8');
-  assert.equal(captured[0].binding.taskIdBytes32,op.taskIdBytes32);
+  assert.equal(captured[0]!.binding.taskIdBytes32,op.taskIdBytes32);
 });
 test('typed ERC721 mint rejects another parent, network, arbitrary data and unsupported asset kind',()=>{
   const op=operation();
@@ -48,7 +50,7 @@ test('equivalent binding key order has one canonical captured identity',()=>{
 });
 test('child wire remains zero-value, fixed four-argument ABI and exact collection',()=>{
   const op=operation(),task=taskFor(op),wire=encodeTestNFT721Mint(testNFT721OperationRequest(op));
-  const make=changes=>freezeChildOperation({schema:'8415-agent-child/1',operationId:'mint:child',taskDigest:task.digest,
+  const make=(changes:Partial<{to:string;calldataHash:string;valueWei:string}>)=>freezeChildOperation({schema:'8415-agent-child/1',operationId:'mint:child',taskDigest:task.digest,
     operation:op,nonce:'7',expiresAt:'1500',wire:{to:wire.to,calldataHash:hashControlBytes(wire.data),valueWei:'0',...changes},
     fees:{gasLimit:'100000',maxFeePerGasWei:'10'},market:null});
   assert.notEqual(assessChildScope(task,make({}),1000n).state,'outside-declared-scope');

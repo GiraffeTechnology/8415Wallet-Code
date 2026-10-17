@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Interface,keccak256,ZeroAddress} from 'ethers';
 import {normalizeTestNFT721Bindings,verifyTestNFT721OperationPreflight,readTestNFT721OperationResult} from '../server/task-test-nft721-binding.mjs';
-const h=n=>'0x'+n.repeat(64),actor='0x'+'1'.repeat(40),collection='0x'+'2'.repeat(40),code='0x6000',tx=h('a'),block=h('b');
+const h=(n:string)=>'0x'+n.repeat(64),actor='0x'+'1'.repeat(40),collection='0x'+'2'.repeat(40),code='0x6000',tx=h('a'),block=h('b');
+type RpcRequest={method:string;params?:readonly unknown[]};
 const abi=new Interface([
  'function issuer() view returns(address)','function taskId() view returns(bytes32)',
  'function tokenBySourceHash(bytes32) view returns(uint256)',
@@ -18,19 +19,21 @@ function fixture() {
    assetKind:1,metadataHash:h('6'),metadataURI:'ipfs://synthetic-test-only'};
  const row={taskId:operation.taskId,binding:{schema:'8415-hoodi-test-nft-deployment/1',artifactDigest:operation.artifactDigest,chainId:'560048',
    collection,runtimeCodeHash:keccak256(code),issuer:actor,taskId:operation.sourceTaskId,taskIdBytes32:operation.taskIdBytes32}};
- const bindings=normalizeTestNFT721Bindings([row]),calls=[],state={canonical:block,token:11n,owner:actor,sourceHash:operation.sourceHash};
- const log=(name,args)=>({...abi.encodeEventLog(abi.getEvent(name),args),address:collection,blockHash:block,transactionHash:tx,removed:false});
+ const bindings=normalizeTestNFT721Bindings([row]),calls:string[]=[],state={canonical:block,token:11n,owner:actor,sourceHash:operation.sourceHash};
+ const log=(name:string,args:readonly unknown[])=>{const event=abi.getEvent(name);assert.ok(event);
+   return {...abi.encodeEventLog(event,args),address:collection,blockHash:block,transactionHash:tx,removed:false};};
  const logs=[log('TestNFTMinted',[11n,operation.taskIdBytes32,operation.sourceHash,actor,operation.assetKind,operation.metadataHash,operation.metadataURI]),
    log('Transfer',[ZeroAddress,actor,11n])];
  const receipt={transactionHash:tx,status:'0x1',from:actor,to:collection,blockNumber:'0x10',blockHash:block,logs};
- const provider={async request({method,params=[]}) {
+ const provider={async request({method,params=[]}:RpcRequest) {
    calls.push(method);
    if(method==='eth_chainId')return '0x88bb0';
    if(method==='eth_getBlockByNumber')return {number:'0x10',hash:state.canonical};
    if(method==='eth_getCode')return code;
    if(method==='eth_getTransactionReceipt')return structuredClone(receipt);
    if(method==='eth_call'){
-     const parsed=abi.parseTransaction({data:params[0].data}),name=parsed.name;
+     const call=params[0];assert.ok(call&&typeof call==='object'&&'data' in call&&typeof call.data==='string');
+     const parsed=abi.parseTransaction({data:call.data});assert.ok(parsed);const name=parsed.name;
      const value=name==='issuer'?actor:name==='ownerOf'?state.owner:name==='taskId'?operation.taskIdBytes32:
        name==='tokenBySourceHash'?state.token:name==='tokenURI'?operation.metadataURI:[state.sourceHash,operation.metadataHash,operation.assetKind];
      return abi.encodeFunctionResult(name,[value]);
@@ -50,7 +53,7 @@ test('actual receipt-derived ERC721 token keeps both task identities and exact r
 test('provider-time input mutation cannot relabel the captured task or artifact after verification',async()=>{
  const f=fixture(),original=f.provider.request.bind(f.provider),taskId=f.operation.taskId,artifactDigest=f.operation.artifactDigest;
  let mutated=false;
- f.provider={async request(args){if(!mutated){mutated=true;f.operation.taskId='mutated:task';f.operation.artifactDigest=h('e');}
+ f.provider={async request(args:RpcRequest){if(!mutated){mutated=true;f.operation.taskId='mutated:task';f.operation.artifactDigest=h('e');}
    return original(args);}};
  const result=await readTestNFT721OperationResult(f);
  assert.equal(result.taskId,taskId);assert.equal(result.artifactDigest,artifactDigest);
@@ -68,8 +71,8 @@ test('unadmitted task or altered artifact refuses before provider calls',async()
  }
 });
 test('missing pair event, canonical drift or wrong owner/source mappings cannot become mint evidence',async()=>{
- for(const mutate of [f=>{f.receipt.logs.pop();},f=>{f.receipt.logs[0].removed=true;},f=>{f.state.canonical=h('c');},
-   f=>{f.state.owner=collection;},f=>{f.state.sourceHash=h('d');},f=>{f.state.token=12n;}]) {
+ for(const mutate of [(f:ReturnType<typeof fixture>)=>{f.receipt.logs.pop();},(f:ReturnType<typeof fixture>)=>{f.receipt.logs[0]!.removed=true;},(f:ReturnType<typeof fixture>)=>{f.state.canonical=h('c');},
+   (f:ReturnType<typeof fixture>)=>{f.state.owner=collection;},(f:ReturnType<typeof fixture>)=>{f.state.sourceHash=h('d');},(f:ReturnType<typeof fixture>)=>{f.state.token=12n;}]) {
    const f=fixture();mutate(f);await assert.rejects(readTestNFT721OperationResult(f));
  }
 });

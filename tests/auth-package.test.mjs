@@ -289,6 +289,7 @@ test('task runtime source closure has the exact planner, signer, encoding, contr
   // checks against the computed import graph.
   assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, ['server/task-runtime-import-probe.mjs',
     'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
+    'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
     'server/task-exact-chain-state.mjs', 'server/task-exact-bootstrap.mjs',
     'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
     'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs',
