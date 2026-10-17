@@ -20,6 +20,8 @@ export { TransactionWouldRevertError } from './sdk/transactions.ts';
 export { LegacyClearingSession, parseLegacyClearingState, parseLegacyClearingDeployment, legacyTradeKey, CLEARING_NOTES } from './wallet/legacyClearingSession.ts';
 export type { Erc20Balance, Erc20Metadata, AssetReview, AssetState, AssetStore, AssetTransaction, AssetReceipt } from './xiongan/externalAssets.ts';
 export * from './agent/taskContract.ts';
+export { assetBoundedTaskFees, committedFeeWei, AssetBudgetError } from './agent/assetBudget.ts';
+export type { AssetBoundedFees } from './agent/assetBudget.ts';
 export * from './agent/receiptObservation.ts';
 
 export { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from './agent/receiptTask.ts';
