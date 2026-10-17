@@ -110,3 +110,27 @@ test('no locale describes the future-effective block as lifting on its own', () 
     assert.match(text, required, id);
   }
 });
+
+test('a future effective time inside the former year-long threshold is reported, not withheld', async () => {
+  // A year was the invented point past which this was flagged, so a value a
+  // month ahead was carried in the finding and left unflagged. The distance is
+  // the fact; nothing here decides when it starts to matter.
+  const reader = new EffectiveTimeFixture(divergentToken().contract);
+  reader.offset = 30n * 24n * 60n * 60n;
+  const view = await buildRiskSurfaces(reader, TOKEN);
+  const future = view.surfaces.find((surface) => surface.id === 'far-future-effective-time');
+  assert.ok(future);
+  assert.equal(future.present, true);
+  assert.match(future.finding, new RegExp(`${30n * 24n * 60n * 60n} seconds ahead of now`));
+  assert.doesNotMatch(future.meaning, /year/);
+
+  // One second ahead is still a future effective time; zero is not.
+  reader.offset = 1n;
+  const second = await buildRiskSurfaces(reader, TOKEN);
+  assert.equal(second.surfaces.find((surface) => surface.id === 'far-future-effective-time')?.present, true);
+  reader.offset = 0n;
+  const none = await buildRiskSurfaces(reader, TOKEN);
+  const absent = none.surfaces.find((surface) => surface.id === 'far-future-effective-time');
+  assert.equal(absent?.present, false);
+  assert.match(absent?.finding ?? '', /at or before now/);
+});

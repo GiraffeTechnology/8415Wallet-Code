@@ -1622,8 +1622,8 @@
     {
       "path": "src/wallet/assetWorkspace.ts",
       "mode": "100644",
-      "git_blob_sha1": "98892dce8b870cd6ae4977120d987c6bd69660ed",
-      "sha256": "73f78ee663a0f86ba49d95e55caabd025b948dcfbbccdf3a6e2974fea9179bf2"
+      "git_blob_sha1": "7d8a78e57bc2bdc4edb0bbd490bf931e3f17e58e",
+      "sha256": "2eb79c91c97c9c2bbe978165d8b17813e766cc69270d13799087b37c021a30e7"
     },
     {
       "path": "src/wallet/auditTrail.ts",
@@ -1634,8 +1634,8 @@
     {
       "path": "src/wallet/collisions.ts",
       "mode": "100644",
-      "git_blob_sha1": "2db0b8aaaf88e0c974e87a343476eb8b8f51a3e9",
-      "sha256": "42ec6a2eb0350b7f337f1d95de8b215afa73c07ac126baca5b9ebb22bdb22f66"
+      "git_blob_sha1": "153aed2ea1c71dfb76b658a1b8248f8000bbd73f",
+      "sha256": "9c91c8da0c3570fd161c9f9e7c5bf3bde907d06824841a3001fefb1c75bdf723"
     },
     {
       "path": "src/wallet/contested.ts",
@@ -1772,8 +1772,8 @@
     {
       "path": "src/wallet/riskSurfaces.ts",
       "mode": "100644",
-      "git_blob_sha1": "733eaffb2f78075351fe1dada8490b8bc0275d0f",
-      "sha256": "121fcd473f9462ffaf996600053e736b29ecc25324230f3ec0c441e6ace98677"
+      "git_blob_sha1": "916e50265eb5ac5c2859824e435cd96143d7334d",
+      "sha256": "1b2c8245300e0614a9db7133373d2eda363798039ba1959dfacbbacb43a3e58d"
     },
     {
       "path": "src/wallet/session.ts",
