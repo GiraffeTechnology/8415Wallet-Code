@@ -1,0 +1,15 @@
+{
+  "schema": "8415wallet-current-prd/1",
+  "repository": "GiraffeTechnology/8415Wallet-Code",
+  "path": "docs/ERC-8415-Wallet-PRD.md",
+  "sourcePullRequest": 135,
+  "sourceCommit": "7b72d5ad47b12385445ee455627b44620327989c",
+  "gitBlobSHA1": "8fcd09294692d916c1ec4950180a188eb8bda266",
+  "bytes": 70422,
+  "encoding": "utf-8",
+  "sha256": "f8e62a6e3fa014b8b5f8b67949309eef3876e7d0a1c4caa1c19ebdc793abd11d",
+  "executionEntry": "AGENTS.md",
+  "fullDocumentRequired": true,
+  "conflictingHistoricalExecutionInstructions": "superseded-git-history-only",
+  "runtimeActivationImplied": false
+}

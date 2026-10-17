@@ -18,6 +18,7 @@
       "PACKAGE.md",
       "README-package.md",
       "README.md",
+      "config/current-prd.json",
       "docs/ACCOUNT-AUTHENTICATION.md",
       "docs/APPROVED-UI-IMPLEMENTATION.md",
       "docs/AUTH-INSTALL.md",
@@ -398,14 +399,20 @@
     {
       "path": "README.md",
       "mode": "100644",
-      "git_blob_sha1": "fe263c809bd494ffc689b89dfa639a2b46073355",
-      "sha256": "5fd7834046371f37838f842ce6663849f2135f6afa24d508b330d4b558040784"
+      "git_blob_sha1": "6a6cac0d9e0a02d5e76de6e0b800f42ba68b8a25",
+      "sha256": "50ce04a3f9c3f40aeea7ff81754559510d53edbc9dcbb00773ea7de483994c65"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
       "mode": "100644",
       "git_blob_sha1": "5e1aa6fb3fb450da4c957a9398ebb9f962cd9625",
       "sha256": "8e1b73b0d38271d6d65caf6a3be29fef7b206776e0df1bb924599d194d5461d2"
+    },
+    {
+      "path": "config/current-prd.json",
+      "mode": "100644",
+      "git_blob_sha1": "25fc765ef815da64fc2dadb875a28a55a017be4b",
+      "sha256": "341d4f2c5feb685bd257e6bf4330665c648d5df8db20c781dcca91fd67c088be"
     },
     {
       "path": "config/releases/v2.json",
@@ -596,8 +603,8 @@
     {
       "path": "docs/ERC-8415-Wallet-PRD.md",
       "mode": "100644",
-      "git_blob_sha1": "4ef288c41a5b5876fd7020dd167af6f0e01c5a0a",
-      "sha256": "7415f8d2d02b4217457e62d369a42815d9b7ea9bfef398066521755b861a49da"
+      "git_blob_sha1": "8fcd09294692d916c1ec4950180a188eb8bda266",
+      "sha256": "f8e62a6e3fa014b8b5f8b67949309eef3876e7d0a1c4caa1c19ebdc793abd11d"
     },
     {
       "path": "docs/INTEGRATION-BOUNDARIES.md",

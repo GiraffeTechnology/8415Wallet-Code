@@ -2,6 +2,31 @@
 
 8415wallet is a general-purpose wallet compatible with existing wallet and asset standards, with native [ERC-8415 asynchronous register projection](https://github.com/GiraffeTechnology/ERC-8415) support. Its native projection views show the ERC-721 tradeable position separately from the register-confirmed holder, temporal finality, open gaps and chain freshness. Record agreement does not verify legal identity or title.
 
+## Current requirements and execution
+
+The complete current [Wallet PRD](docs/ERC-8415-Wallet-PRD.md) is pinned in
+[config/current-prd.json](config/current-prd.json) to PR135 commit
+`7b72d5ad47b12385445ee455627b44620327989c`: 70422 UTF-8 bytes,
+SHA256 `f8e62a6e3fa014b8b5f8b67949309eef3876e7d0a1c4caa1c19ebdc793abd11d`.
+[AGENTS.md](AGENTS.md) defines current execution ownership and safety boundaries.
+Older conflicting execution instructions are superseded, not alternate task inputs;
+their original versions remain in Git history.
+
+Wallet owns coding, integration, unit tests and post-submission corrections.
+Wallet2 owns genuine on-chain tests; Bear owns independent review, CI and merge.
+Complete independent stages and open their PRs, then continue the next stage
+without waiting for CI. A document update is not implementation or acceptance.
+
+PRD §6.3.1 requires an owner-controlled ON/OFF switch for per-operation human
+verification. OFF requires two independent established factors bound to the exact
+change. After verified OFF, still-valid in-scope agent execution must not require
+repeated human verification, including after restart or source/component changes.
+Historical grants remain subject to actual revocation, expiry and scope, not
+automatic re-approval on a version change. An entirety-of-asset-balance grant is
+an asset-bounded budget; live funds, reservations, nonces and UNKNOWN safety remain
+machine-enforced. This is a requirement, not evidence of current OFF activation,
+unattended signer readiness, deployment or passing acceptance.
+
 ## V2 and V3 DApp Beta
 
 - **V2 Beta:** the retained wallet PRD v2.2 foundation, sections 1–8: standalone projection and temporal views, dual histories, disclosure, conformance and identity checks, the three protocol settlement transactions, and legacy single-trade clearing.
@@ -16,7 +41,9 @@ See [DApp packaging and deployment](docs/BETA-DAPP-DELIVERY.md), [PRD coverage](
 
 Assets and history stay hidden until login. Choose password, an authenticator
 code (Google Authenticator / FreeOTP), a local wallet/private-key signature, or
-a configured hardware CA token. OTP means RFC 6238 TOTP; email OTP is not used.
+a configured hardware CA token. Authenticator OTP means RFC 6238 TOTP. Email OTP
+is not email-only login; verified email is also used for registration, recovery
+and exact owner-policy changes under the current PRD.
 Password, TOTP and CA methods require the same-origin authentication service and
 an independently provisioned account-to-wallet binding. Local wallet signing
 still works in a static deployment. Keys stay in the wallet or hardware device;
@@ -53,7 +80,7 @@ The local reference server is `npm run wallet:browser:serve`. Its loopback addre
 - Standalone use does not require ArtFi, Oracle, a linked wallet, or a payment adapter. The optional Kit adapter accelerates projection reads while chain facts remain chain reads.
 - A linked leg completes only when both owner and admitted-holder evidence reach its buyer occurrence or later in the same accepted chain. Completion is an application outcome, not ERC temporal finality.
 - Only completed prefixes detach. Later returns stop at the live boundary; optional payment failures cannot reactivate a detached obligation.
-- The browser uses the owner's external wallet provider. It accepts no private key, mnemonic, imported signature or standing signing permission.
+- The standalone browser-provider route accepts no private key or mnemonic. The current PRD additionally requires a compatible authorized unattended signer path when owner-verified OFF is effective; an external provider still prompting the human is not evidence of that capability.
 - Unknown outcomes remain durable and cannot be silently retried. A direct standard wallet rejection is distinct from a transport failure, lost response or unverified replacement.
 
 ## Existing assets and standards compatibility
@@ -82,8 +109,10 @@ Earlier Sepolia receipts and test totals remain evidence for their named version
 ## Login before viewing assets
 
 The public entry stays open. A verified, origin/account/chain-bound wallet login
-is required before assets, balances, holdings, histories and recovery journals
-are loaded or displayed. Login is memory-only and must be repeated after reload;
+is required before protected browser assets, balances, holdings, histories and recovery journals
+are loaded or displayed. The browser login session is memory-only. This display
+boundary must not be imposed as repeated human login on an already-authorized
+agent operation covered by durable OFF after reload or restart;
 connecting an account alone is insufficient. See [wallet login and its exact
 privacy boundary](docs/WALLET-LOGIN.md). Public blockchain data remains public, and
 this client-side gate is not private-API authorization.

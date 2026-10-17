@@ -1,139 +1,119 @@
 # 8415wallet AGENTS.md
 
-## Historical authorized Beta installation scope (2026-10-05)
+## Current execution contract — 2026-10-17
 
-This dated record covers the supplied October 4 archive, not the current
-application build or a new deployment authorization. Current authentication,
-registration and recovery requirements below remain in force.
+This file is the current execution entry for GiraffeTechnology/8415Wallet-Code.
+Read this file, config/current-prd.json, and the COMPLETE pinned
+docs/ERC-8415-Wallet-PRD.md before implementing requirements. The pin identifies
+the approved requirement source, not a runtime or deployment version. Historical
+instructions conflicting with this contract are not current execution inputs;
+their original text and dated results remain in Git history.
 
-ArtFi control was assigned the client-requested ArtFi iteration, installation and
-joint testing using the Beta package on branch `delivery/install-handoff-20261004`.
-The exact source is `1f4a9ae6dd5b8b062ab4f903920cf4b39d158e36`; the archive SHA256
-is `df5058bec9d5c12cffb9ca10cd7ea991e46696207a50f3d2ccf47ac375681838`.
-Preserve the immutable supplied archive and verify its nested manifests before
-installation. That client instruction, rather than artifact publication alone,
-covered production-like Beta installation and joint testing in the approved
-CTYun/SIN Linux environment. Windows is a source/report workstation only.
+The authoritative complete PRD is the exact PR135 revision:
+commit 7b72d5ad47b12385445ee455627b44620327989c,
+Git blob 8fcd09294692d916c1ec4950180a188eb8bda266,
+70422 UTF-8 bytes, SHA256
+f8e62a6e3fa014b8b5f8b67949309eef3876e7d0a1c4caa1c19ebdc793abd11d.
+Use its full standalone and linked-mode requirements, including §§6.2–6.5.
+Do not replace it with an excerpt, task reminder, old coverage ledger or old base
+tree. Preserve newer runtime implementations when integrating this document.
 
-Historical Charity completion, full V3 acceptance and independent general-release
-audit are not prerequisites for this Beta installation and testing. Remaining
-genuine-wallet, public-testnet, device and W-20 observations are collected and
-reported separately; no old result is inherited by a changed source or origin.
-Public entry navigation may skip login, but protected assets/history still require
-verified login. Mainnet/real-value testing, credential disclosure, unknown-outcome
-replay and changes to shared or other-task services remain outside that historical scope.
-GitHub writes remain English only.
+### Ownership and continuous stages
 
-## Product Boundary
+- Wallet owns all Wallet coding, integration, unit tests and post-submission
+  corrections. Wallet2 owns genuine on-chain testing, not parallel product coding.
+- Bear owns independent review, CI and merge. Do not self-merge or alter CI
+  scheduling, credentials, billing or security controls.
+- Control coordinates ownership and consolidated delivery; operations owns the
+  existing deployment/READY boundaries. Documentation changes authorize no deployment.
+- Finish each independent implementation stage and open its PR, then proceed to
+  the next independent stage without waiting for CI. Do not reopen completed
+  stages, create duplicate work or manufacture micro-stages to appear active.
+- Before writes, bind the exact base commit/blob and inspect actual same-path
+  dirty/index/in-flight ownership. Only a real same-path conflict pauses that
+  path; do not lock all src/auth/UI or stop unrelated work.
+- Application, syntax, compiler, build and test execution uses existing approved
+  Linux facilities and runtimes. Windows remains source/report only. Do not
+  retry a specifically refused operation or route around it.
+- GitHub prose is English. Keep private operational data, addresses/bindings,
+  secrets and private delivery evidence out of public repository artifacts.
 
-8415wallet is a general-purpose application-layer wallet compatible with
-existing wallet and asset standards, with native ERC-8415 asynchronous register
-projection support. Native ERC-8415 features are additive and do not make the
-product exclusive to ERC-8415 assets. Report implemented and tested standards
-separately from the broader compatibility requirement.
+### Owner verification and authorization
 
-It is NOT:
+The human owner alone may set Per-operation human verification OFF after TWO
+independent already-established factors bound to the exact policy change.
+Neither an agent, ordinary session, imported configuration nor an approved flag
+can set OFF. Do not add a third unrelated approval or recurring confirmation.
 
-- an ERC-3643 wallet clone;
-- a marketplace, order book or matching engine;
-- a replacement for ERC-8415 protocol semantics;
-- an adjudicator of legal title, entitlement or remedy.
+Once owner-verified OFF is effective, valid in-scope preparation, signing through
+a compatible authorized signer, submission, continuation and receipt verification
+must require ZERO repeated human verification. Persist the policy at the
+authoritative execution boundary across restart, refresh, source changes and
+component handoff. A browser flag or a signer still needing a human prompt is not
+implemented unattended execution.
 
-For its native ERC-8415 surface, the wallet MUST consume ERC-8415 semantics,
-not redefine them. Existing-standard asset flows retain their own interfaces
-and must not be required to advertise ERC-8415 support.
+Reconcile still-valid historical grants without asking for the same authorization
+again merely because task/source/component versions change. Preserve actual
+expiry, revocation, replacement and scope constraints; never reinterpret a
+one-use grant as an allowance or enlarge assets, destinations, chains or fees.
+An explicit entirety-of-a-specified-asset-balance authorization is asset-bounded,
+not a missing numeric budget. Calculate live funds, reservations and actual fees;
+do not demand a redundant numeric authorization or create unlimited token approvals.
 
-Product identity is **8415wallet**; its UI platform domain is
-**8415wallet.com**. **Xiongan is a V2 tenant**, not a separate product.
-V2 and V3 are versioned DApp Beta deliveries mapped to the retained v2.2
-foundation and additive v3.0 requirements. SDK packages are separate integration
-artifacts and do not replace either DApp. Keep the exact implemented/tested
-standard and provider matrix in `docs/STANDARDS-COMPATIBILITY.md`, without
-claiming exhaustive validation of all existing standards.
+ON/revocation applies atomically before the next not-yet-submitted operation.
+Submitted and unknown-outcome operations keep their nonce claims and reserved
+funds until reconciled; never blindly resend or release an unknown claim.
+Ordinary account-method management and recovery remain separate and retain their
+applicable independent verification. A newly enrolled device cannot attest to its
+own trust; User-Agent/IP is not proof. No key, password, OTP, seed, recovery code
+or bearer proof belongs in logs, agent prompts or persisted business records.
+Existing approved test-asset exemptions remain separately scoped; this document
+does not itself enable OFF, create new transaction authority or replace an
+existing deployed configuration.
 
-The product supports both standalone and linked use. v3.0 is an additive
-iteration on the original wallet: retain its readers, views, transaction path
-and legacy single-trade clearing. Linked mode adds the agreed responsibility
-chain in PRD §9; it must not make ArtFi, Oracle or another wallet mandatory for
-standalone use.
+### Authentication, interfaces and evidence
 
----
+Retain purpose/origin/tenant/account/chain binding, CSRF, one-use proofs and
+encrypted credential state. Login, recovery, owner-policy change and task
+authorization are distinct purposes. Email OTP is not email-only login; it may
+verify an established email for exact owner policy changes. Do not initialize,
+replace or expose existing account keys or stores. Use existing implementation
+deployment parameters; do not guess RPCs, signer bindings, contracts or credentials.
 
-## Account login methods (owner update, 2026-10-04)
+8415wallet is a general-purpose wallet; ERC-8415 support is additive. Xiongan is
+a V2 tenant, not another product. V2 and V3 DApp Betas remain distinct from SDK
+artifacts. Preserve supported existing asset interfaces, the standalone wallet
+and optional linked mode. ArtFi, Oracle, another wallet or payment adapter is not
+mandatory for standalone use.
 
-Support password, authenticator TOTP (Google Authenticator/FreeOTP), local
-private-key challenge signing and configured hardware CA challenge signing.
-Email OTP is not a login method. The owner update on 2026-10-06 adds reset-only
-email verification from noreply@8415wallet.com together with a previously reserved
-security answer. Preserve fresh independent identity verification and existing
-authenticator/recovery proof; email or security answers never replace them. Read
-`docs/AUTH-RECOVERY.md` and `docs/EMAIL-REGISTRATION.md`. Email ownership OTP
-is also required for registration; it remains unavailable as a login method. Never suggest provider connection authenticates an account.
+Preserve the existing logo/VI and six interface locales: en, zh-Hans, zh-Hant,
+fr, es and ja. Fixed UI text may be localized; signed terms, addresses, raw
+transaction values, identifiers and source token metadata may not be translated.
+Changing locale must not reload, reauthenticate, reset consent or send transactions.
 
-Read `docs/ACCOUNT-AUTHENTICATION.md` and `docs/WALLET-LOGIN.md` before changing
-authentication. Passwords/TOTP require server verification and revocable sessions;
-client-only flags cannot implement them. Preserve origin/tenant/account/chain
-binding, CSRF, one-use challenge/TOTP/recovery handling, encrypted credential
-state and enrollment confirmation. Operator and hardware-CA bindings come from independently verified configuration.
-Ordinary self-registration requires verified email ownership plus an exact
-origin/tenant/account/chain/purpose-bound EOA control proof; it grants no operator,
-tenant-management, private-record or transaction authority. Registration email is
-mandatory, unique per tenant, and verified before account creation. Existing
-accounts retain login access to complete verified-email migration without rekeying
-or discarding credentials. See `docs/EMAIL-REGISTRATION.md`. Never trust
-client-supplied identity flags or create an account from email OTP alone. No private key,
-seed phrase, hardware PIN, live authenticator seed or production store key belongs
-in source, logs, artifacts or a page form. Synthetic test credentials are local
-fixtures only. No production provisioning, deployment or transaction is implied.
+An origin includes scheme, host and port. Preserve journals and unknown outcomes
+at their original origins. Protect keys, databases, evidence, locks, shared
+services and other-task dirty changes. At most two usable rollback versions may
+be retained in addition to production and active build/acceptance inputs; cleanup
+requires exact reference reconciliation and recovery-verified archival, not blind deletion.
 
-The local wallet route retains EOA/ERC-1271 support; the new server wallet route
-currently verifies EOA signatures. Hardware CA integration uses a defined bridge
-plus certificate-chain/purpose/time/revocation verification, not a checkbox or
-universal-driver claim. Record device/middleware acceptance separately. Login and
-transaction approval remain separate. Keep the immutable earlier release ZIP
-unchanged; updated artifacts need their own exact source identity after review.
+Every stage needs implementation, tests, documentation and source-bound evidence.
+Report source, local/synthetic tests, packages, deployed identity, genuine
+on-chain/UI observations and independent audit separately. NOT_RUN without an
+execution is not a product error or PASS. Historical counts, PRs, scripts,
+publication and turn completion are not full-product acceptance. Full PRD delivery
+includes standalone and linked W-01–W-24 at their specified execution levels.
 
----
+Read docs/INSTALLATION-ASSET-PUBLICATION.md and preserve LICENSE and third-party
+notices. Do not change public visibility/licensing or publish private inputs.
+Do not reinstate cancelled Drive polling, recurring comments/reports or timers
+from historical instructions. Only explicit current scheduling authorization
+controls scheduling.
 
-## Interface localization (owner update, 2026-10-04)
-
-Keep the compact native six-choice language dropdown (owner update, 2026-10-06), with English as the default and
-locale IDs en, zh-Hans, zh-Hant, fr, es and ja. The owner explicitly authorizes
-multilingual fixed UI catalogs and selector labels; identifiers, engineering
-documents and PR prose remain English. Token names, descriptions and metadata
-must retain their original decoded source strings and be safely rendered as text.
-Do not translate signed terms, raw transaction values, addresses or protocol
-identifiers. Switching language must not reload, reauthenticate, reset consent,
-repeat provider requests, or send transactions. Native labels and first-party
-protocol explanations belong to the presentation layer; keep finality, contest,
-freshness and legal identity distinct. See docs/UI-LOCALIZATION.md. The approved
-Figma layout is a separate implementation scope; localization alone is not a
-claim that it was ported. Preserve the original logo; do not redraw it.
-
----
-
-## Source of Truth
-
-The implementing agent MUST read, in this order:
-
-1. AGENTS.md
-2. docs/ERC-8415-Wallet-PRD.md
-3. The eth-magicians discussion, thread t/29634. It is not the specification,
-   but it repeatedly assigns work to this layer — "the solution belongs in the
-   wallet, not a complex spec" — and several requirements below exist only
-   there. Where it and the ERC text disagree, the ERC wins.
-4. The ERC-8415 specification itself:
-   `ERCS/erc-8415-asynchronous-register-projection.md` in
-   GiraffeTechnology/ERC-8415, together with
-   `interfaces/IRegisterProjection.sol` and
-   `interfaces/IProjectionSettlement.sol`.
-
-Where this repository and the ERC disagree, the ERC wins, and the
-disagreement MUST be fixed here rather than worked around in code.
-
-The frozen interface identifiers are `0x6309e170` for `IRegisterProjection`
-and `0xf4a7d71b` for `IProjectionSettlement`. Neither is the wallet's to
-change or to recompute.
+For native ERC-8415 implementation, also read the protocol specification and
+interfaces in GiraffeTechnology/ERC-8415 and the referenced discussion; where
+discussion and the ERC disagree, the ERC wins. Frozen ERC-165 interface IDs are
+0x6309e170 and 0xf4a7d71b. Never alter protocol semantics inside this wallet.
 
 ---
 
@@ -441,172 +421,3 @@ Conformance is discovered, not assumed:
 
 ---
 
-## Development Rules
-
-Current delivery interpretation: V2/V3 are functional-testing DApp Betas with
-separate exact-source manifests and evidence levels. Genuine-wallet testnet,
-physical-device and W-20 observations are collected during deployment testing;
-independent security review remains uncompleted before general release. The
-dated records below preserve historical evidence and must not override the
-current source-bound CI result or turn uncollected Beta observations into a
-claim that no testable Beta exists.
-
-### Current user-directed order (2026-09-25, merge phase)
-
-The development phase and its merge hold are over. On user instruction the
-first unified validation batch was run and the five stacked PRs were merged
-into `main` in dependency order: #3, #4, #5, #6, #7. The `[skip ci]` and
-draft-PR arrangement, and the instruction to keep PR #3 unmerged, applied to
-that phase and no longer describe this repository.
-
-The merges were performed from this session on the user's instruction, between
-08:46:46Z and 08:49:21Z. A parallel execution observed them as external and
-recorded that it had not authorized them, which was accurate from where it stood.
-Either way the practice it drew is the right one and is now the rule: further
-repairs go in their own pull request. Do not force-revert or rewrite `main`.
-
-What the batch established, and what it did not, is in
-`docs/V3-REVIEW-AND-VALIDATION.md` and
-`docs/reports/V3-LOCAL-VALIDATION-20260925.md`. In short: the full local
-pipeline passes on `main` — typecheck, 622 Node cases, 29 EVM cases, the
-browser entry and the reference client, across both matrix legs between the
-two reports — and W-01 through W-19 and W-21 have local EVM evidence.
-
-Nothing above is release acceptance, and the source status is unchanged:
-`SOURCE_COMPLETE_PENDING_UNIFIED_VALIDATION`. Still required, none of it
-satisfied by a merge:
-
-- **actual public-testnet deployment and real transactions.** Historical
-  Sepolia activity and the earlier 607/607 Node and 14/14 legacy EVM results
-  do not validate the control code;
-- **independent security review** of the exact kernel, adapters, verifiers,
-  deployed contracts, recovery and optional payment integration. Local
-  suites are preparation, never an audit;
-- **genuine desktop and mobile journeys.** CLI and HTTP checks are transport
-  checks, not UI evidence;
-- **W-20**, which asks for one deployed same-token multi-wallet journey and
-  cannot be satisfied locally by construction.
-
-The September 25 batch had no executed GitHub Actions evidence at that time.
-That historical runner blockage is superseded by the exact-source October 4
-merged-main run `37209416014`, with successful Node 22 and Node 24 jobs.
-Future changes require their own exact-head result; retain the old local tables
-as historical local evidence, not a current repository-wide CI prohibition.
-
-Do not describe the new source as never tested, and do not describe it as
-released. Do not invent results, and do not infer that development is complete
-from the presence of source files.
-
-### Latest execution ownership and Stage 5E
-
-2026-09-26 direct user priority: continue V3 until delivered; reject unrelated
-inserted work until V3 completion. Reports and intermediate passes are not
-completion. The release owner retains CI/merge ownership; this task develops, repairs
-and runs development regressions without starting unrelated project tasks.
-
-The release owner owns CI and PR merging. This task continues V3 development,
-defect repairs, development regressions and stage PR delivery; do not provision
-runners, change CI scheduling or merge PRs from this task. Preserve merged
-rolling-window/pruning and recovery work. No report is completion.
-
-Stage 5E adds signed pre-forward payment reservations and atomic current
-settlement-authority revalidation. ForwardConsent has 16 fields, including
-paymentAdapter and paymentAmount. Do not silently reuse the 14-field ABI or
-an old deployment. Optional payment never authorizes completion or return.
-Fresh integrated regression, independent security review and genuine public
-testnet/UI acceptance remain distinct gates.
-
-Stage 5F adds a read-only payment observation by leg ID for unused reservations
-and detached legs. Do not infer responsibility completion from payment state.
-Historical pre-repair Stage 5F totals were 651 Node / 49 EVM; genuine public-chain/UI acceptance and
-independent review remain separate. CI and merging stay with the release owner.
-
-Stage 5F's later canonicality repair passed 656 Node / 49 EVM locally. Stage 5G
-adds a read-only verifier for a register's detached-leg export against the exact
-on-chain count/commitment and live boundary. Never call a partial archive,
-untrusted `verified` field or commitment-only copy verified history; never use
-history verification as transaction authority or ERC temporal finality.
-
-Stage 5H preserves raw origin-holder projection observations after prefix
-detachment without manufacturing a completion proof outside the live window.
-Latest integrated Stage 5I local results: 693 Node / 53 EVM,
-typecheck/browser emit pass. Import records by validated indexed copy, never
-input-controlled map/iterator/species. The prior 651/49, 656/49, 686/50 and 686/51
-batches, plus the archive repair's 692/51, are historical and not current counts.
-Stage 5I's shared local/testnet journey calls the actual SDK view, archive and
-payment observers at three phases. Text-render evidence is never genuine UI
-evidence.
-
-Every stage requires:
-
-- implementation;
-- tests;
-- documentation;
-- delivery evidence.
-
-Tests MUST cover the forbidden inferences above as explicit negative cases,
-including: a token whose `ownerOf` and confirmed holder diverge; a closed gap
-over a non-final instant; a cancelled settlement; and an instant before the
-first entry.
-
----
-
-## Completion Requirement
-
-The standalone reading foundation is complete only when a user can see, for any token and any
-instant, and without conflating them:
-
-- the tradeable position and the confirmed holder, side by side;
-- whether the answer at that instant is final or provisional, and why;
-- whether that instant is contested by an open gap;
-- which entry admitted the answer, with its commitment, version and
-  registry reference;
-- what register this projects, under which verification profile, and who may
-  move the answer.
-
-Full product delivery also requires independent standalone use and PRD §9's
-linked-mode W-01–W-24 scenarios, including real selected account enforcement,
-independent controls without escrow, optional funded flows, detachment,
-callback/refund, recovery, independent security audit and deployed UI evidence. Report
-baseline, local EVM, public-testnet and UI results separately; a documentation
-change or one completed leg is not full acceptance.
-
-## Served origin and stored state
-
-A web origin is scheme, host **and port**, so the address a wallet is served on
-is part of its origin. Every IndexedDB operation journal belongs to that origin,
-including an operation left in `outcome-unknown` — the record the recovery path
-exists to find. Moving a served wallet to a different scheme, host or port
-strands them all.
-
-Settle the serving address before a deployment carries genuine wallet use, and
-treat a later move as data loss rather than as a configuration change.
-
-Which address a given environment serves on, and which ports are reserved there,
-is deployment configuration rather than a product requirement; it belongs in that
-environment's deployment document.
-
-## Delivery archive inventory (2026-10-05)
-
-Historical and candidate archives are indexed in
-[releases/2026-10-05-delivery-archive/README.md](releases/2026-10-05-delivery-archive/README.md).
-Preserve each archive's exact bytes, source identity, checksums and candidate label.
-The October 4 installation handoff remains an immutable historical artifact;
-use the separately approved current package for any new deployment.
-GitHub-safe mirrors differ from their private originals; do not interchange hashes.
-Archive publication does not establish deployment, current-head CI, genuine-device
-acceptance or a general release. Existing security and deployment rules remain in force.
-
-## Server-backed login completion repair (2026-10-13)
-
-A reproduced asynchronous provider-read window could publish login success after
-server-session expiry, clock reversal or origin change. The bounded repair
-revalidates those conditions immediately before session publication. Four login
-core/UI contract files passed 168/168 on Linux Node 24.18.0; typecheck passed.
-These are synthetic source regressions, not deployment or genuine three-account
-acceptance. See docs/reports/SERVER-LOGIN-COMPLETION-20261013.md. Preserve prior
-source-bound release artifacts and independent late-v3 work.
-
-## Current public installation-asset policy
-
-Keep this repository public for investor review. Follow [the installation-asset publication policy](docs/INSTALLATION-ASSET-PUBLICATION.md): publish only verified product artifacts, retain all required notices, exclude private operations and tenant data, and verify uploaded checksums. The designated source/delivery owner maintains licensing documentation; deployment controllers must not create conflicting license terms or change visibility. Merge pull requests only after exact required CI is fully successful.
