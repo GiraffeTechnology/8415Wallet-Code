@@ -109,6 +109,7 @@
       "server/task-authorization.mjs",
       "server/task-background-runner.mjs",
       "server/task-exact-bootstrap.mjs",
+      "server/task-exact-chain-state.mjs",
       "server/task-exact-config.mjs",
       "server/task-exact-operation-planner.mjs",
       "server/task-exact-runtime.mjs",
@@ -683,8 +684,8 @@
     {
       "path": "docs/TASK-RUNTIME-COMPOSITION.md",
       "mode": "100644",
-      "git_blob_sha1": "4be3bfa67826c320aec84584ef9ca7b5677d0928",
-      "sha256": "641b851355aa9170076e9b9c9483ba62bab61ae9567bf57fd698287d9b068fba"
+      "git_blob_sha1": "c420984301f6e8c030ce4e864e21f8d4d1946090",
+      "sha256": "6f5072fda5b14430d9032f8c51215c222bbc8163647a411a838ec4cd50d96254"
     },
     {
       "path": "docs/TENANT-AVATAR.md",
@@ -743,8 +744,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "a102dcdc5f1dc383adf500caa0d43c5dde6067a0",
-      "sha256": "e363728ab7964a7721af30bec3702549f6f2f4096794f6478c4e3ed81b1aa1b5"
+      "git_blob_sha1": "c42541f28ef77a60c08c7c7b16de96d4675d1543",
+      "sha256": "7f621a7721006041b57b463dd6033fca4b052340fa9bacee2d24df9d66facc12"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -809,8 +810,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "669f81fc575a3cad746fd23b14bb43385f14b0f5",
-      "sha256": "64fb84c5b78d328d36df2b84a750ea919c79f1888d56e2682a5b3c16b774d8d3"
+      "git_blob_sha1": "31bd65fd669fb0cb7b89a855a23538ce07cd3b35",
+      "sha256": "f5868024db88d7c14194a61f4364f4c65e36eff9368f7ca839c0cc3dae63efa6"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -965,8 +966,14 @@
     {
       "path": "server/task-exact-bootstrap.mjs",
       "mode": "100644",
-      "git_blob_sha1": "8c599c153b164657784237b222e7fbec568878a9",
-      "sha256": "bdabc256d516cfc06007e53aa9bf9a1913c4b96c957ebe7c11e399fd8e2b507a"
+      "git_blob_sha1": "03e14116f63f8413f0a4dcd2d64e78b675a10bec",
+      "sha256": "e3e9264fa63d9d6cf4b2f79eded8d573ea3df2d03a17364b65f0f72b1d4e357a"
+    },
+    {
+      "path": "server/task-exact-chain-state.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "ba7a95a69e05c2389026129dd3ee2e8b4b6906c6",
+      "sha256": "908355bd80f60d3400aa62fe9396eb38a1216dc1fa7d17855b69c7ae2011e330"
     },
     {
       "path": "server/task-exact-config.mjs",
@@ -977,8 +984,8 @@
     {
       "path": "server/task-exact-operation-planner.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f774c3ec0ec4cccb2d587497545b9cd0331815c5",
-      "sha256": "e52e8a082de9820d9f311a1b96467dbdcc8d221cdc1a316c3184cf7a44a90436"
+      "git_blob_sha1": "93c69cea01032d478e935b8bebdd26955a8a3f9f",
+      "sha256": "a7f023c30f17ea5decc7dcb9f0b21fd8e9d83833311a353158caae34d90e4556"
     },
     {
       "path": "server/task-exact-runtime.mjs",
@@ -995,8 +1002,8 @@
     {
       "path": "server/task-exact-signer-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "cb59eeaadd863821b43da8d5f317ab1fe5857769",
-      "sha256": "d3fbe4f09b58271d18708166fac309ade9dcf32612477a7b56baf344f71bb39e"
+      "git_blob_sha1": "c57e5f4c0cf21148b32768952a07ba136b59ce46",
+      "sha256": "e2b7ba33aee074836593932907c194ee2beedaf013ff642f886a3e3763becfb6"
     },
     {
       "path": "server/task-journal-capabilities.mjs",
@@ -1067,8 +1074,8 @@
     {
       "path": "server/task-receipt-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "995506bc03eaffcbf3ca6268999099c6cb727bd1",
-      "sha256": "fd7bd0141b0d878c2464d2940b3aa3c559b9942f1c2699d10523bc058adb7692"
+      "git_blob_sha1": "94807d3a33aa7fdfe5b6c7f99f50cfb098a296b6",
+      "sha256": "6c9177f30d3c17104df8fc5c3294ca4a14269a45b6e5eb4c47e25de69bcb3f5d"
     },
     {
       "path": "server/task-receipt-runtime.mjs",
@@ -1085,8 +1092,8 @@
     {
       "path": "server/task-runtime-import-probe.mjs",
       "mode": "100644",
-      "git_blob_sha1": "aea8633f573ef5cdd0a4fe8bf428d0dc5986693f",
-      "sha256": "804a54fb46bedae113dc5090f70b03ae7e409230c5645c47586163b363b7559d"
+      "git_blob_sha1": "a303af47e12211aa8985efbc2912c6d504bfa108",
+      "sha256": "f7a713c6259d611764bddf72ef587972759a5f29e7a312e55a59330aff266cbd"
     },
     {
       "path": "server/task-test-asset-authorization.mjs",

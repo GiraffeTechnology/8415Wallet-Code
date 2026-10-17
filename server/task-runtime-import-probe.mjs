@@ -24,3 +24,6 @@ import { loadInstalledTaskListingModules } from './task-listing-installed.mjs';
 await loadInstalledTaskListingModules();
 import './main.mjs';
 
+
+import './task-exact-chain-state.mjs';
+

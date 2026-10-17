@@ -1,3 +1,4 @@
+import { verifyTaskExactChain, verifyTaskExactFunding } from './task-exact-chain-state.mjs';
 /** Optional server-owned sign-only injection. No credential loading, key storage,
  * default signer, eth_sendTransaction, signer-side filling, or recovery resend. */
 import { createHash } from 'node:crypto';
@@ -17,7 +18,7 @@ export const TASK_EXACT_SIGNER_RUNTIME_FILES = Object.freeze([
   // Approval selection, channel isolation, and the shared-store constructor
   // affect this port's trusted runtime; UI/build/test code does not.
   'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
-  'server/crypto.mjs', 'server/task-listing-transport.mjs',
+  'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-listing-transport.mjs',
   'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
   'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs', 'server/task-exact-operation-planner.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
@@ -46,7 +47,7 @@ const hash = value => { check(typeof value === 'string' && /^0x[0-9a-f]{64}$/.te
 const hex = value => `0x${BigInt(value).toString(16)}`;
 const key = (kind, values) => `task-${kind}:${sha(JSON.stringify(values))}`;
 const pin = (p, chainId) => ({ controller: p.contract, runtimeCodeHash: p.runtimeCodeHash, chainId: BigInt(chainId) });
-const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_getCode', 'eth_call', 'eth_getTransactionByHash', 'eth_getBlockByNumber']);
+const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_getCode', 'eth_call', 'eth_getTransactionByHash', 'eth_getBlockByNumber', 'eth_getBalance']);
 
 /** ExternalExactSigner.signExactTransaction({requestId, unsignedSerialized,
  * unsignedDigest, binding}) -> signedSerialized. The injected implementation
@@ -119,6 +120,7 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
       maxFeePerGas: BigInt(child.fees.maxFeePerGasWei), maxPriorityFeePerGas: priority, accessList: [] });
     if (live) {
       activeScope(c);
+      await verifyTaskExactChain(readonlyProvider, op.chainId);
       check(await rpc('eth_getCode', [op.actor, 'latest']) === '0x', 'TASK_EXACT_EOA_ACTOR_REQUIRED');
       if (op.kind === 'native-transfer') check(await rpc('eth_getCode', [op.recipient, 'latest']) === '0x', 'TASK_EXACT_NATIVE_EOA_REQUIRED');
       else { const code = await rpc('eth_getCode', [encoded.to, 'latest']); check(controlHex(code) && code !== '0x', 'TASK_EXACT_TARGET_CODE_REQUIRED'); }
@@ -134,6 +136,8 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
       }
       if (op.kind === 'artfi-test-series-mint') await verifyTestSeriesMintPreflight({
         request: testSeriesMintRequest(op), provider: readonlyProvider, allowedWallets: [op.actor, op.distributionWallet] });
+      await verifyTaskExactFunding(readonlyProvider, { actor: op.actor, valueWei: tx.value.toString(),
+        gasLimit: child.fees.gasLimit, maxFeePerGasWei: child.fees.maxFeePerGasWei });
       check(quantity(await rpc('eth_getTransactionCount', [op.actor, 'pending'])) === BigInt(child.nonce), 'TASK_EXACT_NONCE_MISMATCH');
       const simulation = await rpc('eth_call', [{ from: op.actor, to: tx.to, data: tx.data, value: hex(tx.value),
         chainId: hex(tx.chainId), nonce: hex(tx.nonce), type: '0x2', gas: hex(tx.gasLimit),
@@ -269,4 +273,5 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   }
   return Object.freeze({ identity, verify, send, recover, ...(planner === null ? {} : { plan }) });
 }
+
 

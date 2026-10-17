@@ -119,3 +119,21 @@ Actual existing endpoint/certificate references and signer support still require
 deployment reconciliation. No public read-only RPC candidate is a wallet signer.
 The independent whole-receipt ArtFi runtime/journal integration remains separate.
 
+
+## Exact-chain and maximum-cost execution gate
+
+For Hoodi exact tasks, planner, live signer validation and receipt observation require
+chain560048 and the fixed genesis block hash, not chainId alone. Other originally
+supported chains retain their original chain binding. No alternate RPC is discovered.
+
+The planner checks the actor's balance at its canonical sampled block and again at
+pending state against value plus gasLimit times maxFeePerGas. The live signer path
+checks the same complete maximum-cost envelope during its original pre-sign and
+post-sign validation. A shortage before signing refuses the unsent operation; a
+shortage after signing preserves the original signed UNKNOWN reconciliation boundary
+and never authorizes automatic broadcast/retry. No funding, fee reduction, quantity
+change or new budget is introduced. External chain state can still change after a
+read; these checks do not promise atomic balance or economic finality.
+
+All new chain/funding regressions are authored, NOT_RUN until approved Linux execution.
+

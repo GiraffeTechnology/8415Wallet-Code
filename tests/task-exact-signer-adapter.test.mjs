@@ -37,6 +37,7 @@ async function fixture(options = {}) {
     state.methods.push(method);
     if (options.rpc) { const override = await options.rpc({ method, params, state }); if (override !== undefined) return override; }
     if (method === 'eth_chainId') return state.chainId;
+    if (method === 'eth_getBalance') return state.balance ?? '0xffffffffffffffff';
     if (method === 'eth_getCode') return params[0].toLowerCase() === actor ? state.actorCode : '0x';
     if (method === 'eth_getTransactionCount') return state.nonce;
     if (method === 'eth_call') return '0x';
@@ -384,3 +385,23 @@ test('all nine operation encodings remain closed and exact, including dynamic co
     if (['deposit','standalone-withdraw'].includes(operation.kind)) assert.throws(() => encodeExactTaskOperation(child), /TASK_OPERATION_ACCOUNT_REQUIRED/);
   }
 });
+
+test('insufficient pending maximum-cost balance refuses before signer and preserves reservation',async()=>{
+  const f=await fixture(), reserved=await f.start();f.state.balance='0x0';
+  await assert.rejects(f.call('execute',f.body(reserved)),/TASK_EXACT_BALANCE_INSUFFICIENT/);
+  assert.equal(f.state.signCalls,0);assert.equal(f.state.broadcasts,0);
+  assert.equal((await f.status()).budget.reservations[0].status,'reserved');
+});
+test('balance lost while signer is active preserves signed UNKNOWN and never broadcasts or resends',async()=>{
+  const f=await fixture({onSign({state}){state.balance='0x0';}}),reserved=await f.start();
+  const result=await f.call('execute',f.body(reserved));assert.equal(result.outcome,'outcome-unknown');
+  assert.equal(f.state.signCalls,1);assert.equal(f.state.broadcasts,0);
+  // Nothing was broadcast, so eth_getTransactionByHash has nothing to return
+  // and recovery cannot be established. Refusing is the required outcome: it
+  // keeps the signed attempt UNKNOWN instead of concluding "not mined", which
+  // is the only reading that would license a resend.
+  await assert.rejects(f.call('recover',f.body(result)),/TASK_EXACT_RECOVERY_NOT_ESTABLISHED/);
+  assert.equal(f.state.signCalls,1);assert.equal(f.state.broadcasts,0);
+  assert.equal((await f.status()).budget.reservations[0].status,'outcome-unknown');
+});
+

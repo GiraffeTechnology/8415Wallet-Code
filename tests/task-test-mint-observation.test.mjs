@@ -34,6 +34,9 @@ function fixture() {
   const provider={async request({method,params=[]}) {
     calls.push(method);
     if(method==='eth_chainId')return '0x88bb0';
+    // Block zero is what the fixed-genesis check reads; a case can replace it.
+    if(method==='eth_getBlockByNumber' && params[0]==='0x0')return state.genesis===null?null
+      :{number:'0x0',hash:state.genesis??'0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b'};
     if(method==='eth_getCode')return code;
     if(method==='eth_getTransactionReceipt')return state.pending?null:structuredClone(receipt);
     if(method==='eth_getTransactionByHash')return structuredClone(tx);
@@ -81,4 +84,16 @@ test('browser mint evidence preserves actual token while refusing extra or unbou
     assert.throws(()=>normalizeTestMintResult(raw,f.input.task,observation));
   assert.throws(()=>normalizeTestMintResult(result,f.input.task,{...observation,state:'reorged'}));
   assert.equal(normalizeTestMintResult(null,f.input.task,null),null);
+});
+
+
+test('a receipt observed on another genesis supplies no observation at all',async()=>{
+  // The same receipt, events and depth as the passing case above: only block
+  // zero differs. Chain560048 with another genesis is another chain, and a
+  // mined receipt read there is not evidence about this one.
+  for(const genesis of [`0x${'c'.repeat(64)}`,null]) {
+    const f=fixture();f.state.genesis=genesis;
+    await assert.rejects(f.adapter.observe(f.input),/TASK_EXACT_HOODI_GENESIS_REFUSED/);
+    assert.deepEqual(f.calls.filter(m=>m==='eth_getTransactionReceipt'),[],'a refused chain was still read for a receipt');
+  }
 });

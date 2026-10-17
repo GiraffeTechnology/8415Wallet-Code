@@ -48,6 +48,7 @@ async function fixture(t, options = {}) {
     state.methods.push(method);
     if (method !== 'eth_sendRawTransaction') state.readRequests.push(structuredClone({ method, params }));
     if (method === 'eth_chainId') return state.chain;
+    if (method === 'eth_getBalance') return state.balance ?? '0xffffffffffffffff';
     if (method === 'eth_getTransactionCount') { assert.equal(params[0], actor); assert.equal(params[1], 'pending'); return state.nonce; }
     if (method === 'eth_getCode') {
       const address = params[0].toLowerCase();
@@ -391,3 +392,4 @@ for (const [field, value, code] of [
   assert.equal(f.counters.plan, 1, 'the existing reservation is retried, never replaced by a new proposal');
   assert.equal(f.state.signCalls, 0); assert.equal(f.state.broadcasts, 0);
 });
+

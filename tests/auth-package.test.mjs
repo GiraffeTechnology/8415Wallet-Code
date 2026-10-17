@@ -281,7 +281,18 @@ test('independently licensed existing auth packages remain verifiable with their
 
 test('task runtime source closure has the exact planner, signer, encoding, contract and receipt modules', t => {
   const f = fixture(t, { semantics: AUTH_STATE_SEMANTICS });
+  // Change detector for the installed runtime surface: an addition has to be
+  // acknowledged here. The exact-runtime, chain-state, bootstrap/config,
+  // sign-only and test-asset/mint/nft721 modules joined it with the scoped
+  // test-asset and exact-funding work; all forty are reachable from
+  // server/task-runtime-import-probe.mjs, which task-exact-planner-package-closure
+  // checks against the computed import graph.
   assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, ['server/task-runtime-import-probe.mjs',
+    'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
+    'server/task-exact-chain-state.mjs', 'server/task-exact-bootstrap.mjs',
+    'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
+    'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs',
+    'server/task-test-nft721-contract.mjs',
     'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
     'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
     'server/task-journal-capabilities.mjs', 'server/task-receipt-runtime.mjs',
