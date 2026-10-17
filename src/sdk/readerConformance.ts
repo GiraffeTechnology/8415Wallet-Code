@@ -1,7 +1,7 @@
 import { detectConformance } from './conformance.ts';
 import { ContractRevertError } from './errors.ts';
 import type { Erc8415Reader } from './port.ts';
-import { ZERO_BYTES32, type Instant, type TokenId } from './types.ts';
+import { ZERO_BYTES32, type Instant, type RegisterEntry, type TokenId } from './types.ts';
 
 /**
  * A conformance harness for adapters.
@@ -57,6 +57,10 @@ export async function checkReaderConformance(
 
   // The entry walk.
   const count = await reader.entryCount(probe.tokenId);
+  if (typeof count !== 'bigint' || count < 0n || count >= 1n << 64n) {
+    fail('entryCount', 'must be a uint64 bigint; the entry walk was not attempted');
+    return { address: reader.source.address, findings, conforms: false };
+  }
   if (count === 0n) {
     fail('entryCount', 'the probe token has no entries; the rest could not be checked');
     return { address: reader.source.address, findings, conforms: findings.length === 0 };
@@ -76,19 +80,53 @@ export async function checkReaderConformance(
     fail('currentEntry.supersededAt', 'the latest entry must have an open interval');
   }
 
-  // Strict monotonicity and commitment uniqueness across the walk.
+  // Check the complete entry walk rather than just its first/latest summaries.
   const commitments = new Set<string>();
-  let previousEffectiveAt: Instant | undefined;
+  const references = new Set<string>();
+  let previous: RegisterEntry | undefined;
   for (let version = 1n; version <= count; version += 1n) {
     const entry = await reader.entryAt(probe.tokenId, version);
-    if (previousEffectiveAt !== undefined && entry.effectiveAt <= previousEffectiveAt) {
-      fail('effectiveAt', `v${entry.version} does not exceed its predecessor`);
+    if (entry.version !== version) {
+      fail('entryAt.version', `requested v${version}, got v${entry.version}`);
     }
-    if (commitments.has(entry.recordCommitment)) {
-      fail('recordCommitment', `v${entry.version} repeats a commitment within the token`);
+    const commitment = bytes32Key(entry.recordCommitment);
+    const reference = bytes32Key(entry.registryReference);
+    const previousCommitment = bytes32Key(entry.previousCommitment);
+    if (commitment === undefined) fail('recordCommitment', `v${version} must contain bytes32`);
+    if (reference === undefined) fail('registryReference', `v${version} must contain bytes32`);
+    if (previousCommitment === undefined) fail('previousCommitment', `v${version} must contain bytes32`);
+    if (previous === undefined) {
+      if (previousCommitment !== ZERO_BYTES32) {
+        fail('previousCommitment', 'the walked first entry must link to zero');
+      }
+    } else {
+      if (entry.effectiveAt <= previous.effectiveAt) {
+        fail('effectiveAt', `v${entry.version} does not exceed its predecessor`);
+      }
+      if (previousCommitment !== bytes32Key(previous.recordCommitment)) {
+        fail('previousCommitment', `v${version} does not link to its predecessor`);
+      }
+      if (previous.supersededAt !== entry.effectiveAt) {
+        fail('supersededAt', `v${version - 1n} does not close at its successor's effective time`);
+      }
     }
-    commitments.add(entry.recordCommitment);
-    previousEffectiveAt = entry.effectiveAt;
+    if (commitment !== undefined) {
+      if (commitments.has(commitment)) fail('recordCommitment', `v${entry.version} repeats a commitment within the token`);
+      commitments.add(commitment);
+    }
+    if (reference !== undefined) {
+      if (references.has(reference)) fail('registryReference', `v${entry.version} repeats a reference within the token`);
+      references.add(reference);
+    }
+    if (version === count) {
+      if (entry.supersededAt !== 0n) {
+        fail('entryAt(last).supersededAt', 'the walked latest entry must have an open interval');
+      }
+      if (!sameEntry(latest, entry)) {
+        fail('currentEntry', 'does not agree with the last walked entry');
+      }
+    }
+    previous = entry;
   }
 
   // Resolution agrees with itself.
@@ -143,4 +181,20 @@ async function expectRevert(
       fail(call, `reverted with an unexpected error type: ${String(error)}`);
     }
   }
+}
+
+/** Compare byte values, not the case of their hex display. Never mutate answers. */
+function bytes32Key(value: string): string | undefined {
+  return typeof value === 'string' && /^0x[0-9a-f]{64}$/i.test(value) ?
+    value.toLowerCase() : undefined;
+}
+
+function sameEntry(left: RegisterEntry, right: RegisterEntry): boolean {
+  return left.version === right.version && left.effectiveAt === right.effectiveAt &&
+    left.supersededAt === right.supersededAt &&
+    typeof left.holder === 'string' && typeof right.holder === 'string' &&
+    left.holder.toLowerCase() === right.holder.toLowerCase() &&
+    bytes32Key(left.recordCommitment) === bytes32Key(right.recordCommitment) &&
+    bytes32Key(left.previousCommitment) === bytes32Key(right.previousCommitment) &&
+    bytes32Key(left.registryReference) === bytes32Key(right.registryReference);
 }

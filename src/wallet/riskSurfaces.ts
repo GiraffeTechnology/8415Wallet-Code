@@ -1,4 +1,5 @@
-import { detectConformance } from '../sdk/conformance.ts';
+import { TransportError } from '../sdk/errors.ts';
+import { detectConformance, requireProjectionConformance } from '../sdk/conformance.ts';
 import { ZERO_BYTES32, type Address, type Instant, type TokenId } from '../sdk/types.ts';
 import type { Erc8415Reader } from '../sdk/port.ts';
 import { buildSettlementLog } from './settlementLog.ts';
@@ -43,8 +44,6 @@ const NOTE =
   'safe or unsafe verdict, and gates nothing on them. What a right does with ' +
   'them is decided by its own terms.';
 
-/** A year, as the point past which a future effective time is worth remarking on. */
-const FAR_FUTURE_DRIFT = 365n * 24n * 60n * 60n;
 
 export async function buildRiskSurfaces(
   reader: Erc8415Reader,
@@ -52,6 +51,18 @@ export async function buildRiskSurfaces(
   options: { readonly account?: Address } = {},
 ): Promise<RiskSurfaceView> {
   const conformance = await detectConformance(reader);
+  requireProjectionConformance(reader, conformance);
+  if (conformance.settlement) {
+    const required = ['openGapOf', 'settlement', 'verificationProfile'] as const;
+    for (const method of required) {
+      if (typeof reader[method] !== 'function') {
+        throw new TransportError(method, 'reader capability unavailable for advertised settlement interface');
+      }
+    }
+    if (options.account !== undefined && typeof reader.isSettlementAuthority !== 'function') {
+      throw new TransportError('isSettlementAuthority', 'reader capability unavailable for advertised settlement interface');
+    }
+  }
   const observedAt = await reader.chainInstant();
   const latest = await reader.currentEntry(tokenId);
 
@@ -63,19 +74,24 @@ export async function buildRiskSurfaces(
     id: 'stalled-register',
     heading: 'How long the latest entry has stood',
     finding:
-      `The latest entry (v${latest.version}) took effect at ${latest.effectiveAt}; ` +
-      `${standing} seconds have passed since. No entry has been admitted after it.`,
+      standing < 0n
+        ? `The latest entry (v${latest.version}) has effective time ${latest.effectiveAt}, ` +
+          `${-standing} seconds ahead of now; no elapsed standing time is reported.`
+        : `The latest entry (v${latest.version}) took effect at ${latest.effectiveAt}; ` +
+          `${standing} seconds have passed since. No entry has been admitted after it.`,
     meaning:
       'Finality depends on a later entry existing. A register that stops ' +
-      'producing entries leaves recent instants permanently non-final, and ' +
-      'anything waiting on them waits indefinitely. This is a liveness ' +
-      'dependency on the register and its profile, not a safety defect.',
+      'producing entries leaves recent instants non-final for as long as it ' +
+      'stays stopped, and anything waiting on them waits with them; a ' +
+      'genuine later entry, once registered, makes them final. The clock ' +
+      'running on does not do it. This is a liveness dependency on the ' +
+      'register and its profile, not a safety defect.',
     present: standing > 0n,
   });
 
   // Held-open gap, measured by supersessions.
-  const log = await buildSettlementLog(reader, tokenId);
-  const supersessions = log.episodes.filter((episode) => episode.closure === 'superseded').length;
+  const log = conformance.settlement ? await buildSettlementLog(reader, tokenId) : undefined;
+  const supersessions = log?.episodes.filter((episode) => episode.closure === 'superseded').length ?? 0;
   const openGap =
     conformance.settlement && reader.openGapOf !== undefined
       ? await reader.openGapOf(tokenId)
@@ -83,7 +99,9 @@ export async function buildRiskSurfaces(
   surfaces.push({
     id: 'held-open-gap',
     heading: 'Supersessions on this token',
-    finding: log.available
+    finding: !conformance.settlement
+      ? 'This contract advertises no settlement interface; no gap or supersession observation is reported.'
+      : log?.available
       ? `${supersessions} settlement(s) on this token were superseded rather than ` +
         `admitted or cancelled. A gap is ${openGap === ZERO_BYTES32 ? 'not ' : ''}open now.`
       : 'Logs could not be read, so supersessions cannot be counted. Absence of a ' +
@@ -152,11 +170,21 @@ export async function buildRiskSurfaces(
         ? "The latest entry's effective time is at or before now."
         : `The latest entry's effective time is ${drift} seconds ahead of now.`,
     meaning:
-      'Effective times strictly increase, so an admitted effective time far in ' +
-      'the future permanently ends the projection for that token: no later ' +
-      'entry can exceed it. Nothing in the ERC bounds how far ahead one may ' +
-      'be; a profile that cannot rule it out inherits an unrecoverable state.',
-    present: drift > FAR_FUTURE_DRIFT,
+      'Later entries must have strictly greater effective times within uint64, ' +
+      'so this value blocks every later entry whose effective time is not ' +
+      'greater than it. That bounds admission; it ' +
+      'does not by itself prove that no later entry can ' +
+      'be admitted or that the state is unrecoverable. A later entry may ' +
+      'still be admitted, but only once one is actually registered: a ' +
+      'strictly greater effective time, genuine registration evidence, and ' +
+      'the time rules the profile applies, including its limit on how far ' +
+      'ahead an effective time may be. At the uint64 maximum, ' +
+      'no greater effective time is representable. Assess the actual value ' +
+      'and the profile; this measurement is not a finality verdict.',
+    // Any future effective time is reported, with the distance as the fact.
+    // A threshold here would decide for the reader when the distance starts to
+    // matter, and this surface scores nothing; the id is the original one.
+    present: drift > 0n,
   });
 
   return { tokenId, observedAt, surfaces, note: NOTE };

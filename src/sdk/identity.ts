@@ -29,10 +29,12 @@ export type ContractIdentity = {
  */
 export class ContractIdentityPin {
   readonly #reader: Erc8415Reader;
+  readonly #source: { readonly chainId: bigint; readonly address: string };
   #pinned: ContractIdentity | undefined;
 
   constructor(reader: Erc8415Reader) {
     this.#reader = reader;
+    this.#source = Object.freeze({ chainId: reader.source.chainId, address: reader.source.address });
   }
 
   get pinned(): ContractIdentity | undefined {
@@ -47,32 +49,36 @@ export class ContractIdentityPin {
    * that was asked.
    */
   async read(conformance: Conformance): Promise<ContractIdentity> {
+    this.#assertSource();
     requireProjectionConformance(this.#reader, conformance);
 
     const registerId = await this.#reader.registerId();
-    if (registerId === ZERO_BYTES32) {
-      throw new IdentityChangedError('registerId', 'a nonzero identifier', registerId);
+    this.#assertSource();
+    if (!isNonzeroIdentifier(registerId)) {
+      throw new IdentityChangedError('registerId', 'a nonzero bytes32 identifier', 'invalid bytes32 response');
     }
 
     let verificationProfile: Bytes32 | undefined;
     if (conformance.settlement) {
       requireSettlementConformance(this.#reader, conformance);
       verificationProfile = await this.#reader.verificationProfile!();
-      if (verificationProfile === ZERO_BYTES32) {
+      this.#assertSource();
+      if (!isNonzeroIdentifier(verificationProfile)) {
         throw new IdentityChangedError(
           'verificationProfile',
-          'a nonzero identifier',
-          verificationProfile,
+          'a nonzero bytes32 identifier',
+          'invalid bytes32 response',
         );
       }
     }
 
-    const observed: ContractIdentity = {
-      chainId: this.#reader.source.chainId,
-      address: this.#reader.source.address,
+    // All identity fields are primitives; freezing prevents callers from rewriting the pin.
+    const observed: ContractIdentity = Object.freeze({
+      chainId: this.#source.chainId,
+      address: this.#source.address,
       registerId,
       verificationProfile,
-    };
+    });
 
     const pinned = this.#pinned;
     if (pinned === undefined) {
@@ -92,4 +98,24 @@ export class ContractIdentityPin {
     }
     return observed;
   }
+
+  #assertSource(): void {
+    const current = this.#reader.source;
+    if (current.chainId !== this.#source.chainId) {
+      throw new IdentityChangedError(
+        'chainId',
+        String(this.#source.chainId),
+        String(current.chainId),
+      );
+    }
+    if (current.address.toLowerCase() !== this.#source.address.toLowerCase()) {
+      throw new IdentityChangedError('address', this.#source.address, current.address);
+    }
+  }
+}
+
+/** Validate untrusted adapter values before they can establish an identity pin. */
+function isNonzeroIdentifier(value: unknown): value is Bytes32 {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value) &&
+    value.toLowerCase() !== ZERO_BYTES32;
 }

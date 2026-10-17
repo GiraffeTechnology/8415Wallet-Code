@@ -10,6 +10,8 @@ import {
   TOKEN,
   divergentToken,
 } from '../src/adapters/memory/scenarios.ts';
+import { InvariantViolationError } from '../src/sdk/errors.ts';
+import { encodeTopic, topicOf, type RawLog } from '../src/sdk/events.ts';
 import { ZERO_ADDRESS } from '../src/sdk/types.ts';
 import { buildOwnershipHistory } from '../src/wallet/ownershipHistory.ts';
 import { renderOwnershipHistory } from '../src/wallet/renderHolderViews.ts';
@@ -121,5 +123,142 @@ describe('without logs, half the record is missing and it says so', () => {
     assert.match(renderOwnershipHistory(view), /That is half the record/);
     // The projection half is still shown.
     assert.equal(view.timeline.filter((event) => event.kind === 'entry').length, 3);
+  });
+});
+
+describe('returned ownership logs are bound to the requested asset', () => {
+  function transfer(address: string, tokenId = TOKEN): RawLog {
+    return {
+      address,
+      topics: [
+        topicOf('Transfer'),
+        encodeTopic('address', ALICE),
+        encodeTopic('address', DAVE),
+        encodeTopic('uint256', tokenId),
+      ],
+      data: '0x',
+      blockNumber: 10n,
+      logIndex: 0n,
+    };
+  }
+
+  async function historyWith(logs: readonly RawLog[]) {
+    const { reader } = divergentToken();
+    return buildOwnershipHistory(
+      delegateReader(reader, {
+        getLogs: async () => [...logs],
+        chainInstantAt: async () => T.positionTransferred,
+      }),
+      TOKEN,
+    );
+  }
+
+  test('a foreign contract is refused rather than added or silently dropped', async () => {
+    await assert.rejects(historyWith([transfer(STRANGER)]), (error: unknown) => {
+      assert.ok(error instanceof InvariantViolationError);
+      assert.equal(error.invariant, 'ownership-log-scope');
+      assert.match(error.message, /different contract/);
+      return true;
+    });
+  });
+
+  test('a different token from the requested contract is refused', async () => {
+    const { reader } = divergentToken();
+    await assert.rejects(
+      historyWith([transfer(reader.source.address, TOKEN + 1n)]),
+      /different token/,
+    );
+  });
+
+  test('a later wrong token refuses the whole read after a valid position', async () => {
+    const { reader } = divergentToken();
+    await assert.rejects(
+      historyWith([
+        transfer(reader.source.address),
+        transfer(reader.source.address, TOKEN + 1n),
+      ]),
+      /different token/,
+    );
+  });
+
+  test('a valid returned Transfer preserves the position and projection', async () => {
+    const { reader } = divergentToken();
+    const view = await historyWith([transfer(reader.source.address)]);
+    assert.equal(view.available, true);
+    assert.equal(view.positionChanges, 1);
+    assert.equal(view.entries, 3);
+    assert.equal(view.correspondences[0]?.to, DAVE);
+  });
+
+  test('address letter case does not change the requested contract identity', async () => {
+    const { reader } = divergentToken();
+    const mixedCase = '0x' + reader.source.address.slice(2).toUpperCase();
+    const view = await historyWith([transfer(mixedCase)]);
+    assert.equal(view.positionChanges, 1);
+  });
+
+  test('an unrelated same-contract event is not reinterpreted as a Transfer', async () => {
+    const { reader } = divergentToken();
+    const view = await historyWith([{
+      ...transfer(reader.source.address),
+      topics: [encodeTopic('uint256', 42n)],
+    }]);
+    assert.equal(view.available, true);
+    assert.equal(view.positionChanges, 0);
+    assert.equal(view.entries, 3);
+  });
+
+  test('a declared Transfer with missing indexed fields is refused', async () => {
+    const { reader } = divergentToken();
+    await assert.rejects(
+      historyWith([{ ...transfer(reader.source.address), topics: [topicOf('Transfer')] }]),
+      /cannot be decoded/,
+    );
+  });
+
+  test('the exact contract and token filter is forwarded to the reader', async () => {
+    const { reader } = divergentToken();
+    let calls = 0;
+    const view = await buildOwnershipHistory(delegateReader(reader, {
+      getLogs: async (filter) => {
+        calls += 1;
+        assert.deepEqual(filter, {
+          address: reader.source.address,
+          topics: [topicOf('Transfer'), null, null, encodeTopic('uint256', TOKEN)],
+        });
+        return [];
+      },
+      chainInstantAt: async () => T.positionTransferred,
+    }), TOKEN);
+    assert.equal(calls, 1);
+    assert.equal(view.available, true);
+    assert.equal(view.positionChanges, 0);
+  });
+});
+
+describe('ownership history preserves backend failures', () => {
+  test('a log read failure is not converted to unavailable or empty history', async () => {
+    const { reader } = divergentToken();
+    const failure = new Error('log backend refused this read');
+    const bound = delegateReader(reader, {
+      getLogs: async () => { throw failure; },
+      chainInstantAt: async () => T.positionTransferred,
+    });
+    await assert.rejects(buildOwnershipHistory(bound, TOKEN), (error: unknown) => error === failure);
+  });
+
+  test('a block-time failure is propagated after a valid log', async () => {
+    const { reader } = divergentToken();
+    const logs = await reader.getLogs({
+      address: reader.source.address,
+      topics: [topicOf('Transfer'), null, null, encodeTopic('uint256', TOKEN)],
+    });
+    assert.ok(logs.length > 0, 'the fixture must reach block-time lookup');
+    const failure = new Error('block timestamp unavailable');
+    const bound = delegateReader(reader, {
+      getLogs: async () => logs,
+      chainInstantAt: async () => { throw failure; },
+    });
+    await assert.rejects(buildOwnershipHistory(bound, TOKEN), (error: unknown) => error === failure);
   });
 });

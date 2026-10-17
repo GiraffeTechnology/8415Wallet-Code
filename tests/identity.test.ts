@@ -17,6 +17,7 @@ import { detectConformance } from '../src/sdk/conformance.ts';
 import { IdentityChangedError } from '../src/sdk/errors.ts';
 import { ContractIdentityPin } from '../src/sdk/identity.ts';
 import { ZERO_BYTES32 } from '../src/sdk/types.ts';
+import { delegateReader } from './support/delegateReader.ts';
 
 describe('contract identity', () => {
   test('is nonzero and carries the chain and address it came from', async () => {
@@ -92,5 +93,130 @@ describe('contract identity', () => {
       () => new ContractIdentityPin(reader).read(conformance),
       IdentityChangedError,
     );
+  });
+});
+
+describe('identity pins cannot be rewritten by consumers', () => {
+  test('the first returned identity and getter expose a frozen primitive snapshot', async () => {
+    const { reader } = divergentToken();
+    const pin = new ContractIdentityPin(reader);
+    const conformance = await detectConformance(reader);
+    const first = await pin.read(conformance);
+    const original = { ...first };
+    assert.equal(pin.pinned, first);
+    assert.equal(Object.isFrozen(first), true);
+    for (const [field, replacement] of [
+      ['chainId', 999n],
+      ['address', ALICE],
+      ['registerId', commitment('f')],
+      ['verificationProfile', commitment('e')],
+    ] as const) {
+      assert.equal(Reflect.set(first, field, replacement), false);
+    }
+    assert.deepEqual(pin.pinned, original);
+    assert.deepEqual(await pin.read(conformance), original);
+  });
+
+  test('the getter cannot be used to bless a changed register identifier', async () => {
+    const { reader } = divergentToken();
+    let registerId = await reader.registerId();
+    const bound = delegateReader(reader, { registerId: async () => registerId });
+    const pin = new ContractIdentityPin(bound);
+    const conformance = await detectConformance(bound);
+    const first = await pin.read(conformance);
+    registerId = commitment('f');
+    assert.equal(Reflect.set(pin.pinned!, 'registerId', registerId), false);
+    await assert.rejects(pin.read(conformance), IdentityChangedError);
+    assert.equal(pin.pinned, first);
+  });
+
+  test('a returned object cannot bless a changed verification profile', async () => {
+    const { reader } = divergentToken();
+    let profile = await reader.verificationProfile();
+    const bound = delegateReader(reader, { verificationProfile: async () => profile });
+    const pin = new ContractIdentityPin(bound);
+    const conformance = await detectConformance(bound);
+    const first = await pin.read(conformance);
+    profile = commitment('e');
+    assert.equal(Reflect.set(first, 'verificationProfile', profile), false);
+    await assert.rejects(pin.read(conformance), IdentityChangedError);
+    assert.equal(pin.pinned, first);
+  });
+
+  test('projection-only snapshots stay frozen with an absent profile', async () => {
+    const { reader } = projectionOnlyToken();
+    const pin = new ContractIdentityPin(reader);
+    const conformance = await detectConformance(reader);
+    const first = await pin.read(conformance);
+    assert.equal(first.verificationProfile, undefined);
+    assert.equal(Object.isFrozen(first), true);
+    assert.equal(Reflect.set(first, 'verificationProfile', commitment('e')), false);
+    assert.deepEqual(await pin.read(conformance), first);
+  });
+});
+
+describe('identity pins remain bound to their reader source', () => {
+  for (const field of ['chainId', 'address'] as const) {
+    for (const phase of ['before first read', 'after pinning'] as const) {
+      test(`rejects changed ${field} ${phase} even with identical register facts`, async () => {
+        const { reader } = divergentToken();
+        const source = { ...reader.source };
+        let identityReads = 0;
+        const bound = delegateReader(reader, {
+          source,
+          registerId: async () => { identityReads += 1; return reader.registerId(); },
+        });
+        const pin = new ContractIdentityPin(bound);
+        const conformance = await detectConformance(bound);
+        if (phase === 'after pinning') await pin.read(conformance);
+        const originalPin = pin.pinned;
+        const priorReads = identityReads;
+        if (field === 'chainId') source.chainId += 1n;
+        else source.address = ALICE;
+        await assert.rejects(pin.read(conformance), (error: unknown) => {
+          assert.ok(error instanceof IdentityChangedError);
+          assert.match(error.message, new RegExp(field + ' changed'));
+          return true;
+        });
+        assert.equal(identityReads, priorReads, 'refuse before new identity reads');
+        assert.equal(pin.pinned, originalPin);
+      });
+    }
+  }
+
+  for (const method of ['registerId', 'verificationProfile'] as const) {
+    test(`a source change during awaited ${method} cannot establish a pin`, async () => {
+      const { reader } = divergentToken();
+      const source = { ...reader.source };
+      const changeSource = async () => {
+        const value = await reader[method]();
+        source.chainId += 1n;
+        return value;
+      };
+      const bound = delegateReader(reader, {
+        source,
+        ...(method === 'registerId'
+          ? { registerId: changeSource }
+          : { verificationProfile: changeSource }),
+      });
+      const pin = new ContractIdentityPin(bound);
+      const conformance = await detectConformance(bound);
+      await assert.rejects(pin.read(conformance), IdentityChangedError);
+      assert.equal(pin.pinned, undefined);
+    });
+  }
+
+  test('address case alone remains compatible and the captured label is stable', async () => {
+    const { reader } = divergentToken();
+    const source = { ...reader.source };
+    const bound = delegateReader(reader, { source });
+    const pin = new ContractIdentityPin(bound);
+    const conformance = await detectConformance(bound);
+    const first = await pin.read(conformance);
+    source.address = '0x' + source.address.slice(2).toUpperCase();
+    const next = await pin.read(conformance);
+    assert.deepEqual(next, first);
+    assert.equal(next.address, first.address);
+    assert.equal(Object.isFrozen(next), true);
   });
 });

@@ -19,8 +19,8 @@ describe('formatInstant', () => {
   });
 
   test('reports a far-future instant instead of rendering an invalid date', () => {
-    // A uint64 effectiveAt this far out permanently ends the projection for
-    // that token, so it has to survive being displayed.
+    // A uint64 effectiveAt this far out blocks every later entry that is not
+    // further ahead still, so it has to survive being displayed.
     const farFuture = (1n << 63n) + 7n;
     const rendered = formatInstant(farFuture);
     assert.ok(rendered.startsWith(farFuture.toString()));

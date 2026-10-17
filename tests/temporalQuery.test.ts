@@ -14,8 +14,10 @@ import {
   commitment,
   confirmingEntryToken,
   divergentToken,
+  projectionOnlyToken,
 } from '../src/adapters/memory/scenarios.ts';
-import { ContractRevertError, ProjectionNotInitialized } from '../src/sdk/errors.ts';
+import { ContractRevertError, ProjectionNotInitialized, TransportError } from '../src/sdk/errors.ts';
+import { ZERO_BYTES32 } from '../src/sdk/types.ts';
 import { buildTemporalView } from '../src/wallet/temporalQuery.ts';
 import { renderTemporalQuery } from '../src/wallet/renderTemporalQuery.ts';
 import { delegateReader } from './support/delegateReader.ts';
@@ -235,4 +237,83 @@ describe('gating', () => {
     assert.equal(view.resolution.kind === 'resolved' ? view.resolution.holder : undefined, ALICE);
     assert.equal(view.finality.display, 'final');
   });
+});
+
+describe('settlement capability is not contract conformance', () => {
+  for (const missing of ['openGapOf', 'settlement', 'both'] as const) {
+    test(`advertised settlement with missing ${missing} refuses the view`, async () => {
+      const { reader } = divergentToken();
+      const bound = delegateReader(reader, {});
+      const { openGapOf: _open, ...withoutOpen } = bound;
+      const { settlement: _settlement, ...withoutSettlement } = bound;
+      const { settlement: _both, ...withoutBoth } = withoutOpen;
+      const incomplete = missing === 'openGapOf' ? withoutOpen
+        : missing === 'settlement' ? withoutSettlement : withoutBoth;
+      await assert.rejects(buildTemporalView(incomplete, TOKEN, T.asOf), (error: unknown) => {
+        assert.ok(error instanceof TransportError);
+        assert.equal(error.method, missing === 'settlement' ? 'settlement' : 'openGapOf');
+        assert.match(error.message, /reader capability unavailable/);
+        return true;
+      });
+    });
+  }
+
+  test('only a contract not advertising settlement reports no gap interface', async () => {
+    const { reader } = projectionOnlyToken();
+    let calls = 0;
+    const bound = delegateReader(reader, {
+      openGapOf: async () => { calls += 1; throw new Error('must not call'); },
+      settlement: async () => { calls += 1; throw new Error('must not call'); },
+    });
+    const view = await buildTemporalView(bound, TOKEN, T.finalInstant);
+    assert.equal(view.conformance.settlement, false);
+    assert.equal(view.contest.display, 'no-gap-interface');
+    assert.equal(calls, 0);
+    assert.match(renderTemporalQuery(view), /No gap interface on this contract/);
+  });
+
+  test('a complete adapter returning zero reports no open gap without reading a record', async () => {
+    const { reader } = divergentToken();
+    let records = 0;
+    const bound = delegateReader(reader, {
+      openGapOf: async () => ZERO_BYTES32,
+      settlement: async () => { records += 1; throw new Error('zero has no record'); },
+    });
+    const view = await buildTemporalView(bound, TOKEN, T.asOf);
+    assert.equal(view.conformance.settlement, true);
+    assert.equal(view.contest.display, 'not-contested');
+    assert.equal(view.contest.settlementId, undefined);
+    assert.equal(view.finality.display, 'provisional');
+    assert.equal(records, 0);
+  });
+
+  test('an open gap and finality remain independent on either side of its opening', async () => {
+    const { reader } = divergentToken();
+    const current = await buildTemporalView(reader, TOKEN, T.asOf);
+    assert.equal(current.contest.display, 'contested');
+    assert.equal(current.contest.settlementId, OPEN_GAP_ID);
+    assert.equal(current.finality.display, 'provisional');
+    const past = await buildTemporalView(reader, TOKEN, T.finalInstant);
+    assert.equal(past.contest.display, 'not-contested');
+    assert.equal(past.contest.settlementId, OPEN_GAP_ID);
+    assert.equal(past.finality.display, 'final');
+  });
+
+  for (const method of ['openGapOf', 'settlement'] as const) {
+    for (const kind of ['transport', 'revert'] as const) {
+      test(`${method} ${kind} failure propagates unchanged instead of a contest answer`, async () => {
+        const { reader } = divergentToken();
+        const failure = kind === 'transport'
+          ? new TransportError(method, 'backend unavailable')
+          : new ContractRevertError(method);
+        const bound = delegateReader(reader, method === 'openGapOf'
+          ? { openGapOf: async () => { throw failure; } }
+          : { settlement: async () => { throw failure; } });
+        await assert.rejects(
+          buildTemporalView(bound, TOKEN, T.asOf),
+          (error: unknown) => error === failure,
+        );
+      });
+    }
+  }
 });

@@ -26,3 +26,21 @@ export * from './agent/receiptObservation.ts';
 
 export { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from './agent/receiptTask.ts';
 export type { FrozenReceiptTask, ReceiptPhase } from './agent/receiptTask.ts';
+
+export { captureHoodiRelease, compareHoodiReleaseHistory, renderHoodiReleaseHistory,
+  serialiseHoodiJourney, HOODI_JOURNEY_CHAIN, HOODI_JOURNEY_GENESIS } from './wallet/hoodiJourney.ts';
+export { openHoodiJourneyRead } from './wallet/hoodiJourneyProvider.ts';
+
+export { readAssetWorkspace, readRegisterHistoryPage } from './wallet/assetWorkspace.ts';
+export { renderAssetWorkspace } from './wallet/renderAssetWorkspace.ts';
+
+// Optional read-only watchtower presentation; never projection finality or transaction authority.
+export { RpcWatchtowerReader } from './adapters/rpc/watchtowerRpcReader.ts';
+export { buildFreshnessView } from './wallet/freshness.ts';
+export { renderFreshness } from './wallet/renderFreshness.ts';
+
+
+// Optional projection acceleration composed with the selected direct-chain reader.
+export { KitProjectionApi } from './adapters/kit/kitApi.ts';
+export { KitErc8415Reader } from './adapters/kit/kitReader.ts';
+

@@ -52,9 +52,11 @@ export type MemoryRegisterOptions = {
    * Profile bound on how far ahead of `now` an `effectiveAt` may sit.
    *
    * The ERC states an implementation SHOULD reject one further ahead than its
-   * profile allows, because an unbounded effective time ends the projection
-   * for that token permanently. Unset means unbounded, which is the state the
-   * wallet's risk surface exists to report.
+   * profile allows, because an effective time that far ahead blocks every
+   * later entry whose effective time is not greater than it: it bounds
+   * admission for as long as it stands, and does not by itself end the
+   * projection. Unset means unbounded, which is the state the wallet's risk
+   * surface exists to report.
    */
   readonly maxEffectiveAtDrift?: bigint;
   readonly verifyProof?: ProofVerifier;

@@ -1,3 +1,4 @@
+import { TransportError } from '../sdk/errors.ts';
 import type { Bytes32 } from '../sdk/types.ts';
 import type { Freshness, WatchtowerBinding } from '../sdk/watchtower.ts';
 
@@ -91,27 +92,53 @@ export function noWatchtower(): FreshnessView {
 }
 
 export async function buildFreshnessView(binding: WatchtowerBinding): Promise<FreshnessView> {
-  const { reader, assetId } = binding;
-  const { status, age } = await reader.freshnessOf(assetId);
+  const { reader, assetId, provenance, claimedRegisterId } = binding;
+  const selected: WatchtowerBinding = { reader, assetId, provenance,
+    ...(claimedRegisterId === undefined ? {} : { claimedRegisterId }) };
+  const source = Object.freeze({ chainId: reader.source.chainId, address: reader.source.address });
+  const assertSource = () => {
+    if (reader.source.chainId !== source.chainId ||
+      reader.source.address.toLowerCase() !== source.address.toLowerCase()) {
+      throw new TransportError('watchtower source', 'source identity changed during freshness observation');
+    }
+  };
+  const answer = await reader.freshnessOf(assetId);
+  assertSource();
+  if (answer === null || typeof answer !== 'object' ||
+    typeof answer.status !== 'string' || !Object.hasOwn(DISPLAY_BY_STATUS, answer.status) ||
+    typeof answer.age !== 'bigint' || answer.age < 0n) {
+    throw new TransportError('freshnessOf', 'malformed freshness response');
+  }
+  const { status, age } = answer;
 
   let finalityDepth: bigint | undefined;
+  let policy: unknown;
+  let policyAnswered = false;
   try {
-    finalityDepth = (await reader.policyOf(assetId)).finalityDepth;
+    policy = await reader.policyOf(assetId);
+    policyAnswered = true;
   } catch {
-    finalityDepth = undefined;
+    // Optional policy read failed: preserve the reported status, with depth unavailable.
+  }
+  assertSource();
+  if (policyAnswered) {
+    const depth = policy !== null && typeof policy === 'object'
+      ? (policy as { finalityDepth?: unknown }).finalityDepth : undefined;
+    if (typeof depth !== 'bigint' || depth < 0n) {
+      throw new TransportError('policyOf', 'malformed finalityDepth response');
+    }
+    finalityDepth = depth;
   }
 
   const display = DISPLAY_BY_STATUS[status];
   return {
     assetId,
-    source: reader.source,
+    source,
     binding: {
-      provenance: binding.provenance,
-      ...(binding.claimedRegisterId === undefined
-        ? {}
-        : { claimedRegisterId: binding.claimedRegisterId }),
+      provenance,
+      ...(claimedRegisterId === undefined ? {} : { claimedRegisterId }),
     },
-    bindingNote: bindingNote(binding),
+    bindingNote: bindingNote(selected),
     reported: status,
     display,
     label: LABELS[display],

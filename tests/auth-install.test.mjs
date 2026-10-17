@@ -17,6 +17,56 @@ import { TASK_RUNTIME_SOURCE_PATHS, LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, runti
 import { independentNode } from './helpers/independent-node.mjs';
 const fixtureNode = await independentNode();
 after(() => fixtureNode.cleanup());
+
+test('independent Node fixture uses exclusive create-and-write rather than host copy semantics', () => {
+  // Model a filesystem where the copy API cannot provide a caller-owned file.
+  // Do not change the real executable's ownership or relax fixture assertions.
+  const helper = new URL('./helpers/independent-node.mjs', import.meta.url).href;
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs/promises';
+    import { syncBuiltinESMExports } from 'node:module';
+    import { execFileSync } from 'node:child_process';
+    const writeFile = fs.writeFile;
+    let writes = 0;
+    fs.writeFile = async (path, bytes, options) => {
+      assert.deepEqual(options, { flag: 'wx', mode: 0o600 });
+      writes++;
+      return writeFile(path, bytes, options);
+    };
+    fs.copyFile = async () => { throw Error('SYNTHETIC_COPY_OWNERSHIP_UNSUPPORTED'); };
+    syncBuiltinESMExports();
+    const { independentNode } = await import(${JSON.stringify(helper)});
+    const first = await independentNode();
+    let second;
+    try {
+      second = await independentNode();
+      const a = await fs.lstat(first.node), b = await fs.lstat(second.node);
+      assert.ok(a.dev !== b.dev || a.ino !== b.ino);
+      assert.equal(first.uid, process.getuid());
+      assert.equal(second.uid, process.getuid());
+      assert.equal(first.sha256, second.sha256);
+      assert.equal(execFileSync(first.node, ['--version'], { encoding: 'utf8' }).trim(), process.version);
+    } finally {
+      await first.cleanup();
+      if (second) await second.cleanup();
+    }
+    await assert.rejects(fs.lstat(first.node), { code: 'ENOENT' });
+    if (second) await assert.rejects(fs.lstat(second.node), { code: 'ENOENT' });
+    assert.equal(writes, 2);
+    let collision;
+    fs.writeFile = async (path, bytes, options) => {
+      collision = path;
+      await writeFile(path, 'synthetic-existing-file', { flag: 'wx', mode: 0o600 });
+      return writeFile(path, bytes, options);
+    };
+    syncBuiltinESMExports();
+    await assert.rejects(independentNode(), { code: 'EEXIST' });
+    await assert.rejects(fs.lstat(collision), { code: 'ENOENT' });
+    console.log('independent-node-properties-ok');
+  `], { encoding: 'utf8' });
+  assert.equal(output.trim(), 'independent-node-properties-ok');
+});
 const uid = process.getuid(), nodeUid = fixtureNode.uid;
 const tenant = 'fixture-tenant', origin = 'https://wallet.example.invalid:9447';
 const accounts = [{ username: 'fixture-user', wallets: [{ account: `0x${'1'.repeat(40)}`, chainId: '8453' }] }];
