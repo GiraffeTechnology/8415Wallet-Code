@@ -7,6 +7,7 @@ import { controlHex, controlRpc, controlPendingNonce, hashControlBytes, requireC
 import { isAddressInput } from '../xiongan/address.ts';
 import type { Address, Bytes32 } from '../sdk/types.ts';
 import { buildEscrowView } from './escrowView.ts';
+import type { ReleaseConfirmation } from '../sdk/escrow.ts';
 
 /** Fixed, owner-reviewed legacy ProjectionEscrow actions. This is independent of
  * responsibility controls; it neither admits entries nor chooses trade remedies. */
@@ -23,7 +24,8 @@ export type LegacyClearingState = { schema: '8415-legacy-operation/1'; revision:
   status: 'idle' | 'outcome-unknown' | 'submitted'; review: LegacyClearingReview | null; transactionHash: string | null };
 export type LegacyClearingStore = { read(): Promise<LegacyClearingState | null>;
   compareAndSwap(expected: number | null, next: LegacyClearingState): Promise<boolean> };
-type Receipt = { state: 'pending' | 'reorged' | 'confirming' | 'confirmed' | 'reverted'; transactionHash: string; confirmations: string };
+type Receipt = { state: 'pending' | 'reorged' | 'confirming' | 'confirmed' | 'reverted'; transactionHash: string; confirmations: string;
+  releaseConfirmation?: ReleaseConfirmation };
 const ZERO = `0x${'0'.repeat(64)}`, ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
 const TRADE_TYPES: StaticType[] = ['address', 'uint256', 'address', 'address', 'uint256', 'uint64', 'uint64', 'uint64', 'uint8'];
 const OBSERVE_TYPES: StaticType[] = ['uint8', 'bool', 'uint64', 'uint64', 'address', 'address', 'uint64'];
@@ -178,11 +180,27 @@ export class LegacyClearingSession {
     check(trade.projection === this.#deployment.projection.address, 'CLEARING_TRADE_PROJECTION_REFUSED');
     const observation = await snapshot.reader.observe(key as Bytes32);
     check(observation.state === trade.state, 'CLEARING_OBSERVATION_MISMATCH');
+    let releaseConfirmation: ReleaseConfirmation | undefined;
+    // Only use this session's still-retained, exact canonical release receipt.
+    // Clearing the journal does not authorize guessing from current history.
+    const saved = await this.#store.read();
+    if (trade.state === 'RELEASED' && saved !== null) {
+      const operation = parseLegacyClearingState(json(saved));
+      check(operation.chainId === this.#deployment.chainId && operation.actor === this.actor,
+        'CLEARING_JOURNAL_BINDING_REFUSED');
+      if (operation.review) check(json(operation.review.deployment) === json(this.#deployment),
+        'CLEARING_SAVED_DEPLOYMENT_REQUIRED');
+      if (operation.status === 'submitted' && operation.transactionHash !== null &&
+        operation.review?.action === 'release' && operation.review.tradeKey === key) {
+        const receipt = await this.#receipt(operation, operation.transactionHash, 2n);
+        if (receipt.state === 'confirmed') releaseConfirmation = receipt.releaseConfirmation;
+      }
+    }
     await this.#finish(snapshot.block, snapshot.blockHash);
     return { tradeKey: key, chainId: this.#deployment.chainId, escrow: this.#deployment.escrow.address,
       projection: this.#deployment.projection.address, registerId: this.#deployment.registerId, verificationProfile: this.#deployment.verificationProfile,
       blockNumber: snapshot.block, blockHash: snapshot.blockHash, now: snapshot.now.toString(), trade, observation,
-      view: buildEscrowView(trade, observation, snapshot.now), notes: CLEARING_NOTES };
+      view: buildEscrowView(trade, observation, snapshot.now, releaseConfirmation), notes: CLEARING_NOTES };
   }
   async prepare(requestText: string, expiresAt?: string): Promise<LegacyClearingReview> {
     const r = request(requestText), d = this.#deployment, s = await this.#snapshot();
@@ -269,23 +287,29 @@ export class LegacyClearingSession {
       const code = await this.#rpc('eth_getCode', [pin.address, hex(number)]);
       check(controlHex(code) && hashControlBytes(code) === pin.runtimeCodeHash, 'CLEARING_RECEIPT_RUNTIME_MISMATCH');
     }
-    if (status === 1n) check(this.#effect(receipt, review, transactionHash, blockHash, number), 'CLEARING_EFFECT_UNOBSERVED');
+    const effect = status === 1n ? this.#effect(receipt, review, transactionHash, blockHash, number) : undefined;
+    if (status === 1n) check(effect?.observed === true, 'CLEARING_EFFECT_UNOBSERVED');
     await this.#identity();
     const again = await this.#rpc('eth_getBlockByNumber', [hex(number), false]);
     if (again === null || hash(object(again).hash) !== blockHash) return result('reorged');
-    return result(status === 0n ? 'reverted' : 'confirmed', count);
+    return { ...result(status === 0n ? 'reverted' : 'confirmed', count),
+      ...(effect?.releaseConfirmation ? { releaseConfirmation: effect.releaseConfirmation } : {}) };
   }
-  #effect(receipt: Record<string, unknown>, review: LegacyClearingReview, transactionHash: string, blockHash: string, number: bigint): boolean {
+  #effect(receipt: Record<string, unknown>, review: LegacyClearingReview, transactionHash: string, blockHash: string, number: bigint): { observed: boolean; releaseConfirmation?: ReleaseConfirmation } {
     check(Array.isArray(receipt.logs), 'CLEARING_EFFECT_UNOBSERVED');
     const r = request(review.requestText), d = this.#deployment;
     const wordAddress = (value: string) => encodeWords(['address'], [value]);
     const events: Record<Action, string> = { approve: 'Approval(address,address,uint256)', open: 'TradeOpened(bytes32,bytes32,address,uint256,address,address,uint256,uint64,uint64)',
       fund: 'TradeFunded(bytes32,address,uint256,uint64)', release: 'TradeReleased(bytes32,address,uint64,uint64)', refund: 'TradeRefunded(bytes32,address,uint64)', abandon: 'TradeAbandoned(bytes32,address)' };
-    return receipt.logs.some((raw: unknown) => {
+    const committedRelease = keccak256Utf8('TradeReleased(bytes32,address,uint64,uint64,bytes32)');
+    let releaseConfirmation: ReleaseConfirmation | undefined;
+    const observed = receipt.logs.some((raw: unknown) => {
       const log = object(raw);
       if (log.transactionHash !== transactionHash || log.blockHash !== blockHash || quantity(log.blockNumber) !== number ||
         quantity(log.transactionIndex) !== quantity(receipt.transactionIndex) || log.removed !== false || !Array.isArray(log.topics)) return false;
-      if (typeof log.address !== 'string' || log.address.toLowerCase() !== review.transaction.to || log.topics[0] !== keccak256Utf8(events[r.kind])) return false;
+      const newRelease = r.kind === 'release' && log.topics[0] === committedRelease;
+      if (typeof log.address !== 'string' || log.address.toLowerCase() !== review.transaction.to ||
+        (!newRelease && log.topics[0] !== keccak256Utf8(events[r.kind]))) return false;
       if (r.kind === 'approve') return json(log.topics) === json([keccak256Utf8(events.approve), wordAddress(this.actor), wordAddress(d.escrow.address), encodeWords(['uint256'], [BigInt(r.tokenId!)])]) && log.data === '0x';
       if (log.topics[1] !== review.tradeKey) return false;
       if (r.kind === 'open') return json(log.topics) === json([keccak256Utf8(events.open), review.tradeKey, r.localId, wordAddress(d.projection.address)]) &&
@@ -294,11 +318,19 @@ export class LegacyClearingSession {
       const party = r.kind === 'abandon' ? trade.seller as string : trade.buyer as string;
       if (log.topics.length !== 3 || log.topics[2] !== wordAddress(party)) return false;
       if (r.kind === 'abandon') return log.data === '0x';
-      const fields = decoded(r.kind === 'fund' ? ['uint256', 'uint64'] : r.kind === 'release' ? ['uint64', 'uint64'] : ['uint64'], log.data);
+      const fields = decoded(r.kind === 'fund' ? ['uint256', 'uint64'] : r.kind === 'release'
+        ? newRelease ? ['uint64', 'uint64', 'bytes32'] : ['uint64', 'uint64'] : ['uint64'], log.data);
       if (r.kind === 'fund') return fields[0] === BigInt(trade.price as string);
-      if (r.kind === 'release') return (fields[0] as bigint) > BigInt(trade.entryCountAtFunding as string) && (fields[1] as bigint) <= BigInt(trade.maxEffectiveAt as string);
+      if (r.kind === 'release') {
+        if ((fields[0] as bigint) <= BigInt(trade.entryCountAtFunding as string) ||
+          (fields[1] as bigint) > BigInt(trade.maxEffectiveAt as string)) return false;
+        releaseConfirmation = { version: fields[0] as bigint, effectiveAt: fields[1] as bigint,
+          ...(newRelease ? { recordCommitment: hash(fields[2]) as Bytes32 } : {}) };
+        return true;
+      }
       return true;
     });
+    return { observed, ...(releaseConfirmation ? { releaseConfirmation } : {}) };
   }
   async reconcile(minimum = 2n): Promise<Receipt> {
     const state = await this.status(); check(state.status === 'submitted' && state.transactionHash !== null, 'CLEARING_KNOWN_HASH_REQUIRED');

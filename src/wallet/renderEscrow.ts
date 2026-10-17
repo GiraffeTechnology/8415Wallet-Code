@@ -37,6 +37,12 @@ export function renderEscrow(view: EscrowView): string {
         `, effective ${formatInstant(view.confirmingEffectiveAt!)}`,
     );
   }
+  if (view.confirmingRecordCommitment !== undefined) {
+    lines.push(`  Release commitment     ${view.confirmingRecordCommitment}`);
+  }
+  if (view.state === 'released' && view.confirmingVersion === undefined) {
+    lines.push('  Release confirmation   unavailable — current register observation is not release evidence');
+  }
 
   if (view.window !== undefined) {
     lines.push('');

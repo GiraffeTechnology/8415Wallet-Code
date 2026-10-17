@@ -21,3 +21,6 @@ export { LegacyClearingSession, parseLegacyClearingState, parseLegacyClearingDep
 export type { Erc20Balance, Erc20Metadata, AssetReview, AssetState, AssetStore, AssetTransaction, AssetReceipt } from './xiongan/externalAssets.ts';
 export * from './agent/taskContract.ts';
 export * from './agent/receiptObservation.ts';
+
+export { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from './agent/receiptTask.ts';
+export type { FrozenReceiptTask, ReceiptPhase } from './agent/receiptTask.ts';

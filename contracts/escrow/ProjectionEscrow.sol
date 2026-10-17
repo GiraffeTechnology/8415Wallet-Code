@@ -85,7 +85,10 @@ contract ProjectionEscrow {
     event TradeFunded(bytes32 indexed tradeKey, address indexed buyer, uint256 price, uint64 entryCountAtFunding);
     /// @param version The version of the entry that confirmed the buyer. Emitted
     /// so an auditor can re-check the release against the register's own walk.
-    event TradeReleased(bytes32 indexed tradeKey, address indexed buyer, uint64 version, uint64 effectiveAt);
+    /// @param recordCommitment The exact admitted record read at release, not
+    /// a later historical query's answer. This event has a new signature;
+    /// historical four-field TradeReleased logs retain their original ABI.
+    event TradeReleased(bytes32 indexed tradeKey, address indexed buyer, uint64 version, uint64 effectiveAt, bytes32 recordCommitment);
     event TradeRefunded(bytes32 indexed tradeKey, address indexed buyer, uint64 entryCountAtRefund);
     event TradeAbandoned(bytes32 indexed tradeKey, address indexed seller);
 
@@ -198,11 +201,11 @@ contract ProjectionEscrow {
         if (trade.state == State.NONE) revert NotFound();
         if (trade.state != State.FUNDED) revert WrongState();
 
-        (bool confirmed, uint64 version, uint64 effectiveAt) = _confirmation(trade);
+        (bool confirmed, uint64 version, uint64 effectiveAt, bytes32 recordCommitment) = _confirmation(trade);
         if (!confirmed) revert NotConfirmed();
 
         trade.state = State.RELEASED;
-        emit TradeReleased(tradeKey, trade.buyer, version, effectiveAt);
+        emit TradeReleased(tradeKey, trade.buyer, version, effectiveAt, recordCommitment);
 
         IERC721Minimal(trade.projection).safeTransferFrom(address(this), trade.buyer, trade.tokenId);
         _pay(trade.seller, trade.price);
@@ -220,7 +223,7 @@ contract ProjectionEscrow {
         if (trade.state != State.FUNDED) revert WrongState();
         if (block.timestamp <= trade.admissionDeadline) revert DeadlineNotPassed();
 
-        (bool confirmed,,) = _confirmation(trade);
+        (bool confirmed,,,) = _confirmation(trade);
         if (confirmed) revert AlreadyConfirmed();
 
         trade.state = State.REFUNDED;
@@ -270,7 +273,7 @@ contract ProjectionEscrow {
     {
         Trade storage trade = _trades[tradeKey];
         if (trade.state == State.NONE) revert NotFound();
-        (confirmed, version, effectiveAt) = _confirmation(trade);
+        (confirmed, version, effectiveAt,) = _confirmation(trade);
         entryCount = _entryCountOrZero(trade);
         try IRegisterProjection(trade.projection).currentEntry(trade.tokenId) returns (
             IRegisterProjection.RegisterEntry memory entry
@@ -320,7 +323,7 @@ contract ProjectionEscrow {
     function _confirmation(Trade storage trade)
         private
         view
-        returns (bool confirmed, uint64 version, uint64 effectiveAt)
+        returns (bool confirmed, uint64 version, uint64 effectiveAt, bytes32 recordCommitment)
     {
         try IRegisterProjection(trade.projection).currentEntry(trade.tokenId) returns (
             IRegisterProjection.RegisterEntry memory entry
@@ -329,9 +332,9 @@ contract ProjectionEscrow {
                 entry.holder == trade.buyer &&
                 entry.version > trade.entryCountAtFunding &&
                 entry.effectiveAt <= trade.maxEffectiveAt;
-            return (confirmed, entry.version, entry.effectiveAt);
+            return (confirmed, entry.version, entry.effectiveAt, entry.recordCommitment);
         } catch {
-            return (false, 0, 0);
+            return (false, 0, 0, bytes32(0));
         }
     }
 

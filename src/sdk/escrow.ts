@@ -71,6 +71,15 @@ export type TradeObservation = {
   readonly entryCount: Version;
 };
 
+/** Historical release evidence supplied from a separately verified receipt.
+ * Never populate this from the latest observation or a query as of release time:
+ * a later admission may change that query. Old event ABIs lack the commitment. */
+export type ReleaseConfirmation = {
+  readonly version: Version;
+  readonly effectiveAt: Instant;
+  readonly recordCommitment?: Bytes32;
+};
+
 /**
  * The key a trade is stored under.
  *

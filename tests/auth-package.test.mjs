@@ -284,9 +284,11 @@ test('task runtime source closure has the exact planner, signer, encoding, contr
   assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, ['server/task-runtime-import-probe.mjs',
     'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
     'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
-    'server/task-journal-capabilities.mjs', 'server/task-listing-results.mjs', 'web/task-listing-results.mjs',
+    'server/task-journal-capabilities.mjs', 'server/task-receipt-runtime.mjs',
+    'server/task-listing-results.mjs', 'web/task-listing-results.mjs',
     'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
     'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
+    'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
     'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
     'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
     'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts']);

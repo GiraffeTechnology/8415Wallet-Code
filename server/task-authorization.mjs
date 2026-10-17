@@ -13,6 +13,14 @@ import {
 } from '../src/agent/taskContract.ts';
 import { TaskObservationError, freezeTaskObservationPolicy, normalizeObservationVerifier, normalizeTaskObservation, bindTaskObservation } from '../src/agent/receiptObservation.ts';
 
+import { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from '../src/agent/receiptTask.ts';
+import { validateReceiptWire } from './receipt-operation-encoding.mjs';
+function freezeAuthorizedTask(policy) {
+  const descriptor = policy && typeof policy === 'object' ? Object.getOwnPropertyDescriptor(policy, 'intent') : null;
+  const intent = descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : null;
+  const kind = intent && typeof intent === 'object' ? Object.getOwnPropertyDescriptor(intent, 'kind') : null;
+  return kind && Object.hasOwn(kind, 'value') && kind.value === 'artfi-receipt' ? freezeReceiptTask(policy) : freezeTaskPolicy(policy);
+}
 const CHALLENGE_LIFE = 2 * 60_000;
 export class TaskAuthorizationError extends Error {
   constructor(code, status = 409) { super(code); this.status = status; }
@@ -89,7 +97,8 @@ const isListing = child => child.child.schema === '8415-nft-listing-child/1';
  */
 export function createTaskAuthorizationService({ origin, tenant, store, now = Date.now,
   assertSession, credentialFor, consumeTotp, assertPrincipal = null, principalReady = null,
-  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null }) {
+  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null }) {
+  requireThat(receiptHandlerId === null || receiptHandlerId === 'artfi:whole-receipt:v1', 'TASK_RECEIPT_CONFIG_REFUSED', 500);
   requireThat(store && typeof store.transactionMany === 'function' &&
     [assertSession, credentialFor, consumeTotp, now].every(value => typeof value === 'function'), 'TASK_CONFIG_REFUSED', 500);
   requireThat(execution === null || execution && ['verify', 'send', 'recover'].every(name => typeof execution[name] === 'function') && (execution.plan === undefined || typeof execution.plan === 'function'), 'TASK_ADAPTER_CONFIG_REFUSED', 500);
@@ -99,11 +108,11 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   if (listingResults !== null) {
     const configured = listingResults; listingResults = Object.freeze({ read: configured.read.bind(configured), scan: configured.scan.bind(configured) });
   }
-  requireThat(execution === null && listingExecution === null ? executorIdentity === null : executorIdentity !== null, 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
+  requireThat(execution === null && listingExecution === null && receiptHandlerId === null ? executorIdentity === null : executorIdentity !== null, 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
   const executor = freezeTaskExecutorIdentity(executorIdentity ?? { schema: '8415-task-executor/1',
     agentId: '8415wallet:local-task-service', agentVersion: '1', adapterId: 'unconfigured-signer', adapterVersion: '0',
     implementationDigest: SERVICE_IMPLEMENTATION_DIGEST });
-  requireThat(execution === null && listingExecution === null || executor.identity.adapterId !== 'unconfigured-signer', 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
+  requireThat(execution === null && listingExecution === null && receiptHandlerId === null || executor.identity.adapterId !== 'unconfigured-signer', 'TASK_EXECUTOR_IDENTITY_CONFIG_REQUIRED', 500);
   // Capture methods once; mutating a configuration object's properties cannot
   // replace the verifier/signer beneath an already reviewed executor identity.
   if (execution !== null) {
@@ -174,7 +183,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       requireThat(raw.task.policy.intent.kind === 'nft-sale' && valuation.policy.base.chainId === raw.task.policy.chainId &&
         (raw.status === 'pending' || raw.budget?.schema === '8415-task-budget/2'), 'TASK_VALUATION_POLICY_STATE_REFUSED', 503);
     } else requireThat(raw.valuationPolicy === undefined && (raw.status === 'pending' || raw.budget?.schema === '8415-task-budget/1'), 'TASK_GRANT_STATE_REFUSED', 503);
-    const task = freezeTaskPolicy(raw.task.policy); checkTask(task, session); executorCopy(raw.executor); observationPolicyCopy(raw.observationPolicy);
+    const task = freezeAuthorizedTask(raw.task.policy); checkTask(task, session); executorCopy(raw.executor); observationPolicyCopy(raw.observationPolicy);
     if (raw.receiptVerifier !== null) normalizeObservationVerifier(raw.receiptVerifier);
     requireThat(Array.isArray(raw.observations), 'TASK_OBSERVATION_STATE_REFUSED', 503); version(raw.observationRevision);
     for (const entry of raw.observations) { identifier(entry.operationId);
@@ -229,6 +238,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       status: effective, grantPolicyVersion: grant.grantPolicyVersion,
       credentialRevisionAtApproval: grant.credentialRevisionAtApproval,
     }, effectiveStatus: effective, budget: grant.budget,
+    ...(grant.task.policy.intent.kind === 'artfi-receipt' ? { receiptAttempts: normalizeReceiptAttempts(grant.task, grant.receiptAttempts ?? []) } : {}),
     capabilities: { executable: false, adapterConfigured: Boolean(grant.schema === '8415-task-grant/2' ? listingExecution : execution), missing: gaps,
       sessionRequired: true, factorRevalidationRequired: String(credential?.revision ?? 0) !== grant.credentialRevisionAtApproval && grant.status !== 'pending',
       executorRevalidationRequired: grant.executor.digest !== executor.digest, receiptVerifierConfigured: Boolean(receipt),
@@ -239,7 +249,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     try { return await store.transactionMany(keys, update); }
     catch (error) {
       if (error?.message === 'AUTH_STORE_CAPACITY') throw new TaskAuthorizationError('TASK_STORE_CAPACITY', 507);
-      if (error instanceof TaskContractError || error instanceof TaskObservationError) throw new TaskAuthorizationError(error.code, 409);
+      if (error instanceof TaskContractError || error instanceof ReceiptTaskError || error instanceof TaskObservationError) throw new TaskAuthorizationError(error.code, 409);
       throw error;
     }
   }
@@ -300,7 +310,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   }
   async function prepare(body, session) {
     const withValuation = body !== null && typeof body === 'object' && Object.hasOwn(body, 'valuationPolicy'); fields(body, withValuation ? ['policy', 'valuationPolicy'] : ['policy']);
-    const task = freezeTaskPolicy(body.policy); checkTask(task, session);
+    const task = freezeAuthorizedTask(body.policy); checkTask(task, session);
+    requireThat(task.policy.intent.kind !== 'artfi-receipt' || receiptHandlerId !== null, 'TASK_RECEIPT_GATE_NOT_CONFIGURED', 503);
     const valuationPolicy = withValuation ? freezeNftValuationPolicy(body.valuationPolicy) : null;
     requireThat(valuationPolicy === null || task.policy.intent.kind === 'nft-sale' && valuationPolicy.policy.base.chainId === task.policy.chainId, 'TASK_VALUATION_POLICY_BINDING_REFUSED', 400);
     await credentialFor(session); assertSession(session); sweep();
@@ -359,7 +370,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         task: challenge.task, executor: challenge.executor, observationPolicy: challenge.observationPolicy, receiptVerifier: challenge.receiptVerifier,
         observations: [], observationRevision: '0', reference: proposal.reference, status: 'authorized', grantPolicyVersion: '1',
         credentialRevisionAtApproval: String(session.revision), issuedAt: stamp(), revokedAt: null,
-        budget: challenge.valuationPolicy === null ? emptyTaskBudget(challenge.task) : emptyNftListingBudget(challenge.task) };
+        budget: challenge.task.policy.intent.kind === 'artfi-receipt' ? { schema: '8415-task-budget/1', taskDigest: challenge.task.digest, revision: '0', reservations: [] } : challenge.valuationPolicy === null ? emptyTaskBudget(challenge.task) : emptyNftListingBudget(challenge.task) };
       const queue = values[queueKey] ?? { schema: '8415-task-queue/1', entries: [] };
       requireThat(queue.schema === '8415-task-queue/1' && Array.isArray(queue.entries) && !queue.entries.includes(gkey), 'TASK_QUEUE_STATE_REFUSED', 503);
       return { [ckey]: credential, [gkey]: grant, [ikey]: { taskDigest: body.taskDigest },
@@ -691,6 +702,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     if (initial.effectiveStatus !== 'authorized') return blocked(initial.effectiveStatus === 'suspended' ?
       (initial.capabilities.executorRevalidationRequired ? 'TASK_EXECUTOR_REVALIDATION_REQUIRED' : initial.capabilities.observationPolicyRevalidationRequired ?
         'TASK_OBSERVATION_POLICY_REVALIDATION_REQUIRED' : initial.capabilities.receiptVerifierRevalidationRequired ? 'TASK_RECEIPT_VERIFIER_REVALIDATION_REQUIRED' : 'TASK_FACTOR_REVALIDATION_REQUIRED') : 'TASK_GRANT_NOT_ACTIVE');
+    if (initial.task.policy.intent.kind === 'artfi-receipt') return blocked('TASK_RECEIPT_FIXED_HANDLER_REQUIRED');
     if (initial.task.policy.intent.kind === 'nft-sale') {
       if (!initial.valuationPolicy) return blocked('TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED');
       if (initial.valuationPolicy.policy.priceAt !== 'order-review') return blocked('TASK_FUTURE_USD_PRICE_NOT_GUARANTEED');
@@ -750,7 +762,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       }
       throw new TaskAuthorizationError('TASK_ROUTE_REFUSED', 404);
     } catch (error) {
-      if (error instanceof TaskContractError || error instanceof TaskObservationError) throw new TaskAuthorizationError(error.code, 400);
+      if (error instanceof TaskContractError || error instanceof ReceiptTaskError || error instanceof TaskObservationError) throw new TaskAuthorizationError(error.code, 400);
       throw error;
     }
   }
@@ -822,6 +834,187 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       });
     },
   });
+
+  // Server-owned, fixed receipt composition. No HTTP dispatch, arbitrary call,
+  // default provider, new credential, or old-grant upgrade is exposed here.
+  async function locateReceipt(claimed) {
+    await principalReady;
+    requireThat(receiptHandlerId === 'artfi:whole-receipt:v1' && assertPrincipal !== null &&
+      typeof store.withReadGate === 'function', 'TASK_RECEIPT_GATE_NOT_CONFIGURED', 503);
+    fields(claimed, ['taskId','taskDigest','executorDigest','grantReference','grantPolicyVersion',
+      'operationId','phase','planDigest','journalBindingHash']);
+    identifier(claimed.taskId); hash(claimed.taskDigest); hash(claimed.executorDigest);
+    identifier(claimed.operationId); version(claimed.grantPolicyVersion);
+    hash(claimed.planDigest); hash(claimed.journalBindingHash);
+    requireThat(['funded','registered','paid'].includes(claimed.phase), 'TASK_RECEIPT_PHASE_REFUSED',400);
+    const queue=await store.read(queueKey);
+    requireThat(queue?.schema==='8415-task-queue/1' && Array.isArray(queue.entries) && queue.entries.length>0,'TASK_GRANT_NOT_FOUND',404);
+    const grants=await store.readMany(queue.entries);
+    const selected=queue.entries.filter(k=>grants[k]?.task?.digest===claimed.taskDigest && grants[k]?.reference===claimed.grantReference);
+    requireThat(selected.length===1,'TASK_GRANT_NOT_FOUND',404);
+    const gkey=selected[0],raw=grants[gkey];
+    let owner; try {owner=JSON.parse(raw.principal);}catch {throw new TaskAuthorizationError('TASK_BACKGROUND_PRINCIPAL_REFUSED',503);}
+    requireThat(Array.isArray(owner)&&owner.length===5&&owner[0]===origin&&owner[1]===tenant&&
+      typeof owner[2]==='string'&&typeof owner[3]==='string'&&typeof owner[4]==='string','TASK_BACKGROUND_PRINCIPAL_REFUSED',503);
+    const context=Object.freeze({username:owner[2],account:owner[3],chainId:owner[4]});
+    requireThat(grantKey(context,claimed.taskDigest)===gkey,'TASK_BACKGROUND_GRANT_REFUSED',403);
+    const phase=receiptPhaseScope(freezeReceiptTask(raw.task.policy),claimed.phase);
+    return {context,gkey,ckey:credentialKey(context),
+      okey:operationKey(raw.task,claimed.operationId),nkey:key('nonce',[raw.task.policy.chainId,raw.task.policy.actor,phase.nonce])};
+  }
+  function receiptCapability(values,found,claimed,wire) {
+    const {context,ckey,gkey}=found;
+    requireThat(values[queueKey]?.entries?.includes(gkey),'TASK_BACKGROUND_GRANT_REFUSED',403);
+    const credential=values[ckey],grant=readGrant(values[gkey],context,claimed.taskDigest);
+    const checked=assertPrincipal(context,credential);
+    requireThat(!checked || typeof checked.then!=='function','TASK_BACKGROUND_CONFIG_REFUSED',500);
+    requireThat(grant.task.policy.intent.kind==='artfi-receipt' && grant.valuationPolicy===undefined &&
+      grant.task.policy.taskId===claimed.taskId && grant.reference===claimed.grantReference &&
+      grant.executor.digest===claimed.executorDigest && grant.grantPolicyVersion===claimed.grantPolicyVersion,
+      'TASK_RECEIPT_GRANT_BINDING_REFUSED',403);
+    requireActive(grant,credential);
+    const scope=validateReceiptWire(grant.task,claimed.phase,wire);
+    requireThat(scope.planDigest===claimed.planDigest && scope.journalBindingHash===claimed.journalBindingHash,
+      'TASK_RECEIPT_PLAN_BINDING_REFUSED',403);
+    const attempts=normalizeReceiptAttempts(grant.task,grant.receiptAttempts??[]);
+    requireThat(Array.isArray(attempts)&&attempts.length<=3,'TASK_RECEIPT_BUDGET_REFUSED',503);
+    const phases=new Set(),nonces=new Set();
+    let spent=0n;
+    for(const r of attempts){
+      fields(r,['phase','nonce','operationId','maximumFeeWei','status','transactionHash']);
+      const slot=receiptPhaseScope(grant.task,r.phase);
+      requireThat(r.nonce===slot.nonce && !phases.has(r.phase) && !nonces.has(r.nonce) &&
+        r.maximumFeeWei===(BigInt(slot.gasLimit)*BigInt(slot.maxFeePerGasWei)).toString() &&
+        ['outcome-unknown','submitted'].includes(r.status) &&
+        (r.status==='outcome-unknown'?r.transactionHash===null:
+          /^0x[0-9a-f]{64}$/.test(r.transactionHash)&&!/^0x0+$/.test(r.transactionHash)),'TASK_RECEIPT_BUDGET_REFUSED',503);
+      identifier(r.operationId);phases.add(r.phase);nonces.add(r.nonce);spent+=BigInt(r.maximumFeeWei);
+    }
+    requireThat(spent<=BigInt(grant.task.policy.fees.totalWei),'TASK_TOTAL_FEE_LIMIT');
+    return {grant,scope,spent,phases,nonce:scope.nonce};
+  }
+  /** Read-only phase view for journal preparation. No wire, no attempt, no
+   * nonce claim: it cannot consume the single permitted attempt for a phase. */
+  function receiptPreparation(values,found,claimed,purpose){
+    const {context,ckey,gkey,okey,nkey}=found;
+    requireThat(values[queueKey]?.entries?.includes(gkey),'TASK_BACKGROUND_GRANT_REFUSED',403);
+    const credential=values[ckey],grant=readGrant(values[gkey],context,claimed.taskDigest);
+    const checked=assertPrincipal(context,credential);
+    requireThat(!checked || typeof checked.then!=='function','TASK_BACKGROUND_CONFIG_REFUSED',500);
+    requireThat(grant.task.policy.intent.kind==='artfi-receipt' && grant.valuationPolicy===undefined &&
+      grant.task.policy.taskId===claimed.taskId && grant.reference===claimed.grantReference &&
+      grant.executor.digest===claimed.executorDigest,'TASK_RECEIPT_GRANT_BINDING_REFUSED',403);
+    // Creating a plan binds the live grant policy version. Review and observation
+    // accept the version the attempt was made under, as readState does, so a
+    // revoked or expired grant can still be reconciled rather than stranded.
+    requireThat(claimed.grantPolicyVersion===(purpose==='prepare' ? grant.grantPolicyVersion
+      : values[okey]?.binding?.grantPolicyVersion ?? (grant.status==='revoked'
+        ? (BigInt(grant.grantPolicyVersion)-1n).toString() : grant.grantPolicyVersion)),
+    'TASK_RECEIPT_GRANT_BINDING_REFUSED',403);
+    const slot=receiptPhaseScope(grant.task,claimed.phase);
+    requireThat(slot.planDigest===claimed.planDigest && slot.journalBindingHash===claimed.journalBindingHash,
+      'TASK_RECEIPT_PLAN_BINDING_REFUSED',403);
+    const attempts=normalizeReceiptAttempts(grant.task,grant.receiptAttempts??[]);
+    if(purpose==='prepare'){
+      // A plan may only be created while the phase is still unspent. Review and
+      // observation stay available after revoke or expiry for reconciliation.
+      requireActive(grant,credential);
+      requireThat(!attempts.some(r=>r.phase===claimed.phase) && values[okey]===null && values[nkey]===null,
+        'TASK_RECEIPT_ALREADY_ATTEMPTED');
+    }
+    const scope=immutable(structuredClone({phase:slot.phase,nonce:slot.nonce,planDigest:slot.planDigest,
+      journalBindingHash:slot.journalBindingHash,actor:grant.task.policy.actor,chainId:grant.task.policy.chainId,
+      escrow:grant.task.policy.intent.escrow,runtimeCodeHash:grant.task.policy.intent.runtimeCodeHash,
+      segmentId:grant.task.policy.intent.segmentId,
+      maximumFeeWei:(BigInt(slot.gasLimit)*BigInt(slot.maxFeePerGasWei)).toString()}));
+    const snapshot=immutable(structuredClone({task:grant.task,executor:grant.executor,scope,
+      expiresAtMs:Number(BigInt(grant.task.policy.expiresAt)*1000n)}));
+    requireThat(Number.isSafeInteger(snapshot.expiresAtMs),'TASK_RECEIPT_EXPIRY_REFUSED');
+    return snapshot;
+  }
+  const receiptAuthorization=Object.freeze({
+    assertIndependentStore(candidate){requireThat(candidate!==store,'TASK_RECEIPT_STORE_REENTRY_REFUSED',500);},
+
+    /** Opens the grant read gate without writing, so the ArtFi native journal can
+     * create or re-read its plan for a phase before the one permitted send. */
+    async withPreparation(rawClaimed,purpose,action){
+      requireThat(['prepare','review','observe'].includes(purpose),'TASK_RECEIPT_PURPOSE_REFUSED',400);
+      requireThat(typeof action==='function','TASK_RECEIPT_ACTION_REFUSED',400);
+      const claimed=immutable(structuredClone(rawClaimed)),found=await locateReceipt(claimed);
+      const keys=[queueKey,found.ckey,found.gkey,found.okey,found.nkey];
+      return store.withReadGate(keys,async values=>{
+        const current=()=>receiptPreparation(values,found,claimed,purpose);
+        const snapshot=current();
+        return action(snapshot,()=>{current();return snapshot;});
+      });
+    },
+
+    async readState(rawClaimed){
+      const claimed=immutable(structuredClone(rawClaimed)),found=await locateReceipt(claimed);
+      const values=await store.readMany([queueKey,found.ckey,found.gkey,found.okey,found.nkey]);
+      requireThat(values[queueKey]?.entries?.includes(found.gkey),'TASK_BACKGROUND_GRANT_REFUSED',403);
+      const grant=readGrant(values[found.gkey],found.context,claimed.taskDigest);
+      const principal=assertPrincipal(found.context,values[found.ckey]);
+      requireThat(!principal || typeof principal.then!=='function','TASK_BACKGROUND_CONFIG_REFUSED',500);
+      requireThat(grant.task.policy.intent.kind==='artfi-receipt'&&grant.task.policy.taskId===claimed.taskId&&
+        grant.reference===claimed.grantReference&&grant.executor.digest===claimed.executorDigest,'TASK_RECEIPT_GRANT_BINDING_REFUSED',403);
+      const slot=receiptPhaseScope(grant.task,claimed.phase);
+      requireThat(slot.planDigest===claimed.planDigest&&slot.journalBindingHash===claimed.journalBindingHash,'TASK_RECEIPT_PLAN_BINDING_REFUSED',403);
+      const attempts=normalizeReceiptAttempts(grant.task,grant.receiptAttempts??[]),op=values[found.okey];
+      if(op===null){
+        requireThat(!attempts.some(r=>r.phase===claimed.phase),'TASK_RECEIPT_JOURNAL_REFUSED');
+        return immutable({phase:claimed.phase,status:'not-attempted',transactionHash:null,executable:false});
+      }
+      requireThat(op.grantKey===found.gkey&&JSON.stringify(op.binding)===JSON.stringify(claimed)&&
+        values[found.nkey]?.permanent===true&&values[found.nkey]?.operationKey===found.okey,'TASK_RECEIPT_JOURNAL_REFUSED');
+      const attempt=attempts.find(r=>r.phase===claimed.phase&&r.operationId===claimed.operationId);
+      requireThat(attempt&&attempt.status===op.status,'TASK_RECEIPT_JOURNAL_REFUSED');
+      return immutable({phase:claimed.phase,status:attempt.status,transactionHash:attempt.transactionHash,executable:false});
+    },
+
+    async withAuthorization(rawClaimed,rawWire,action){
+      requireThat(typeof action==='function','TASK_RECEIPT_ACTION_REFUSED',400);
+      const claimed=immutable(structuredClone(rawClaimed)),wire=immutable(structuredClone(rawWire));
+      const found=await locateReceipt(claimed),{ckey,gkey,okey,nkey}=found;
+      const keys=[queueKey,ckey,gkey,okey,nkey];
+      await store.transactionMany(keys,values=>{
+        const {grant,scope,spent,phases}=receiptCapability(values,found,claimed,wire);
+        requireThat(!phases.has(claimed.phase)&&values[okey]===null,'TASK_RECEIPT_ALREADY_ATTEMPTED');
+        requireThat(values[nkey]===null,'TASK_NONCE_OCCUPIED');
+        requireThat(spent+BigInt(scope.maximumFeeWei)<=BigInt(grant.task.policy.fees.totalWei),'TASK_TOTAL_FEE_LIMIT');
+        const attempt={phase:claimed.phase,nonce:scope.nonce,operationId:claimed.operationId,
+          maximumFeeWei:scope.maximumFeeWei,status:'outcome-unknown',transactionHash:null};
+        return {...values,[gkey]:{...grant,receiptAttempts:[...(grant.receiptAttempts??[]),attempt]},
+          [okey]:{schema:'8415-task-receipt-operation/1',grantKey:gkey,binding:claimed,status:'outcome-unknown'},
+          [nkey]:{operationKey:okey,taskDigest:claimed.taskDigest,nonce:scope.nonce,permanent:true}};
+      });
+      let transactionHash;
+      try {
+        transactionHash=await store.withReadGate(keys,async values=>{
+          const current=()=>receiptCapability(values,found,claimed,wire);
+          const {grant,scope}=current();
+          requireThat(values[okey]?.status==='outcome-unknown'&&values[okey]?.grantKey===gkey&&
+            values[nkey]?.permanent===true&&values[nkey]?.operationKey===okey,'TASK_SEND_ATTEMPT_REFUSED');
+          const snapshot=immutable(structuredClone({task:grant.task,executor:grant.executor,scope,
+            expiresAtMs:Number(BigInt(grant.task.policy.expiresAt)*1000n)}));
+          requireThat(Number.isSafeInteger(snapshot.expiresAtMs),'TASK_RECEIPT_EXPIRY_REFUSED');
+          return action(snapshot,()=>{current();return snapshot;});
+        });
+      } catch { throw new TaskAuthorizationError('TASK_RECEIPT_OUTCOME_UNKNOWN_RECONCILE_ONLY'); }
+      if(typeof transactionHash!=='string'||!/^0x[0-9a-f]{64}$/.test(transactionHash)||/^0x0+$/.test(transactionHash))
+        throw new TaskAuthorizationError('TASK_RECEIPT_OUTCOME_UNKNOWN_RECONCILE_ONLY');
+      // Record already attempted progress even after revoke/expiry. Never resend.
+      await store.transactionMany([gkey,okey],values=>{
+        const grant=readGrant(values[gkey],found.context,claimed.taskDigest),op=values[okey];
+        requireThat(op?.grantKey===gkey&&op.status==='outcome-unknown'&&
+          JSON.stringify(op.binding)===JSON.stringify(claimed),'TASK_RECEIPT_JOURNAL_REFUSED');
+        return {[gkey]:{...grant,receiptAttempts:grant.receiptAttempts.map(r=>r.operationId===claimed.operationId?
+          {...r,status:'submitted',transactionHash}:r)},[okey]:{...op,status:'submitted',transactionHash}};
+      });
+      return immutable({transactionHash,phase:claimed.phase,taskDigest:claimed.taskDigest,operationId:claimed.operationId});
+    }
+  });
+
   const background = Object.freeze({
     async list({ cursor = '0', limit = 10 } = {}) {
       await principalReady;
@@ -852,5 +1045,5 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       return resume({ taskDigest: raw.task.digest }, context);
     },
   });
-  return { handler, cancel, background, listingAuthorization };
+  return { handler, cancel, background, listingAuthorization, receiptAuthorization };
 }
