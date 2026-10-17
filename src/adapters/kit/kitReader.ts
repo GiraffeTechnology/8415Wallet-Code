@@ -97,7 +97,14 @@ export class KitErc8415Reader implements Erc8415Reader {
   ) {
     this.#api = api;
     this.#chain = chain;
-    this.#options = options;
+    const identity = options.chainIdentity;
+    this.#options = Object.freeze({
+      ...(options.crossCheckIdentity === undefined ? {} : { crossCheckIdentity: options.crossCheckIdentity }),
+      ...(identity === undefined ? {} : { chainIdentity: Object.freeze({
+        registerId: identity.registerId.bind(identity),
+        ...(identity.verificationProfile === undefined ? {} : { verificationProfile: identity.verificationProfile.bind(identity) }),
+      }) }),
+    });
     this.source = { chainId: source.chainId, address: source.address };
   }
 
@@ -269,8 +276,15 @@ export class KitErc8415Reader implements Erc8415Reader {
     if (pending === undefined) {
       pending = (async () => {
         const registerId = await identity.registerId();
+        if (typeof registerId !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(registerId)) {
+          throw new InvariantViolationError('chain register identity', 'registerId must be a bytes32 value');
+        }
         const verificationProfile = identity.verificationProfile === undefined
           ? undefined : await identity.verificationProfile();
+        if (identity.verificationProfile !== undefined &&
+            (typeof verificationProfile !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(verificationProfile))) {
+          throw new InvariantViolationError('chain verification identity', 'verificationProfile must be a bytes32 value');
+        }
         const pair: CheckedKitChainIdentity = Object.freeze({ registerId, verificationProfile });
         return pair;
       })();
@@ -288,7 +302,10 @@ export class KitErc8415Reader implements Erc8415Reader {
     if (this.#options.crossCheckIdentity === false) return;
     const identity = this.#options.chainIdentity;
     if (identity === undefined) return;
-    const chain = await this.#loadChainIdentity(identity);
+    const loaded = await this.#loadChainIdentity(identity);
+    // Another waiter may have published while this read was suspended. Never
+    // replace that verified pin with a separately loaded tuple.
+    const chain = this.#identityPair ?? loaded;
     if (chain.registerId !== registerId) {
       throw new BackendDisagreementError('registerId', registerId, chain.registerId);
     }

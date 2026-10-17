@@ -306,3 +306,25 @@ describe('there is no fourth write operation', () => {
     assert.equal(await reader.entryCount(TOKEN), 4n);
   });
 });
+
+for (const mismatch of ['watch-only', 'account', 'chain', 'contract', 'reader-source-mutation'] as const) {
+  test(`session boundary: ${mismatch} never reaches the signer`, async () => {
+    const { contract, reader } = cancelledGapToken();
+    const producer = new WalletSession(reader, { account: REGISTRAR });
+    const request = await producer.transactions.beginSettlement({ tokenId: TOKEN, settlementId: settlementId('4'),
+      expectedHolder: DAVE, snapshotHash: commitment('5'), deadline: contract.now + 600n });
+    const consumer = mismatch === 'watch-only' ? new WalletSession(reader)
+      : new WalletSession(reader, { account: mismatch === 'account' ? STRANGER : REGISTRAR });
+    const candidate = { ...request,
+      ...(mismatch === 'chain' ? { chainId: request.chainId + 1n } : {}),
+      ...(mismatch === 'contract' ? { to: STRANGER } : {}) };
+    if (mismatch === 'reader-source-mutation') {
+      Object.assign(reader.source, { chainId: request.chainId + 1n });
+      candidate.chainId = request.chainId + 1n;
+    }
+    let called = false;
+    await assert.rejects(() => consumer.send(candidate, { account: REGISTRAR,
+      sendTransaction: async () => { called = true; return 'synthetic-hash'; } }));
+    assert.equal(called, false);
+  });
+}

@@ -206,6 +206,27 @@ describe('identity pins remain bound to their reader source', () => {
     });
   }
 
+  // A malformed answer must not establish a pin, and must not poison the pin
+  // either: the next conforming answer still pins. Ported from the offline
+  // identity-session work, where this was the one case not already covered.
+  for (const field of ['registerId', 'verificationProfile'] as const) {
+    for (const bad of [undefined, null, '0x12']) {
+      test(`a malformed ${field} answer (${String(bad)}) refuses without pinning and permits a retry`, async () => {
+        const { reader } = divergentToken();
+        let malformed = true;
+        const bound = delegateReader(reader, {
+          [field]: async () => (malformed ? (bad as never) : reader[field]!()),
+        });
+        const pin = new ContractIdentityPin(bound);
+        const conformance = await detectConformance(bound);
+        await assert.rejects(pin.read(conformance), IdentityChangedError);
+        assert.equal(pin.pinned, undefined);
+        malformed = false;
+        assert.ok(await pin.read(conformance));
+      });
+    }
+  }
+
   test('address case alone remains compatible and the captured label is stable', async () => {
     const { reader } = divergentToken();
     const source = { ...reader.source };
