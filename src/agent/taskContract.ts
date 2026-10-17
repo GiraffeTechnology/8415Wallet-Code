@@ -88,7 +88,7 @@ function json(textValue: string): unknown {
  * authentication service, which is why a chain can be signed in on and still
  * refuse an operation.
  */
-const ASSET_CHAINS = ['1', '8453', '11155111', '84532'];
+const ASSET_CHAINS = ['1', '8453', '11155111', '84532', '560048'];
 const CONTROL_CHAINS = ['11155111', '560048'];
 const chainPolicy = (name: string, accepted: readonly string[], asked: string) =>
   `${name} operations accept chain ${accepted.join(', ')}; asked ${asked}`;

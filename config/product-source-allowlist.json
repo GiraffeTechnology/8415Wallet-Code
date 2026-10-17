@@ -40,6 +40,7 @@
       "docs/TASK-NATIVE-LISTING-COMPOSITION.md",
       "docs/TASK-RECEIPT-OBSERVATIONS.md",
       "docs/TASK-RECEIPT-SCOPE.md",
+      "docs/TASK-RUNTIME-COMPOSITION.md",
       "docs/TENANT-AVATAR.md",
       "docs/V2-CLOSEOUT.md",
       "docs/V3-DEVELOPMENT-CLOSURE.md",
@@ -108,6 +109,7 @@
       "server/task-authorization.mjs",
       "server/task-background-runner.mjs",
       "server/task-exact-operation-planner.mjs",
+      "server/task-exact-runtime.mjs",
       "server/task-exact-signer-adapter.mjs",
       "server/task-journal-capabilities.mjs",
       "server/task-listing-bootstrap.mjs",
@@ -122,6 +124,7 @@
       "server/task-operation-encoding.mjs",
       "server/task-receipt-adapter.mjs",
       "server/task-receipt-runtime.mjs",
+      "server/task-runtime-composition.mjs",
       "server/task-runtime-import-probe.mjs",
       "vendor/artfi-task-listing-runtime-1.0.0.tgz"
     ],
@@ -673,6 +676,12 @@
       "sha256": "ebb11b798ee166f36677352d7bfcc54c25bc5442c17b35c6fb746b736797a990"
     },
     {
+      "path": "docs/TASK-RUNTIME-COMPOSITION.md",
+      "mode": "100644",
+      "git_blob_sha1": "69c83acbd03379360c104395e419ace4f1d83d31",
+      "sha256": "ade8f8f20a95c96d32d51838c854266ea5825e51d9d361954b1096810492508c"
+    },
+    {
       "path": "docs/TENANT-AVATAR.md",
       "mode": "100644",
       "git_blob_sha1": "450735681d674530317ba593c8ac7739f29a9dde",
@@ -729,8 +738,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "4d117b8e4d6abee7bce9350bdc1a0e0bb8945100",
-      "sha256": "6209d7d8bfa158620c214ede24e26c6ef6e4a26cfe117b3a73b7191e09234fd1"
+      "git_blob_sha1": "be7f0571521cfa473f581b2f2ba144cce418b6c9",
+      "sha256": "03c54c8bf72dc2a7b9ca95d648707131770dd8e5389e96df7db4120aaa630dc2"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -795,8 +804,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "614ab1931faa995757eb2261fe40fb33f172e424",
-      "sha256": "d599d434853633842f3d1c99f5885c59910fef34a3508325b8e91db4eb867fca"
+      "git_blob_sha1": "239b005f0389612eb312b3b5b2054fea31dd2ecf",
+      "sha256": "402c47c07a4171a42a3f37ef4349e07d0a3b802f68e523c47d2a6778e54f833e"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -831,8 +840,8 @@
     {
       "path": "server/auth-service.mjs",
       "mode": "100644",
-      "git_blob_sha1": "46f96967126ce2c1f2da4ff80ec83438b1cb0250",
-      "sha256": "89e9fd38544dd637ccf6bbdb1e04b2a40ec118aadd752ac45cb2c59dfc923725"
+      "git_blob_sha1": "6432727d2788832fdf33e10e4226653795fa9746",
+      "sha256": "e6fa509ead08f268e3097aa427763c01a57e8039dea3fa0eab4d1957fb7ccebd"
     },
     {
       "path": "server/ca-verifier.mjs",
@@ -867,8 +876,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "667e7197c65abbea54dcbb27d8162ec7480307d4",
-      "sha256": "228620aa16ae9a1d263b41580dd6987e2761844136f756e5048dc8f23fcfe050"
+      "git_blob_sha1": "5b30ee31e92a23688a34bbe5b4c5a42c259c47c4",
+      "sha256": "8d6ae861079ac2142cfa800827644eb25c6631fe07cd5f6f80a370b2d60f80a4"
     },
     {
       "path": "server/method-change-service.mjs",
@@ -939,8 +948,8 @@
     {
       "path": "server/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "579fa452f5e5c5a9b6a7c0eca5277fc7f2198ef3",
-      "sha256": "81b7c3cabe194cc18c1ef46fa00847fa9f805a42bc9edb14f19c2396e3da28b9"
+      "git_blob_sha1": "37a589866071eef908334e331ce46795922a78e8",
+      "sha256": "bf4cd532c83ab4b4e864496ee7fcdd6421efac685bf640c66eb95a0df861ea0d"
     },
     {
       "path": "server/task-background-runner.mjs",
@@ -955,10 +964,16 @@
       "sha256": "fa63236cc584695aa0fa51c183f4a2aeabdb30f59e8677f3a2324e240de8ffca"
     },
     {
+      "path": "server/task-exact-runtime.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "41aa47fce776f57a438fd6645e3e3152a67212a0",
+      "sha256": "45139d94c38d1982a56b8f014fc1deebfa27f9a77e75eddb81cdac3199358a4c"
+    },
+    {
       "path": "server/task-exact-signer-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "199f0f7652905cc8c08fa73f86c82ded311f1de3",
-      "sha256": "eede7dd67513a962039726c5c3665c598967fc96caddb4291dc7afa15076fb11"
+      "git_blob_sha1": "cad071a2560a23bd797095c83fe08e81f7ee73c6",
+      "sha256": "15853ce391d586adcaf6ca523bb20b590153f879303471200c05e666ddb7d5a8"
     },
     {
       "path": "server/task-journal-capabilities.mjs",
@@ -1029,8 +1044,8 @@
     {
       "path": "server/task-receipt-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "05d89bc2fbab77fba72fc27ebc226361614e6b61",
-      "sha256": "017f0c64afbf11bdcf81a9a5f152cdd5078b7db4ef5a32ceef80cf6328725c4b"
+      "git_blob_sha1": "b49a06f2b6c15abe1f2f2871ba3cd5cc2878e28d",
+      "sha256": "ee70bdef58675d59af617244b472322d91b7a399695d0b347efb64da2d2f3807"
     },
     {
       "path": "server/task-receipt-runtime.mjs",
@@ -1039,10 +1054,16 @@
       "sha256": "3c80aeb1ca163745173f36d311f0805419e1a0f7344cc0bdbba1bb76adfc7a1d"
     },
     {
+      "path": "server/task-runtime-composition.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "29cf40a9e21327fde285200ef2d2359b553aeda1",
+      "sha256": "d3eddd476689c1c6bad68be32aaa6086cfc079859bfae4f0b25308d0f67fb78e"
+    },
+    {
       "path": "server/task-runtime-import-probe.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e5165096eb667691290754faf15429bfb4f0f0c5",
-      "sha256": "3fc29dc1f89e3a66d2e1b415591fab753b240aa92fa4212bb26ddf2175705244"
+      "git_blob_sha1": "b46b90cf6c4a2a5cf56e08fc51b7342f017608a7",
+      "sha256": "1dacd8fcaab641161c3e524250061985299ad5dfef855a2443944436f9fd26be"
     },
     {
       "path": "src/adapters/kit/kitApi.ts",
@@ -1161,8 +1182,8 @@
     {
       "path": "src/agent/taskContract.ts",
       "mode": "100644",
-      "git_blob_sha1": "153d311ba674b34c3f0c9bc9f8aa50a7a2ec1a71",
-      "sha256": "80a542d23669e5d8b99ca7fa23a6cb7efa08819c0c0b5f7a0f8879e102e613e6"
+      "git_blob_sha1": "120d4428e47ea05910b1db095f77ce8ddddeb46c",
+      "sha256": "2a6194c4ae716623c9ea0e668318d54eb8e9a9044e718c6730bc7f4994c41fb0"
     },
     {
       "path": "src/browser.ts",
@@ -1827,8 +1848,8 @@
     {
       "path": "src/xiongan/externalAssets.ts",
       "mode": "100644",
-      "git_blob_sha1": "4204abb84696f02797ff250f023c923af7c859f8",
-      "sha256": "7ebe15baf7f9a3b7ea671bd0cbc35ca0007ef68cf74dbe47b815eb9ff92bdeaf"
+      "git_blob_sha1": "17114d72a253ceaa1633c56c8b1f3047ac309aa9",
+      "sha256": "c4bd7a3f8bfb252832ca157e46926f86cb0cbd2294d199cb1e175b3c6339ffda"
     },
     {
       "path": "src/xiongan/recoveryView.ts",

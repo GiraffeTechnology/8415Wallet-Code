@@ -50,6 +50,13 @@ function fixture(profile = 'v3') {
   const document = { getElementById: element, querySelectorAll(selector: string) {
     return selector === '[data-action]' ? actions : selector === '[data-read]' ? reads : [...elements.values()];
   } };
+  // Capture real mount contracts here; panel internals retain their own suites.
+  const mounts = new Map<string, { root: unknown; login: unknown; getContext: () => any }>();
+  const mount = (name: string) => (options: { root: unknown; login: unknown; getContext: () => any }) => {
+    assert.equal(mounts.has(name), false, `duplicate mount: ${name}`);
+    assert.equal(typeof options.getContext, 'function');
+    mounts.set(name, options);
+  };
   let authenticationChanged: ((session: any, reason: string) => void) | null = null;
   const sdk = { ...uiI18n, ...nativeI18n,
     // Authentication is isolated in wallet-login.test.ts and the full browser suite.
@@ -71,11 +78,11 @@ function fixture(profile = 'v3') {
     // which fails every case in this file rather than the panel's own tests.
     // The panels are covered by their own suites; these stubs only let the
     // connection lifecycle under test execute.
-    mountAssetWorkspace: () => {},
-    mountAuditExport: () => {},
-    mountFeedContinuity: () => {},
-    mountWatchtowerRead: () => {},
-    mountKitRead: () => {},
+    mountAssetWorkspace: mount('asset-workspace'),
+    mountAuditExport: mount('audit-export'),
+    mountFeedContinuity: mount('feed-continuity'),
+    mountWatchtowerRead: mount('watchtower-read'),
+    mountKitRead: mount('kit-read'),
     CollisionScanError: class extends Error {},
     verifyControlDeployment: () => hooks.verify(),
     controlRpc: (_p: unknown, method: string) => method === 'eth_requestAccounts' ? hooks.request() : hooks.chain(),
@@ -89,7 +96,7 @@ function fixture(profile = 'v3') {
     token: { address, runtimeCodeHash: digest }, controller: { address, runtimeCodeHash: digest }, payment: null });
   file('consent-file', { consent: { expectedRevision: '0', tokenId: '1', deadline: '1', recipientNonce: '0', paymentAmount: '0' },
     documents: { incoming: { terms: { scheme: 'utf8-keccak256' } }, inherited: [] } });
-  return { authChange: (reason: string) => authenticationChanged!(null, reason), hooks, element, click, state, collisionIds: () => collisionIds, emit: (event: string, value?: unknown) => events.get(event)!(value),
+  return { mounts, login: sdk.walletLogin, authChange: (reason: string) => authenticationChanged!(null, reason), hooks, element, click, state, collisionIds: () => collisionIds, emit: (event: string, value?: unknown) => events.get(event)!(value),
     counts: () => ({ executions, prepares, accepts, settlementSends }),
     load: () => click('deployment', 'change'),
     async connect() { await click('deployment', 'change'); await click('connect'); },
@@ -293,4 +300,25 @@ test('verified V3 recipient acceptance remains separate from login across an acc
 for (const reason of ['LOGIN_REQUIRED', 'LOGIN_EXPIRED', 'LOGIN_CHAIN_CHANGED', 'LOGIN_DISCONNECTED']) test(`login invalidation ${reason} clears completed consent too`, async () => {
   const f = fixture(); await f.connect(); await f.sign(); f.authChange(reason);
   assert.equal(f.state().signed, false); assert.equal(f.state().connected, false); assert.equal(f.element('result').textContent, 'Log in to view assets and history.');
+});
+
+
+test('all additive panel mount contexts retain login and connection invalidation boundaries', async () => {
+  const f = fixture();
+  assert.deepEqual([...f.mounts.keys()], ['asset-workspace', 'audit-export', 'feed-continuity', 'watchtower-read', 'kit-read']);
+  for (const options of f.mounts.values()) {
+    assert.strictEqual(options.login, f.login);
+    assert.strictEqual(options.root, f.element('wallet-private'));
+    assert.throws(() => options.getContext(), /CONTROL_CONNECTION_REQUIRED/);
+  }
+  await f.connect();
+  const contexts = [...f.mounts.values()].map(options => options.getContext());
+  for (const context of contexts) {
+    assert.equal(context.tokenId, 1n);
+    assert.strictEqual(context.wallet, contexts[0].wallet);
+  }
+  f.emit('accountsChanged');
+  for (const options of f.mounts.values()) assert.throws(() => options.getContext(), /CONTROL_CONNECTION_/);
+  assert.equal(f.counts().executions, 0);
+  assert.equal(f.counts().settlementSends, 0);
 });

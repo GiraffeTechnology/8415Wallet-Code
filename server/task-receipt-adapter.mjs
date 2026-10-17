@@ -17,6 +17,9 @@ import { receiptAssetTransaction, proveAssetReplacement } from '../src/xiongan/e
 // modules are compiler inputs, not executed dependencies. Packagers rewrite the
 // .ts suffixes together with imports when emitting the same closure to JavaScript.
 export const TASK_RECEIPT_RUNTIME_FILES = Object.freeze([
+  // Approval selection, channel isolation, and the shared-store constructor
+  // affect this port's trusted runtime; UI/build/test code does not.
+  'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
   'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
   'src/codec/abi.ts', 'src/codec/keccak.ts', 'src/controls/accounts.ts', 'src/controls/authorization.ts',
   'src/controls/client.ts', 'src/controls/execution.ts', 'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',

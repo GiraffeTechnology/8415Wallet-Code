@@ -1,6 +1,8 @@
 /** Inert installed-runtime check. Import factories without invoking capabilities. */
 import './task-exact-operation-planner.mjs';
 import './task-exact-signer-adapter.mjs';
+import './task-exact-runtime.mjs';
+import './task-runtime-composition.mjs';
 import './task-receipt-adapter.mjs';
 import './receipt-provider-handler.mjs';
 import './task-native-listing-composition.mjs';

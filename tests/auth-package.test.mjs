@@ -282,6 +282,7 @@ test('independently licensed existing auth packages remain verifiable with their
 test('task runtime source closure has the exact planner, signer, encoding, contract and receipt modules', t => {
   const f = fixture(t, { semantics: AUTH_STATE_SEMANTICS });
   assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, ['server/task-runtime-import-probe.mjs',
+    'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
     'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
     'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
     'server/task-journal-capabilities.mjs', 'server/task-receipt-runtime.mjs',
