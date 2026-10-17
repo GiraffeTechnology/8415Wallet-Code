@@ -16,7 +16,7 @@ status column states what is true now, not what is intended.
 | 2 | Hoodi genesis is a compiled-in constant with no config key | Becomes a required config field, still verified against block zero | Specification for the deployment-path writer |
 | 3 | Funding shortfall reports no amounts | Add a read-only preflight that reports the computed cost; the gate itself unchanged | Specification for the deployment-path writer |
 | 4 | Login, challenge, attempt and rate budgets are compiled in | Become config fields, defaults exactly today's values | Specification for the deployment-path writer |
-| 5 | Evidence panel refuses every defect as one message | Name which rule refused; never the file content | Pending |
+| 5 | Evidence panel refuses every defect as one message | Name which rule refused; never the file content | **Done** |
 | 6 | 30-day profile bounds chosen locally | Values kept, published as this profile's terms | Pending |
 | 7 | Closed read-method allowlists report a write refusal | Stay closed; the refusal names the method asked for | Specification for the deployment-path writer |
 | 8 | Three separate chain lists | Documented together; refusal names the refusing policy | Pending |
@@ -38,6 +38,14 @@ status column states what is true now, not what is intended.
 | Tokens per collision scan | 32 | `COLLISION_TOKEN_BUDGET_REFUSED`, carrying `limit` | `src/wallet/collisions.ts` |
 | Entries per collision scan | 2048 | `COLLISION_ENTRY_BUDGET_REFUSED`, carrying `limit` | `src/wallet/collisions.ts` |
 | Register-history page | 1 to 64, default 16 | `WORKSPACE_PAGE_LIMIT_REFUSED`, stating the range and the value asked | `src/wallet/assetWorkspace.ts` |
+| Evidence file size | 65 536 B | `EVIDENCE_FILE_TOO_LARGE`, stating the bound, distinct from a missing file | `web/hoodi-journey-panel.mjs` |
+| Evidence integer fields | decimal strings | `EVIDENCE_INTEGER_INVALID`, saying JSON numbers are not accepted | `web/hoodi-journey-panel.mjs` |
+| Evidence envelope shape | exactly `original` and `laterV3` | `EVIDENCE_ENVELOPE_INVALID`, naming both keys | `web/hoodi-journey-panel.mjs` |
+| Evidence session binding | account, chain 560048, tenant | `EVIDENCE_SESSION_MISMATCH`, naming what must match | `web/hoodi-journey-panel.mjs` |
+
+Those four are tagged refusals, so only wallet-authored text can reach the
+page: an untagged failure, including any error from the pinned read, still
+shows the generic message and a regression holds that apart.
 
 The collision limit reaches the page only as its code: `web/app.mjs` displays
 `error.code` and not the message. Showing the number needs one line there, and
@@ -64,7 +72,6 @@ the PRD or the ERC.
 | RPC log window | 10 000 blocks | `src/adapters/rpc/rpcReader.ts` |
 | Store size | 4 MiB | `server/store.mjs` |
 | Fills, anchors | 10 000 each | `server/task-listing-observation-consumer.mjs` |
-| Evidence file | 65 536 B | `web/hoodi-journey-panel.mjs` |
 | Bounded JSON inputs | 32 768 / 16 384 / 4 096 / 1 024 B | `src/agent/taskContract.ts`, `src/controls/*`, several services |
 | Effective time ahead of the clock | 30 days | `contracts/reference/RegisterProjectionReference.sol` |
 | Settlement period | 30 days | `contracts/reference/RegisterProjectionReference.sol` |
@@ -74,3 +81,27 @@ the PRD or the ERC.
 `UINT64_MAX`, `UINT256_MAX`, word and hex widths, the 253-byte domain bound and
 the JavaScript date range are fixed by a type or a format and are not listed as
 decisions.
+
+## Conformance against the PRD at 7b72d5ad
+
+Section 6.3.1 states that an authorization expressed as the entirety of a
+specified asset balance is a defined asset-bounded limit, not a missing numeric
+budget, and that execution must calculate available funds, reserved amounts and
+actual fees without asking for a redundant numeric authorization.
+
+The task policy cannot express that. In `src/agent/taskContract.ts`, `fees` is a
+closed field list requiring both `perOperationWei` and `totalWei`, each a
+decimal string in [1, 2^256) — `uint(value, true)` refuses `0`, and there is no
+sentinel for the whole balance (lines 41-46 and 151-153). A child is then
+refused when `gasLimit x maxFeePerGasWei` exceeds `perOperationWei`
+(`TASK_CHILD_FEE_LIMIT`, line 246). So the only expressible limits are a number
+guessed in advance, which stops work when real fees exceed it, or a number so
+large it is effectively unlimited, which the same section separately rules out.
+The refusal name attributes this to a fee limit rather than to the absent
+asset-bounded form, which is why it reads as a missing budget.
+
+Closing it needs the policy schema to carry an asset-bounded form and the
+execution path to compute available funds, reservations and actual fees against
+it. The schema is in `src/`; the enforcement is on the execution path held by
+another writer, so this is recorded for that coordination rather than changed
+here. No threshold was relaxed in the meantime.

@@ -2000,8 +2000,8 @@
     {
       "path": "web/hoodi-journey-panel.mjs",
       "mode": "100644",
-      "git_blob_sha1": "c4042008c17760850eaa78ff3ee2b723fa7133e1",
-      "sha256": "bf8e0f4f864fc07e2be0cfdac2c12e1408103b8e625040eed5e04ef1957df72c"
+      "git_blob_sha1": "ace1fd7cea3e033aefa0f8bdc2c22ca80d1c7ac6",
+      "sha256": "c8f81d15d2c8dcf721a07b838c410f74d52aec2abf531cb9bc873fcc85222d60"
     },
     {
       "path": "web/i18n.mjs",
