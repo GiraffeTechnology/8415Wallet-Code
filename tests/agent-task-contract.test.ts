@@ -85,6 +85,25 @@ test('the existing asset and controlled-account chain policies remain separate',
   for (const chainId of ['11155111', '560048']) assert.equal(normalizeExistingOperation({ kind: 'create-account', chainId, actor, controller }).chainId, chainId);
   assert.throws(() => normalizeExistingOperation({ kind: 'create-account', chainId: '1', actor, controller }), /TASK_CHAIN_REFUSED/);
   assert.throws(() => normalizeExistingOperation({ ...operation, chainId: '560048' }), /TASK_CHAIN_REFUSED/);
+  // Three policies with three scopes shared one code, so a refusal did not say
+  // which had refused. The code is unchanged; the detail names the policy, the
+  // set it checked and the chain asked.
+  const refusal = (build: () => unknown) => {
+    try { build(); } catch (error: any) { return error; }
+    throw new Error('expected a refusal');
+  };
+  const asset = refusal(() => normalizeExistingOperation({ ...operation, chainId: '560048' }));
+  assert.equal(asset.code, 'TASK_CHAIN_REFUSED');
+  assert.equal(asset.detail, 'asset operations accept chain 1, 8453, 11155111, 84532; asked 560048');
+  const control = refusal(() => normalizeExistingOperation({ kind: 'create-account', chainId: '1', actor, controller }));
+  assert.equal(control.code, 'TASK_CHAIN_REFUSED');
+  assert.equal(control.detail, 'control operations accept chain 11155111, 560048; asked 1');
+  // A chain in neither set is refused by whichever policy applies, not by both.
+  for (const chainId of ['137', '10']) {
+    assert.match(refusal(() => normalizeExistingOperation({ ...operation, chainId })).detail, /^asset operations accept/);
+    assert.match(refusal(() => normalizeExistingOperation({ kind: 'create-account', chainId, actor, controller })).detail,
+      /^control operations accept/);
+  }
 });
 test('all nine existing bounded operation kinds have canonical representations', () => {
   const identity = { chainId: '11155111', actor }, controller = { contract: a('4'), runtimeCodeHash: h('5') }, token = { contract, runtimeCodeHash: h('6') };

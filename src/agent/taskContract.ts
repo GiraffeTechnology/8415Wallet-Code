@@ -7,10 +7,17 @@ import { isAddressInput } from '../xiongan/address.ts';
  */
 export class TaskContractError extends Error {
   readonly code: string;
-  constructor(code: string) { super(code); this.name = 'TaskContractError'; this.code = code; }
+  /** What the policy was, where naming it tells the caller something. */
+  readonly detail: string | undefined;
+  constructor(code: string, detail?: string) {
+    super(detail === undefined ? code : `${code}: ${detail}`);
+    this.name = 'TaskContractError';
+    this.code = code;
+    this.detail = detail;
+  }
 }
-function refuse(ok: unknown, code: string): asserts ok {
-  if (!ok) throw new TaskContractError(code);
+function refuse(ok: unknown, code: string, detail?: string): asserts ok {
+  if (!ok) throw new TaskContractError(code, detail);
 }
 type RecordValue = Record<string, unknown>;
 function object(value: unknown, keys: readonly string[]): RecordValue {
@@ -64,8 +71,24 @@ function json(textValue: string): unknown {
     'TASK_SIZE_REFUSED');
   try { return JSON.parse(textValue); } catch { throw new TaskContractError('TASK_JSON_REFUSED'); }
 }
+/**
+ * Chain acceptance, as three separate policies with three separate scopes.
+ *
+ * Asset operations move a token or native value and are accepted on the chains
+ * the product supports for that. Control operations drive the responsibility
+ * controller and are accepted on a narrower set, because a control deployment
+ * exists on fewer chains. An NFT listing child is an asset operation and is
+ * held to the asset set. None of these sets is an ERC requirement: the ERC is
+ * chain-agnostic, and these are this product's deployment choices.
+ *
+ * Session chain acceptance is a fourth, separate policy and lives in the
+ * authentication service, which is why a chain can be signed in on and still
+ * refuse an operation.
+ */
 const ASSET_CHAINS = ['1', '8453', '11155111', '84532'];
 const CONTROL_CHAINS = ['11155111', '560048'];
+const chainPolicy = (name: string, accepted: readonly string[], asked: string) =>
+  `${name} operations accept chain ${accepted.join(', ')}; asked ${asked}`;
 type Identity = { readonly chainId: string; readonly actor: string };
 type Pin = { readonly contract: string; readonly runtimeCodeHash: string };
 export type ExistingOperation = Identity & (
@@ -100,7 +123,8 @@ export function normalizeExistingOperation(value: unknown): ExistingOperation {
   const r = object(value, ['kind', 'chainId', 'actor', ...fields[kind]!]);
   const identity = { chainId: uint(r.chainId, true), actor: address(r.actor) };
   const asset = ['native-transfer', 'erc20-transfer', 'erc721-transfer', 'erc1155-transfer'].includes(kind);
-  refuse((asset ? ASSET_CHAINS : CONTROL_CHAINS).includes(identity.chainId), 'TASK_CHAIN_REFUSED');
+  refuse((asset ? ASSET_CHAINS : CONTROL_CHAINS).includes(identity.chainId), 'TASK_CHAIN_REFUSED',
+    chainPolicy(asset ? 'asset' : 'control', asset ? ASSET_CHAINS : CONTROL_CHAINS, identity.chainId));
   let result: ExistingOperation;
   if (asset) {
     const recipient = address(r.recipient);
@@ -305,7 +329,7 @@ export function freezeNftListingChild(value: unknown): FrozenNftListingChild {
   refuse(n.standard === 'ERC-721' || n.standard === 'ERC-1155', 'TASK_NFT_STANDARD_REFUSED');
   const quantity = uint(n.quantity, true), chainId = uint(r.chainId, true);
   refuse(n.standard !== 'ERC-721' || quantity === '1', 'TASK_NFT_QUANTITY_REFUSED');
-  refuse(ASSET_CHAINS.includes(chainId), 'TASK_CHAIN_REFUSED');
+  refuse(ASSET_CHAINS.includes(chainId), 'TASK_CHAIN_REFUSED', chainPolicy('NFT listing', ASSET_CHAINS, chainId));
   const child: NftListingChild = { schema: '8415-nft-listing-child/1', operationId: text(r.operationId), taskDigest: hash(r.taskDigest),
     executorDigest: hash(r.executorDigest), grantReference: text(r.grantReference), grantPolicyVersion: uint(r.grantPolicyVersion, true),
     chainId, seller: address(r.seller), protocol: address(r.protocol),
