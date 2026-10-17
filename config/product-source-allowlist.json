@@ -43,6 +43,7 @@
       "docs/TASK-RECEIPT-SCOPE.md",
       "docs/TASK-RUNTIME-COMPOSITION.md",
       "docs/TENANT-AVATAR.md",
+      "docs/THRESHOLDS.md",
       "docs/V2-CLOSEOUT.md",
       "docs/V3-DEVELOPMENT-CLOSURE.md",
       "docs/V3-REVIEW-AND-VALIDATION.md",
@@ -701,6 +702,12 @@
       "mode": "100644",
       "git_blob_sha1": "450735681d674530317ba593c8ac7739f29a9dde",
       "sha256": "c344953f216f8d467de5367cc6bde829ce0e00d2c992c5126c0b2bab363994f4"
+    },
+    {
+      "path": "docs/THRESHOLDS.md",
+      "mode": "100644",
+      "git_blob_sha1": "a3984dfa22940fc069d5b0b99222d79712a30860",
+      "sha256": "17078743eaca8546af8f6b765ce2c237b88f2f7a756b1471c28e80bbf23addef"
     },
     {
       "path": "docs/V2-CLOSEOUT.md",
@@ -1713,8 +1720,8 @@
     {
       "path": "src/wallet/assetWorkspace.ts",
       "mode": "100644",
-      "git_blob_sha1": "98892dce8b870cd6ae4977120d987c6bd69660ed",
-      "sha256": "73f78ee663a0f86ba49d95e55caabd025b948dcfbbccdf3a6e2974fea9179bf2"
+      "git_blob_sha1": "7d8a78e57bc2bdc4edb0bbd490bf931e3f17e58e",
+      "sha256": "2eb79c91c97c9c2bbe978165d8b17813e766cc69270d13799087b37c021a30e7"
     },
     {
       "path": "src/wallet/auditTrail.ts",
@@ -1725,8 +1732,8 @@
     {
       "path": "src/wallet/collisions.ts",
       "mode": "100644",
-      "git_blob_sha1": "2db0b8aaaf88e0c974e87a343476eb8b8f51a3e9",
-      "sha256": "42ec6a2eb0350b7f337f1d95de8b215afa73c07ac126baca5b9ebb22bdb22f66"
+      "git_blob_sha1": "153aed2ea1c71dfb76b658a1b8248f8000bbd73f",
+      "sha256": "9c91c8da0c3570fd161c9f9e7c5bf3bde907d06824841a3001fefb1c75bdf723"
     },
     {
       "path": "src/wallet/contested.ts",
@@ -1863,8 +1870,8 @@
     {
       "path": "src/wallet/riskSurfaces.ts",
       "mode": "100644",
-      "git_blob_sha1": "f95d2ef394bfd318fab6b0c81042ebb8f9abca0e",
-      "sha256": "bf7ce139e456dd46386e00cc447bbd233f67977b5adff228fb2746d9b61a8a13"
+      "git_blob_sha1": "9e729d46fdad3bd54dcff8bc2f317043e156249a",
+      "sha256": "00bc58b16915496dda48af66383435bc5f78c95dc69114ecdfd3759e4bd25c40"
     },
     {
       "path": "src/wallet/session.ts",
@@ -1959,8 +1966,8 @@
     {
       "path": "web/app.mjs",
       "mode": "100644",
-      "git_blob_sha1": "17f3653daf6066192ad4fb8720b85128dcdaf1c1",
-      "sha256": "0a2e527e507ee126caa825664e68e4762a8421c13f8e94cb689b0c72dea17d8b"
+      "git_blob_sha1": "c06f7fa9a81906f150c90c7d4456c23d28597354",
+      "sha256": "6bacc7dc7da7d109c3d48ed710768c87e1afcb6d9d0a8d9250aee369bf5e39e8"
     },
     {
       "path": "web/asset-workspace-panel.mjs",
@@ -2091,8 +2098,8 @@
     {
       "path": "web/hoodi-journey-panel.mjs",
       "mode": "100644",
-      "git_blob_sha1": "c4042008c17760850eaa78ff3ee2b723fa7133e1",
-      "sha256": "bf8e0f4f864fc07e2be0cfdac2c12e1408103b8e625040eed5e04ef1957df72c"
+      "git_blob_sha1": "ace1fd7cea3e033aefa0f8bdc2c22ca80d1c7ac6",
+      "sha256": "c8f81d15d2c8dcf721a07b838c410f74d52aec2abf531cb9bc873fcc85222d60"
     },
     {
       "path": "web/i18n.mjs",

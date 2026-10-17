@@ -1,3 +1,4 @@
+import { CollisionScanError } from '../src/wallet/collisions.ts';
 import * as nativeI18n from '../web/native-i18n.mjs';
 import * as uiI18n from '../web/i18n.mjs';
 import test from 'node:test';
@@ -83,7 +84,7 @@ function fixture(profile = 'v3') {
     mountFeedContinuity: mount('feed-continuity'),
     mountWatchtowerRead: mount('watchtower-read'),
     mountKitRead: mount('kit-read'),
-    CollisionScanError: class extends Error {},
+    CollisionScanError,
     verifyControlDeployment: () => hooks.verify(),
     controlRpc: (_p: unknown, method: string) => method === 'eth_requestAccounts' ? hooks.request() : hooks.chain(),
   };
@@ -321,4 +322,14 @@ test('all additive panel mount contexts retain login and connection invalidation
   for (const options of f.mounts.values()) assert.throws(() => options.getContext(), /CONTROL_CONNECTION_/);
   assert.equal(f.counts().executions, 0);
   assert.equal(f.counts().settlementSends, 0);
+});
+
+test('collision limits reach the page from the typed refusal without exposing backend text', async () => {
+  for (const [code, limit] of [['COLLISION_TOKEN_BUDGET_REFUSED', 32], ['COLLISION_ENTRY_BUDGET_REFUSED', 2048]] as const) {
+    const f = fixture(); await f.connect(); f.element('collision-token-ids').value = '1,2';
+    f.hooks.collisions = async () => { throw new CollisionScanError(code, limit); };
+    await f.click('read-collisions');
+    assert.equal(f.element('result').textContent, `${code}: limit ${limit}`);
+    assert.equal(f.counts().executions, 0);
+  }
 });

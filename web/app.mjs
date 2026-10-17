@@ -168,12 +168,11 @@ document.querySelectorAll('[data-read]').forEach(button => button.addEventListen
       const input = value('collision-token-ids');
       if (input.length === 0 || input.length > 2560) fail('COLLISION_TOKEN_INPUT_REFUSED');
       const parts = input.split(',');
-      if (parts.length > 32) fail('COLLISION_TOKEN_BUDGET_REFUSED');
       const ids = parts.map(part => integer(part.trim()));
       if (new Set(ids).size !== ids.length) fail('COLLISION_DUPLICATE_TOKEN_REFUSED');
       try { output = nativeUi(renderCollisions, await wallet.collisions(ids)); }
       catch (error) {
-        if (error instanceof CollisionScanError) fail(error.code);
+        if (error instanceof CollisionScanError) fail(error.limit === undefined ? error.code : `${error.code}: limit ${error.limit}`);
         throw error;
       }
       break;
@@ -427,4 +426,3 @@ mountKitRead({
     return { wallet: plainWallet, tokenId: number('tokenId') };
   },
 });
-
