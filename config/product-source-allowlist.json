@@ -588,8 +588,8 @@
     {
       "path": "docs/ERC-8415-Wallet-PRD.md",
       "mode": "100644",
-      "git_blob_sha1": "4ef288c41a5b5876fd7020dd167af6f0e01c5a0a",
-      "sha256": "7415f8d2d02b4217457e62d369a42815d9b7ea9bfef398066521755b861a49da"
+      "git_blob_sha1": "33639b44a8719b289350375707c8c8eadfb9c0e9",
+      "sha256": "49607b15c5b146587dac690194d2d9ecb0e396cdb995a7263813d8017594ee96"
     },
     {
       "path": "docs/INTEGRATION-BOUNDARIES.md",
