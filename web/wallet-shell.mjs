@@ -218,12 +218,14 @@ globalThis.addEventListener('pageshow', event => {
 });
 getReleaseProfile().then(async value => {
   profile = value; paint(el('tenant-label'), value.tenant.label);
+  // Release identity belongs to the shared shell, not an optional business module.
+  paint(el('release-profile'), msg('status.profile', { product: value.product, version: value.version, platform: value.platform, tenant: value.tenant.label }));
   el('profile-name').value = value.tenant.label; el('profile-tenant').value = value.tenant.id; el('profile-version').value = value.id.toUpperCase();
   paint(el('tenant-context'), msg('design.workspace', { profile: value.id.toUpperCase() }));
   document.querySelector('.nav-item[data-route="linked"]').hidden = !value.features.linkedResponsibilities;
   try { avatar.setContext(value, globalThis.location); await avatar.load(); } catch { /* Storage unavailable is a visible local preference failure only. */ }
   renderAvatar(); route(page, { focus: false });
-}).catch(() => { for (const button of document.querySelectorAll('[data-route]')) button.disabled = true; });
+}).catch(() => { paint(el('release-profile'), msg('message.000')); for (const button of document.querySelectorAll('[data-route]')) button.disabled = true; });
 for (const button of document.querySelectorAll('[data-login-method]')) button.addEventListener('click', () => {
   el('wallet-login-method').value = button.dataset.loginMethod; el('wallet-login-method').dispatchEvent(new Event('change', { bubbles: true }));
 });
