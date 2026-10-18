@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { chromium } = require('playwright-core');
+const { installScreenNavigation } = require('./screen-navigation.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const tenants = ['synthetic-alpha', 'synthetic-beta', 'synthetic-gamma'];
@@ -84,7 +85,7 @@ async function run() {
       try { return finish({ status: 200, contentType: mime[path.extname(match[1])] || 'application/octet-stream', body: source(match[1]) }); }
       catch { unexpected.push(request.url()); return route.abort(); }
     });
-    const page = await context.newPage();
+    const page = installScreenNavigation(await context.newPage());
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await configSeen.promise;
