@@ -978,8 +978,8 @@
     {
       "path": "server/task-journal-capabilities.mjs",
       "mode": "100644",
-      "git_blob_sha1": "4dca62d502d78d404c641944bbd60ab8c07f74c2",
-      "sha256": "35907d7d0c5821d3234ce7e5255deedcbada0105723bec2892c4aaa946586b2e"
+      "git_blob_sha1": "d8e8eb6c6a74849d2fe6dad48233fb034c5c7384",
+      "sha256": "1cfb80ea9f6a098ae3829707740e2c478b651f84d8d679d0db30ad16a6b0c846"
     },
     {
       "path": "server/task-listing-bootstrap.mjs",
