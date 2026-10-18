@@ -80,7 +80,10 @@ function syntheticPackage(root, label = '', { mailSupported = true } = {}) {
   const pkg = { name: '8415wallet', version: '0.1.0', license: 'SEE LICENSE IN LICENSE', dependencies: { ethers: '^6.17.0' } };
   const lock = { name: pkg.name, lockfileVersion: 3, packages: { '': { dependencies: pkg.dependencies }, 'node_modules/ethers': { version: '6.17.0', resolved: 'https://registry.npmjs.org/ethers/-/ethers-6.17.0.tgz', integrity: 'sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' } } };
   put(source, 'package.json', JSON.stringify(pkg)); put(source, 'package-lock.json', JSON.stringify(lock));
-  const git = args => execFileSync('git', args, { cwd: source, stdio: 'pipe' });
+  // A disposable source fixture must not leave Git's detached automatic
+  // maintenance writing pack files after the synchronous command returns.
+  // These options affect this synthetic repository only, not user Git config.
+  const git = args => execFileSync('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', ...args], { cwd: source, stdio: 'pipe' });
   git(['init', '-q']); git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Synthetic installation package']);
   const identity = captureAuthSource(source);
   for (const path of files) put(runtime, path, readFileSync(join(source, path)));
@@ -94,7 +97,10 @@ function syntheticPackage(root, label = '', { mailSupported = true } = {}) {
   return runtime;
 }
 async function fixture(t, packageOptions) {
-  const root = await mkdtemp(join(tmpdir(), 'wallet-auth-install-test-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const root = await mkdtemp(join(tmpdir(), 'wallet-auth-install-test-'));
+  // Bounded native cleanup retries retain the final error; no assertion or
+  // unsafe-node/ownership validation is suppressed by this fixture cleanup.
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }));
   const target = paths(join(root, 'host'), tenant);
   for (const directory of [dirname(target.root), dirname(target.config), dirname(target.state), dirname(target.unit)]) await mkdir(directory, { recursive: true, mode: 0o755 });
   const packageDirectory = syntheticPackage(root, '', packageOptions), calls = [];
