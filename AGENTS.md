@@ -4,13 +4,14 @@
 
 The sole current complete product requirements are `docs/ERC-8415-Wallet-PRD.md`:
 - Release label: **Beta 2.0**; V2 standalone and V3 linked runtime profiles remain distinct.
-- Requirements revision: **2026-10-18 HKT ON/OFF default-value clarification**, matching `config/current-prd.json`.
-- Exact UTF-8 bytes: **104054**.
-- SHA-256: **5e77084f350e400d568f0747fe3ed66559aa95da8f040a2c467ef4b8728bc6c3**.
+- Requirements revision: **2026-10-19 HKT multichain core requirement**, matching `config/current-prd.json`.
+- Exact UTF-8 bytes: **109948**.
+- SHA-256: **dbc505b32d060028721515dba2f3c5cc07b85df219527eb543f1cbbd3ff227cf**.
 - Includes the full retained foundation, all stages, §9 linked requirements, §10 UI/API requirements, and §§6.5.1 / 10.7.1 historical-observation identity and UI contract.
+- Foundational multichain-wallet requirement: multiple networks are a core product property, not an optional extension. Read the complete Multichain compatibility and acceptance section (MC-01–MC-08). Keep network identity, asset/history/grant isolation, RPC and signer verification, capability declarations and actual tested coverage consistent across UI, API and CLI. A bounded single-network execution profile does not redefine the product. Do not claim unsupported chain families or silently label an arbitrary RPC as Ethereum.
 - Foundational agentic-wallet requirement: support full owner-granted authority. ALL ON permits the agent to sign and execute within that authority without per-operation human approval/signature prompts. This is a product capability, not a test-only exception or UI-only state. Preserve explicit revocations, granted scope and actual chain validity.
 - ALL Agent-operation, asset-scope and authorization settings default to **ON** in the frontend and authoritative backend. Connecting the UI must not change these defaults or require individual re-enablement. The owner may change settings after UI connection; once operational, the panel changes the settings under their existing authorization rules. Before a corresponding authorization lock is operational, ON means unlocked: authorized tests must not be blocked on its unimplemented permission or approval-signature verification. Record such verification as not evaluated, not passed. This pre-operational rule takes precedence over the operational gate requirement; actual blockchain transaction signatures, task scope and existing effective owner decisions remain binding.
-- The preceding 100256-byte PRD (SHA-256 `49607b15c5b146587dac690194d2d9ecb0e396cdb995a7263813d8017594ee96`) is retained in version history and is superseded by the complete current identity above.
+- The preceding 104054-byte PRD (SHA-256 `5e77084f350e400d568f0747fe3ed66559aa95da8f040a2c467ef4b8728bc6c3`) is superseded by the complete multichain identity above. The preceding 100256-byte PRD (SHA-256 `49607b15c5b146587dac690194d2d9ecb0e396cdb995a7263813d8017594ee96`) is retained in version history and is superseded by the complete current identity above.
 
 The 70,422-byte PRD with SHA-256 `f8e62a6e3fa014b8b5f8b67949309eef3876e7d0a1c4caa1c19ebdc793abd11d` and the 66,713-byte PRD with SHA-256 `7415f8d2d02b4217457e62d369a42815d9b7ea9bfef398066521755b861a49da` are superseded requirement snapshots, not the current complete PRD. An older branch report calling either snapshot latest does not override the canonical document and exact identity above.
 
@@ -28,6 +29,7 @@ For protocol semantics, the ERC is authoritative; application authorization, acc
 
 ## Execution, evidence and publication rules
 
+- Current P0 execution restriction (2026-10-19 HKT): no on-chain transaction operation may be executed from any CTyun server, including test networks. Do not initiate transaction signing, broadcast, sends, contract deployment or proxy execution to evade this restriction. Pure offline source work and synthetic QA remain separate. This restriction does not authorize another host, new credentials or a new transaction scope.
 - Product tests, builds, typechecks, syntax checks, EVM tests and runtime/UI acceptance run only on an already authorized CTyun or Aliyun non-Windows server. Do not run them on a local workstation, Windows or an unrelated sandbox. A generic Linux or hosted CI runner is not evidence of the approved server environment. Preserve existing CI requirements and record their actual runner separately.
 - Reuse accurate immutable-source results; rerun affected checks when the source or relevant environment changes. Do not repeat capability probes or green suites without a change requiring them. A single blocked path does not stop independent authorized work.
 - Do not retry denied publication, credentials, deployment or other specifically refused actions without the required targeted authorization. Source editing does not authorize credentials, permission expansion, deployment, real-value transactions or protection bypasses.
@@ -40,7 +42,7 @@ For protocol semantics, the ERC is authoritative; application authorization, acc
 
 ## Product Boundary
 
-8415wallet is a general-purpose application-layer wallet compatible with
+8415wallet is a multichain, general-purpose application-layer wallet compatible with
 existing wallet and asset standards, with native ERC-8415 asynchronous register
 projection support. Native ERC-8415 features are additive and do not make the
 product exclusive to ERC-8415 assets. Report implemented and tested standards
