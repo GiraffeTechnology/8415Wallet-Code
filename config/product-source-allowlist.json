@@ -1270,6 +1270,12 @@
       "sha256": "4e79d795c09ba73ba90bbd366c90a559d1babf7ac5f3aca10bb9294e6eaffb4c"
     },
     {
+      "path": "src/controls/historyDiscovery.ts",
+      "mode": "100644",
+      "git_blob_sha1": "51dc13b14cc721765fac20888d87ec203661ae95",
+      "sha256": "5571170ffbdd2b445d1de3ad2e5f7e381e3639786795ee881a4fef7eb6093892"
+    },
+    {
       "path": "src/controls/historyEntitlement.ts",
       "mode": "100644",
       "git_blob_sha1": "2c35caed6ccb233be4d88bcec4a563bd21804a8b",
