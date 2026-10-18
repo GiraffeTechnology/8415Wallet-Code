@@ -13,7 +13,14 @@ for (const path of ['README.md', 'AGENTS.md', 'docs/ERC-8415-Wallet-PRD.md']) {
     assert.match(text, /existing wallet and asset standards/);
     assert.match(text, /native ERC-8415|native \[ERC-8415/);
     assert.match(text, /8415wallet\.com/);
-    assert.match(text, /Xiongan[^.]*V2 tenant/);
+    assert.match(text, /\bV2\b/);
+    assert.match(text, /\bV3\b/);
+    if (path === 'AGENTS.md') {
+      assert.match(text, /Tenant deployments are configurations, not separate products/);
+      assert.match(text, /Do not publish real tenant identities/);
+    } else if (path === 'docs/ERC-8415-Wallet-PRD.md') {
+      assert.match(text, /Wallet-specific deployment bindings remain private/);
+    }
     assert.match(text, /DApp Beta|DApp[^.]*Beta/);
     assert.match(text, /STANDARDS-COMPATIBILITY\.md/);
     assert.doesNotMatch(text, /It is not a generic NFT wallet|a generic NFT wallet;/);
