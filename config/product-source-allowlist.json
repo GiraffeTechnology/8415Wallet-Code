@@ -1276,6 +1276,12 @@
       "sha256": "d9f25aad3e5dbe3b8db958a03b242e96ae56f2a5c67565a5b7e4677a6d3eb5a8"
     },
     {
+      "path": "src/controls/historyMilestone.ts",
+      "mode": "100644",
+      "git_blob_sha1": "d626d99c980ab92434f0c9d75993ab2504ece197",
+      "sha256": "ecf4761f08cfd2c3e569efff81c7e09b21600bc8fa301d94ebbefe6024440d88"
+    },
+    {
       "path": "src/controls/historyView.ts",
       "mode": "100644",
       "git_blob_sha1": "449811a414ea0968cf68876125c375e32e580a83",
