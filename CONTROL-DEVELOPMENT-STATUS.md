@@ -63,11 +63,12 @@ The user requires all development to finish before the unified test campaign.
 During this increment no compilation, typecheck, unit/EVM test, CI trigger,
 testnet RPC, signature, deployment or transaction was executed. Source reading
 and implementation are not passing tests. The later user instruction requests
-one new draft PR per stage: use development HEAD commits marked `[skip ci]`
-with the unchanged push/pull_request workflow. This defers execution, never
-waives verification. Once all development is complete, new commits without
-skip directives must trigger CI. Do not disable workflows. Inserted cooperation
-and checkpoint reports do not complete the task.
+one new draft PR per stage. Current P0 supersedes the former deferred-CI
+mechanism: every new commit must remain CI-eligible; do not add any CI-skip
+directive to commit messages or PR metadata. Keep the push/pull_request workflow
+and required checks intact. Continue the next independent stage without waiting
+for CI; this does not waive validation. CI and merge stay with their assigned
+owner. Inserted cooperation and checkpoint reports do not complete the task.
 
 After implementation is complete: freeze the candidate; run the complete local
 and adversarial suites; obtain independent security review and resolve findings;
