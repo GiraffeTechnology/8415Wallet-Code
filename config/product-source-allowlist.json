@@ -390,8 +390,8 @@
     {
       "path": "README.md",
       "mode": "100644",
-      "git_blob_sha1": "fe263c809bd494ffc689b89dfa639a2b46073355",
-      "sha256": "5fd7834046371f37838f842ce6663849f2135f6afa24d508b330d4b558040784"
+      "git_blob_sha1": "6868e8f680dbac172f37b43df682d5231588d727",
+      "sha256": "3997a6c3b08409827caeeba6978f9690731a2e8ff0469bd13f0b483161645310"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",

@@ -13,8 +13,17 @@ for (const path of ['README.md', 'AGENTS.md', 'docs/ERC-8415-Wallet-PRD.md']) {
     assert.match(text, /existing wallet and asset standards/);
     assert.match(text, /native ERC-8415|native \[ERC-8415/);
     assert.match(text, /8415wallet\.com/);
-    assert.match(text, /\bV2\b/);
-    assert.match(text, /\bV3\b/);
+    const capabilityRelationship: Record<string, RegExp> = {
+      'README.md': /V2 enables its standalone feature profile; V3 additionally enables linked responsibility controls/,
+      'AGENTS.md': /V2 standalone and V3 linked runtime profiles remain distinct/,
+      'docs/ERC-8415-Wallet-PRD.md': /V2 maps to the retained v2\.2 foundation in sections 1–8; V3 retains that foundation and adds section 9/,
+    };
+    assert.match(text, capabilityRelationship[path]);
+    assert.doesNotMatch(text, /\bXiongan\b/i);
+    if (path === 'README.md') {
+      assert.match(text, /Tenant deployments are configurations, not separate products/);
+      assert.match(text, /Wallet-specific deployment bindings remain private/);
+    }
     if (path === 'AGENTS.md') {
       assert.match(text, /Tenant deployments are configurations, not separate products/);
       assert.match(text, /Do not publish real tenant identities/);
