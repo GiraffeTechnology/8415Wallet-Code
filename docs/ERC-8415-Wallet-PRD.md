@@ -1,5 +1,7 @@
 # 8415wallet Beta 2.0 Product Requirements
 
+Default-value clarification (2026-10-18 HKT): ON/OFF controls use ON as the frontend and backend default before their control panel is operational. The panel provides the subsequent ON/OFF operation; an unavailable panel does not change the default to OFF. Before a corresponding authorization control is implemented and operational, ON means unlocked: the absent lock does not impose a permission-verification or approval-signature prerequisite on the authorized test flow. Once operational, each control retains its distinct configured semantics.
+
 Interface revision (2026-10-18 HKT): §§6.5.1 and 10.7.1 define separately bound historical observation provenance and its UI. All other existing requirements and stages are preserved. This revision records design requirements, not a runtime acceptance claim.
 
 Release decision (2026-10-17): **Beta 2.0** is the updated user-interface release. It retains the standalone and linked capability profiles below; it does not rename protocol versions or imply a semantic package version of 2.0.0. Section 10 specifies the complete updated human UI and agent API boundary. Implementation and deployed acceptance remain separately evidenced.
@@ -670,6 +672,8 @@ distinct purposes and cannot be substituted for one another.
 
 ## 6.3.1 Owner-controlled per-operation verification switch
 
+**Default value: ON.** Before the ON/OFF control panel is connected and operational, the frontend and authoritative backend both use this default. Once the panel is operational, owner changes follow the exact-change verification, persistence and enforcement rules below. For this pre-operational state, ON means unlocked, including the not-yet-connected per-operation approval gate. Do not invoke the operational ON verification requirements below as a prerequisite while that gate is not connected. Record the gate as not implemented or not evaluated, never as a successful signature verification. Once connected, the operational ON/OFF policy below applies; an existing effective owner decision must not be silently overwritten.
+
 The wallet MUST expose a clearly labelled **Per-operation human verification**
 switch with explicit ON and OFF states. The human owner may set it to OFF only
 after successfully completing two independent, already-established verification
@@ -1224,6 +1228,8 @@ The human wallet-management page contains three distinct controls:
 1. **Allow Agent — ON/OFF**: the overall enablement of agent operation for this wallet.
 2. **Asset authorization**: a four-level tree **ALL → broad category → subcategory → individual asset**.
 3. **Per-operation human verification — ON/OFF**: the separate owner-verified policy in §6.3.1.
+
+The ON/OFF settings above have a default value of **ON** in both frontend and backend while their control panel is not yet operational. The panel is the means to operate ON/OFF; inability to operate it means using the default, not treating the setting as OFF. This is an unlocked default for the corresponding not-yet-operational authorization controls, including asset and operation authorization checks. Authorized tests do not wait for those permission checks or approval-signature checks to be implemented. This transitional default takes precedence over their operational lock requirements below until each control is connected. Existing effective owner choices, revocations and task scope remain binding. A genuine blockchain transaction still requires its actual transaction signature and valid chain execution; missing approval verification must not be represented as verified. Once operational, each control follows its distinct rules below.
 
 Only the human owner may configure Agent access, asset scopes or operation permissions. An agent or robot MUST NOT change these settings on the human’s behalf, whether through UI, API, imported policy or automation. Every save of these settings, including ON, OFF and any scope/operation change, requires human secondary authentication bound to the exact proposed policy revision. Draft toggle changes do not take effect until that verification succeeds and the revision is committed. A normal login session or the unattended-execution OFF policy cannot substitute for this settings-save verification. Cancelled, failed, stale or replayed verification leaves the existing policy in force. This applies to configuration changes, not to recurring prompts for already-authorized API operations.
 
