@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { freezeTaskObservationPolicy, normalizeTaskObservation } from '../src/agent/receiptObservation.ts';
 import { freezeTaskPolicy, emptyTaskBudget } from '../src/agent/taskContract.ts';
 import { AccountAuthClient } from '../web/account-auth.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-policy.mjs';
 import { CATALOGS, setLocale, renderUi } from '../web/i18n.mjs';
 // Import the actual browser controller with its immutable core source entry. Tests
 // do not depend on a previously generated dist directory or a fake success adapter.
@@ -313,11 +314,31 @@ test('unknown and submitted journal entries stay distinct from an authorization 
     assert.equal(checked.budget.reservations[0].transactionHash, raw.budget.reservations[0].transactionHash);
   }
 });
-test('actual service contract interoperates with browser client and same-task continuation without per-child TOTP', async () => {
+// Synthetic durable owner-choice fixture, not an HTTP policy-save bypass. The
+// no-per-child-OTP cases explicitly use an existing two-factor OFF revision.
+async function seedSavedVerificationPolicy(store: any, selected: any, mode: 'ON' | 'OFF') {
+  const scope = { origin: selected.origin, tenant: selected.tenant, username: 'synthetic',
+    account: selected.account.toLowerCase(), chainId: selected.chainId, agentId: selected.agentId };
+  await store.transaction(`${scope.tenant}:synthetic`, (credential: any) => {
+    assert.equal(credential.taskVerificationPolicies, undefined);
+    return { ...credential, taskVerificationPolicies: { [taskVerificationPolicyKey(scope)]: {
+      schema: '8415-task-human-verification/2', scope, mode, revision: '1', enforcedFromRevision: '1',
+      changes: [{ revision: '1', previousRevision: '0', mode, changeId: 'A'.repeat(43),
+        changeDigest: 'a'.repeat(64), scopeDigest: createHash('sha256').update(JSON.stringify(scope)).digest('hex'),
+        credentialRevision: credential.revision, verifiedFactors: ['password', 'verified-email'], changedAt: now - 1000 }],
+    } } };
+  });
+}
+function assertApprovalState(value: any, savedPolicy: boolean) {
+  assert.equal(value.approvalFactor, savedPolicy ? 'totp' : 'preoperational-default-on');
+  assert.deepEqual(value.approvalEvaluation, savedPolicy ? null :
+    { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' });
+}
+test('actual service and browser preserve default ON and saved OFF through same-task continuation without per-child TOTP', async () => {
   const { createTaskAuthorizationService } = await import('../server/task-authorization.mjs');
   const { MemoryCredentialStore } = await import('../server/store.mjs');
   const { base32, hotp, matchTotp } = await import('../server/crypto.mjs');
-  for (const configured of [false, true]) {
+  for (const savedPolicy of [false, true]) for (const configured of [false, true]) {
     const secret = base32(Buffer.alloc(20, 0x31)); // Local synthetic credential only.
     const store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
     const session = { ...context, username: 'synthetic', id: 'synthetic-session', revision: 0, issuedAt: now, expiresAt: now + 900000 };
@@ -349,16 +370,25 @@ test('actual service contract interoperates with browser client and same-task co
         const step = matchTotp(credential.secret, code, now, credential.lastStep); assert.notEqual(step, null); consumes++; return { ...credential, lastStep: step };
       },
     });
-    await service.handler('tasks/prepare', { policy: task.policy }, session);
-    const client = new TaskAuthorizationClient({ context, request: (path: string, body: any) => service.handler(path, body, session) });
+    const prepared = await service.handler('tasks/prepare', { policy: task.policy }, session);
+    if (savedPolicy) await seedSavedVerificationPolicy(store, { ...context, agentId: prepared.executor.identity.agentId }, 'OFF');
+    const before = await store.read('xiongan:synthetic'), expectedConsumes = savedPolicy ? 1 : 0;
+    const requests: any[] = [], client = new TaskAuthorizationClient({ context, request: (path: string, body: any) => {
+      requests.push({ path, body: { ...body } }); return service.handler(path, body, session);
+    } });
     const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
     assert.equal(flow.snapshot().phase, 'review');
-    await flow.authorize(hotp(secret, Math.floor(now / 30000)));
+    assertApprovalState(flow.snapshot(), savedPolicy);
+    const code = savedPolicy ? hotp(secret, Math.floor(now / 30000)) : '';
+    await flow.authorize(code); assert.equal(flow.snapshot().error, null);
+    assertApprovalState(flow.snapshot().selected, savedPolicy);
+    const approvals = requests.filter(request => request.path === 'tasks/authorize');
+    assert.equal(approvals.length, 1); assert.equal(approvals[0].body.code, code);
     assert.equal(flow.snapshot().phase, configured ? 'submitted' : 'authorized-blocked');
-    assert.equal(consumes, 1); assert.equal(sends, configured ? 1 : 0);
+    assert.equal(consumes, expectedConsumes); assert.equal(sends, configured ? 1 : 0);
     if (configured) {
       assert.equal(flow.snapshot().selected.executionState, 'submitted'); await flow.continue();
-      assert.equal(flow.snapshot().phase, 'awaiting-evidence'); assert.equal(sends, 1); assert.equal(plans, 1); assert.equal(consumes, 1);
+      assert.equal(flow.snapshot().phase, 'awaiting-evidence'); assert.equal(sends, 1); assert.equal(plans, 1); assert.equal(consumes, expectedConsumes);
       assert.equal(flow.snapshot().selected.task.digest, task.digest);
       receiptState = 'confirmed-at-depth'; await flow.recover(); assert.equal(flow.snapshot().phase, 'completed-at-observation-depth');
       const before = reads, cached = await client.resume(task.digest, flow.snapshot().selected.executor.digest, flow.snapshot().selected);
@@ -366,9 +396,11 @@ test('actual service contract interoperates with browser client and same-task co
       receiptState = 'reorged'; await flow.recover(); assert.equal(flow.snapshot().phase, 'awaiting-evidence');
       receiptState = 'confirmed-at-depth'; await flow.recover(); receiptFailure = true; await flow.recover();
       assert.equal(flow.snapshot().selected.observations[0].available, false); assert.equal(flow.snapshot().selected.completion.fresh, false);
-      assert.equal(flow.snapshot().phase, 'awaiting-evidence'); assert.equal(sends, 1); assert.equal(plans, 1); assert.equal(consumes, 1);
+      assert.equal(flow.snapshot().phase, 'awaiting-evidence'); assert.equal(sends, 1); assert.equal(plans, 1); assert.equal(consumes, expectedConsumes);
     }
     await flow.revoke(); assert.equal(flow.snapshot().phase, 'revoked');
+    assertApprovalState(flow.snapshot().selected, savedPolicy);
+    assert.deepEqual(await store.read('xiongan:synthetic'), { ...before, lastStep: savedPolicy ? Math.floor(now / 30000) : -1 });
   }
 });
 test('configured same-task continuation checks automatically without another OTP and stops on hidden page or navigation', async () => {
@@ -401,38 +433,46 @@ test('inactive grant can request recovery of its saved unknown without planning,
   await flow.recover(); assert.equal(flow.snapshot().phase, 'revoked'); assert.equal(flow.snapshot().selected.executionState, 'submitted');
   assert.deepEqual(requests, ['tasks/list', 'tasks/status', 'tasks/resume']);
 });
-test('real loopback HTTP account client preserves cookie/CSRF separation through pending task, OTP grant, resume and reload', async t => {
+test('real loopback HTTP account client preserves cookie/CSRF separation through default-ON and saved-ON grants, resume and reload', async t => {
   const { createServer } = await import('node:http');
   const { createAuthService } = await import('../server/auth-service.mjs');
   const { MemoryCredentialStore } = await import('../server/store.mjs');
   const { base32, hashPassword, hotp } = await import('../server/crypto.mjs');
-  const password = 'SYNTHETIC_PASSWORD_ONLY', secret = base32(Buffer.alloc(20, 0x39));
-  const passwordHash = await hashPassword(password), store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
-  let handler: any; const server = createServer((req, res) => handler(req, res)); server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
-  const origin = `http://127.0.0.1:${(server.address() as any).port}`, sessionContext = { ...context, origin };
-  handler = createAuthService({ origin, tenant: 'xiongan', store, now: () => now,
-    accounts: [{ username: 'synthetic', passwordHash, wallets: [{ account, chainId: '1' }] }] });
-  const jar = new Map<string, string>(), requests: string[] = [];
-  const fetcher = async (url: URL, options: any) => {
-    requests.push(url.pathname);
-    const response = await fetch(url, { ...options, headers: { ...options.headers, Origin: origin,
-      Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; ') } });
-    for (const cookie of response.headers.getSetCookie()) { const [k, v] = cookie.split(';')[0]!.split('='); if (v) jar.set(k!, v); else jar.delete(k!); }
-    return response;
-  };
-  const auth = new AccountAuthClient({ tenant: 'xiongan', origin, fetcher });
-  const task = freezeTaskPolicy({ ...makeTask('http-task').policy, origin });
-  await assert.rejects(auth.request('tasks/list', {}), /AUTH_/);
-  await auth.adapter('password', { username: 'synthetic', password }).authenticate({ account, chainId: '1' });
-  const client = new TaskAuthorizationClient({ context: sessionContext, request: auth.request.bind(auth) });
-  await client.prepare(task);
-  const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
-  assert.equal(flow.snapshot().phase, 'review'); await flow.authorize(hotp(secret, Math.floor(now / 30000)));
-  assert.equal(flow.snapshot().phase, 'authorized-blocked');
-  const restored = new TaskAuthorizationFlow({ client, now: () => now }); await restored.load(task.digest);
-  assert.equal(restored.snapshot().phase, 'authorized-blocked'); assert.equal(requests.filter(path => path === '/auth/tasks/authorize').length, 1);
-  await auth.logout(); await assert.rejects(client.status(task.digest), /AUTH_/);
+  for (const savedPolicy of [false, true]) {
+    const password = 'SYNTHETIC_PASSWORD_ONLY', secret = base32(Buffer.alloc(20, 0x39));
+    const passwordHash = await hashPassword(password), store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
+    let handler: any; const server = createServer((req, res) => handler(req, res)); server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+    const origin = `http://127.0.0.1:${(server.address() as any).port}`, sessionContext = { ...context, origin };
+    handler = createAuthService({ origin, tenant: 'xiongan', store, now: () => now,
+      accounts: [{ username: 'synthetic', passwordHash, wallets: [{ account, chainId: '1' }] }] });
+    const jar = new Map<string, string>(), requests: string[] = [];
+    const fetcher = async (url: URL, options: any) => {
+      requests.push(url.pathname);
+      const response = await fetch(url, { ...options, headers: { ...options.headers, Origin: origin,
+        Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; ') } });
+      for (const cookie of response.headers.getSetCookie()) { const [k, v] = cookie.split(';')[0]!.split('='); if (v) jar.set(k!, v); else jar.delete(k!); }
+      return response;
+    };
+    const auth = new AccountAuthClient({ tenant: 'xiongan', origin, fetcher });
+    const task = freezeTaskPolicy({ ...makeTask('http-task').policy, origin });
+    await assert.rejects(auth.request('tasks/list', {}), /AUTH_/);
+    await auth.adapter('password', { username: 'synthetic', password }).authenticate({ account, chainId: '1' });
+    const client = new TaskAuthorizationClient({ context: sessionContext, request: auth.request.bind(auth) });
+    const prepared = await client.prepare(task);
+    if (savedPolicy) await seedSavedVerificationPolicy(store, { ...sessionContext, agentId: prepared.executor.identity.agentId }, 'ON');
+    const before = await store.read('xiongan:synthetic');
+    const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
+    assert.equal(flow.snapshot().phase, 'review'); assertApprovalState(flow.snapshot(), savedPolicy);
+    await flow.authorize(savedPolicy ? hotp(secret, Math.floor(now / 30000)) : '');
+    assert.equal(flow.snapshot().error, null); assertApprovalState(flow.snapshot().selected, savedPolicy);
+    assert.equal(flow.snapshot().phase, 'authorized-blocked');
+    const restored = new TaskAuthorizationFlow({ client, now: () => now }); await restored.load(task.digest);
+    assert.equal(restored.snapshot().phase, 'authorized-blocked');
+    assertApprovalState(restored.snapshot(), savedPolicy); assert.equal(requests.filter(path => path === '/auth/tasks/authorize').length, 1);
+    assert.deepEqual(await store.read('xiongan:synthetic'), { ...before, lastStep: savedPolicy ? Math.floor(now / 30000) : -1 });
+    await auth.logout(); await assert.rejects(client.status(task.digest), /AUTH_/);
+  }
 });
 test('executor identity uses independent canonical SHA256 and rejects missing, extra or tampered identity fields', () => {
   assert.deepEqual(normalizeExecutor(executor), executor);
@@ -804,10 +844,21 @@ test('cached terminal evidence never claims freshness and observation bindings o
   assert.throws(() => f.client.view({ ...raw, completion: { ...raw.completion, fresh: true } }), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
   for (const key of ['taskDigest', 'childDigest', 'chainId', 'actor', 'attemptExecutorDigest', 'originalTransactionHash', 'verifierVersion', 'protocolFinality']) {
     const bad = structuredClone(raw); bad.observations[0].observation[key] = key === 'actor' ? `0x${'33'.repeat(20)}` : key === 'chainId' || key === 'verifierVersion' ? '2' : key === 'protocolFinality' ? 'final' : `0x${'f'.repeat(64)}`;
-    assert.throws(() => f.client.view(bad), /TASK_OBSERVATION_/);
+    // Accepted provenance binds the original tuple and every observation byte.
+    // Invalid finality is rejected earlier by the strict observation decoder.
+    assert.throws(() => f.client.view(bad), { code: key === 'protocolFinality' ?
+      'TASK_OBSERVATION_SCHEMA_REFUSED' : 'TASK_OBSERVER_CONTEXT_REFUSED' });
   }
   const bad = structuredClone(raw); bad.observations[0].observation.effect = 'atomic-sale-observed';
-  assert.throws(() => f.client.view(bad), /TASK_OBSERVATION_EFFECT_REFUSED/);
+  assert.throws(() => f.client.view(bad), { code: 'TASK_OBSERVER_CONTEXT_REFUSED' });
+  // A genuine legacy cache has no accepted-observer digest. Its separate
+  // operation/effect guard must still reject an NFT-sale effect on this task.
+  const legacy = structuredClone(raw);
+  legacy.observations[0].acceptedObserverContext = null;
+  legacy.observations[0].provenance = 'legacy-approved-cache';
+  assert.equal(f.client.view(legacy).completion.fresh, false);
+  legacy.observations[0].observation.effect = 'atomic-sale-observed';
+  assert.throws(() => f.client.view(legacy), { code: 'TASK_OBSERVATION_EFFECT_REFUSED' });
 });
 test('late receipt refresh cannot restore current evidence after cancel or logout', async () => {
   for (const action of ['cancel', 'logout']) {
@@ -1143,11 +1194,11 @@ test('listing approval with configured policy does not pretend a missing executi
   assert.equal(f.flow.snapshot().phase, 'authorized-blocked'); assert.equal(f.flow.snapshot().selected.capabilities.executable, false);
   assert.equal(f.flow.snapshot().selected.continuation.code, 'TASK_LISTING_ADAPTER_NOT_CONNECTED'); assert.equal(f.flow.snapshot().selected.executionState, 'not-started');
 });
-test('frozen listing service and browser controller interoperate with one synthetic OTP through publish, revoke and unknown recovery', async () => {
+test('frozen listing service and browser controller preserve default ON and saved OFF through publish, revoke and unknown recovery', async () => {
   const { createTaskAuthorizationService } = await import('../server/task-authorization.mjs');
   const { MemoryCredentialStore } = await import('../server/store.mjs');
   const { base32, hotp, matchTotp } = await import('../server/crypto.mjs');
-  for (const losePublicationReply of [false, true]) {
+  for (const savedPolicy of [false, true]) for (const losePublicationReply of [false, true]) {
     const task = makeSaleTask(`service-listing:${losePublicationReply}`), secret = base32(Buffer.alloc(20, 0x42));
     const store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
     const session = { ...context, username: 'synthetic', id: 'synthetic-listing-session', revision: 0, issuedAt: now, expiresAt: now + 900000 };
@@ -1174,18 +1225,24 @@ test('frozen listing service and browser controller interoperate with one synthe
       consumeTotp(_s: any, credential: any, code: string) { const step = matchTotp(credential.secret, code, now, credential.lastStep);
         assert.notEqual(step, null); otp++; return { ...credential, lastStep: step }; },
     });
-    await service.handler('tasks/prepare', { policy: task.policy, valuationPolicy: valuationInput() }, session);
+    const prepared = await service.handler('tasks/prepare', { policy: task.policy, valuationPolicy: valuationInput() }, session);
+    if (savedPolicy) await seedSavedVerificationPolicy(store, { ...context, agentId: prepared.executor.identity.agentId }, 'OFF');
+    const before = await store.read('xiongan:synthetic'), expectedOtp = savedPolicy ? 1 : 0;
     const calls: string[] = [], client = new TaskAuthorizationClient({ context, request: (path: string, body: any) => { calls.push(path); return service.handler(path, body, session); } });
     const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
-    assert.equal(flow.snapshot().phase, 'review'); await flow.authorize(hotp(secret, Math.floor(now / 30000)));
+    assert.equal(flow.snapshot().phase, 'review'); assertApprovalState(flow.snapshot(), savedPolicy);
+    await flow.authorize(savedPolicy ? hotp(secret, Math.floor(now / 30000)) : '');
+    assert.equal(flow.snapshot().error, null); assertApprovalState(flow.snapshot().selected, savedPolicy);
     assert.equal(flow.snapshot().phase, losePublicationReply ? 'outcome-unknown' : 'listed-awaiting-evidence');
     assert.equal(flow.snapshot().selected.executionState, losePublicationReply ? 'unknown' : 'listed');
-    assert.equal(otp, 1); assert.equal(plans, 1); assert.equal(sends, 1);
+    assert.equal(otp, expectedOtp); assert.equal(plans, 1); assert.equal(sends, 1);
     await flow.revoke(); await flow.recover(); await flow.open(task.digest);
     assert.equal(flow.snapshot().phase, 'revoked'); assert.equal(flow.snapshot().selected.completion.state, 'listed-awaiting-evidence');
     assert.equal(flow.snapshot().selected.listing.revocationCancelsPublishedOrder, false);
     assert.equal(flow.snapshot().selected.capabilities.executable, false);
-    assert.equal(otp, 1); assert.equal(plans, 1); assert.equal(sends, 1); assert.equal(recoveries, losePublicationReply ? 1 : 0);
+    assertApprovalState(flow.snapshot(), savedPolicy);
+    assert.deepEqual(await store.read('xiongan:synthetic'), { ...before, lastStep: savedPolicy ? Math.floor(now / 30000) : -1 });
+    assert.equal(otp, expectedOtp); assert.equal(plans, 1); assert.equal(sends, 1); assert.equal(recoveries, losePublicationReply ? 1 : 0);
     assert.equal(calls.some(path => /observe|cancel|execute|reserve/.test(path)), false);
   }
 });

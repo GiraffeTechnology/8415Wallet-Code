@@ -6,6 +6,8 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+const { fixturePath, compositionEvidence } = createRequire(import.meta.url)('./helpers/enabled-composition.cjs');
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -17,9 +19,11 @@ async function endpoint() {
   const socket = createServer(); socket.listen(0, '127.0.0.1'); await once(socket, 'listening');
   const port = socket.address().port; await new Promise(resolve => socket.close(resolve)); return port;
 }
-test('synthetic desktop and mobile real-page task approval, app switch, reload, navigation and six locales', async () => {
+test('explicit synthetic enabled-task composition: desktop/mobile approval, app switch, reload, navigation and six locales', async t => {
+  const testComposition = 'task';
+  t.diagnostic(JSON.stringify(compositionEvidence(testComposition)));
   const port = await endpoint(), origin = `http://127.0.0.1:${port}`;
-  const server = spawn(process.execPath, ['scripts/controls/serve-browser.cjs'], { cwd: root, env: { ...process.env, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const server = spawn(process.execPath, ['scripts/controls/serve-browser.cjs'], { cwd: root, env: { ...process.env, WALLET_BROWSER_TEST_COMPOSITION: testComposition, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   await once(server.stdout, 'data');
   let browser;
   try { browser = await chromium.launch({ executablePath: process.env.WALLET_BROWSER_CHROMIUM ?? '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
@@ -77,7 +81,26 @@ test('synthetic desktop and mobile real-page task approval, app switch, reload, 
         await page.locator('#auth-password').fill('SYNTHETIC_TEST_PASSWORD'); await page.locator('#wallet-login').click();
         await page.waitForFunction(() => !document.body.classList.contains('signed-out'));
       };
-      await page.goto(`${origin}/web/index.html`); await login();
+      // First exercise unchanged production foundation under the same synthetic
+      // authenticated account. No retained task handler may run there.
+      await page.goto(`${origin}/web/index.html`);
+      await page.locator('[data-public-route="login"]').first().click(); await login();
+      await page.locator('[data-route="tasks"]').first().click();
+      const beforeNoop = requests.filter(path => path.startsWith('tasks/'));
+      assert.deepEqual(beforeNoop, []);
+      await page.evaluate(() => {
+        const button = document.getElementById('task-authorize');
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const form = document.getElementById('task-authorize-form');
+        form.requestSubmit(); form.submit();
+      });
+      assert.equal(await page.locator('#task-authorize').isEnabled(), false);
+      assert.deepEqual(requests.filter(path => path.startsWith('tasks/')), beforeNoop);
+      assert.equal(await page.locator('.task-list-item').count(), 0);
+      await page.locator('#wallet-logout').click();
+      assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      t.diagnostic('Actual production foundation: authenticated unopened task controls remained no-ops; separate from enabled fixture.');
+      await page.goto(`${origin}${fixturePath(testComposition)}`); await login();
       await page.locator('[data-route="tasks"]').first().click(); await page.locator('.task-list-item').click();
       // An NFT task without valuation context must stay blocked, with no challenge
       // or authorization request. Configure the exact reviewed policy before retrying.
@@ -125,7 +148,7 @@ test('synthetic desktop and mobile real-page task approval, app switch, reload, 
       assert.equal(await page.locator('#task-page').isVisible(), true);
       assert.equal(requests.filter(path => path === 'tasks/authorize').length, 1);
       assert.equal(await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, history: history.state })), JSON.stringify({ local: { '8415wallet.ui.locale.v1': 'en' }, session: {}, history: { walletPage: 'tasks', walletTaskDigest: task.digest } }));
-      if (evidence) await page.screenshot({ path: `${evidence}/task-authorized-blocked-${viewport.width}.png`, fullPage: true });
+      if (evidence) await page.screenshot({ path: `${evidence}/synthetic-enabled-task-authorized-blocked-${viewport.width}.png`, fullPage: true });
       assert.deepEqual(errors, []); await context.close();
     }
   } finally { await browser?.close(); server.kill('SIGTERM'); }

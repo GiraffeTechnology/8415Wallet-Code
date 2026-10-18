@@ -1,3 +1,5 @@
+const { fixturePath, compositionEvidence } = require('../../tests/helpers/enabled-composition.cjs');
+const testComposition = 'assets'; // Explicit retained-component fixture, not production foundation acceptance.
 const { installScreenNavigation } = require('./screen-navigation.cjs');
 // Deterministic browser/provider regression only. No genuine wallet, user private key,
 // or network RPC. Login uses a public synthetic test key. Does not establish production acceptance.
@@ -11,7 +13,7 @@ const root = path.resolve(__dirname, '../..');
 const out = path.resolve(process.env.XIONGAN_SMOKE_OUTPUT || '/tmp/xiongan-ui-evidence');
 fs.mkdirSync(out, { recursive: true });
 const port = Number(process.env.XIONGAN_UI_PORT || '18415'), origin = `http://127.0.0.1:${port}`;
-const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], { env: { ...process.env, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], { env: { ...process.env, WALLET_BROWSER_TEST_COMPOSITION: testComposition, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
 let browser;
 (async () => {
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('error', reject); });
@@ -59,7 +61,7 @@ let browser;
       state.emit = (event, account) => { state.actor = account || state.actor; for (const fn of events.get(event) || []) fn([state.actor]); };
     });
     const page = installScreenNavigation(await context.newPage()); page.on('pageerror', error => errors.push(error.message));
-    await page.goto(origin); const idle = () => page.waitForFunction(() => !document.getElementById('asset-connect').disabled);
+    await page.goto(origin + fixturePath(testComposition)); const idle = () => page.waitForFunction(() => !document.getElementById('asset-connect').disabled);
     const connect = async () => { await login(page); await page.click('#asset-connect'); await page.waitForFunction(() => document.getElementById('asset-identity').textContent.includes('Ethereum')); await idle(); };
     const prepare = async () => {
       await page.fill('#asset-recipient', `0x${'2'.repeat(40)}`); await page.fill('#asset-amount', '1000'); await page.click('#asset-prepare');
@@ -133,7 +135,7 @@ let browser;
       .map(node => ({ tag: node.tagName, id: node.id, width: node.clientWidth, scrollWidth: node.scrollWidth, right: node.getBoundingClientRect().right })) )));
     assert.equal(fits, true, `viewport ${viewport.width} must not overflow horizontally`);
     assert.deepEqual(errors, []); assert.deepEqual(externalRequests, []);
-    evidence.push({ viewport, provider: 'synthetic-test-login-no-user-signing-no-rpc', journeys: ['prepare-no-send', 'checksum-form-and-agent-json-refusal', 'A-B-A-revocation', 'cross-panel-lock', 'submit-reload-reconcile', 'unknown-restart-no-resend-recover'], sends: 2, errors, externalRequests });
+    evidence.push({ composition: compositionEvidence(testComposition), viewport, provider: 'synthetic-test-login-no-user-signing-no-rpc', journeys: ['prepare-no-send', 'checksum-form-and-agent-json-refusal', 'A-B-A-revocation', 'cross-panel-lock', 'submit-reload-reconcile', 'unknown-restart-no-resend-recover'], sends: 2, errors, externalRequests });
     await context.close();
   }
   fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({ verdict: 'SYNTHETIC_BROWSER_REGRESSION_PASSED_NOT_REAL_WALLET_ACCEPTANCE', evidence }, null, 2));

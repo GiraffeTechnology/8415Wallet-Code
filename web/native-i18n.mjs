@@ -40,6 +40,8 @@ export function translateNative(text, language = getLocale(), depth = 0) {
   // Posture composes a first-party state label with its first-party explanation.
   for (const key of ['protocol.finality.reversedFinal', 'protocol.finality.reversedNotFinal', 'protocol.finality.inconsistentFinal', 'protocol.finality.unverifiedFinal', 'protocol.finality.unverifiedNotFinal', 'protocol.finality.inconsistentNotFinal', 'protocol.025', 'protocol.026', 'protocol.023', 'protocol.024', 'protocol.040', 'protocol.041', 'protocol.042', 'protocol.043', 'protocol.044']) {
     const label = source[key];
+    // Match the whole long label before its shorter 'Final'/'Not final' prefix.
+    if (body === label) return prefix + t(key, {}, language) + suffix;
     if (body.startsWith(`${label} — `)) return prefix + t(key, {}, language) + ' — ' + translateNative(body.slice(label.length + 3), language, depth + 1) + suffix;
   }
   for (const { key, names, pattern } of templates) {

@@ -177,6 +177,18 @@ path names. A clean generated product commit never erases upstream dirtiness.
 
 The two export-tool modules and the two exact reviewed generated Python caches
 are excluded from product-family completeness checks and cannot be product inputs.
+Four exact historical deployment files retained in upstream are also excluded:
+`deploy/auth-xiongan/8415wallet-auth-xiongan.service`,
+`deploy/auth-xiongan/auth-location.nginx.conf`, `deploy/auth-xiongan/install.mjs`
+and `deploy/auth-xiongan/migrate-legacy.mjs`. These are the superseded fixed-instance
+service/proxy templates, default-instance installer and old-template migrator;
+current auth packaging uses the mandatory tenant-neutral `deploy/auth-runtime/`
+replacements. Their upstream bytes and history remain intact. Exclusion does not
+waive upstream cleanliness, allow them into a freshly rehashed policy, or satisfy
+an import from selected product source. It does not authorize copying private
+operations data. All four replacement files and `deploy/dapp/install.mjs` remain
+mandatory. No directory-wide deployment exemption exists, and unknown siblings
+still fail completeness checks.
 Other unknown source-family members remain failures. Policy, tests, guide and CI
 are not copied into the curated source. The separately delivered guide is hash-bound
 through the tooling identity.

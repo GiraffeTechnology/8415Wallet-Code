@@ -42,8 +42,20 @@ export const NONPRODUCT_GENERATED_CACHE = Object.freeze([
   'src/kit/sdk/python/erc8415/__pycache__/__init__.cpython-311.pyc',
   'src/kit/sdk/python/erc8415/__pycache__/client.cpython-311.pyc',
 ]);
+// Retained upstream history, superseded for product packaging by auth-runtime.
+// Exact files only: no deploy/ directory or tenant-name wildcard exemption.
+// The old installer defaults to one historical instance, the old service/proxy
+// are fixed-instance templates, and the old migrator renders that old service.
+// Current build-auth/verify-auth use the mandatory tenant-neutral replacements.
+export const NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT = Object.freeze([
+  'deploy/auth-xiongan/8415wallet-auth-xiongan.service',
+  'deploy/auth-xiongan/auth-location.nginx.conf',
+  'deploy/auth-xiongan/install.mjs',
+  'deploy/auth-xiongan/migrate-legacy.mjs',
+]);
 export const NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS = Object.freeze([
-  ...NONPRODUCT_GENERATED_CACHE, ...TOOLING_FILES.filter(path => path.startsWith('scripts/package/')),
+  ...NONPRODUCT_GENERATED_CACHE, ...NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT,
+  ...TOOLING_FILES.filter(path => path.startsWith('scripts/package/')),
 ]);
 const FAMILIES = ['src/', 'server/', 'web/', 'contracts/', 'conformance/', 'deploy/', 'scripts/package/'];
 const CATEGORIES = ['legal', 'documentation', 'package_and_compiler', 'profiles', 'packaging',
@@ -69,7 +81,7 @@ export function permittedSourcePath(path) {
 // Configuration has separate exact public-profile and requirement-pin exceptions.
 // The PRD pin is public source provenance, never an operational configuration.
 const sourcePathAllowed = path => (path === 'config/current-prd.json' || path === 'vendor/artfi-task-listing-runtime-1.0.0.tgz' || permittedSourcePath(path) || /^config\/releases\/(?:v2|v3|xiongan-v2)\.json$/.test(path))
-  && !['docs/AUTH-PROVISIONING-PREPARATION.md', 'docs/AUTH-RECOVERY.md', ...TOOLING_FILES].includes(path);
+  && !['docs/AUTH-PROVISIONING-PREPARATION.md', 'docs/AUTH-RECOVERY.md', ...TOOLING_FILES, ...NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS].includes(path);
 
 export function cleanEnvironment() {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_|^NODE_OPTIONS$|^NODE_PATH$/.test(key)));

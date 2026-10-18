@@ -5,6 +5,11 @@ const path=require('node:path');
 // Development-only server: loopback, GET/HEAD and two public static trees only.
 // It has no RPC forwarding, signing, secret loading, upload or write endpoint.
 const root=path.resolve(__dirname,'../..');
+// Only an explicitly requested loopback test URL can assemble retained modules.
+// The default /web/index.html remains its exact source bytes.
+const testComposition=process.env.WALLET_BROWSER_TEST_COMPOSITION || null;
+const testFixture=testComposition ? require('../../tests/helpers/enabled-composition.cjs') : null;
+if(testFixture) testFixture.fixturePath(testComposition);
 const port=Number(process.env.WALLET_BROWSER_PORT??'8415');
 if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('BROWSER_PORT_REFUSED');
 const web=new Set(['index.html','login-core.mjs','wallet-auth.mjs','account-auth.mjs','app.mjs','public-store.mjs','wallet.css','external-assets.mjs','external-store.mjs','ui-lock.mjs','release-profile.mjs','release-config.json','settlement-store.mjs','legacy-clearing.mjs','legacy-clearing-store.mjs','i18n.mjs','locale-ui.mjs','native-i18n.mjs','wallet-shell.mjs','tenant-avatar.mjs']);
@@ -45,6 +50,7 @@ const server=http.createServer((req,res)=>{
   res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; font-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none'");
   const host=req.headers.host;
   if(![`127.0.0.1:${port}`,`localhost:${port}`].includes(host)||!['GET','HEAD'].includes(req.method)) {res.writeHead(403);res.end();return;}
+  if(testFixture && testFixture.serveEnabledComposition(req,res,{root,composition:testComposition})) return;
   if(req.url==='/'){res.writeHead(302,{Location:'/web/index.html'});res.end();return;}
   let relative;
   try{

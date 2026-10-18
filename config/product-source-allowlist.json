@@ -2479,8 +2479,8 @@
     {
       "path": "web/native-i18n.mjs",
       "mode": "100644",
-      "git_blob_sha1": "95ca93cb864dc66beb41f65e7506ea1e4e5d2944",
-      "sha256": "0248d956dd06c99951cc29016e9b02651cdef0a04760491ddd74801eb5ca9b33"
+      "git_blob_sha1": "b7a4b04fe5d3f29f084b579f816ee4f51505d5ed",
+      "sha256": "3f97185fd6e64d123bc28236fa7e5c2d14ebc011298939a0e29096a50bfffb39"
     },
     {
       "path": "web/observation-details-flow.mjs",

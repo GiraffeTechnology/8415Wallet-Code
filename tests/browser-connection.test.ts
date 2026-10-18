@@ -155,7 +155,8 @@ test('forward-progress mount preserves server availability and live selection be
   await f.connect();
   assert.deepEqual(panel.selection(), { asset: { chainId: '560048', contract: address, tokenId: '7' }, sequenceId: digest });
   f.emit('accountsChanged');
-  assert.throws(() => panel.selection(), /CONTROL_CONNECTION_REQUIRED/);
+  // The generation fence rejects the stale selection before checking absence.
+  assert.throws(() => panel.selection(), error => error.message === 'CONTROL_CONNECTION_CHANGED');
 });
 test('standalone V2 does not admit linked forward-progress selection', async () => {
   const f = fixture('v2'); f.enableProgress(true);

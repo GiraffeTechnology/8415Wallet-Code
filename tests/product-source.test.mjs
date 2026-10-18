@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import {
-  DAPP_DOCUMENTS, LEGAL_FILES, MANDATORY_PATHS, NONPRODUCT_GENERATED_CACHE, NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS, ORIGIN_FILE, POLICY_SCHEMA, TOOLING_FILES,
+  DAPP_DOCUMENTS, LEGAL_FILES, MANDATORY_PATHS, NONPRODUCT_GENERATED_CACHE, NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT, NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS, ORIGIN_FILE, POLICY_SCHEMA, TOOLING_FILES,
   cleanEnvironment, computeToolingPin, contentTree, git, gitHash, inspectSource,
   jsonBytes, loadPolicy, planSummary, sha256, verifyDappBoundary, verifyProductDirectory,
   verifyProductEntries,
@@ -152,6 +152,49 @@ test('exact excluded generated Python caches stay outside the product', t => {
   assert.throws(() => inspectSource(f.options), /EXTRA_OR_MISSING_INPUT/);
 });
 
+test('only four exact historical auth deployment inputs stay outside the product; upstream history is preserved', t => {
+  assert.deepEqual([...NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT], [
+    'deploy/auth-xiongan/8415wallet-auth-xiongan.service',
+    'deploy/auth-xiongan/auth-location.nginx.conf',
+    'deploy/auth-xiongan/install.mjs',
+    'deploy/auth-xiongan/migrate-legacy.mjs',
+  ]);
+  const canary = 'SYNTHETIC_HISTORICAL_AUTH_ONLY';
+  const f = fixture(t, { extras: Object.fromEntries(NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT.map(path => [path, canary])) });
+  const result = materialize(f);
+  for (const path of NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT) {
+    assert.equal(readFileSync(join(f.source, path), 'utf8'), canary);
+    assert.equal(existsSync(join(result.productRoot, path)), false);
+    assert.equal(result.plan.blobs.has(path), false);
+    assert.equal(JSON.stringify(result.plan.origin).includes(path), false);
+  }
+  assert.equal(JSON.stringify(result.plan.origin).includes(canary), false);
+  for (const path of ['deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf',
+    'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/migrate-legacy.mjs', 'deploy/dapp/install.mjs']) {
+    assert.ok(MANDATORY_PATHS.includes(path), path);
+    assert.ok(result.plan.blobs.has(path), path);
+    assert.ok(existsSync(join(result.productRoot, path)), path);
+  }
+  // Exclusion from export never hides a changed tracked historical source file.
+  writeFileSync(join(f.source, NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT[0]), 'synthetic modified history');
+  assert.throws(() => inspectSource(f.options), /CLEAN_UPSTREAM_REQUIRED/);
+});
+
+test('historical auth exclusions do not exempt unknown deployment siblings or runtime imports', t => {
+  for (const path of ['deploy/auth-xiongan/unreviewed.mjs', 'deploy/auth-runtime/unreviewed.mjs', 'deploy/other/install.mjs']) {
+    const f = fixture(t, { extras: { [path]: '// Synthetic unknown tracked deployment source.\n' } });
+    assert.throws(() => inspectSource(f.options), /REQUIRED_SOURCE_FAMILY_INPUT_MISSING/);
+  }
+  const f = fixture(t, { extras: { 'deploy/auth-xiongan/install.mjs': '// Synthetic historical input.\n' } });
+  writeFileSync(join(f.source, 'deploy/auth-xiongan/untracked.mjs'), '// Synthetic unknown untracked input.\n');
+  assert.throws(() => inspectSource({ ...f.options, requireClean: false }), /EXTRA_OR_MISSING_INPUT/);
+  const dependency = fixture(t, {
+    extras: { 'deploy/auth-xiongan/install.mjs': '// Synthetic historical input.\n' },
+    extraEntries: { 'server/requires-historical.mjs': "import '../deploy/auth-xiongan/install.mjs';\n" },
+  });
+  assert.throws(() => inspectSource(dependency.options), /PRODUCT_IMPORT_MISSING/);
+});
+
 test('nested archive magic disguised as an approved source extension refuses', t => {
   const f = fixture(t, { extraEntries: { 'src/disguised.ts': Buffer.from('504b030400000000', 'hex') } });
   assert.throws(() => inspectSource(f.options), /NESTED_ARCHIVE_SOURCE_REFUSED/);
@@ -184,7 +227,9 @@ test('policy and tooling pins are required and substitution is refused', t => {
 });
 
 test('even a freshly rehashed policy cannot omit mandatory input contracts', t => {
-  for (const missing of ['package-lock.json', 'docs/DAPP-INSTALL.md', 'deploy/auth-runtime/install.mjs', 'LICENSE']) {
+  for (const missing of ['package-lock.json', 'docs/DAPP-INSTALL.md', 'deploy/dapp/install.mjs',
+    'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/migrate-legacy.mjs',
+    'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'LICENSE']) {
     const f = fixture(t); f.policy.entries = f.policy.entries.filter(entry => entry.path !== missing);
     for (const key of Object.keys(f.policy.mandatory)) f.policy.mandatory[key] = f.policy.mandatory[key].filter(path => path !== missing);
     writePolicy(f); assert.throws(() => inspectSource(f.options), /MANDATORY_INPUT_MISSING/);
@@ -408,7 +453,7 @@ test('clean CI directly checks hidden tracked bytes and cannot be fooled by inde
   }
 });
 
-test('the exact tooling exclusions cannot be turned into approved product inputs', t => {
+test('the exact nonproduct exclusions cannot be turned into approved product inputs', t => {
   for (const path of NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS) {
     const f = fixture(t); f.policy.entries.push({ path, mode: '100644', git_blob_sha1: '1'.repeat(40), sha256: '2'.repeat(64) });
     f.policy.entries.sort((a, b) => a.path < b.path ? -1 : 1); f.policy.mandatory.packaging.push(path); writePolicy(f);

@@ -52,7 +52,10 @@ async function run() {
       }, { actor });
       const page = installScreenNavigation(await context.newPage()), errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.goto(`${origin}/web/index.html`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
+      // Exercise the current public Home -> Login entry without bypassing hidden/inert.
+      await page.locator('[data-public-route="login"]').first().click();
       const login = async (method = 'wallet') => {
+        if (!(await page.locator('#login-panel').isVisible())) await page.locator('[data-public-route="login"]').first().click();
         await page.selectOption('#wallet-login-method', method);
         if (method === 'password') { await page.fill('#auth-username', 'tester'); await page.fill('#auth-password', password); }
         await page.click('#wallet-login'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled);
@@ -99,7 +102,7 @@ async function run() {
       credential = await store.read(`${config.tenant.id}:tester`); assert.ok(credential.secret === undefined, 'authenticator unbound'); assert.equal(credential.registration.email, 'synthetic@example.invalid');
       assert.equal(credential.revision, 4); assert.equal(errors.length, 0, 'no page errors'); assert.equal(offOrigin.length, 0, 'no off-origin requests');
       assert.equal(await page.evaluate(() => Object.keys(localStorage).some(key => /secret|password|proof|otp/i.test(key))), false);
-      results.push({ profile, width, initialEmailBootstrap: true, initialPassword: true, combinedTotpEnrollment: true, newCodeActivation: true,
+      results.push({ composition: 'actual-foundation-human-auth', profile, width, initialEmailBootstrap: true, initialPassword: true, combinedTotpEnrollment: true, newCodeActivation: true,
         cancelPreservesState: true, trueUnbind: true, localePreservesEnrollment: true, noBrowserSecretPersistence: true, physicalDevice: false });
       await context.close();
     }
