@@ -1188,8 +1188,8 @@
     {
       "path": "src/browser.ts",
       "mode": "100644",
-      "git_blob_sha1": "d368cadb317a79f5738c2d282d33de363788a398",
-      "sha256": "1b53c75e2f214e0f7c76a2191c77b936375e10ff57b9501a22d64f1156b2b82f"
+      "git_blob_sha1": "494802e7d6bb6743afc9cb42ff48ccfe6944cb0d",
+      "sha256": "9b70930dc497e7dd5dd46fd9e946a929bef015aafc4c69f2bd718f41c1689c2d"
     },
     {
       "path": "src/cli/args.ts",
@@ -1896,8 +1896,8 @@
     {
       "path": "web/app.mjs",
       "mode": "100644",
-      "git_blob_sha1": "17f3653daf6066192ad4fb8720b85128dcdaf1c1",
-      "sha256": "0a2e527e507ee126caa825664e68e4762a8421c13f8e94cb689b0c72dea17d8b"
+      "git_blob_sha1": "dfb7362ff465fce1b22e5e7e731f04204d77cb11",
+      "sha256": "d6fc943ce033efb23939776c2ea732278287024caddd7e887fff7ef2dd31136b"
     },
     {
       "path": "web/asset-workspace-panel.mjs",
