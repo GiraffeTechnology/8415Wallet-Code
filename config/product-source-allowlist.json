@@ -1272,8 +1272,8 @@
     {
       "path": "src/controls/historyDiscovery.ts",
       "mode": "100644",
-      "git_blob_sha1": "51dc13b14cc721765fac20888d87ec203661ae95",
-      "sha256": "5571170ffbdd2b445d1de3ad2e5f7e381e3639786795ee881a4fef7eb6093892"
+      "git_blob_sha1": "f7251ea14482a9b0af4c34b577418a3a5b1d3c7a",
+      "sha256": "615cba5a5cc215ee6ab53e61cfd33f15d9946c5a12d7e3f52402fa62be342d2f"
     },
     {
       "path": "src/controls/historyEntitlement.ts",
@@ -2381,3 +2381,4 @@
     }
   ]
 }
+

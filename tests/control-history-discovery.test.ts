@@ -117,7 +117,8 @@ const blockHashes=new Map<bigint,string>([[13n,h('c')],[14n,h('d')],[15n,h('e')]
 function discoveryFixture(limits:{maximumBlocks?:bigint;maximumWindows?:bigint;blocksPerRequest?:bigint}={}){
   const f=fixture(0);f.flags.factoryAccount=a('7');
   const flags={missingOpen:false,duplicateOpen:false,badOpenReceipt:false,openReorg:false,wrongParent:false,
-    neverDone:false,archiveMissing:false,firstEntryChangesAt:Infinity,firstEntryReads:0,lateReorgAt:Infinity,headerReads:0};
+    neverDone:false,archiveMissing:false,firstEntryChangesAt:Infinity,firstEntryReads:0,lateReorgAt:Infinity,headerReads:0,
+    receiptLogChange:null as null|'blockNumber'|'blockHash'|'transactionHash'|'transactionIndex'|'data'};
   const open={address:pin.controller,topics:[openTopic,sequenceId,abi.encode(['address'],[a('6')]),abi.encode(['uint256'],[7n])],
     data:abi.encode(['address','address'],[a('3'),a('5')]),removed:false,blockNumber:'0xe',blockHash:h('d'),
     transactionHash:txHash,transactionIndex:'0x2',logIndex:'0x1'};
@@ -140,8 +141,14 @@ function discoveryFixture(limits:{maximumBlocks?:bigint;maximumWindows?:bigint;b
     }
     if(method==='eth_getTransactionReceipt'&&params[0]===txHash){
       f.calls.push({method,params:structuredClone(params)});
+      const receiptLog=structuredClone(open);
+      if(flags.receiptLogChange==='blockNumber')receiptLog.blockNumber='0xf';
+      if(flags.receiptLogChange==='blockHash')receiptLog.blockHash=h('e');
+      if(flags.receiptLogChange==='transactionHash')receiptLog.transactionHash=h('9');
+      if(flags.receiptLogChange==='transactionIndex')receiptLog.transactionIndex='0x3';
+      if(flags.receiptLogChange==='data')receiptLog.data=abi.encode(['address','address'],[a('3'),a('9')]);
       return {status:flags.badOpenReceipt?'0x0':'0x1',transactionHash:txHash,blockNumber:'0xe',blockHash:h('d'),
-        transactionIndex:'0x2',logs:[structuredClone(open)]};
+        transactionIndex:'0x2',logs:[receiptLog]};
     }
     if(method==='eth_call'){
       const blockHash=(params[1] as {blockHash:string}).blockHash,at=blockHash===h('d')?14n:blockHash===h('e')?15n:16n;
@@ -208,6 +215,10 @@ test('sequence opening is a unique runtime-and-receipt-bound event rather than c
   }
   const wrong=discoveryFixture();wrong.open.data=abi.encode(['address','address'],[a('9'),a('5')]);
   await assert.rejects(wrong.discovery.discoverAt(wrong.input),/CONTROL_DISCOVERY_OPEN_EVENT_REFUSED/);
+  for(const field of ['blockNumber','blockHash','transactionHash','transactionIndex','data'] as const){
+    const changed=discoveryFixture();changed.flags.receiptLogChange=field;
+    await assert.rejects(changed.discovery.discoverAt(changed.input),/CONTROL_DISCOVERY_OPEN_RECEIPT_REFUSED/);
+  }
 });
 test('the complete canonical chain link is required between adjacent scanned block ends',async()=>{
   const f=discoveryFixture();f.flags.wrongParent=true;
@@ -245,3 +256,4 @@ test('discovery has no sign, send, account creation or transaction execution por
   const f=discoveryFixture();await f.discovery.discoverAt(f.input);
   assert.ok(f.f.calls.every(c=>!['eth_sendTransaction','eth_sendRawTransaction','eth_sign','personal_sign','eth_requestAccounts'].includes(c.method)));
 });
+

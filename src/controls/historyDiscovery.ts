@@ -206,9 +206,17 @@ export class RpcBlockEndHistoryDiscovery {
       check(Object.hasOwn(receipt.logs,i),'CONTROL_DISCOVERY_OPEN_RECEIPT_REFUSED');
       const raw=object(receipt.logs[i]);if(quantity(raw.logIndex)!==located.logIndex)continue;
       const saved=this.#log(raw,sequenceId,token,tokenId);
-      check(JSON.stringify(saved)===JSON.stringify(located),'CONTROL_DISCOVERY_OPEN_RECEIPT_REFUSED');matches++;
+      // Locations contain bigint quantities. Compare the normalized fields
+      // directly: JSON serialization both throws for bigint and would make
+      // receipt equality depend on an unrelated string encoding convention.
+      check(saved.blockNumber===located.blockNumber&&saved.blockHash===located.blockHash&&
+        saved.transactionHash===located.transactionHash&&saved.transactionIndex===located.transactionIndex&&
+        saved.logIndex===located.logIndex&&saved.data===located.data&&
+        saved.topics.length===located.topics.length&&saved.topics.every((topic,i)=>topic===located.topics[i]),
+        'CONTROL_DISCOVERY_OPEN_RECEIPT_REFUSED');matches++;
     }
     check(matches===1,'CONTROL_DISCOVERY_OPEN_RECEIPT_REFUSED');
     await this.#header(located.blockNumber,located.blockHash);return located;
   }
 }
+

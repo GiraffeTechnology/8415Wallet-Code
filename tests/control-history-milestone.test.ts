@@ -61,6 +61,8 @@ function fixture(count=2,limits:{blocksPerRequest?:bigint;maximumWindows?:bigint
       const is=(sig:string,types:readonly string[],values:readonly any[])=>tx.data===encodeCall(sig,types as any,values);
       if(tx.to===pin.controller&&is('accountOf(address)',['address'],[a('8')]))
         return abi.encode(['address'],[flags.accountCreated?(++accountReads>1&&flags.secondAccount!==null?flags.secondAccount:flags.factoryAccount):a('0')]);
+      if(tx.to===pin.controller&&is('accountOf(address)',['address'],[a('9')]))
+        return abi.encode(['address'],[a('0')]);
       if(tx.to===pin.controller&&
         [flags.factoryAccount,flags.secondAccount].some(x=>x!==null&&is('registeredAccount(address)',['address'],[x])))
         return abi.encode(['bool'],[flags.accountRegistered]);
@@ -148,11 +150,16 @@ test('harmless object key order is not authority or a false mismatch',async()=>{
 });
 test('unbound, malformed and non-DONE submitted records cannot establish a milestone',async()=>{
   for(const change of [{state:'PENDING'},{state:'UNAVAILABLE'},{canExecute:true},{schema:'forged'},
-    {blockNumber:'016'},{blockNumber:16},{blockHash:h('0')}]){
+    {blockNumber:'016'},{blockHash:h('0')}]){
     const {f,input,validator}=await setup();Object.assign(input.milestone as any,change);
     await assert.rejects(validator.validateMilestone(input),/CONTROL_MILESTONE_BINDING_REFUSED/);
     assert.equal(f.calls.length,0);
   }
+  // Numeric JSON is not the canonical decimal-string schema, so schema
+  // rejection precedes the semantic milestone binding check.
+  const malformed=await setup();(malformed.input.milestone as any).blockNumber=16;
+  await assert.rejects(malformed.validator.validateMilestone(malformed.input),/CONTROL_MILESTONE_SCHEMA_REFUSED/);
+  assert.equal(malformed.f.calls.length,0);
 });
 test('wrong NFT, sequence or own occurrence is not interchangeable with matching display positions',async()=>{
   const wrongAsset=await setup();wrongAsset.input.asset.tokenId='8';
@@ -163,11 +170,19 @@ test('wrong NFT, sequence or own occurrence is not interchangeable with matching
   assert.equal(await wrongSequence.validator.validateMilestone(wrongSequence.input),false);
 });
 test('namespace and actual principal remain bound, not authenticated by submitted JSON',async()=>{
-  for(const change of [{tenant:'other'},{origin:'https://other.example.invalid'},{account:a('9')},{chainId:'1'}]){
+  for(const change of [{tenant:'other'},{origin:'https://other.example.invalid'},{chainId:'1'}]){
     const {f,input,validator}=await setup();Object.assign(input.principal,change);
     await assert.rejects(validator.validateMilestone(input),/CONTROL_(ENTITLEMENT_PRINCIPAL|MILESTONE_BINDING)_REFUSED/);
     assert.equal(f.calls.length,0);
   }
+  // A different well-formed authenticated principal is not syntactically
+  // invalid. Query its own factory registration; never reuse the first user's
+  // account/history or turn the fixture's missing RPC case into a refusal.
+  const other=await setup();other.input.principal.account=a('9');
+  assert.equal(await other.validator.validateMilestone(other.input),false);
+  assert.ok(other.f.calls.some(c=>c.method==='eth_call'&&(c.params[0] as {to:string;data:string}).to===pin.controller&&
+    (c.params[0] as {data:string}).data===encodeCall('accountOf(address)',['address'],[a('9')])));
+  assert.equal(other.f.calls.some(c=>c.method==='eth_getLogs'),false);
 });
 test('lost factory ownership or a different admission holder cannot preserve cached DONE',async()=>{
   const owner=await setup();owner.f.flags.accountOwner=a('9');
@@ -218,3 +233,4 @@ test('the server-selected scan origin is required and never guessed from a recor
   await assert.rejects(validator.validateMilestone(input),/CONTROL_MILESTONE_BINDING_REFUSED/);
   assert.equal(f.calls.length,0);
 });
+
