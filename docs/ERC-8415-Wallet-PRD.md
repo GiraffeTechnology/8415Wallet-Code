@@ -1,4 +1,8 @@
-# 8415wallet PRD v3.0 — additive responsibility-chain iteration
+# 8415wallet Beta 2.0 Product Requirements
+
+Interface revision (2026-10-18 HKT): §§6.5.1 and 10.7.1 define separately bound historical observation provenance and its UI. All other existing requirements and stages are preserved. This revision records design requirements, not a runtime acceptance claim.
+
+Release decision (2026-10-17): **Beta 2.0** is the updated user-interface release. It retains the standalone and linked capability profiles below; it does not rename protocol versions or imply a semantic package version of 2.0.0. Section 10 specifies the complete updated human UI and agent API boundary. Implementation and deployed acceptance remain separately evidenced.
 
 Version decision (2026-09-25): v3.0 extends the existing wallet PRD; it does
 not replace the original wallet. Sections 1–8 and the historical semantic
@@ -37,8 +41,7 @@ requirements and current implementation coverage are distinct; see §6 and the
 
 Assets, balances, holdings and history require verified wallet login before
 display; the public DApp entry remains open. Connection alone is insufficient.
-Login supports password, authenticator-generated TOTP (Google Authenticator /
-FreeOTP), local private-key challenge signing, and hardware CA token proof.
+Login supports password, standard authenticator-generated TOTP, local private-key challenge signing, and hardware CA token proof.
 The owner replaced email OTP with authenticator codes on 2026-10-04; no email
 OTP is required for login. The 2026-10-06 management update permits several
 bound login methods to remain enabled concurrently, with at least one independent
@@ -62,7 +65,7 @@ entitlement checks for any future private API. See `WALLET-LOGIN.md` and
 `ACCOUNT-AUTHENTICATION.md` for implemented scope and acceptance cases.
 
 The product name is **8415wallet** and its UI platform domain is
-**8415wallet.com**. **Xiongan is a V2 tenant**. V2 and V3 are separate versioned
+**8415wallet.com**. Wallet-specific deployment bindings remain private. V2 and V3 are separate versioned
 DApp Beta deliverables: V2 maps to the retained v2.2 foundation in sections 1–8;
 V3 retains that foundation and adds section 9. They may share a runtime when
 release manifests identify each profile, tenant, enabled features and exact
@@ -232,7 +235,7 @@ from the compiled Solidity ABI — an independent derivation — and the suite
 compares the two tables. A signature drifting on either side fails the build
 and names the call.
 
-The wallet MUST NOT redefine ERC-8415 semantics.
+The wallet MUST NOT redefine ERC-8415 semantics. The human presentation may redact identities without altering underlying protocol records or deriving a substitute holder.
 
 ---
 
@@ -295,15 +298,17 @@ answers for `0x6309e170` and `0xf4a7d71b`.
 
 ## 4.1 Asset View
 
+The human UI follows the privacy presentation in §10: keep owner and holder semantics distinct without exposing preceding or subsequent wallet names or addresses. Protocol fields remain available internally to verified execution; the UI must not leak them through hidden DOM, tooltips, response payloads or exports.
+
 For a token, display as separate, adjacent facts:
 
-- **Tradeable position** — `ownerOf`, labelled as the ERC-721 position;
-- **Confirmed holder** — `currentEntry().holder`, with version and
+- **Tradeable position** — the verified sequence position derived from `ownerOf`, labelled as the ERC-721 position and privacy-filtered for display;
+- **Confirmed holder** — the verified sequence position of `currentEntry().holder`, with version and
   `effectiveAt`;
 - **Alignment** — whether the two addresses currently agree. Divergence is
   reported, not flagged as an error: the token trades while the register
   catches up, and that is the design;
-- **Open gap** — settlement id, `openedAt`, `deadline`, `expectedHolder`, and
+- **Open gap** — settlement id, `openedAt`, `deadline`, the privacy-safe expected-holder position, and
   time remaining against `settlementPeriod`;
 - **Register identity** — `registerId` and `verificationProfile`, with a
   standing note that accepting them is the user's decision;
@@ -322,7 +327,7 @@ Input: a token and an instant. Output, in one panel:
 Token          0x4f2a…:1234        register 0x9c11…  profile 0x0d7e…
 As of          2026-01-01 00:00:00 UTC  (1767225600)
 
-Confirmed      0xA11CE…  (Alice)
+Confirmed      Verified holder position 3 (identity hidden)
    admitted by entry v3, effective 2025-12-04 09:12:00 UTC  (1764839520)
    commitment 0x7f3c…  previous 0x41ab…  reference 0x00b2…
 
@@ -331,14 +336,14 @@ Finality       Provisional
    The instant asked about is at or after that, so a later admission may
    still carry an earlier effective time and supersede this answer.
    It becomes final once an entry with a later effective time is admitted —
-   including a confirming entry naming Alice again.
+   including a confirming entry naming the same holder again.
 
 Contested      Yes
    A gap opened 2025-12-20 11:02:00 UTC  (1766228520), at or before this
-   instant. Deadline 2026-01-19 11:02:00 UTC. Expected holder 0xD00D….
+   instant. Deadline 2026-01-19 11:02:00 UTC. Expected holder: verified position 4 (identity hidden).
    This is separate from finality: closing the gap settles nothing by itself.
 
-Tradeable      0xD00D…  — the ERC-721 position, not the confirmed holder.
+Tradeable      Verified owner position 4 — the ERC-721 position, not the confirmed holder.
 ```
 
 Worked example of the finality rule, for the same token: had the instant been
@@ -380,7 +385,7 @@ answer for this instant can no longer change.
 The append-only entry walk, newest first, via `entryCount` and `entryAt`:
 
 - version, `effectiveAt`, `supersededAt` and the resulting effective interval;
-- `holder`;
+- the privacy-safe verified holder position (the internal `holder` address is not exposed as a preceding/subsequent wallet identity);
 - `recordCommitment` and `previousCommitment`, with the link to the prior
   entry shown as a chain;
 - `registryReference`, presented as a locator the user resolves themselves if
@@ -426,15 +431,8 @@ behalf:
   Reading it is not approving it;
 - **profile acceptance** — `verificationProfile` names the rules under which
   proofs are accepted. The user decides whether they accept them;
-- **far-future effective time** — an admitted `effectiveAt` ahead of now
-  blocks every later entry whose `effectiveAt` is not greater than it. That
-  bounds admission; it does not by itself permanently end the projection. A
-  later entry may still be admitted, but only once one is actually registered:
-  a strictly greater `effectiveAt`, genuine registration evidence, and the time
-  rules the profile applies, including its limit on how far ahead an
-  `effectiveAt` may be. Only the `uint64` maximum is terminal, because no
-  greater value is representable. Surface the measured value if present; do not
-  report it as finality.
+- **far-future effective time** — an admitted `effectiveAt` far ahead of now
+  requires a later strictly greater effective time for further admission. Only the maximum uint64 instant prevents any later representable instant. Surface the actual value without an invented 365-day cutoff or a claim that every future value is permanently terminal.
 
 These are reported as facts. The wallet does not score them, does not produce
 a safe/unsafe verdict, and does not invent a remedy from these observations.
@@ -613,6 +611,8 @@ The wallet MUST:
 
 ## 6.2 Task authority and agent execution
 
+Agents operate exclusively through authenticated APIs. They MUST NOT enter or log in through either the homepage or tenant Web UI, operate the human Web interface, automate browser clicks, or require a Web provider session as their execution channel. Human initialization, management and authorization remain in the Web UI. §10 defines the asset authorization tree and operation scopes; §6.3.1 remains a separate per-operation verification policy.
+
 A parent-task authorization MUST bind the verified principal and agent, origin,
 tenant, account, chain, task identifier/version, intent, permitted operations,
 assets/quantities, destinations and counterparties or their constraints, price
@@ -625,12 +625,16 @@ approval, delegation, upgrade or alternate transfer path.
 
 Every child operation MUST be checked against the active grant and current state,
 including its actual transaction payload, nonce, value, asset, recipient, fees,
-remaining budget, price evidence and accepted inherited conditions. Preserve the
-same review and permission threshold as the corresponding human-operated action.
-Where those checks and the trusted signer are implemented, the agent completes
-all authorized preparation, execution and receipt verification without requiring
-another human business action for every button. Missing enforcement blocks the
-operation; it is not permission to bypass an external wallet confirmation.
+remaining budget, price evidence and accepted inherited conditions. These are
+machine-enforced authority checks, not a requirement for repeated human verification.
+When the human owner has disabled per-operation verification through the two-factor
+change specified in Section 6.3.1, the agent MUST complete operations within the
+existing authorized scope without requesting any further human verification.
+This includes preparation, signing through the authorized signer, submission,
+continuation and receipt verification. Missing execution capability is a concrete
+implementation blocker, not missing human consent. An external signer that still
+requires a human prompt is not an implemented unattended execution path; the wallet
+MUST support a compatible authorized path rather than claim OFF is operational.
 
 Illustrative task: sell one specified NFT only at a sale price strictly greater
 than USD 500. The approved terms must define the exact token/chain, settlement
@@ -644,21 +648,75 @@ conditions. This example grants no authority to perform a real transaction.
 
 ## 6.3 Mobile DApp task authorization
 
-Support standard RFC 6238 TOTP applications, including Google Authenticator and
-FreeOTP, in the mobile DApp task-authorization flow; no native 8415wallet app is
+Support standard RFC 6238 TOTP applications in the mobile DApp task-authorization flow; no native 8415wallet app is
 required by this scope. The 8415wallet page displays the exact task, material
-terms, limits and expiry, and obtains human confirmation and any required code.
+terms, limits and expiry. With per-operation verification ON, it obtains the
+human confirmation and code required by the applicable authorization policy.
+With the switch OFF under Section 6.3.1, execution within the already authorized
+scope MUST NOT invoke this human-verification flow again.
 The verifier binds that confirmation to the displayed task digest/version and
 issues a short-lived, purpose-bound, replay-resistant authorization proof. After
 successful verification, the agent automatically resumes the same task within its
-authorized limits. Any necessary step-up authentication belongs in this flow; a
-separate login followed by manual business operation is not task completion.
+authorized limits. Step-up verification applies when enabling the OFF policy or
+when a genuinely new authorization is needed outside the existing scope; it MUST
+NOT be reintroduced for each operation already covered by OFF. A separate login
+followed by manual business operation is not task completion.
 
 A standard TOTP app generates a code: it is not assumed to show transaction terms
 or provide push approval. The wallet's authorization page and verifier supply
 context binding. TOTP is neither a blockchain signature nor a substitute for an
 authorized transaction signer. Login, recovery and task-authorization proofs have
 distinct purposes and cannot be substituted for one another.
+
+## 6.3.1 Owner-controlled per-operation verification switch
+
+The wallet MUST expose a clearly labelled **Per-operation human verification**
+switch with explicit ON and OFF states. The human owner may set it to OFF only
+after successfully completing two independent, already-established verification
+factors bound to that exact policy change. An agent, ordinary session, imported
+configuration or self-declared approval cannot make that change on the owner's
+behalf. The control must explain the affected wallet/account, agent authority and
+scope before the human confirms OFF. Two independent factors are required for
+this change; the wallet must not add an unrelated third approval or recurring
+confirmation as a prerequisite.
+
+After the verified OFF change, the agent may operate the wallet within all
+applicable, still-valid authorizations without asking the human for any
+per-operation verification. The wallet MUST NOT request a password, TOTP, email
+OTP, device confirmation, manual signature prompt, repeated login, approval click
+or equivalent human intervention merely to execute or continue an in-scope
+operation. This is a product capability, not a testnet-only exception.
+
+The OFF policy must be persisted and enforced at the authoritative execution
+boundary. Restart, page refresh, agent continuation, source-version changes or
+handoff between execution components must not silently turn it back ON or
+require the same human authorization again. Reconcile all applicable historical
+authorizations; only an explicit revocation, replacement, expiry or genuine scope
+change affects their validity. A browser-only flag is not sufficient.
+
+OFF removes repeated human verification, not the authorized scope. Account,
+agent, chain, asset, destination, amount/fee limits and any expressly authorized
+expiry remain enforceable by machine. It does not create unlimited token
+approvals, expose keys, change recovery/security methods or authorize unrelated
+accounts, chains or assets. An authorization expressed as the entirety of a
+specified asset balance is a defined asset-bounded limit, not a missing numeric
+budget. For an authorized whole-balance limit, read the relevant wallet asset balance at execution preparation and fill the existing numeric budget fields with that exact lossless integer amount; for native fee fields use wei. Do not guess a number, use an unlimited sentinel, or ask for redundant numeric authorization. Recheck available funds, concurrent reservations, principal and actual fees before dispatch; neither field is a separate spending pot.
+
+The owner must be able to re-enable ON or revoke the affected agent authority.
+The system must atomically apply and audit the effective policy revision before
+the next not-yet-submitted operation. Already submitted or unknown-outcome
+transactions must be reconciled without duplicate submission. Changing security
+methods and account recovery remain separate from ordinary agent operations.
+
+Acceptance must demonstrate: rejection of OFF without both independent factors;
+successful owner-authorized OFF; multiple in-scope operations and background
+continuations with zero further human-verification prompts; persistence across
+restart/refresh; rejection of out-of-scope operations without expanding authority;
+correct behavior after ON/revocation; preserved nonce, balance and unknown-outcome
+safety; and an audit record of the owner-verified policy change and every operation.
+Source implementation, local tests and genuine unattended runtime acceptance must
+be reported separately. This requirement is not evidence that it is already
+implemented or deployed.
 
 ## 6.4 Authorization-method changes
 
@@ -678,7 +736,9 @@ account management, including enabling/disabling such a method. Require combined
 independent verification bound to the exact requested change: for example, OTP to
 the previously verified reserved email plus proof from another already-bound
 trusted device, or the original password plus that email OTP. Existing additional
-required authenticator/recovery checks are retained. A single session or single
+required authenticator/recovery checks are retained for those method-management
+and recovery operations. The per-operation verification switch is governed by
+Section 6.3.1 and must not inherit extra recurring human-verification gates. A single session or single
 OTP is insufficient; a newly added device cannot attest to its own trust, and a
 User-Agent string or IP address is not a trusted-device proof.
 
@@ -708,6 +768,20 @@ and child identifiers, policy/credential versions, reviewed digest, decision,
 transaction identity and reconciled outcome in an audit trail.
 Passwords, keys, seeds, OTPs, recovery codes and bearer proofs must not enter logs,
 agent prompts, public artifacts or persisted business-operation records.
+
+## 6.5.1 Historical observation identity and read-only compatibility
+
+Original authorization and actual observation provenance are separate records. Preserve the grant's executor, receipt verifier, observation policy, authorization reference/version, scope and expiry/revocation state, and every immutable historical attempt field. A newer observer MUST NOT replace the originally approved verifier or rewrite a signed attempt. Read-only inspection of a submitted/UNKNOWN attempt does not renew execution authority, sign, broadcast, resend, release a nonce claim or release reserved budget.
+
+Keep the existing strict observation/1 decoder and original-authorization context checks unchanged. The compatibility path uses a separately versioned, exact-key observation-entry envelope; legacy entries retain strict original-verifier matching. Unknown envelope versions, extra fields, malformed encodings and missing provenance are rejected, not interpreted as compatible legacy evidence.
+
+The envelope binds (a) the durable original operation/task/child, actor, chain, nonce, transaction hash, executor digest, attempt grant-policy version and original observation-policy digest; (b) the actual read-only observer's ID, version and implementation digest; (c) the authenticated service's independently resolved compatibility-capability reference and revision; and (d) the strict observation evidence, saved observation revision and availability. The compatibility capability is owned by trusted service configuration and binds that exact attempt and original policy. It is never supplied by a browser-selected endpoint, imported response, self-declared compatible flag, matching digest alone or a human “accept new verifier” switch. The UI obtains the expected source descriptor through the authenticated, account/operation-scoped service contract, independently of the evidence being validated. A response cannot establish its own expected verifier.
+
+Retain the original observation policy for this compatibility path; no weaker depth, finality or identity policy is introduced. Validate evidence against both the original attempt tuple and separately admitted actual observer. Before persistence, atomically compare the original attempt snapshot, observer-capability identity/revision and saved observation revision at the authoritative store boundary. Reject stale or cross-operation results. Status, list, resume and reload must return the same persisted evidence/provenance pairing. If refresh fails, retain the previous evidence with its previous observer and timestamp, clearly historical/unavailable; never relabel it with the failed refresh's source.
+
+An expired or revoked grant remains expired or revoked even when authorized historical inspection succeeds. The read-only compatibility mechanism does not weaken current signing/dispatch checks or require a new human authorization for an already authorized read. It does not alter owner/holder, Pending DONE, rollback DONE or commercial completion semantics in §§9.4–9.5 and 10.6. No new completion gate is created by displaying provenance.
+
+Required acceptance: admitted newer observer on the same old attempt with unchanged grant/attempt records and zero sign/send/retry/budget-release effects; rejection of swapped tuple fields, source digest/revision mismatch, unregistered source, weakened policy, replay and unsupported schemas; legacy verifier-substitution rejection; durable restart/status/list/resume provenance; revocation and concurrent refresh; reorg/replacement/unavailable evidence; and account/logout/navigation cancellation. These are requirements, not executed results.
 
 ## 6.6 Implementation and acceptance evidence
 
@@ -1024,6 +1098,8 @@ cannot rewrite historical outcomes or erase append-only protocol records.
 
 ## 9.6 Views and execution boundaries
 
+The user-specific Pending display in §10 freezes DONE when the owner position has reached or passed user occurrence i and the holder is at i. This presentation milestone does not replace §9.4 CP-01, prevent processing a commercially completed prefix after the holder has passed i, or re-open a detached leg. Historical admitted evidence at i may establish the display milestone after a missed refresh.
+
 Extend existing views to show active head/tail, detached history, inherited
 conditions, token location, per-leg reserved payments and return/refund progress.
 Before protected receipt, show the precise terms, completion predicate and
@@ -1118,6 +1194,116 @@ Complete W-01–W-21 at their specified local/EVM/testnet/UI levels after integr
 The current TypeScript kernel only emits uncommitted proposals. Production
 authentication, atomic on-chain enforcement and external audit remain delivery
 work, not capabilities implied by this requirements section.
+
+---
+
+# 10. Beta 2.0 complete UI and API requirements
+
+## 10.1 Release boundary and wallet entry
+
+The visible release label is **Beta 2.0**. Preserve both existing V2 standalone and V3 linked capability profiles and all retained stages. The new UI connects to the latest approved wallet runtime instance. Record the exact UI build, backend build, API contract version and served version in private deployment evidence. A mock response, old instance, static page, screenshot or package cannot prove this connection.
+
+Use the currently served 8415wallet.com homepage as the homepage design reference, retaining its visual language, information layout and actual multilingual entry. The wallet-name entry screen is a wallet access flow, not a replacement for the public website homepage. The homepage exposes Login: enter a wallet name, complete authentication, then navigate to that authorized tenant homepage. Direct access to `https://8415wallet.com/<wallet-name>` also exposes Login for the requested wallet; after authentication stay on that tenant homepage. Both entry paths use the same wallet-bound authentication and cannot reveal another wallet’s assets before login. Verify the existing homepage separately from authenticated wallet screens before replacing served content.
+
+Use path-based wallet routes at `https://8415wallet.com/<wallet-name>` instead of per-wallet subdomains. New wallet creation must not require a DNS record change. The human Login entry accepts a **Tenant name, email or wallet address** as the account identifier, with a Continue action; never expose a public tenant dropdown, directory, suggested roster or enumerable autocomplete. Resolve and authorize the identifier at the server boundary, then use the canonical wallet-name path for the authorized tenant homepage. Unknown and inaccessible identifiers must not expose membership or another wallet's identity. An email or wallet address identifies the requested account; it does not itself prove authentication. If several wallets are permitted, expose the permitted selection only after authentication. After authentication, show only the current authorized wallet context. Private hostnames, IP addresses and deployment mappings must not be embedded in routes or frontend bundles. Deep links and reloads preserve the requested path while re-establishing the correct authenticated session.
+
+## 10.2 Human initialization and authentication management
+
+A new-wallet journey exposes reachable initialization steps for verified email, password and authenticator enrollment, followed by a clear completion state. Retain the existing supported wallet-control and hardware-proof methods and their actual capability reporting. An unset method must not require its own nonexistent old credential. Explain and display unconfigured, pending verification, active, failed and recovery-required states truthfully. Password values, authenticator secrets, recovery codes and OTPs never enter public artifacts or telemetry.
+
+Email OTP messages use the sender address **noreply@8415wallet.com**. Verify the actual From address and successful delivery in the deployed email flow, including registration and applicable secondary verification/recovery. This sender requirement does not assert that mailbox provisioning or mail-service credentials are already configured.
+
+RBAC is for institutional wallets. In the current Beta 2.0 scope, the UI displays an **Institutional wallet access (RBAC)** feature entry only. It is not wired to a real authentication, identity-provider or role/permission service. Show the normal feature entry without an unavailable, coming-soon or not-enabled label. Until the service is enabled for the current scope, clicking has no visible response, sends no execution request and changes no state; it must not collect credentials, authenticate a user, grant a role or simulate a successful institution login. Actual RBAC backend integration is outside this release increment and MUST NOT become a prerequisite for ordinary-wallet login, Agent API testing or Beta 2.0 delivery.
+
+Management provides separate entries to add, change, disable, replace or recover the supported methods, with old/new verification and recovery behavior from §§6.3–6.5. Multiple methods may remain enabled. Show the existing method status and result of a requested change. A standard authenticator supplies codes; do not advertise push approval unless an actual supported service provides it. Email verification is registration/management evidence under the existing requirements, not an invented standalone login method. The page also exposes logout and relevant session invalidation outcomes.
+
+## 10.3 Agent API and authorization controls
+
+The human wallet-management page contains three distinct controls:
+
+1. **Allow Agent — ON/OFF**: the overall enablement of agent operation for this wallet.
+2. **Asset authorization**: a four-level tree **ALL → broad category → subcategory → individual asset**.
+3. **Per-operation human verification — ON/OFF**: the separate owner-verified policy in §6.3.1.
+
+Only the human owner may configure Agent access, asset scopes or operation permissions. An agent or robot MUST NOT change these settings on the human’s behalf, whether through UI, API, imported policy or automation. Every save of these settings, including ON, OFF and any scope/operation change, requires human secondary authentication bound to the exact proposed policy revision. Draft toggle changes do not take effect until that verification succeeds and the revision is committed. A normal login session or the unattended-execution OFF policy cannot substitute for this settings-save verification. Cancelled, failed, stale or replayed verification leaves the existing policy in force. This applies to configuration changes, not to recurring prompts for already-authorized API operations.
+
+ON is the supplied Giraffe VI orange accent; OFF is gray. Every switch also has a text label and accessible state. Do not confuse gray OFF with a disabled/unavailable control.
+
+For the asset tree, ON authorizes the node's asset scope and its descendants without requiring each descendant to be set. OFF at a non-leaf means no blanket grant: expand that node and let the human set its children individually. OFF at an individual-asset leaf grants no authority for that asset. Example: a broad category is OFF; subcategories 1, 3 and 4 are ON; subcategory 2 is OFF. Only subcategory 2 needs its next level configured. Apply this rule recursively. For asset eligibility, an ancestor ON is the effective blanket grant and overrides previously stored descendant asset OFF values; when no ancestor supplies a blanket ON, expose descendant choices for review and save the chosen scope in the next policy revision. Do not silently revive expired or revoked grants. Display this effect before saving. This asset-scope rule is separate from operation-setting inheritance and its explicit child overrides below. The overall Allow Agent OFF remains an actual wallet-wide disable, not an expansion control.
+
+Operation permissions are independently configurable for each authorized asset scope. They inherit the parent operation settings unless the human explicitly overrides them at a lower scope. Show inherited versus overridden settings and the effective authorized scope before saving. The asset tree does not grant unsupported operations or change the actor's actual contract role.
+
+Use ERC-8183 core operations as the reference catalog for its job workflows: create job (`createJob`), select provider (`setProvider`), set/negotiate budget (`setBudget`), fund escrow (`fund`), submit work (`submit`), accept completion and release funds (`complete`), reject (`reject`), and claim an expired refund (`claimRefund`). These are application permission mappings, not a claim that ERC-8183 defines the complete wallet permission model. Enforce client/provider/evaluator roles and valid states at the API/execution boundary. `complete` is evaluator-only; rejection authority varies with state; expiry refund requires the corresponding expiry/state conditions. Keep ordinary wallet transfer and other retained capabilities in explicitly named operation scopes rather than disguising them as ERC-8183 functions.
+
+Agents receive authenticated API access only to their effective wallet, asset and operation scopes. Human-approved per-operation verification OFF must work end to end without further human prompts for covered operations; it must not remove machine-enforced scopes, nonce checks or reconciliation. The UI shows saved policy revision, effective state, validation failures and revocation outcome, not merely optimistic toggles.
+
+Reference: https://ercs.ethereum.org/ERCS/erc-8183#core-functions
+
+## 10.4 Fungible assets and funds
+
+After login, display ordinary wallet assets and a dedicated NFT area. Show amounts **separately for each currency/token**. For each currency, show total funds, unreleased escrow and available funds, with **available = total − unreleased escrow**. Do not add a cross-currency converted grand total or silently invent a valuation source. Preserve exact base-unit arithmetic and token decimals. Do not double-count the same escrow in both an aggregate and a spendable balance.
+
+Escrow details, funding/release/refund state, denomination and amount appear under the corresponding NFT. The aggregate unreleased escrow must reconcile to the applicable NFT/payment records. Loading, unavailable and stale data remain explicit rather than zero. Other existing reservation/execution checks continue at execution time; the requested available-balance display formula is not authority to spend already reserved principal twice.
+
+## 10.5 Dedicated NFT browsing and ERC-8415 parameters
+
+Group NFTs by asset category. Offer list and thumbnail views, a user-selected sort item and ascending/descending order. Preserve the selection across navigation within the session. Each NFT is independently identifiable by its asset/contract/token context without exposing adjacent wallets. Show supported standard, network, token identifier, metadata and the applicable ERC-8415 projection parameters: register and verification profile, entry version and effective interval, commitment/reference, finality, gap and settlement state. Keep protocol states distinct from application Pending/DONE labels. Privacy-filter owner/holder identities and counterparties as specified below.
+
+An NFT detail view contains its own escrow records and Pending progress. Standard non-8415 assets remain usable and do not receive fabricated register parameters. Unsupported or unavailable metadata is identified explicitly; untrusted media and metadata must not inject executable content into the wallet UI.
+
+## 10.6 Pending progress and privacy
+
+Display one progress representation per NFT. Its scale covers the entire verified transfer chain, including positions after the current user and an untraded white tail. Example: user occurrence 6 and owner position 20 still show the chain through position 20 plus the white tail; do not crop the chain at position 6. Do not infer sequence positions from numeric wallet addresses.
+
+Completed owner/holder changes use green, unchanged portions use gray, and untraded portions use white with a visible boundary. The NFT and funds locations use orange dots; label the tracks so location is unambiguous when the two differ. Positions are proportional. No preceding or subsequent wallet address or name is exposed in labels, tooltips, accessibility text, hidden DOM, frontend/API response payloads or downloadable views. The frontend receives only the authorized privacy-safe projection it needs. Do not claim this makes already-public blockchain data private.
+
+Forward display DONE for user occurrence i when **ownerPosition >= i AND holderPosition == i**. Freeze that completed user-specific progress record; later transfers must not move its completed marker or revive its obligation. This display milestone is distinct from the commercial prefix completion predicate in §9.4. Source observations and historical admitted evidence must identify the same NFT, sequence and occurrence.
+
+Rollback uses the same proportional progress, colors, separate NFT/funds markers and privacy rules. **Rollback DONE occurs when owner == holder at the verified return boundary.** Under the required coordinated rollback mechanism, both the NFT and corresponding funds have then completed their return. Freeze the rollback progress at DONE. A mere address equality or optimistic UI flag without the corresponding execution evidence must not falsely assert that this mechanism completed; partial failures retain accurate resumable status under §9.5.
+
+## 10.7 Ordinary transfers and responsive navigation
+
+Retain the established mainstream-wallet transfer and receive interactions: select asset/network, enter recipient and amount, review actual fees and material terms, submit through the authorized path and display the reconciled outcome. Keep receive, copy, activity/history and recovery reachable. Agent operation uses the API, while these Web controls are for humans. Do not add a matching engine or unrelated trading scope.
+
+Preserve existing desktop/mobile support and the multilingual entry currently served at 8415wallet.com: retain its actual language choices, labels, ordering, placement and switching/persistence behavior. Verify and record that live entry before replacement; an older source tree or design is not a substitute for the served menu. Every added Beta 2.0 page, control, validation message and status must cover the same supported locales. Do not translate signed terms, addresses, raw identifiers or protocol values. Preserve the supplied Giraffe branding and typography. Ensure controls have readable labels, keyboard focus, touch targets and non-color state text. Auth initialization/management, asset authorization, NFT list/thumbnail/sort, escrow and Pending are reachable on both desktop and mobile. Secret inputs remain masked and are never prefilled with real credentials in designs or examples.
+
+### 10.7.1 Historical observation details and source states
+
+Activity/history exposes an authenticated, read-only observation-details view on desktop and mobile. Keep **Approved verifier** (the original grant identity) and **Observed by** (the actual independently bound evidence source) as distinct labelled facts. Show the original operation/transaction reference scoped to the current user, saved evidence revision and observed-at time; keep the operation outcome, evidence availability/freshness and grant authority state separate. A valid source binding is not transaction success, temporal finality, a new active grant or permission to execute.
+
+UI states are: loading with retained evidence explicitly stale; accepted legacy evidence; an admitted newer observer with both identities displayed; unsupported/missing provenance; source or attempt binding refused; refresh unavailable with old evidence and old source retained; and reorg/replacement/unknown outcomes. State text supplements color and is readable by keyboard and screen-reader users. Unavailable reads cannot silently become success or an empty-history claim. Existing completed Pending records remain frozen under §10.6; refreshing observation details cannot revive or move them.
+
+Offer **Refresh observation** only as an authenticated read of the currently selected operation, plus back navigation. While loading, prevent duplicate refreshes and retain the prior snapshot with its timestamp. Retain a previous snapshot only within the same authenticated account and operation. Logout or an account/operation switch clears the previous view and context-bound cache before showing the new context; discard late responses on navigation, logout, switching or cancellation. An older response cannot overwrite a newer saved revision. On first load with no accepted evidence, show “No verified observation available”; do not invent an observer, timestamp or result, and do not substitute the approved verifier into the “Observed by” field. Do not offer a verifier selector, trust override, repeated approval prompt, transaction retry or signing control in this view. Agent operation remains API-only; this human UI is not an execution prerequisite.
+
+The UI must enforce §6.5.1's explicit versioned envelope and independently authenticated observation-source descriptor, while preserving the existing strict legacy decoder and original grant-context checks. The owning runtime implementation wires both server and UI contracts together; a server-only compatibility relaxation is insufficient. No new endpoint path or credential configuration is implied by this design.
+
+Use the existing multilingual entry and authored localized labels/errors for all actually supported locales; identifiers and hashes remain untranslated. Never expose adjacent wallet names/addresses, real server labels, internal endpoints, private paths, secrets or reference-brand names. Example verifier labels are synthetic. Authorized per-operation details do not permit tenant enumeration. Layout reflows on mobile without horizontal overflow or truncated identity/status labels.
+
+Design references are the Beta 2.0 Activity entry and Historical observation / Observation unavailable / Mobile historical observation frames in the existing Figma file. Figma examples are illustrative and contain no live transaction result. Acceptance requires the actual approved V2/V3 runtime/API builds on authorized CTyun or Aliyun non-Windows servers, with account isolation, strict rejection cases, freshness/cancellation, responsive layout and locale evidence. Design completion is distinct from runtime, online and on-chain acceptance.
+
+### About 8415wallet content
+
+The website About 8415wallet page and repository README share the same core positioning: the first native wallet built on ERC-8415; compatibility with the existing wallet ecosystem; V3 transaction-chain composition; AI + crypto infrastructure. Keep V2 standalone and V3 linked capability boundaries explicit and avoid implying unverified deployment or acceptance.
+
+The About page uses **separately authored, hardcoded content for each supported language**. Switch between those fixed texts through the existing website language entry. Do not use a translation module, translation service or runtime machine translation for About. Preserve the languages actually served by the existing website; do not silently remove or add a locale based only on an older source catalog.
+
+## 10.8 Confidentiality and release acceptance
+
+Services are enabled through controlled gradual rollout. The authoritative backend determines which services are enabled for the current tenant/account scope; frontend presentation cannot grant access. Keep normal entries for unopened features, without special unopened-function labels or pop-ups. A click on an unopened feature is a no-op and must not trigger a business request or change state. Enabled features operate normally with truthful processing, validation and error states; silent unopened-feature behavior must not turn a failed enabled action into success. Enforce disabled service access at the API boundary as well, without a successful operation response. Actual enabled scope and acceptance evidence are recorded privately; this design requirement does not itself enable services or change production settings.
+
+Public repository files, design exports intended for publication, build output and download packages must not contain real server names, tenant names, IP addresses, private operational paths, credentials or private third-party design-reference names. Use generic mainstream-wallet wording for design references. Necessary software copyright and license notices are not design references. Use synthetic examples in design/testing and retain private deployment mappings only in their authorized private location.
+
+Release sequence: complete the Beta 2.0 UI and this complete PRD for **both V2 and V3**; integrate each profile with its latest approved wallet runtime instance; deploy the new UI to replace the old served UI; perform actual online UI acceptance and real on-chain tests for each profile; fix issues found by those tests and retest the affected paths. **Only after both profiles have completed their applicable UI and on-chain acceptance, including test-driven fixes and successful retests, update the corresponding downloadable installation packages**, built from their exact accepted versions. Beta 2.0 is the shared UI release label, not a replacement for the V2/V3 runtime profile identifiers. Withdrawn legacy archives must not be nested inside the replacement package. A design, simulation or local build is not an online or on-chain test result.
+
+Profile-specific applicability: V2 is accepted as a standalone wallet. Inability to form a linked transaction chain is **NOT APPLICABLE for V2**, never a failed V2 test or a blocker to its acceptance. Chain-composition and linked-flow acceptance apply to V3. Keep shared UI, authentication, authorized standalone asset operations and applicable real on-chain testing in both profiles. Explicitly mark profile-inapplicable cases as N/A with their capability boundary, not PASS, FAIL or missing implementation.
+
+V3 mainline acceptance MUST test **chain composition, asynchronous registration and rollback**, including actual NFT/fund state and applicable escrow outcomes. **Prioritize the tests raised in the forum**, maintaining them in a separate checklist with discussion references, exact scenarios, profile applicability, results and evidence. Separate reporting does not lower their priority or waive them. Preserve all applicable V3 mainline tests as mandatory. Do not claim forum-derived tests passed from mainline results or impose V3-only chain-composition requirements on V2.
+
+Maintain separate V2 and V3 acceptance records binding runtime profile, UI build, backend build, chain ID, actual test steps, transaction hashes, receipts, resulting state readback, defects, fixes and retest outcomes. A pass on one profile cannot stand in for the other. Execute agent operations through the authorized API path only; human UI acceptance is a separate workstream and must not become an agent browser prerequisite. Preserve the complete applicable PRD stages and acceptance scope for each profile; do not substitute a first native-asset transaction for full profile acceptance.
+
+Acceptance evidence must bind UI source/build, backend/runtime source, API contract, served version, exact CI results and package hashes. Include: name input without tenant enumeration; correct wallet path on reload; new password/email/authenticator initialization and changes; human-only policy changes; agent API-only execution; recursive asset scope and inherited/overridden operation rules; per-currency totals and escrow reconciliation; NFT categorization/view/sort; full-chain forward and rollback progress; no adjacent wallet identity leakage; responsive and language journeys; error, unavailable and unknown-outcome behavior; and confirmation that the online-tested version matches the later package.
+
+These requirements do not assert that the new UI, API integrations, deployment, real chain tests or downloadable release have already passed. Record each actual result without substituting earlier green tests or historical packages.
 
 ---
 
