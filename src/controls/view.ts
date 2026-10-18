@@ -1,4 +1,5 @@
 import { encodeCall, encodeWords, REGISTER_ENTRY_TYPES, type AbiValue, type StaticType } from '../codec/abi.ts';
+import { detectConformance } from '../sdk/conformance.ts';
 import { keccak256Utf8 } from '../codec/keccak.ts';
 import type { Eip1193Provider } from '../adapters/signing/eip1193Signer.ts';
 import type { Bytes32 } from '../sdk/types.ts';
@@ -20,6 +21,9 @@ export type ControlProjectionObservation = {
   readonly registerId: string; readonly verificationProfile: string;
 };
 
+type ControlProjectionSnapshot = { snapshot: LinkedChainSnapshot; evidence: LinkedCompletionEvidence;
+  projection: ControlProjectionObservation };
+
 /** Experimental pinned adapter; requires EIP-1898, never substitutes an indexer or older block. */
 export class RpcResponsibilityControlReader implements LinkedControlReader {
   readonly #provider: Eip1193Provider;
@@ -28,9 +32,17 @@ export class RpcResponsibilityControlReader implements LinkedControlReader {
     this.#provider = provider;
     this.#client = new ResponsibilityControlClient(provider, deployment);
   }
-  async observe(sequenceId: Bytes32): Promise<{ snapshot: LinkedChainSnapshot; evidence: LinkedCompletionEvidence;
-    projection: ControlProjectionObservation }> {
-    const observed = await this.#client.snapshot(sequenceId);
+  async observe(sequenceId: Bytes32): Promise<ControlProjectionSnapshot> {
+    return this.#observe(sequenceId, null);
+  }
+  /** Explicit canonical historical read; no entitlement, history locator or
+   * financial completion is inferred from the returned protocol answers. */
+  async observeAt(sequenceId: Bytes32, blockNumber: bigint, expectedBlockHash: Bytes32): Promise<ControlProjectionSnapshot> {
+    return this.#observe(sequenceId, { blockNumber, expectedBlockHash });
+  }
+  async #observe(sequenceId: Bytes32, at: { readonly blockNumber: bigint; readonly expectedBlockHash: Bytes32 } | null): Promise<ControlProjectionSnapshot> {
+    const observed = at === null ? await this.#client.snapshot(sequenceId)
+      : await this.#client.snapshotAt(sequenceId, at.blockNumber, at.expectedBlockHash);
     const s = observed.sequence;
     const pin = this.#client.deployment;
     const block = { blockHash: observed.blockHash, requireCanonical: true };
@@ -62,6 +74,19 @@ export class RpcResponsibilityControlReader implements LinkedControlReader {
         control: { controlId, acceptanceHash: leg.acceptanceHash }, outcome: leg.outcome })) };
     const code = await controlRpc(this.#provider, 'eth_getCode', [s.token, block]);
     requireValue(controlHex(code) && hashControlBytes(code) === s.tokenCodeHash, 'CONTROL_TOKEN_IDENTITY_CHANGED');
+    if (at !== null) {
+      // Historical linked-control projections must independently discover the
+      // interfaces at this exact block, not infer them from code/register fields.
+      const conformance = await detectConformance({ async supportsInterface(interfaceId) {
+        return (await read(s.token, 'supportsInterface(bytes4)', [interfaceId], ['bytes4'], ['bool']))[0] as boolean;
+      } });
+      requireValue(conformance.erc165, 'CONTROL_ERC165_UNSUPPORTED');
+      requireValue(conformance.projection, 'CONTROL_PROJECTION_INTERFACE_UNSUPPORTED');
+      // This reader reports linked-control profile/gap facts as well. A
+      // projection-only asset remains usable through the general SDK reader,
+      // but cannot be represented here as a successful gap/profile observation.
+      requireValue(conformance.settlement, 'CONTROL_LINKED_SETTLEMENT_UNSUPPORTED');
+    }
     const register = await read(s.token, 'registerId()', [], [], ['bytes32']);
     const profile = await read(s.token, 'verificationProfile()', [], [], ['bytes32']);
     requireValue(register[0] === s.registerId && profile[0] === s.verificationProfile, 'CONTROL_PROJECTION_IDENTITY_CHANGED');
@@ -106,9 +131,19 @@ export class RpcResponsibilityControlReader implements LinkedControlReader {
         owner: { occurrenceId: occurrence(s.cursor), account: owner },
         admittedHolder: { occurrenceId: occurrence(index), account: holder }, protocolFinality: finality };
     }
+    if (at !== null) {
+      const chain = await controlRpc(this.#provider, 'eth_chainId', []);
+      requireValue(typeof chain === 'string' && /^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(chain) &&
+        BigInt(chain) === pin.chainId, 'CONTROL_CHAIN_MISMATCH');
+    }
     const end = await controlRpc(this.#provider, 'eth_getBlockByNumber', [`0x${observed.blockNumber.toString(16)}`, false]);
     requireValue(end !== null && typeof end === 'object' &&
       (end as Record<string, unknown>).hash === observed.blockHash, 'CONTROL_SNAPSHOT_REORGED');
+    if (at !== null) {
+      const number = (end as Record<string, unknown>).number;
+      requireValue(typeof number === 'string' && /^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(number) &&
+        BigInt(number) === observed.blockNumber, 'CONTROL_SNAPSHOT_REORGED');
+    }
     return { snapshot, evidence, projection: { instant: observed.timestamp, owner, holder, protocolFinality: finality,
       openGapId, contested, freshness: 'not-evaluated', admittedVersion: entry[4] as bigint,
       registerId: s.registerId, verificationProfile: s.verificationProfile } };

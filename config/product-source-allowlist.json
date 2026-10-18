@@ -1236,8 +1236,8 @@
     {
       "path": "src/controls/client.ts",
       "mode": "100644",
-      "git_blob_sha1": "2feec71c28ed7eb0d824c22c7a8737ed70aa6cf1",
-      "sha256": "7733bbf550bb714eb9d672edce9f44c4db049039aac0803afe5482bdeeec473a"
+      "git_blob_sha1": "259444f067d537475b73c8017608bc092d258540",
+      "sha256": "809113538c21812b346e73dc637efdbdd095f62b129b64509d8554f4f28ba552"
     },
     {
       "path": "src/controls/consentReview.ts",
@@ -1252,6 +1252,12 @@
       "sha256": "d9fe91675339ef60580011d567ef4b8317ef214fd1be695ba3f765fd6e8b55cf"
     },
     {
+      "path": "src/controls/detachedHistoryLocator.ts",
+      "mode": "100644",
+      "git_blob_sha1": "a4cb60a0eb0e950bd72c664789216bf6f1602c5e",
+      "sha256": "4b8b5afd83aa432e070d0e44323fd13b70ec5e65c85d188f901e3aa315c041e5"
+    },
+    {
       "path": "src/controls/execution.ts",
       "mode": "100644",
       "git_blob_sha1": "d0dd6c6c49814e7d576321dc78c77a3b1b2044e0",
@@ -1262,6 +1268,18 @@
       "mode": "100644",
       "git_blob_sha1": "85bdec74a6baedb72ce93eda37639d36b676df95",
       "sha256": "4e79d795c09ba73ba90bbd366c90a559d1babf7ac5f3aca10bb9294e6eaffb4c"
+    },
+    {
+      "path": "src/controls/historyEntitlement.ts",
+      "mode": "100644",
+      "git_blob_sha1": "2c35caed6ccb233be4d88bcec4a563bd21804a8b",
+      "sha256": "d9f25aad3e5dbe3b8db958a03b242e96ae56f2a5c67565a5b7e4677a6d3eb5a8"
+    },
+    {
+      "path": "src/controls/historyView.ts",
+      "mode": "100644",
+      "git_blob_sha1": "449811a414ea0968cf68876125c375e32e580a83",
+      "sha256": "fe6251f514b65fe919fd14d6bbd8c69d02d3af0cfb5ed9b68c9ca4cad92dfd4c"
     },
     {
       "path": "src/controls/index.ts",
@@ -1296,8 +1314,8 @@
     {
       "path": "src/controls/view.ts",
       "mode": "100644",
-      "git_blob_sha1": "49d8c148ecd52e9dc8b68b28a3dd7a113ca7689a",
-      "sha256": "3193bed9e6af21c54f085151cabd2f7a9b60040fb7454ace653e013fc7ff7c87"
+      "git_blob_sha1": "0e38415eabf3a9f05c019ec097597633d98b2e0d",
+      "sha256": "bf308a7638162634ea4626bb7a3ab18f3a68415210e7a39fd5b286c422367167"
     },
     {
       "path": "src/index.ts",
@@ -1554,8 +1572,8 @@
     {
       "path": "src/sdk/conformance.ts",
       "mode": "100644",
-      "git_blob_sha1": "8f19aa6cb20563c70d5ea6db4fd75008d7ed2f09",
-      "sha256": "df0b2efed3dc4e79e26165a18ec5c663d6d6ebd15ce377538501ea46a42ae891"
+      "git_blob_sha1": "4f7c5fc9c3b3cf07378c93afd71c8a154876e7d0",
+      "sha256": "525fb95e776f84a186b5118829c6202e98155b312841c2e3edbfa6d40e658f0b"
     },
     {
       "path": "src/sdk/errors.ts",
@@ -1694,6 +1712,12 @@
       "mode": "100644",
       "git_blob_sha1": "7fae2b22ebb0b97d24ff32831eb02b97a644474f",
       "sha256": "761ebe661e1ad834b5c35b3915adc86d4008423fe62ae09b6f2a10e71da06287"
+    },
+    {
+      "path": "src/wallet/forwardProgress.ts",
+      "mode": "100644",
+      "git_blob_sha1": "6c8b9e701e242146c8e3a5ef842e49fb9959ac89",
+      "sha256": "1b1b46d80800b3fd53812f74c35864d96c77008935328901101e9cba589ff83a"
     },
     {
       "path": "src/wallet/freshness.ts",
