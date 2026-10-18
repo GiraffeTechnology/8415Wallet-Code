@@ -1,8 +1,11 @@
-/** Synthetic HTTP-handler tests only; no browser, listener, real wallet/RPC,
- * credential files or transaction submission. Execute on approved Linux only. */
+/** Synthetic handler and bounded real loopback-HTTP tests. No browser,
+ * production endpoint, real wallet/RPC, credential files or transaction
+ * submission. Execute on approved Linux only. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { Wallet } from 'ethers';
 import { createAgentApiSession, createAgentHttpTransport } from '../server/agent-api-session.mjs';
 import { createAuthService } from '../server/auth-service.mjs';
@@ -14,6 +17,7 @@ import { digest, base32, hotp } from '../server/crypto.mjs';
 const origin = 'https://wallet.example.invalid', tenant = 'example', chainId = '560048';
 const epoch = 1_800_000_000_000, hash = c => '0x' + c.repeat(64), recipient = '0x' + '2'.repeat(40);
 async function fixture(options = {}) {
+  const origin = options.origin ?? 'https://wallet.example.invalid';
   const wallet = Wallet.createRandom(), actor = wallet.address.toLowerCase();
   const state = { now: epoch, loginSigns: 0, sends: 0, recoveries: 0, requests: [], ownerTaskApprovals: 0 };
   // Model one original human-authorized parent grant in fixture setup, NOT an
@@ -83,7 +87,7 @@ async function fixture(options = {}) {
   const reserve = g => client.task('reserve', { taskDigest: g.task.digest, child: child(g.task), expectedBudgetRevision: g.budget.revision });
   const operation = g => ({ taskDigest: g.task.digest, operationId: child(g.task).operationId,
     childDigest: freezeChildOperation(child(g.task)).digest, expectedBudgetRevision: g.budget.revision });
-  return { client, state, store, wallet, actor, policy, authorize, reserve, operation, transport, signer };
+  return { client, state, store, wallet, actor, policy, authorize, reserve, operation, transport, signer, handler };
 }
 
 test('address and chain authenticate through APIs with no username, UI, browser or provider session', async () => {
@@ -193,4 +197,83 @@ test('Node transport refuses nonloopback HTTP, redirects-as-routes and TLS bypas
   assert.throws(() => createAgentHttpTransport({ origin, timeoutMs: 0 }));
   const t = createAgentHttpTransport({ origin });
   assert.throws(() => t.request({ method: 'GET', path: '//evil.invalid/auth/session', headers: {} }), /ROUTE_REFUSED/);
+});
+
+/** Actual OS-selected loopback HTTP, still synthetic and approved-Linux-only.
+ * No browser, production endpoint, persistent credential or real-chain access.
+ * Every server/socket is bounded and closed before its fixture returns.
+ */
+async function network(t, handler) {
+  const server = createServer(handler);
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { server.closeAllConnections(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); });
+  return { server, origin: `http://127.0.0.1:${server.address().port}` };
+}
+test('real Node HTTP authenticates with received cookies and session CSRF without a browser', async t => {
+  let f; const requests = [];
+  const n = await network(t, (req, res) => { requests.push({ path: req.url, hasCookie: Boolean(req.headers.cookie),
+    hasCSRF: Boolean(req.headers['x-wallet-csrf']) }); f.handler(req, res); });
+  f = await fixture({ origin: n.origin });
+  const client = createAgentApiSession({ origin: n.origin, tenant, account: f.actor, chainId,
+    loginSigner: f.signer, transport: createAgentHttpTransport({ origin: n.origin }), now: () => f.state.now });
+  const session = await client.authenticate(); assert.equal((await client.checkSession()).sessionId, session.sessionId);
+  assert.deepEqual(requests.map(x => x.path), ['/auth/bootstrap', '/auth/challenge', '/auth/proof', '/auth/session']);
+  assert.equal(requests[0].hasCookie, false);
+  assert.ok(requests.slice(1).every(x => x.hasCookie && x.hasCSRF));
+  await client.logout(); assert.equal(requests.at(-1).path, '/auth/logout');
+  await assert.rejects(client.task('list', {}), /AUTHENTICATION_REQUIRED/);
+  assert.equal(f.state.loginSigns, 1); assert.equal(f.state.sends, 0);
+});
+test('real Node HTTP sends the exact JSON body and boundedly decodes a successful response', async t => {
+  const n = await network(t, async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    assert.equal(req.method, 'POST'); assert.equal(req.headers['content-type'], 'application/json');
+    res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ observed: JSON.parse(Buffer.concat(chunks).toString()) }));
+  });
+  const result = await createAgentHttpTransport({ origin: n.origin }).request({ method: 'POST', path: '/auth/tasks/status',
+    headers: {}, body: { taskDigest: hash('a') } });
+  assert.equal(result.status, 200); assert.deepEqual(result.data, { observed: { taskDigest: hash('a') } });
+});
+test('real Node HTTP rejects an oversized response without returning partial JSON', async t => {
+  const n = await network(t, (_req, res) => res.end(JSON.stringify({ value: 'x'.repeat(4096) })));
+  await assert.rejects(createAgentHttpTransport({ origin: n.origin, maxResponseBytes: 64 }).request({
+    method: 'GET', path: '/auth/bootstrap', headers: {} }), /AGENT_API_TRANSPORT_UNAVAILABLE/);
+});
+test('real Node HTTP total timeout bounds a response stream that never ends', async t => {
+  let opened;
+  const ready = new Promise(resolve => { opened = resolve; });
+  const n = await network(t, (_req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.write('{'); opened(); });
+  const request = createAgentHttpTransport({ origin: n.origin, timeoutMs: 200 }).request({ method: 'GET', path: '/auth/bootstrap', headers: {} });
+  // Attach the rejection handler before the request can time out under load.
+  const rejected = assert.rejects(request, /AGENT_API_TRANSPORT_UNAVAILABLE/);
+  await ready; await rejected;
+});
+test('real Node HTTP explicit abort closes a stalled request without retrying', async t => {
+  let opened; const ready = new Promise(resolve => { opened = resolve; }); let calls = 0;
+  const n = await network(t, (_req, res) => { calls++; res.writeHead(200); res.write('{'); opened(); });
+  const abort = new AbortController(), request = createAgentHttpTransport({ origin: n.origin }).request({
+    method: 'GET', path: '/auth/bootstrap', headers: {}, signal: abort.signal });
+  const rejected = assert.rejects(request, /AGENT_API_TRANSPORT_UNAVAILABLE/);
+  await ready; abort.abort(); await rejected; assert.equal(calls, 1);
+});
+test('real Node HTTP disconnect is a sanitized error, not successful partial data', async t => {
+  const n = await network(t, (req, _res) => req.socket.destroy());
+  await assert.rejects(createAgentHttpTransport({ origin: n.origin }).request({ method: 'GET', path: '/auth/bootstrap', headers: {} }),
+    error => error.code === 'AGENT_API_TRANSPORT_UNAVAILABLE' && error.message === 'AGENT_API_TRANSPORT_UNAVAILABLE');
+});
+test('real Node HTTP preserves redirect status and never follows its Location', async t => {
+  let calls = 0;
+  const n = await network(t, (_req, res) => { calls++; res.writeHead(302, { Location: '/auth/session' }); res.end('{}'); });
+  const response = await createAgentHttpTransport({ origin: n.origin }).request({ method: 'GET', path: '/auth/bootstrap', headers: {} });
+  assert.equal(response.status, 302); assert.equal(calls, 1);
+});
+test('client cancellation propagates to the actual pending Node HTTP request', async t => {
+  let opened; const ready = new Promise(resolve => { opened = resolve; }); let calls = 0;
+  const n = await network(t, (_req, res) => { calls++; res.writeHead(200); res.write('{'); opened(); });
+  const client = createAgentApiSession({ origin: n.origin, tenant, account: '0x' + '1'.repeat(40), chainId,
+    loginSigner: { signLoginMessage() { assert.fail('must not sign before bootstrap'); } },
+    transport: createAgentHttpTransport({ origin: n.origin }) });
+  const pending = client.authenticate(), rejected = assert.rejects(pending, /AGENT_API_TRANSPORT_UNAVAILABLE/);
+  await ready; client.cancel(); await rejected; assert.equal(calls, 1);
+  await assert.rejects(client.task('list', {}), /AUTHENTICATION_REQUIRED/);
 });

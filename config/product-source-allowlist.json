@@ -841,8 +841,8 @@
     {
       "path": "server/agent-api-session.mjs",
       "mode": "100644",
-      "git_blob_sha1": "2fb96aaca99d0f549e48ad0f4e97e997fdc16711",
-      "sha256": "a04938ac26ce8bfa77fcb384775c151fe80abddc90eb94c0e2f1dd88d1cd755b"
+      "git_blob_sha1": "16fe9ce8e4172aace5f0f011cd4b6f151189fc08",
+      "sha256": "c749a3855fa36477c5dd5023ea4e65715c3b5998a9da5fe4fd413005d7dd5c8f"
     },
     {
       "path": "server/auth-service.mjs",
