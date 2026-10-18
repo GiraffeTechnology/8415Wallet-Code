@@ -5,9 +5,10 @@
 The sole current complete product requirements are `docs/ERC-8415-Wallet-PRD.md`:
 - Release label: **Beta 2.0**; V2 standalone and V3 linked runtime profiles remain distinct.
 - Requirements revision: **2026-10-18 HKT ON/OFF default-value clarification**, matching `config/current-prd.json`.
-- Exact UTF-8 bytes: **102490**.
-- SHA-256: **b57fcef22ca63eefd2092a645f9e8fbbf4e57513ae109e93cc3a75fe8c3474a3**.
+- Exact UTF-8 bytes: **103397**.
+- SHA-256: **f00948cfbb05a1e7af1bafe4625f48caca9a4a9efc68587084ec489c05b095fd**.
 - Includes the full retained foundation, all stages, §9 linked requirements, §10 UI/API requirements, and §§6.5.1 / 10.7.1 historical-observation identity and UI contract.
+- Foundational agentic-wallet requirement: support full owner-granted authority. ALL ON permits the agent to sign and execute within that authority without per-operation human approval/signature prompts. This is a product capability, not a test-only exception or UI-only state. Preserve explicit revocations, granted scope and actual chain validity.
 - ON/OFF controls default to **ON** in the frontend and authoritative backend before the control panel is operational; once operational, the panel changes the settings under their existing authorization rules. Before a corresponding authorization lock is operational, ON means unlocked: authorized tests must not be blocked on its unimplemented permission or approval-signature verification. Record such verification as not evaluated, not passed. This pre-operational rule takes precedence over the operational gate requirement; actual blockchain transaction signatures, task scope and existing effective owner decisions remain binding.
 - The preceding 100256-byte PRD (SHA-256 `49607b15c5b146587dac690194d2d9ecb0e396cdb995a7263813d8017594ee96`) is retained in version history and is superseded by the complete current identity above.
 

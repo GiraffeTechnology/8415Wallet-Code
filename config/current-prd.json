@@ -6,10 +6,10 @@
   "sourceRevision": "2026-10-18 HKT ON/OFF default-value clarification",
   "sourceCommit": null,
   "sourcePullRequest": null,
-  "gitBlobSHA1": "fe481bb9aa6c2ee7eb9be9c17f6e67539ee7cb9f",
-  "bytes": 102490,
+  "gitBlobSHA1": "6cf8625f0d749498d442dcb539e0a14b3c951e3a",
+  "bytes": 103397,
   "encoding": "utf-8",
-  "sha256": "b57fcef22ca63eefd2092a645f9e8fbbf4e57513ae109e93cc3a75fe8c3474a3",
+  "sha256": "f00948cfbb05a1e7af1bafe4625f48caca9a4a9efc68587084ec489c05b095fd",
   "releaseLabel": "Beta 2.0",
   "capabilityProfiles": [
     "v2",

@@ -32,6 +32,8 @@ not the Kit — is the product.
 
 ## Product Definition
 
+**Foundational agentic-wallet principle (owner clarification, 2026-10-18 HKT):** 8415wallet is operable by an agent and supports full owner-granted authority. ALL ON means that the agent may sign and execute operations itself within that granted authority, without returning each operation to the human for a separate approval or signature. Full authority may cover all supported operations and assets in the wallet scope specified by the owner; it is not restricted to a read-only assistant or to test-only operation. Real transaction signing is performed by the authorized agent signing path and does not imply manual human signing. The pre-operational unlocked default above must be implemented in the execution path as well as the UI. Existing explicit exclusions, revocations, task boundaries and chain validity still apply; the product must never fabricate a signature, approval or execution result.
+
 8415wallet is AI-native: an agent can act as the user's operator for an explicitly
 authorized task and complete its in-scope steps. The human authorizes the task,
 its conditions and limits; the agent performs the work and requests a new decision
