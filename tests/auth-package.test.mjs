@@ -335,7 +335,7 @@ test('task runtime source closure has the exact planner, signer, encoding, contr
     'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
     'server/forward-progress-reader.mjs', 'src/controls/detachedHistoryLocator.ts', 'src/controls/historyView.ts',
     'src/controls/historyEntitlement.ts', 'src/controls/historyMilestone.ts', 'src/controls/historyDiscovery.ts', 'src/sdk/conformance.ts',
-    'server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts', 'src/wallet/linkedChainView.ts', 'src/sdk/types.ts', 'src/sdk/linked.ts',
+    'server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts', 'src/wallet/linkedChainView.ts', 'src/sdk/types.ts',
     'server/task-runtime-import-probe.mjs',
     'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
     'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',

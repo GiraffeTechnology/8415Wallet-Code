@@ -104,8 +104,11 @@ test('response and durable progress payload contain no neighboring party identit
 });
 test('auth package closure includes the new service and its actual runtime and typed projection imports', () => {
   for (const path of ['server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts',
-    'src/wallet/linkedChainView.ts', 'src/sdk/types.ts', 'src/sdk/linked.ts']) {
+    'src/wallet/linkedChainView.ts', 'src/sdk/types.ts']) {
     assert.equal(TASK_RUNTIME_SOURCE_PATHS.includes(path), true); assert.equal(sourcePathAllowed(path), true);
   }
+  // The linked contract is source-packaged, not imported after type stripping.
+  assert.equal(TASK_RUNTIME_SOURCE_PATHS.includes('src/sdk/linked.ts'), false);
+  assert.equal(sourcePathAllowed('src/sdk/linked.ts'), true);
   assert.equal(sourcePathAllowed('src/wallet/neighbor-private-state.json'), false);
 });
