@@ -6,11 +6,11 @@
 
 - **V2 Beta:** the retained wallet PRD v2.2 foundation, sections 1–8: standalone projection and temporal views, dual histories, disclosure, conformance and identity checks, the three protocol settlement transactions, and legacy single-trade clearing.
 - **V3 Beta:** the same standalone foundation plus wallet PRD v3.0 section 9: accepted linked responsibilities, permanent completed-prefix detachment, bounded returns, separate optional payments and committed detached history. The acceptance matrix includes W-01 through W-24.
-- **Product and platform:** the product is 8415wallet and its UI platform domain is 8415wallet.com. Xiongan is a V2 tenant, identified separately from the product.
+- **Product and platform:** the product is 8415wallet and its UI platform domain is 8415wallet.com. Tenant deployments are configurations, not separate products. Wallet-specific deployment bindings remain private.
 
 Both DApp packages are functional-testing Betas. Genuine wallet/public-testnet, physical-device and W-20 deployment evidence is collected after deployment; it is not silently supplied by local tests. The code is not independently audited. SDK tarballs are separate integration artifacts and do not replace either DApp.
 
-See [DApp packaging and deployment](docs/BETA-DAPP-DELIVERY.md), [PRD coverage](docs/BETA-PRD-COVERAGE.md), and [the Xiongan tenant boundary](docs/XIONGAN-WALLET.md).
+See [DApp packaging and deployment](docs/BETA-DAPP-DELIVERY.md), [PRD coverage](docs/BETA-PRD-COVERAGE.md), and [wallet login boundaries](docs/WALLET-LOGIN.md).
 
 ## Login methods
 
@@ -96,7 +96,7 @@ Token metadata remains source-original. See [UI localization](docs/UI-LOCALIZATI
 for privacy, transaction-value and verification boundaries.
 # Authentication deployment preparation
 
-The Xiongan account-service and browser-local authenticator QR preparation is
+The account-service and browser-local authenticator QR preparation is
 documented in [AUTH-PROVISIONING-PREPARATION](docs/AUTH-PROVISIONING-PREPARATION.md).
 The service/proxy templates are **not activated**; the public template has no
 account binding and intentionally cannot start. New regression sources have not
