@@ -626,14 +626,14 @@ function assertCiContract(text) {
     assert.ok(producer.includes(command), 'CI_PUBLIC_BUILD_CONTRACT_REQUIRED');
   assert.equal(producer.includes('if: always()'), false, 'CI_PUBLIC_BUILD_ALWAYS_REFUSED');
   const upload = steps.get('Verified public product artifacts');
-  assert.ok(upload?.includes('if: success()') && upload.includes('uses: actions/upload-artifact@v4') && upload.includes('if-no-files-found: error'), 'CI_PUBLIC_UPLOAD_SUCCESS_REQUIRED');
+  assert.ok(upload?.includes('if: ${{ false }}') && upload.includes('uses: actions/upload-artifact@v4') && upload.includes('if-no-files-found: error'), 'CI_WITHDRAWN_PUBLIC_UPLOAD_HOLD_REQUIRED');
   assert.equal(upload.includes('if: always()'), false, 'CI_PUBLIC_UPLOAD_ALWAYS_REFUSED');
   const paths = upload.match(/^          path: \|\n((?: {12}[^\n]+\n)+)/m)?.[1].trim().split('\n').map(line => line.trim());
   assert.deepEqual(paths, ['archive_path', 'guide_path', 'checksums_path', 'report_path'].map(name => '${{ steps.public_product.outputs.' + name + ' }}'), 'CI_EXACT_PUBLIC_OUTPUTS_REQUIRED');
   assert.equal(steps.has('Reusable DApp artifacts'), false, 'CI_OLD_FULL_REPOSITORY_UPLOAD_REFUSED');
 }
 
-test('CI retains the complete validation pipeline and publishes only success-gated exact public outputs', () => {
+test('CI retains the complete validation pipeline and holds withdrawn public uploads', () => {
   assertCiContract(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8'));
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json')));
   const testFiles = packageJson.scripts.test.split(' ');
@@ -649,7 +649,8 @@ test('CI contract rejects always-upload, missing output, private dist fallback a
     text.replace('run: node scripts/controls/task-auth-runtime-smoke.mjs --runtime dist/package-auth', 'run: echo skipped'),
     text.replace('node scripts/controls/method-change-ui-smoke.cjs', 'echo skipped'),
     text.replace('node --test tests/task-static-module-closure.test.mjs', 'echo skipped'),
-    text.replace('      - name: Verified public product artifacts\n        if: success()', '      - name: Verified public product artifacts\n        if: always()'),
+    text.replace('      - name: Verified public product artifacts\n        if: ${{ false }}', '      - name: Verified public product artifacts\n        if: always()'),
+    text.replace('      - name: Verified public product artifacts\n        if: ${{ false }}', '      - name: Verified public product artifacts\n        if: success()'),
     text.replace('            ${{ steps.public_product.outputs.report_path }}\n', ''),
     text.replace('            ${{ steps.public_product.outputs.report_path }}\n', '            ${{ steps.public_product.outputs.report_path }}\n            dist/8415wallet-dapp-delivery-*.tar.gz\n'),
     text.replace('            ${{ steps.public_product.outputs.report_path }}\n', '            dist/delivery-package-manifest.json\n'),

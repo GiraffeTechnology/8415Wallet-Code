@@ -95,7 +95,9 @@ export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
 ]);
-export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || TASK_RUNTIME_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/login-core\.mjs|deploy\/auth-runtime\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
+// Retained source contracts are packaged but never counted as executable imports.
+export const TASK_TYPE_SOURCE_PATHS = Object.freeze(['src/sdk/linked.ts']);
+export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || TASK_RUNTIME_SOURCE_PATHS.includes(path) || TASK_TYPE_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/login-core\.mjs|deploy\/auth-runtime\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
 export function safePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length <= 240 && /^[A-Za-z0-9_@.+/=-]+$/.test(path)
     && path.split('/').every(part => part && part !== '.' && part !== '..');
