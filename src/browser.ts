@@ -9,7 +9,7 @@ export { renderRiskSurfaces, renderSettlementLog } from './wallet/renderGapView.
 export { renderRegistration, renderAcquisitionDisclosure, renderOwnershipHistory, renderPosture } from './wallet/renderHolderViews.ts';
 export { verifyControlDeployment, controlRpc } from './controls/authorization.ts';
 export { renderCollisions } from './wallet/renderHolderViews.ts';
-export { CollisionScanError } from './wallet/collisions.ts';
+export { CollisionScanError, COLLISION_SCAN_MAX_TOKENS } from './wallet/collisions.ts';
 export { reviewAgentRequest, XIONGAN_PROFILE } from './xiongan/agentRequest.ts';
 export { recoveryGuidance } from './xiongan/recoveryView.ts';
 export { ExternalAssetSession, ASSET_CHAINS, parseAssetState, formatWeiAsEth, formatTokenUnits } from './xiongan/externalAssets.ts';

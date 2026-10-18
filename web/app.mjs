@@ -7,7 +7,7 @@ import { StandaloneSettlementSession, isAddressInput, TransactionWouldRevertErro
 import { acquireWalletUi, releaseWalletUi } from './ui-lock.mjs';
 import { ResponsibilityWalletSession, DetachedResponsibilityHistoryClient, ControlAdapterError, WalletSession, RpcErc8415Reader, Eip1193ReadTransport,
   renderAssetView, renderTemporalQuery, renderHistory, renderRegistration, renderAcquisitionDisclosure,
-  renderRiskSurfaces, renderPosture, renderSettlementLog, renderOwnershipHistory, renderCollisions, CollisionScanError, verifyControlDeployment, controlRpc } from '../dist/browser/browser.js';
+  renderRiskSurfaces, renderPosture, renderSettlementLog, renderOwnershipHistory, renderCollisions, CollisionScanError, COLLISION_SCAN_MAX_TOKENS, verifyControlDeployment, controlRpc } from '../dist/browser/browser.js';
 import { reviewAgentRequest, recoveryGuidance } from '../dist/browser/browser.js';
 import { BrowserPublicOperationStore } from './public-store.mjs';
 
@@ -17,6 +17,8 @@ const nativeView = (state, view = null) => document.dispatchEvent?.(new CustomEv
 const display = value => { requireCurrentConnection(); renderResult(value); };
 const value = id => el(id).value.trim();
 const fail = code => { throw new ControlAdapterError(code); };
+/** The comma-separated token field this page reads, in characters. */
+const COLLISION_INPUT_MAX_CHARACTERS = 2560;
 const integer = text => { if (!/^(0|[1-9][0-9]{0,77})$/.test(text) || BigInt(text) >= 1n << 256n) fail('CONTROL_INTEGER_REFUSED'); return BigInt(text); };
 const number = id => integer(value(id));
 const bytes = (text, size) => { if (!new RegExp(`^0x[0-9a-fA-F]{${size * 2}}$`).test(text)) fail('CONTROL_HEX_REFUSED'); return text.toLowerCase(); };
@@ -166,14 +168,25 @@ document.querySelectorAll('[data-read]').forEach(button => button.addEventListen
   switch (button.dataset.read) {
     case 'collisions': {
       const input = value('collision-token-ids');
-      if (input.length === 0 || input.length > 2560) fail('COLLISION_TOKEN_INPUT_REFUSED');
+      if (input.length === 0) fail('COLLISION_TOKEN_INPUT_REFUSED');
+      // Each bound says what it is: an empty box is a different fault from one
+      // too full to read, and a caller told only the code cannot tell either
+      // how long the field accepts or how many tokens one scan takes.
+      if (input.length > COLLISION_INPUT_MAX_CHARACTERS) {
+        fail(`COLLISION_TOKEN_INPUT_REFUSED: at most ${COLLISION_INPUT_MAX_CHARACTERS} characters, received ${input.length}`);
+      }
       const parts = input.split(',');
-      if (parts.length > 32) fail('COLLISION_TOKEN_BUDGET_REFUSED');
+      // The budget is the scan's own constant, not a copy that can drift from it.
+      if (parts.length > COLLISION_SCAN_MAX_TOKENS) {
+        fail(`COLLISION_TOKEN_BUDGET_REFUSED: at most ${COLLISION_SCAN_MAX_TOKENS} tokens, asked ${parts.length}`);
+      }
       const ids = parts.map(part => integer(part.trim()));
       if (new Set(ids).size !== ids.length) fail('COLLISION_DUPLICATE_TOKEN_REFUSED');
       try { output = nativeUi(renderCollisions, await wallet.collisions(ids)); }
       catch (error) {
-        if (error instanceof CollisionScanError) fail(error.code);
+        // The scan's refusal carries the limit it enforced. Showing the bare
+        // code loses it, which is the invisible bound this replaces.
+        if (error instanceof CollisionScanError) fail(error.limit === undefined ? error.code : `${error.code}: limit ${error.limit}`);
         throw error;
       }
       break;

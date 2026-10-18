@@ -18,6 +18,16 @@ function deferred() {
   const promise = new Promise<any>(r => { resolve = r; });
   return { promise, resolve };
 }
+class CollisionScanErrorStub extends Error {
+  code: string;
+  limit: number | undefined;
+  constructor(code: string, limit?: number) {
+    super(limit === undefined ? code : `${code}: limit ${limit}`);
+    this.code = code;
+    this.limit = limit;
+  }
+}
+
 function fixture(profile = 'v3') {
   const elements = new Map<string, any>(), events = new Map<string, (event?: any) => void>();
   const element = (id: string) => {
@@ -83,7 +93,9 @@ function fixture(profile = 'v3') {
     mountFeedContinuity: mount('feed-continuity'),
     mountWatchtowerRead: mount('watchtower-read'),
     mountKitRead: mount('kit-read'),
-    CollisionScanError: class extends Error {},
+    COLLISION_SCAN_MAX_TOKENS: 32,
+    // The page reads code and limit off this, so the stub carries both.
+    CollisionScanError: CollisionScanErrorStub,
     verifyControlDeployment: () => hooks.verify(),
     controlRpc: (_p: unknown, method: string) => method === 'eth_requestAccounts' ? hooks.request() : hooks.chain(),
   };
@@ -141,6 +153,38 @@ test('collision review rejects duplicate, empty and malformed input before scann
     assert.deepEqual(f.collisionIds(), []);
     assert.match(f.element('result').textContent, /REFUSED/);
   }
+});
+
+test('each refused collision input states the bound it met and the value asked', async () => {
+  const f = fixture(); await f.connect();
+  f.hooks.collisions = async () => { assert.fail('must not scan'); };
+  // Too many tokens: the page states the scan's own budget, not a copy.
+  f.element('collision-token-ids').value = Array(33).fill('1').join(',');
+  await f.click('read-collisions');
+  assert.equal(f.element('result').textContent,
+    'COLLISION_TOKEN_BUDGET_REFUSED: at most 32 tokens, asked 33');
+  // Too long a field: a different fault, with its own number.
+  f.element('collision-token-ids').value = Array(1300).fill('1').join(',');
+  await f.click('read-collisions');
+  assert.equal(f.element('result').textContent,
+    'COLLISION_TOKEN_INPUT_REFUSED: at most 2560 characters, received 2599');
+  // Empty is neither: nothing was asked, so there is no figure to state.
+  f.element('collision-token-ids').value = '';
+  await f.click('read-collisions');
+  assert.equal(f.element('result').textContent, 'COLLISION_TOKEN_INPUT_REFUSED');
+  assert.deepEqual(f.collisionIds(), []);
+});
+
+test('a scan refusal reaches the page with the limit it enforced', async () => {
+  const f = fixture(); await f.connect();
+  f.hooks.collisions = async () => { throw new CollisionScanErrorStub('COLLISION_ENTRY_BUDGET_REFUSED', 2048); };
+  f.element('collision-token-ids').value = '1,2';
+  await f.click('read-collisions');
+  assert.equal(f.element('result').textContent, 'COLLISION_ENTRY_BUDGET_REFUSED: limit 2048');
+  // A refusal with no limit still shows exactly its code, with nothing appended.
+  f.hooks.collisions = async () => { throw new CollisionScanErrorStub('COLLISION_DUPLICATE_TOKEN_REFUSED'); };
+  await f.click('read-collisions');
+  assert.equal(f.element('result').textContent, 'COLLISION_DUPLICATE_TOKEN_REFUSED');
 });
 
 test('late collision result is discarded after a wallet change', { timeout: 5000 }, async () => {
