@@ -18,7 +18,9 @@ for (const path of ['README.md', 'AGENTS.md', 'docs/ERC-8415-Wallet-PRD.md']) {
       'AGENTS.md': /V2 standalone and V3 linked runtime profiles remain distinct/,
       'docs/ERC-8415-Wallet-PRD.md': /V2 maps to the retained v2\.2 foundation in sections 1–8; V3 retains that foundation and adds section 9/,
     };
-    assert.match(text, capabilityRelationship[path]);
+    const expectedRelationship = capabilityRelationship[path];
+    assert.ok(expectedRelationship, `Missing profile relationship for ${path}`);
+    assert.match(text, expectedRelationship);
     assert.doesNotMatch(text, /\bXiongan\b/i);
     if (path === 'README.md') {
       assert.match(text, /Tenant deployments are configurations, not separate products/);
