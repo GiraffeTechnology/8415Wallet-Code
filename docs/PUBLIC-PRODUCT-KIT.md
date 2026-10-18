@@ -88,14 +88,14 @@ for separately authorized execution, not run by product packaging:
 ```sh
 PACKAGE_DIRECTORY="$(cd "$NEW_PRIVATE_KIT_DIRECTORY/runtime/auth" && pwd -P)"
 
-node "$PACKAGE_DIRECTORY/deploy/auth-xiongan/install.mjs" prepare \
+node "$PACKAGE_DIRECTORY/deploy/auth-runtime/install.mjs" prepare \
   --package "$PACKAGE_DIRECTORY" --node "$ABSOLUTE_NODE_EXECUTABLE" \
   --origin "$EXISTING_HTTPS_ORIGIN" --tenant "$TENANT" \
   --bindings "$PRIVATE_BINDINGS_JSON" --reserved-ports "$HOST_RESERVED_PORT_LIST_OR_none"
 
-node "$PACKAGE_DIRECTORY/deploy/auth-xiongan/install.mjs" check --tenant "$TENANT"
+node "$PACKAGE_DIRECTORY/deploy/auth-runtime/install.mjs" check --tenant "$TENANT"
 
-node "$PACKAGE_DIRECTORY/deploy/auth-xiongan/install.mjs" enable-proxy --tenant "$TENANT" \
+node "$PACKAGE_DIRECTORY/deploy/auth-runtime/install.mjs" enable-proxy --tenant "$TENANT" \
   --nginx-site "$EXACT_EXISTING_TLS_SITE_FILE"
 ```
 
@@ -298,7 +298,7 @@ that inventory check. The final artifact digest still binds compiled output byte
 The curated source supports the unchanged DApp/auth/delivery build/verify commands,
 plus `pack:v2`, `pack:v3`, `pack:v2:verify`, and `pack:v3:verify` for independent SDK
 artifacts. Use `docs/DAPP-INSTALL.md`, `docs/AUTH-INSTALL.md` and the unchanged
-`deploy/dapp/install.mjs` / `deploy/auth-xiongan/install.mjs` after separately
+`deploy/dapp/install.mjs` / `deploy/auth-runtime/install.mjs` after separately
 approved deployment configuration. Upgrade/rollback and origin/account-state
 semantics are unchanged. Do not infer service-installation authority from a build.
 

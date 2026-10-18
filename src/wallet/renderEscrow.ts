@@ -65,11 +65,13 @@ export function renderEscrow(view: EscrowView): string {
 }
 
 /**
- * A zero address is the register having no entry at all, or the token not
- * existing. Reporting it as an address would read as a party to the trade.
+ * The escrow observation uses zero for both absence and failed reads. This ABI
+ * cannot distinguish them, so never report the sentinel as a proven missing party.
  */
 function holder(address: string): string {
-  return address === ZERO_ADDRESS ? 'nobody — no record' : formatAddress(address);
+  return address === ZERO_ADDRESS
+    ? 'unavailable or no record — not distinguished by this observation'
+    : formatAddress(address);
 }
 
 const WEI_PER_ETH = 1_000_000_000_000_000_000n;

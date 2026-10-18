@@ -10,7 +10,7 @@ const { execFileSync } = require('node:child_process');
 const { chromium } = require('playwright-core');
 
 const root = path.resolve(__dirname, '../..');
-const tenants = ['xiongan', 'giraffe', 'lala'];
+const tenants = ['synthetic-alpha', 'synthetic-beta', 'synthetic-gamma'];
 const buttons = ['auth-initial-open', 'auth-manage-open'];
 const sourceRef = process.env.TENANT_UI_SOURCE_REF || null;
 const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
@@ -23,12 +23,12 @@ function source(relative) {
 }
 function profile(tenant, url) {
   return { schema: '8415wallet-release/1', product: '8415wallet', platform: '8415wallet.com',
-    profile: tenant === 'xiongan' ? 'v2' : 'v3', tenant: { id: tenant, label: tenant },
-    deployment: { environment: url ? 'sin' : 'unconfigured', url } };
+    profile: tenant === 'synthetic-alpha' ? 'v2' : 'v3', tenant: { id: tenant, label: tenant },
+    deployment: { environment: url ? 'other' : 'unconfigured', url } };
 }
 function routes(urlFor = tenant => `https://${tenant}.8415wallet.com:9446/web/index.html`, ready = true) {
   return { schema: '8415wallet-password-routing/1', entries: tenants.map(tenant => ({ tenant,
-    profile: tenant === 'xiongan' ? 'v2' : 'v3', url: urlFor(tenant), passwordManagementReady: ready })) };
+    profile: tenant === 'synthetic-alpha' ? 'v2' : 'v3', url: urlFor(tenant), passwordManagementReady: ready })) };
 }
 const gate = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const settle = page => page.evaluate(() => new Promise(resolve => setTimeout(resolve, 30)));
@@ -116,9 +116,9 @@ async function run() {
   try {
     browser = await chromium.launch({ executablePath: process.env.WALLET_BROWSER_CHROMIUM || '/usr/bin/chromium',
       args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-    for (const tenant of ['default', 'xiongan']) for (const button of buttons) {
+    for (const tenant of ['default', 'synthetic-alpha']) for (const button of buttons) {
       await scenario(`delayed ${tenant} ${button}`, async () => {
-        const url = tenant === 'default' ? 'https://8415wallet.com:9446/v3/web/index.html' : 'https://xiongan.8415wallet.com:9446/web/index.html';
+        const url = tenant === 'default' ? 'https://8415wallet.com:9446/v3/web/index.html' : 'https://synthetic-alpha.8415wallet.com:9446/web/index.html';
         const f = await fixture({ url, config: profile(tenant, url), holdConfig: true });
         try {
           const before = await f.state();
@@ -153,8 +153,8 @@ async function run() {
       });
     }
     for (const button of buttons) await scenario(`failed config ${button}`, async () => {
-      const url = 'https://xiongan.8415wallet.com:9446/web/index.html';
-      const f = await fixture({ url, config: profile('xiongan', url), failConfig: true });
+      const url = 'https://synthetic-alpha.8415wallet.com:9446/web/index.html';
+      const f = await fixture({ url, config: profile('synthetic-alpha', url), failConfig: true });
       try {
         await f.releaseConfig(); await f.page.dispatchEvent(`#${button}`, 'click'); await settle(f.page);
         const state = await f.state();
@@ -168,17 +168,22 @@ async function run() {
         : variant === 'nested-path' ? `https://${tenant}.8415wallet.com:9446/tenant/${tenant}/web/index.html`
           : variant === 'default-https' ? `https://${tenant}.8415wallet.com/web/index.html`
             : variant === 'explicit-default-https' ? `https://${tenant}.8415wallet.com:443/web/index.html` : `https://${tenant}.8415wallet.com:9446/web/index.html`;
-      await scenario(`platform routes ${variant}`, async () => {
+      await scenario(`platform directory privacy ${variant}`, async () => {
         const url = 'https://8415wallet.com:9446/v3/web/index.html';
         const f = await fixture({ url, config: profile('default', url), routing: routes(target) });
         try {
-          await f.releaseConfig(); check((await f.state()).selector, 'Apex must show tenant selection');
-          for (const tenant of tenants) for (const action of ['initial', 'manage']) {
-            await f.page.selectOption('#password-tenant-select', tenant); await f.page.selectOption('#password-tenant-action', action);
-            assert.equal(await f.page.getAttribute('#password-tenant-continue', 'href'), `${target(tenant)}#auth-${action}`, 'Preserve exact configured endpoint and only add fixed fragment');
-            assert.equal(await f.page.getAttribute('#password-tenant-continue', 'aria-disabled'), 'false');
+          await f.releaseConfig(); check((await f.state()).selector, 'Apex must show owner-known name entry');
+          assert.equal(await f.page.locator('#password-tenant-select').evaluate(node => node.tagName), 'INPUT');
+          const responses = [];
+          for (const tenant of [...tenants, 'unknown-wallet', 'not-listed']) for (const action of ['initial', 'manage']) {
+            await f.page.fill('#password-tenant-select', tenant); await f.page.selectOption('#password-tenant-action', action);
+            assert.equal(await f.page.getAttribute('#password-tenant-continue', 'href'), null);
+            assert.equal(await f.page.getAttribute('#password-tenant-continue', 'aria-disabled'), 'true');
+            responses.push(await f.page.textContent('#password-tenant-status'));
           }
-          assert.deepEqual(f.auth, []); await f.safety(); return { tenantActionCombinations: 6, noTenantProbes: true };
+          assert.equal(new Set(responses).size, 1, 'Known/unknown/action variants must have indistinguishable results');
+          assert.ok(!f.requests.some(request => /8415wallet-password-routing|tenant-password-routing\\.json/.test(request)));
+          assert.deepEqual(f.auth, []); await f.safety(); return { namesNotResolved: true, noDirectoryRequests: true };
         } finally { await f.close(); }
       });
       for (const tenant of tenants) for (const action of ['initial', 'manage']) await scenario(`destination ${variant} ${tenant} ${action}`, async () => {
@@ -196,32 +201,32 @@ async function run() {
     }
 
     for (const [name, bad] of Object.entries({
-      'cross-tenant': 'https://lala.8415wallet.com:9446/web/index.html',
+      'cross-tenant': 'https://synthetic-gamma.8415wallet.com:9446/web/index.html',
       'foreign-host': 'https://attacker.invalid:9446/web/index.html',
-      query: 'https://giraffe.8415wallet.com:9446/web/index.html?tenant=xiongan',
-      hash: 'https://giraffe.8415wallet.com:9446/web/index.html#auth-initial',
-      credentials: 'https://user:synthetic@giraffe.8415wallet.com:9446/web/index.html',
-      insecure: 'http://giraffe.8415wallet.com:9446/web/index.html',
+      query: 'https://synthetic-beta.8415wallet.com:9446/web/index.html?tenant=synthetic-alpha',
+      hash: 'https://synthetic-beta.8415wallet.com:9446/web/index.html#auth-initial',
+      credentials: 'https://user:synthetic@synthetic-beta.8415wallet.com:9446/web/index.html',
+      insecure: 'http://synthetic-beta.8415wallet.com:9446/web/index.html',
     })) await scenario(`platform refuses ${name}`, async () => {
       const url = 'https://8415wallet.com:9446/v3/web/index.html', routing = routes(); routing.entries[1].url = bad;
       const f = await fixture({ url, config: profile('default', url), routing });
       try {
-        await f.releaseConfig(); await f.page.selectOption('#password-tenant-select', 'giraffe');
+        await f.releaseConfig(); await f.page.fill('#password-tenant-select', 'synthetic-beta');
         assert.equal(await f.page.getAttribute('#password-tenant-continue', 'href'), null);
         assert.equal(await f.page.getAttribute('#password-tenant-continue', 'aria-disabled'), 'true');
         assert.deepEqual(f.auth, []); await f.safety(); return { navigationRefused: true };
       } finally { await f.close(); }
     });
 
-    const expected = 'https://giraffe.8415wallet.com:19446/nested/web/index.html';
+    const expected = 'https://synthetic-beta.8415wallet.com:19446/nested/web/index.html';
     for (const [name, actual] of Object.entries({
-      'cross-tenant': expected.replace('giraffe.', 'lala.') + '#auth-initial',
-      'foreign-host': expected.replace('giraffe.8415wallet.com', 'attacker.invalid') + '#auth-initial',
+      'cross-tenant': expected.replace('synthetic-beta.', 'synthetic-gamma.') + '#auth-initial',
+      'foreign-host': expected.replace('synthetic-beta.8415wallet.com', 'attacker.invalid') + '#auth-initial',
       'different-port': expected.replace(':19446', ':19447') + '#auth-initial',
       'different-path': expected.replace('/nested/', '/other/') + '#auth-initial',
-      query: expected + '?tenant=lala#auth-initial', hash: expected + '#auth-initial?tenant=lala',
+      query: expected + '?tenant=synthetic-gamma#auth-initial', hash: expected + '#auth-initial?tenant=synthetic-gamma',
     })) await scenario(`destination refuses ${name}`, async () => {
-      const f = await fixture({ url: actual, config: profile('giraffe', expected) });
+      const f = await fixture({ url: actual, config: profile('synthetic-beta', expected) });
       try {
         await f.releaseConfig();
         for (const button of buttons) await f.page.dispatchEvent(`#${button}`, 'click');
@@ -232,8 +237,8 @@ async function run() {
     });
 
     await scenario('close during delayed capabilities then reopen', async () => {
-      const url = 'https://xiongan.8415wallet.com:9446/web/index.html';
-      const f = await fixture({ url, config: profile('xiongan', url), holdCapabilities: true });
+      const url = 'https://synthetic-alpha.8415wallet.com:9446/web/index.html';
+      const f = await fixture({ url, config: profile('synthetic-alpha', url), holdCapabilities: true });
       try {
         // Config is fulfilled, but there is no capability lookup until an action.
         await f.releaseConfig(); await f.page.click('#auth-initial-open'); await f.capabilitiesSeen.promise;

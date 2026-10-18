@@ -11,7 +11,7 @@ Direct TypeScript module: src/wallet/hoodiJourney.ts.
 - renderHoodiReleaseHistory(report) displays original v2 commitment/time and later v3 commitment/effectiveAt/actual admission separately.
 - serialiseHoodiJourney(record) preserves bigint values as decimal strings.
 
-Only the exact three tenant labels Xiongan, Giraffe and Lala are accepted, with three distinct existing accounts. Hoodi chain/genesis are fixed; contract/token/register/profile/accounts are mandatory inputs with no defaults, discovery, private keys or RPC fallbacks. No fourth/fifth actor or payment is invented.
+Exactly three distinct opaque tenant bindings and three distinct existing accounts are required. Their actual mapping is private deployment input, never a public built-in roster. Tenant identifiers are lowercase bounded identifiers; neither a synthetic example nor this evidence module grants access. Hoodi chain/genesis are fixed; contract/token/register/profile/accounts are mandatory inputs with no defaults, discovery, private keys or RPC fallbacks. No fourth/fifth actor or payment is invented.
 
 The original release record includes leg/control identity, exact accepted-condition/terms digests, owner and admitted-holder occurrences, actual token owner/result transaction, original v2 entry/admission, and release receipt block/hash/time. Occurrence numbers are NOT derived from address order. This assembler validates consistency, not signatures or occurrence proofs. The existing control/execution adapter must independently authenticate all inputs; a caller-supplied receipt or this report never authorizes release.
 
@@ -25,13 +25,13 @@ PinnedJourneyRead is an adapter contract, not proof that an arbitrary injected r
 
 This module has NO signer, sendTransaction, deployment, release, callback, refund or transaction retry path. canExecute is always false. It records an existing decision, not a new one. No synthetic example may be presented as a chain run. Confirmed control/token/payment receipts are collected separately by the authorized executor. No escrow requirement is introduced. Failed optional payment remains separate from responsibility completion.
 
-Applications must require the existing verified wallet login before fetching or showing protected asset/history data. This formatting function is not a login service or UI privacy boundary. Do not publish operational manifests, account bindings, bearer tokens, personal credentials or raw signatures.
+Applications must require the existing verified wallet login before fetching or showing protected asset/history data. The human-readable summary omits tenant roster and holder identities. The lossless serialization retains protected evidence and MUST remain confined to an authorized evidence sink; it must not be exposed through ordinary UI/downloads. This formatting function is not a login service or UI privacy boundary. Do not publish operational manifests, account bindings, bearer tokens, personal credentials or raw signatures.
 
 The exact forum target is https://ethereum-magicians.org/t/8415wallet-an-erc-8415-based-wallet-now-available-for-beta-testing/29945/4 . Its content was inaccessible during authoring; the explicit supplied task conditions govern this implementation. No alternate forum post or page instruction was substituted.
 
 ## Handoff
 
-Ten test cases supplied in tests/hoodiJourney.test.ts are synthetic AUTHORING ONLY. They were not parsed, compiled or run by development. Bear/Xiongan owns Linux tests, CI, all post-submission modifications, audit and merge. Ops READY, existing accounts/provider/token/control/authority bindings and actual release/v3 receipts are mandatory for real use. When Bear cannot SSH, Control itself owns authorized deployment/chain execution, never the Wallet developer.
+Twelve test cases supplied in tests/hoodiJourney.test.ts are synthetic AUTHORING ONLY. They were not parsed, compiled or run by development. Wallet owns integration and repairs; Wallet2 owns authorized real-chain tests; the established independent reviewer owns applicable review and merge. Product validation is restricted to existing approved CTYun/Aliyun non-Windows servers; the current CI hold remains effective. Ops READY, existing accounts/provider/token/control/authority bindings and actual release/v3 receipts are mandatory for real use. A missing execution entry is recorded for the affected operation; it does not transfer credentials or authorize alternate callers or a retry of a specific refusal.
 
 The author used GitHub source APIs only: no local Windows application generation, no server writes, no CI inspection/rerun, no signing/broadcast, no fixed communication MD writes. Older PR87/89–94 are acceptance-owned and untouched.
 

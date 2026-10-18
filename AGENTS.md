@@ -5,8 +5,8 @@
 The sole current complete product requirements are `docs/ERC-8415-Wallet-PRD.md`:
 - Release label: **Beta 2.0**; V2 standalone and V3 linked runtime profiles remain distinct.
 - Requirements revision: **2026-10-19 HKT multichain core requirement**, matching `config/current-prd.json`.
-- Exact UTF-8 bytes: **110377**.
-- SHA-256: **117426ba8a421d3dbd9312911ca45ac26ee948c308381e800f6fd383295ddb55**.
+- Exact UTF-8 bytes: **110880**.
+- SHA-256: **de80f078aead881a35f42c52b8aa99bd0d37dbbb36640f059f7eef134f9ef5e3**.
 - Includes the full retained foundation, all stages, §9 linked requirements, §10 UI/API requirements, and §§6.5.1 / 10.7.1 historical-observation identity and UI contract.
 - Foundational multichain-wallet requirement: multiple networks are a core product property, not an optional extension. Read the complete Multichain compatibility and acceptance section (MC-01–MC-08). Keep network identity, asset/history/grant isolation, RPC and signer verification, capability declarations and actual tested coverage consistent across UI, API and CLI. A bounded single-network execution profile does not redefine the product. Preserve Ethereum (chain ID 1) as the default network and label. Explicit selection may choose another supported chain; verify the actual provider against the default or selected chain, and do not silently auto-switch to a mismatching RPC. Do not claim unsupported chain families.
 - Foundational agentic-wallet requirement: support full owner-granted authority. ALL ON permits the agent to sign and execute within that authority without per-operation human approval/signature prompts. This is a product capability, not a test-only exception or UI-only state. Preserve explicit revocations, granted scope and actual chain validity.
@@ -443,4 +443,16 @@ treat a later move as data loss rather than as a configuration change.
 Which address a given environment serves on, and which ports are reserved there,
 is deployment configuration rather than a product requirement; it belongs in that
 environment's deployment document.
+
+# Observed finality and chain attribution
+
+Never assume every present or purchase instant is non-final. Preserve
+`isFinalAsOf` at the exact queried instant and assess its boundaries separately.
+A covered present instant can be final under an admitted future-effective
+entry. Missing, uncovered and inconsistent projection evidence remain distinct
+from ordinary provisional state; feed freshness cannot supply missing evidence.
+Verify the originally expected chain after asynchronous snapshot reads and
+before publishing attributed facts, including latest-mode observations. Do not
+replace the selected/default chain with the provider's answer. These are data
+integrity checks and do not introduce a human approval prerequisite.
 

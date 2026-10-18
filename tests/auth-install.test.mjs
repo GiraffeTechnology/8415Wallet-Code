@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { paths, prepare, inspect, rollback, enableProxy, insertProxy, nginxLocation, selectPort, protect, probe, cli, upgrade, rollbackCode, inspectNginxIncludes, configureMail } from '../deploy/auth-xiongan/install.mjs';
+import { paths, renderAuthServiceUnit, prepare, inspect, rollback, enableProxy, insertProxy, nginxLocation, selectPort, protect, probe, cli, upgrade, rollbackCode, inspectNginxIncludes, configureMail } from '../deploy/auth-runtime/install.mjs';
 import { validateAuthConfig } from '../server/config-validation.mjs';
 import { createAuthService } from '../server/auth-service.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
@@ -70,7 +70,7 @@ test('independent Node fixture uses exclusive create-and-write rather than host 
 const uid = process.getuid(), nodeUid = fixtureNode.uid;
 const tenant = 'fixture-tenant', origin = 'https://wallet.example.invalid:9447';
 const accounts = [{ username: 'fixture-user', wallets: [{ account: `0x${'1'.repeat(40)}`, chainId: '8453' }] }];
-const sourceFiles = ['server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS, 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/socket-path.mjs', 'server/mail-config.mjs', 'server/mail-otp.mjs', 'server/account-directory.mjs', 'server/recovery-service.mjs', 'server/registration-service.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-xiongan/install.mjs', 'deploy/auth-xiongan/8415wallet-auth-xiongan.service', 'deploy/auth-xiongan/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
+const sourceFiles = ['server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS, 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/socket-path.mjs', 'server/mail-config.mjs', 'server/mail-otp.mjs', 'server/account-directory.mjs', 'server/recovery-service.mjs', 'server/registration-service.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
 function put(root, path, data) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), data, { mode: 0o644 }); }
 function syntheticPackage(root, label = '', { mailSupported = true } = {}) {
   const source = join(root, 'source'), runtime = join(root, 'runtime'); mkdirSync(source); mkdirSync(runtime);
@@ -105,7 +105,23 @@ const vhost = `# Keep other servers and locations intact.\nserver { listen 9448 
 
 test('tenant paths are separate and reject traversal or interpolation', () => {
   assert.equal(paths('', 'other-tenant').config, '/etc/8415wallet-auth-other-tenant');
-  for (const value of ['../tenant', '', 'UPPER', 'bad;directive', 'x'.repeat(49)]) assert.throws(() => paths('', value), /TENANT_REFUSED/);
+  for (const value of [undefined, null, {}, '../tenant', '', 'UPPER', 'bad;directive', 'synthetic-alpha\n', 'x'.repeat(49)]) assert.throws(() => paths('', value), /TENANT_REFUSED/);
+});
+test('public unit template binds only an explicit synthetic instance and preserves hardening', () => {
+  const template = readFileSync(new URL('../deploy/auth-runtime/8415wallet-auth.service', import.meta.url), 'utf8');
+  const unit = renderAuthServiceUnit(template, { tenant: 'synthetic-alpha', node: '/opt/synthetic-node/bin/node' });
+  assert.ok(!unit.includes('@TENANT@'));
+  assert.ok(unit.includes('ExecStart=/opt/synthetic-node/bin/node server/runtime-entry.mjs --tenant synthetic-alpha'));
+  assert.ok(unit.includes('LoadCredential=store-key:/etc/8415wallet-auth-synthetic-alpha/store-key'));
+  assert.ok(unit.includes('RestrictAddressFamilies=AF_UNIX'));
+  for (const guard of ['NoNewPrivileges=true', 'ProtectSystem=strict', 'PrivateDevices=true', 'IPAddressDeny=any']) {
+    assert.ok(unit.includes(guard));
+    assert.throws(() => renderAuthServiceUnit(template.replace(guard, ''), { tenant: 'synthetic-alpha', node: '/opt/synthetic-node/bin/node' }), /GUARD_REQUIRED/);
+  }
+  assert.throws(() => renderAuthServiceUnit(template.replaceAll('@TENANT@', 'synthetic-fixed'), { tenant: 'synthetic-alpha', node: '/opt/synthetic-node/bin/node' }), /BINDING_REQUIRED/);
+  assert.throws(() => renderAuthServiceUnit(template, { tenant: 'synthetic-alpha', node: '/opt/node\nInjected=yes' }), /NODE_PATH_REFUSED/);
+  assert.throws(() => renderAuthServiceUnit(template, { tenant: 'synthetic-alpha', node: '/opt/node\n' }), /NODE_PATH_REFUSED/);
+  assert.doesNotThrow(() => renderAuthServiceUnit(template.replace(/\n/g, '\r\n'), { tenant: 'synthetic-alpha', node: '/opt/synthetic-node/bin/node' }));
 });
 test('OS-selected loopback ports honor explicit reservations', async () => {
   const port = await selectPort([]); assert.ok(port > 0 && port <= 65535);

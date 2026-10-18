@@ -1,4 +1,8 @@
-# Xiongan authentication preparation (historical PR58 record)
+# example-tenant-a authentication preparation (historical PR58 record)
+> Deployment names and host addresses in this public document are synthetic
+> examples or unresolved placeholders. They do not identify an existing instance
+> and must not replace the operator's separately retained approved bindings.
+
 
 For the current reusable DApp kit, secure first provisioning, tenant-scoped Unix
 transport and installation/update/rollback commands, use [AUTH-INSTALL.md](AUTH-INSTALL.md)
@@ -13,7 +17,7 @@ acceptance certificate. Existing merged UI remains deployed unchanged.
 
 Base main: `2fb99c5275a4cc5ed692982498d397ec49fb902d`.
 Base tree: `514900f10f3edf6a4b2eb23435b8b3ab41f39564`.
-Repair branch: `fix/xiongan-auth-provisioning-qr-20261006`.
+Repair branch: `fix/example-tenant-a-auth-provisioning-qr-20261006`.
 Control owns managed CTYun/SIN Linux test execution, review, merge and activation.
 No application, test, listener, operator identity or credential has been created
 by preparing these files. Windows is source/report preparation only.
@@ -21,22 +25,22 @@ by preparing these files. Windows is source/report preparation only.
 ## Concrete, inactive service proposal
 
 Read-only SIN inventory on 2026-10-06 observed systemd 252, free port 18417,
-the existing Xiongan vhost without `/auth/`, and the proposed service/config/state
+the existing example-tenant-a vhost without `/auth/`, and the proposed service/config/state
 paths absent. Recheck ownership, free port and path absence immediately before
 installation. Do not replace any unrelated service or shared bridge.
 
-- Origin: `https://xiongan.8415wallet.com:9446` (existing UI path `/web/index.html`).
-- Runtime source: `/opt/8415wallet-auth-xiongan/current`; immutable release beneath
+- Origin: `https://example-tenant-a.8415wallet.com:9446` (existing UI path `/web/index.html`).
+- Runtime source: `/opt/8415wallet-auth-example-tenant-a/current`; immutable release beneath
   the task-owned runtime root, root-owned and not writable by web clients.
-- Account configuration: `/etc/8415wallet-auth-xiongan/auth.json`, root:root 0600;
+- Account configuration: `/etc/8415wallet-auth-example-tenant-a/auth.json`, root:root 0600;
   parent root:root 0700.
 - Operator-owned independent key source: fixed private `store-key` under that
   same directory, root:root 0600, never in source, web, arguments or logs.
-- Encrypted state: `/var/lib/8415wallet-auth-xiongan/credentials.enc`, single writer.
-- Unit candidate: `deploy/auth-xiongan/8415wallet-auth-xiongan.service`.
+- Encrypted state: `/var/lib/8415wallet-auth-example-tenant-a/credentials.enc`, single writer.
+- Unit candidate: `deploy/auth-runtime/8415wallet-auth.service`.
 - Loopback: `127.0.0.1:18417`, no public auth listener and no changes to 443.
-- Proxy snippet: `deploy/auth-xiongan/auth-location.nginx.conf`, included ONLY
-  within existing Xiongan TLS server, never the platform tenant's server.
+- Proxy snippet: `deploy/auth-runtime/auth-location.nginx.conf`, included ONLY
+  within existing example-tenant-a TLS server, never the platform tenant's server.
 
 The source/unit templates are NOT installed or enabled. No disabled service mode
 or new health endpoint is invented. `accounts: []` in the public preparation
@@ -56,12 +60,16 @@ delete a live lock or restore an old credential snapshot as routine rollback.
 
 `npm run wallet:auth:operator -- --help` documents this newly authored tool;
 it is not a previously existing `wallet:auth:init` feature. On an approved trusted
-Linux terminal, after Control creates the fixed private parent with protected
-ownership/mode, the approved operator runs `node server/operator-init.mjs --initialize`
-as root from the verified runtime. It asks only public username, controlled EOA,
-Ethereum/Base scope and explicit approval, then creates the private config once.
+Linux terminal, after the authorized operator verifies the existing tenant's private
+parent and protected ownership/mode, the approved operator runs
+`node server/operator-init.mjs --initialize --tenant EXISTING_TENANT` as root from
+the verified runtime. `EXISTING_TENANT` is an unresolved documentation placeholder,
+not a default or permission to create another deployment. The tool asks for the
+confirmed public username, complete canonical origin, existing listener port,
+controlled EOA, Ethereum/Base scope and explicit binding approval, then creates
+config once. No live deployment value is supplied by the public template.
 No secret is prompted for, generated, read or passed to the assistant. Existing
-config is never overwritten. `--check` emits only counts and configuration validity,
+config is never overwritten. `--check --tenant EXISTING_TENANT` emits only counts and configuration validity,
 never addresses, password hashes or credentials, and does not check or activate keys.
 
 The user-confirmed account and Base mainnet binding are recorded separately in
@@ -133,7 +141,7 @@ credential/hardening behavior require Linux evidence. No test result is inferred
 Control validates/installs immutable source and lock dependencies, then the
 approved operator confirms public bindings and separately provisions secrets.
 Validate fixed config, start the unit and only then enable the Host-specific proxy
-after `nginx -t`. Correct HTTP probes include `X-Wallet-Tenant:xiongan`; POST also
+after `nginx -t`. Correct HTTP probes include `X-Wallet-Tenant:example-tenant-a`; POST also
 requires exact Origin, JSON, cookie and CSRF. No `/auth/health` shortcut exists.
 The user signs a login-only registered-wallet challenge and, within five minutes,
 starts TOTP setup, scans locally, confirms six digits and privately saves eight
@@ -144,3 +152,5 @@ unit; preserve current UI, origins, shared services, account configuration and
 credential state. Never roll credential counters back. Code rollback must remain
 compatible with current encrypted state or require authorized recovery. Binding
 updates require service restart and revoke sessions, not simply a page refresh.
+
+

@@ -220,7 +220,7 @@ served from an index:
 |---|---|
 | `ownerOf` | The tradeable position. An index serving both it and the confirmed holder from one store would assert exactly the equivalence ERC-8415 exists to deny. |
 | `supportsInterface` | How a deployment advertises conformance. An indexer vouching for the contract it indexes is circular. |
-| `block.timestamp` | Dates a gap against its deadline, and is why the present instant is never final. |
+| `block.timestamp` | Dates a gap against its deadline and supplies the queried present instant. Read finality independently from `isFinalAsOf`; an admitted future-effective entry can make a covered present instant final. |
 
 Settlement records are on chain for a narrower reason: the Kit's API serves
 only the gap currently open, and a wallet's settlement history is mostly
@@ -336,9 +336,12 @@ For a token, display as separate, adjacent facts:
 - **Settlement authority** — whether the user's own account may open a gap on
   this token, from `isSettlementAuthority`.
 
-The current instant is at or after the latest entry's `effectiveAt` and is
-therefore never final. The asset view says so plainly rather than leaving the
-absence of a "final" badge to be read as an error.
+Preserve the contract's finality answer at the observed instant. The protocol
+rule is `firstEffectiveAt <= t < latestEffectiveAt`. In the ordinary case
+`t >= latestEffectiveAt`, the present is provisional; an already admitted
+future-effective entry can make a covered present instant final. Show consistency,
+disagreement and unavailable boundaries separately without substituting a
+recomputed answer for the contract's response.
 
 ## 4.2 Temporal Query
 
@@ -504,8 +507,10 @@ that application authorization is not a registrar-imposed protocol lock.
 A holder deciding whether to acquire a token needs the same facts as one who
 already holds it, framed for a decision that has not been made yet: whether a
 gap is open, whose registration it is waiting on, whether further hops sit
-behind it, and that the instant of their own purchase will never be final at
-the moment it happens — the present never is.
+behind it, and the actual finality answer for the exact observed instant with
+its evidence boundaries. Do not predict finality at a future purchase instant
+or reuse an answer obtained for a different instant. A purchase itself neither
+admits an entry nor supplies a finality answer.
 
 The wallet presents those facts. It does not score the token, does not say
 whether acquiring is wise. Whether that risk is acceptable is the acquirer's

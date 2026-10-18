@@ -127,11 +127,49 @@ function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 
   const sdk = { ...uiI18n, ...changeUi, WalletLogin, WalletLoginError, AccountAuthClient: BoundClient, verifyMessage, getAddress, hashMessage, Interface,
     clearEnrollmentQr, renderEnrollmentQr,
     isPlatformPasswordProfile, passwordPanelAction, getReleaseProfile: () => profile, acquireWalletUi: () => Symbol(), releaseWalletUi() {} };
-  const login = new Function('document', 'globalThis', 'setTimeout', 'clearTimeout', ...Object.keys(sdk), `${source}\nreturn walletLogin;`)(
+  const settingsEntry = new Function('document', 'globalThis', 'setTimeout', 'clearTimeout', ...Object.keys(sdk), `${source}\nreturn { walletLogin, subscribeAccountSettings };`)(
     document, { ethereum: provider, location: { origin }, addEventListener(event: string, handler: (event?: any) => unknown) { windowEvents.set(event, handler); } },
     (handler: () => void) => { timers.set(++timerId, handler); return timerId; }, (id: number) => timers.delete(id), ...Object.values(sdk));
-  return { ready: profile, element, state, dialogFields, document, session, login, requests, calls, timers, windowEvents, emit: (event: string) => { for (const fn of providerEvents.get(event) ?? []) fn(); }, click: (id: string) => element(id).handlers.get('click')(), change: () => element('wallet-login-method').handlers.get('change')() };
+  const login = settingsEntry.walletLogin;
+  return { ready: profile, element, state, dialogFields, document, session, login, subscribeAccountSettings: settingsEntry.subscribeAccountSettings, requests, calls, timers, windowEvents, emit: (event: string) => { for (const fn of providerEvents.get(event) ?? []) fn(); }, click: (id: string) => element(id).handlers.get('click')(), change: () => element('wallet-login-method').handlers.get('change')() };
 }
+test('actual account settings publish current visibility and close before returning to caller', async () => {
+  const f = fixture('password'), states: boolean[] = [];
+  const unsubscribe = f.subscribeAccountSettings((open: boolean) => states.push(open));
+  assert.deepEqual(states, [false]);
+  await f.click('wallet-login'); await f.click('auth-manage-open');
+  assert.equal(states.at(-1), true); assert.equal(f.element('auth-management').hidden, false);
+  f.click('auth-management-close');
+  assert.equal(states.at(-1), false); assert.equal(f.element('auth-management').hidden, true);
+  unsubscribe(); const count = states.length;
+  await f.click('auth-manage-open'); assert.equal(states.length, count);
+});
+test('a policy-panel listener cannot interrupt existing settings close or logout cleanup', async () => {
+  const f = fixture('password'); let fail = false;
+  f.subscribeAccountSettings(() => { if (fail) throw new Error('synthetic panel error'); });
+  await f.click('wallet-login'); await f.click('auth-manage-open'); fail = true;
+  assert.doesNotThrow(() => f.click('auth-management-close'));
+  assert.equal(f.element('auth-management').hidden, true);
+  f.click('wallet-logout');
+  assert.equal(f.element('wallet-private').hidden, true); assert.throws(() => f.login.assert());
+});
+test('registration entry closes policy settings and successful signup publishes its automatic settings open', async () => {
+  const f = fixture('password'), states: boolean[] = [];
+  f.subscribeAccountSettings((open: boolean) => states.push(open));
+  await f.ready; await f.click('auth-manage-open'); assert.equal(states.at(-1), true);
+  await signupVerified(f); assert.equal(states.at(-1), false);
+  await f.click('auth-registration-finish');
+  assert.equal(f.element('auth-management').hidden, false); assert.equal(states.at(-1), true);
+});
+test('completed enrollment publishes the settings close before exposing its one-time recovery output', async () => {
+  const f = fixture('password'), states: boolean[] = [];
+  f.subscribeAccountSettings((open: boolean) => states.push(open));
+  await f.click('wallet-login'); await f.click('auth-manage-open'); await f.click('auth-enroll-start');
+  assert.equal(states.at(-1), true);
+  f.element('auth-enroll-code').value = '123456'; await f.click('auth-enroll-confirm');
+  assert.equal(states.at(-1), false); assert.equal(f.element('auth-management').hidden, true);
+  assert.equal(f.element('auth-recovery-output').hidden, false);
+});
 for (const method of ['password', 'totp']) test(`actual ${method} UI handler clears credentials, requests only account access and unlocks verified identity`, async () => {
   const f = fixture(method); await f.click('wallet-login'); assert.equal(f.element('wallet-private').hidden, false, f.element('wallet-login-status').textContent);
   assert.equal(f.element('auth-password').value, ''); assert.equal(f.element('auth-code').value, '');

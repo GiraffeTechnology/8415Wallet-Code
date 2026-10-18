@@ -36,7 +36,10 @@ test('V2 and V3 have distinct PRD mapping, explicit features and Beta identity',
   assert.deepEqual(v2.features.assetStandards, ['native-ETH', 'ERC-20', 'ERC-721', 'ERC-1155']);
   assert.deepEqual(v3.features.assetStandards, v2.features.assetStandards);
   assert.equal(v2.features.linkedResponsibilities, false); assert.equal(v3.features.linkedResponsibilities, true);
-  assert.deepEqual(v2.prd.sections, ['1','2','3','4','5','6','7','8']);
+  assert.deepEqual(v2.prd.sections, ['1','2','3','4','5','6','7','8','10']);
+  assert.deepEqual(v3.prd.sections, ['1','2','3','4','5','6','7','8','9','10']);
+  assert.equal(v2.prd.sections.includes('9'), false);
+  assert.equal(v2.prd.version, '2.2'); assert.equal(v3.prd.version, '3.0');
   assert.equal(v3.prd.scenarios.length, 24); assert.equal(v3.prd.scenarios[23], 'W-24');
   assert.equal(v2.product, '8415wallet'); assert.equal(v3.platform, '8415wallet.com');
   assert.equal(v2.deployment.url, null); assert.match(v2.status, /BETA.*NOT_INDEPENDENTLY_AUDITED/);

@@ -1,4 +1,6 @@
 import { readAssetWorkspace, renderAssetWorkspace } from '../dist/browser/browser.js';
+import { paint, presentation } from './i18n.mjs';
+import { privateReadProjection, identityText } from './wallet-identity-display.mjs';
 
 /** Mounted by the existing app, with its original connected session references. */
 export function mountAssetWorkspace({ root, login, getContext }) {
@@ -26,28 +28,33 @@ export function mountAssetWorkspace({ root, login, getContext }) {
   output.style.whiteSpace = 'pre-wrap'; output.style.overflowWrap = 'anywhere';
   panel.append(title, instant, sequence, logsLabel, load, next, select, output); root.append(panel);
   let generation = 0, report = null, nextVersion = null, pending = false;
-  const clear = () => { generation++; report = null; nextVersion = null; pending = false; output.textContent = ''; };
+  let page = globalThis.history?.state?.walletPage ?? 'native';
+  panel.setAttribute('data-page', 'native'); panel.hidden = page !== 'native';
+  const clear = () => { generation++; report = null; nextVersion = null; pending = false; paint(output, ''); };
   const refresh = () => {
     let authenticated = false; try { login.assert(); authenticated = true; } catch { clear(); }
-    for (const item of [load, select, instant, sequence, logs]) item.disabled = !authenticated || pending;
-    next.disabled = !authenticated || pending || nextVersion === null;
+    for (const item of [load, select, instant, sequence, logs]) item.disabled = !authenticated || pending || panel.hidden || document.visibilityState === 'hidden';
+    next.disabled = !authenticated || pending || nextVersion === null || panel.hidden || document.visibilityState === 'hidden';
   };
-  const render = () => { if (report) output.textContent = renderAssetWorkspace(report, select.value); };
+  const render = () => { if (report) { const safe = report, tab = select.value;
+    paint(output, presentation(locale => identityText(renderAssetWorkspace(safe, tab), locale))); } };
   login.subscribe(() => { clear(); instant.value = ''; sequence.value = ''; logs.checked = false; refresh(); });
   document.addEventListener('wallet:summary-stale', () => { clear(); refresh(); });
   for (const event of ['input', 'change']) document.getElementById('tokenId')?.addEventListener(event, () => { clear(); refresh(); });
   globalThis.addEventListener('pagehide', () => { clear(); refresh(); });
   globalThis.addEventListener('pageshow', () => { clear(); refresh(); });
+  document.addEventListener('wallet:page', event => { page = event.detail; panel.hidden = page !== 'native'; clear(); refresh(); });
+  document.addEventListener('visibilitychange', () => { clear(); refresh(); });
   for (const item of [instant, sequence, logs]) item.addEventListener('input', () => { clear(); refresh(); });
   select.addEventListener('change', () => { try { login.assert(); render(); } catch { clear(); refresh(); } });
   async function read(startVersion = 1n) {
-    if (pending || document.visibilityState === 'hidden') return;
+    if (pending || panel.hidden || document.visibilityState === 'hidden') return;
     const epoch = ++generation; let binding;
     pending = true; refresh();
-    report = null; nextVersion = null; output.textContent = '';
+    report = null; nextVersion = null; paint(output, '');
     try {
       binding = login.capture(); await login.check(); const authenticated = login.assert(binding);
-      if (epoch !== generation || document.visibilityState === 'hidden') return;
+      if (epoch !== generation || panel.hidden || document.visibilityState === 'hidden') return;
       const context = getContext();
       if (!context?.wallet || context.wallet.reader.source.chainId.toString() !== authenticated.chainId) throw new Error('WORKSPACE_CONTEXT_REQUIRED');
       if (!/^(0|[1-9][0-9]{0,19})$/.test(instant.value)) throw new Error('WORKSPACE_INSTANT_REQUIRED');
@@ -70,11 +77,11 @@ export function mountAssetWorkspace({ root, login, getContext }) {
       const result = await readAssetWorkspace(context.wallet, context.tokenId, BigInt(instant.value), options);
       login.assert(binding); await login.check(); login.assert(binding);
       const latestContext = getContext();
-      if (epoch !== generation || latestContext.wallet !== context.wallet || latestContext.tokenId !== context.tokenId) return;
-      report = result; nextVersion = result.registerHistory.state === 'ready' ? result.registerHistory.value.nextVersion : null;
+      if (epoch !== generation || panel.hidden || document.visibilityState === 'hidden' || latestContext.wallet !== context.wallet || latestContext.tokenId !== context.tokenId) return;
+      report = privateReadProjection(result, authenticated.account); nextVersion = result.registerHistory.state === 'ready' ? result.registerHistory.value.nextVersion : null;
       render();
     } catch {
-      if (binding) { try { login.assert(binding); if (epoch === generation) output.textContent = 'WORKSPACE_UNAVAILABLE'; } catch { clear(); } }
+      if (binding) { try { login.assert(binding); if (epoch === generation) paint(output, 'WORKSPACE_UNAVAILABLE'); } catch { clear(); } }
     } finally { if (epoch === generation) { pending = false; refresh(); } }
   }
   load.addEventListener('click', () => read());

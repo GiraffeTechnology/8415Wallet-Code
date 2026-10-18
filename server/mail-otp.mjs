@@ -16,18 +16,21 @@ export function normalizeEmail(value) {
     !domain.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) throw refused();
   return `${local}@${domain}`;
 }
-function messageFor({ to, code, purpose, expiresAt, tenant, origin }) {
+function messageFor({ to, code, purpose, expiresAt, tenant, origin, changeDigest }) {
+  const policyMode = purpose === 'task-verification-policy-off' ? 'OFF' : purpose === 'task-verification-policy-on' ? 'ON' : null;
   const email = normalizeEmail(to);
-  if (typeof code !== 'string' || !/^\d{8}$/.test(code) || !['enroll', 'reset', 'registration', 'method-change'].includes(purpose) || !Number.isSafeInteger(expiresAt) || expiresAt < 0 ||
+  if (typeof code !== 'string' || !/^\d{8}$/.test(code) || !['enroll', 'reset', 'registration', 'method-change', 'task-verification-policy-off', 'task-verification-policy-on'].includes(purpose) || !Number.isSafeInteger(expiresAt) || expiresAt < 0 ||
     typeof tenant !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(tenant)) throw refused();
   let site; try { site = new URL(origin); } catch { throw refused(); }
   if (!['http:', 'https:'].includes(site.protocol) || site.origin !== origin || /[\r\n]/.test(origin)) throw refused();
-  const subject = purpose === 'method-change' ? '8415wallet account method change verification' : purpose === 'registration' ? '8415wallet account email verification' : purpose === 'enroll' ? '8415wallet reserved email verification' : '8415wallet security reset verification';
+  if (policyMode !== null && (typeof changeDigest !== 'string' || !/^[a-f0-9]{64}$/.test(changeDigest))) throw refused();
+  const subject = policyMode !== null ? `8415wallet owner policy change verification (${policyMode})` : purpose === 'method-change' ? '8415wallet account method change verification' : purpose === 'registration' ? '8415wallet account email verification' : purpose === 'enroll' ? '8415wallet reserved email verification' : '8415wallet security reset verification';
   return { email, data: [
     `From: 8415wallet <${OTP_FROM}>`, `To: <${email}>`, `Subject: ${subject}`,
     `Date: ${new Date().toUTCString()}`, `Message-ID: <${randomUUID()}@8415wallet.com>`,
     'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit', '',
-    `Your ${purpose === 'method-change' ? 'account method change verification' : purpose === 'registration' ? 'account email verification' : purpose === 'enroll' ? 'reserved email enrollment' : 'security reset'} code is: ${code}`,
+    `Your ${policyMode !== null ? 'owner policy change verification' : purpose === 'method-change' ? 'account method change verification' : purpose === 'registration' ? 'account email verification' : purpose === 'enroll' ? 'reserved email enrollment' : 'security reset'} code is: ${code}`,
+    ...(policyMode === null ? [] : [`Setting: Per-operation human verification ${policyMode}`, `Change digest: ${changeDigest}`]),
     `Expires: ${new Date(expiresAt).toISOString()}`, `Tenant: ${tenant}`, `Requested at: ${origin}`, '',
     'This code cannot log you in or approve a transaction. Do not share it.',
     'If you did not request it, ignore this message and review your account security.', '',

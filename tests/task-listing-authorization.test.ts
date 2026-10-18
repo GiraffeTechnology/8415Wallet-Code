@@ -8,6 +8,7 @@ import { createTaskAuthorizationService, freezeNftValuationPolicy } from '../ser
 import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
 import { createTaskBackgroundRunner } from '../server/task-background-runner.mjs';
 import { base32, hotp, matchTotp } from '../server/crypto.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-state.mjs';
 import { freezeNftListingChild, freezeTaskPolicy, normalizeNftListingAuthorizationReference, normalizeAuthorizationReference } from '../src/agent/taskContract.ts';
 
 const a = (n: string) => `0x${n.repeat(40)}`, h = (n: string) => `0x${n.repeat(64)}`, d = (n: string) => n.repeat(64);
@@ -60,14 +61,26 @@ function fixture(options: any = {}) {
   const call = (path: string, body: any) => service.handler(`tasks/${path}`, body, session);
   const approval = (p: any) => ({ challengeId: p.challengeId, taskDigest: p.task.digest, executorDigest: p.executor.digest,
     observationPolicyDigest: p.observationPolicy?.digest ?? null, ...(p.valuationPolicy ? { valuationPolicyDigest: p.valuationPolicy.digest, priceAt: p.valuationPolicy.policy.priceAt } : {}),
-    code: hotp(secret, Math.floor(state.now / 30000)) });
+    code: p.approvalFactor === 'totp' ? hotp(secret, Math.floor(state.now / 30000)) : '' });
   const prepare = (p = policy(), v: any = valuation()) => call('prepare', { policy: p, ...(v === null ? {} : { valuationPolicy: v }) });
   const authorize = (p: any) => call('authorize', approval(p));
+  // Synthetic persisted owner decision only for tests of the operational OTP gate.
+  async function saveOwnerVerificationOn() {
+    const scope = { origin: policy().origin, tenant: policy().tenant, username: session.username,
+      account: session.account, chainId: session.chainId, agentId: (options.identity ?? identity).agentId };
+    await store.transaction('xiongan:tester', (credential: any) => ({ ...credential, taskVerificationPolicies: {
+      ...credential.taskVerificationPolicies,
+      [taskVerificationPolicyKey(scope)]: { schema: '8415-task-human-verification/2', scope,
+        mode: 'ON', revision: '1', enforcedFromRevision: '1', changes: [{ revision: '1', previousRevision: '0',
+          mode: 'ON', changeId: 'A'.repeat(43), changeDigest: 'a'.repeat(64),
+          scopeDigest: createHash('sha256').update(JSON.stringify(scope)).digest('hex'), credentialRevision: session.revision,
+          verifiedFactors: ['password', 'verified-email'], changedAt: epoch - 1 }] } } }));
+  }
   const grant = async (p = policy(), v: any = valuation()) => authorize(await prepare(p, v));
   const reserve = (g: any, c = proposal(g)) => call('reserve', { taskDigest: g.task.digest, child: c, expectedBudgetRevision: g.budget.revision });
   const operation = (g: any, c = proposal(g)) => ({ taskDigest: g.task.digest, operationId: c.operationId, childDigest: freezeNftListingChild(c).digest, expectedBudgetRevision: g.budget.revision });
   const runner = () => createTaskBackgroundRunner({ store, continuation: service.background, now: () => state.now });
-  return { service, state, store, session, sessions, calls, inputs, listingExecution, call, prepare, authorize, approval, grant, reserve, operation, runner };
+  return { service, state, store, session, sessions, calls, inputs, listingExecution, call, prepare, authorize, approval, saveOwnerVerificationOn, grant, reserve, operation, runner };
 }
 
 test('valuation policy retains ArtFi sorted-key SHA256 and explicitly binds every price policy field', () => {
@@ -84,8 +97,9 @@ test('valuation policy retains ArtFi sorted-key SHA256 and explicitly binds ever
   assert.throws(() => freezeNftValuationPolicy({ ...v, priceAt: 'now' }), /TASK_VALUATION_POLICY_REFUSED/);
 });
 
-test('one approval atomically binds legacy task plus valuation digest and priceAt with one OTP', async () => {
-  const f = fixture(), p = await f.prepare();
+test('saved ON approval binds task, valuation digest and priceAt with one OTP; dispatch retains its own gate', async () => {
+  const f = fixture(); await f.saveOwnerVerificationOn(); const p = await f.prepare();
+  assert.equal(p.approvalFactor, 'totp');
   assert.equal(p.task.digest, freezeTaskPolicy(policy()).digest); assert.equal((await f.store.read('xiongan:tester')).lastStep, -1);
   for (const bad of [{ ...f.approval(p), valuationPolicyDigest: d('a') }, { ...f.approval(p), priceAt: 'settlement' },
     (({ valuationPolicyDigest: _v, priceAt: _p, ...old }) => old)(f.approval(p))])
@@ -95,8 +109,25 @@ test('one approval atomically binds legacy task plus valuation digest and priceA
   assert.deepEqual(normalizeNftListingAuthorizationReference(g.authorization), g.authorization);
   assert.throws(() => normalizeAuthorizationReference(g.authorization), /TASK_SCHEMA_REFUSED/);
   assert.equal(f.calls.otp, 1); await assert.rejects(f.authorize(p), /TASK_APPROVAL_CHALLENGE_REFUSED/);
-  const r = await f.reserve(g), sent = await f.call('execute', f.operation(r));
-  assert.equal(sent.outcome, 'submitted'); assert.equal(f.calls.otp, 1); assert.equal(f.calls.send, 1);
+  const r = await f.reserve(g);
+  await assert.rejects(f.call('execute', f.operation(r)), /TASK_OPERATION_VERIFICATION_REQUIRED/);
+  assert.equal((await f.call('status', { taskDigest: g.task.digest })).budget.reservations[0].status, 'reserved');
+  assert.equal(f.calls.otp, 1); assert.equal(f.calls.send, 0);
+});
+
+test('initial ON listing approval and dispatch stay unlocked without consuming or inventing OTP evidence', async () => {
+  const f = fixture(), credential = await f.store.read('xiongan:tester'), p = await f.prepare();
+  const evaluation = { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' };
+  assert.equal(p.approvalFactor, 'preoperational-default-on'); assert.deepEqual(p.approvalEvaluation, evaluation);
+  await assert.rejects(f.call('authorize', { ...f.approval(p), code: hotp(secret, Math.floor(f.state.now / 30000)) }), /TASK_APPROVAL_CODE_NOT_REQUIRED/);
+  const g = await f.authorize(p), r = await f.reserve(g), sent = await f.call('execute', f.operation(r));
+  assert.equal(sent.outcome, 'submitted'); assert.equal(f.calls.otp, 0); assert.equal(f.calls.send, 1);
+  assert.deepEqual(await f.store.read('xiongan:tester'), credential);
+  const grantKey = (await f.service.background.list()).entries[0], saved = await f.store.read(grantKey);
+  assert.equal(saved.approvalFactor, 'preoperational-default-on'); assert.deepEqual(saved.approvalEvaluation, evaluation);
+  const operationKey = `task-operation:${createHash('sha256').update(JSON.stringify(['1', a('1'), 'listing:1'])).digest('hex')}`;
+  const operation = await f.store.read(operationKey);
+  assert.equal(operation.humanVerification, undefined); assert.deepEqual(operation.humanVerificationEvaluation, evaluation);
 });
 
 test('old grant v1 is never silently upgraded and old nft-sale remains explicitly blocked', async () => {
@@ -121,9 +152,12 @@ test('pending valuation policy cannot drift, and mismatched task or source polic
 });
 
 test('one TOTP cannot authorize two concurrent different valuation grants', async () => {
-  const f = fixture(), a = await f.prepare(), b = await f.prepare(policy('task:second'), { ...valuation(), priceAt: 'settlement' });
+  const f = fixture(); await f.saveOwnerVerificationOn();
+  const a = await f.prepare(), b = await f.prepare(policy('task:second'), { ...valuation(), priceAt: 'settlement' });
+  assert.equal(a.approvalFactor, 'totp'); assert.equal(b.approvalFactor, 'totp');
   const result = await Promise.allSettled([f.authorize(a), f.authorize(b)]);
   assert.equal(result.filter(r => r.status === 'fulfilled').length, 1); assert.equal(f.calls.otp, 1);
+  assert.equal(result.filter(r => r.status === 'rejected' && /AUTH_REFUSED/.test(r.reason.message)).length, 1);
 });
 
 test('settlement-time USD promise remains blocked and is not reinterpreted as order-review', async () => {
@@ -247,10 +281,12 @@ test('unattempted cancellation keeps its operation tombstone and is safe after r
 });
 
 test('shared background runner continues approved listing after logout without a second user authorization', async () => {
-  const f = fixture(), g = await f.grant(), runner = f.runner(); f.sessions.clear();
+  const f = fixture(), credential = await f.store.read('xiongan:tester'), g = await f.grant(), runner = f.runner(); f.sessions.clear();
+  assert.equal(g.humanVerification.mode, 'ON'); assert.equal(g.humanVerification.revision, '0');
   assert.equal((await runner.tick()).results[0].state, 'submitted'); f.state.now += 5000;
   assert.equal((await runner.tick()).results[0].state, 'listed-awaiting-evidence');
-  f.state.now += 600000; await runner.tick(); assert.equal(f.calls.send, 1); assert.equal(f.calls.plan, 1); assert.equal(f.calls.otp, 1);
+  f.state.now += 600000; await runner.tick(); assert.equal(f.calls.send, 1); assert.equal(f.calls.plan, 1); assert.equal(f.calls.otp, 0);
+  assert.deepEqual(await f.store.read('xiongan:tester'), credential);
   f.sessions.add(f.session); assert.equal((await f.call('status', { taskDigest: g.task.digest })).budget.reservations.length, 1); await runner.stop();
 });
 

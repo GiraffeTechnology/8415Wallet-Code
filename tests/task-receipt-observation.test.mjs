@@ -191,7 +191,18 @@ test('provider function and observation policy are captured; caller mutation can
   f.input.observationPolicy.minimumConfirmations = '1';
   await assert.rejects(f.adapter.observe(f.input), /POLICY_MISMATCH/);
   f.input.observationPolicy.minimumConfirmations = '2'; assert.equal((await f.adapter.observe(f.input)).state, 'confirmed-at-depth');
-  assert.equal(TASK_RECEIPT_RUNTIME_FILES.length, 17); assert.ok(Object.isFrozen(TASK_RECEIPT_RUNTIME_FILES));
+  // The trusted runtime surface this port digests. A bare count went stale at
+  // 14 while the real list grew to 25, and a count proves nothing anyway, so
+  // assert what matters here: it cannot be mutated to redirect reads, it names
+  // no duplicates, its only web source is the shared non-UI observer codec, and it names the
+  // adapter and the shared encoder. Its membership is checked against the
+  // computed import graph by task-exact-planner-package-closure.
+  assert.ok(Object.isFrozen(TASK_RECEIPT_RUNTIME_FILES));
+  assert.equal(new Set(TASK_RECEIPT_RUNTIME_FILES).size, TASK_RECEIPT_RUNTIME_FILES.length);
+  assert.deepEqual(TASK_RECEIPT_RUNTIME_FILES.filter(path => /^(?:tests|web)\//.test(path)), ['web/task-observer-context.mjs']);
+  for (const path of ['server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs']) {
+    assert.ok(TASK_RECEIPT_RUNTIME_FILES.includes(path), path);
+  }
 });
 
 test('contradictory canonical original and replacement receipts never imply supersession', async () => {
@@ -275,5 +286,67 @@ test('native pre-send EOA capability refuses chain mismatch, missing header and 
   for (const flags of [{ chain: '0x1' }, { canonical: null }, { reorgOnBlockRead: 2 }]) {
     const f = fixture(); Object.assign(f.flags, flags); await assert.rejects(f.adapter.assessChild(assessmentInput(f.input)));
     assert.ok(!f.calls.some(call => /receipt|transactionbyhash|send|sign|accounts/i.test(call.method)));
+  }
+});
+
+test('historical observer preserves original policy and reports the current verifier provenance', async () => {
+  const f = fixture(), original = structuredClone(f.input);
+  const current = createTaskReceiptAdapter({ provider: f.provider, observationPolicy: { minimumConfirmations: '3' }, now: () => 2500000 });
+  f.flags.head = '0x66';
+  await assert.rejects(current.observe(f.input), /POLICY_MISMATCH/);
+  const observed = await current.observeHistorical(f.input);
+  assert.equal(observed.state, 'confirmed-at-depth');
+  assert.equal(observed.confirmations, '3');
+  assert.deepEqual(observed.observationPolicy, original.observationPolicy);
+  assert.equal(observed.verifierImplementationDigest, current.identity.verifierImplementationDigest);
+  assert.equal(observed.attemptExecutorDigest, original.attempt.executorDigest);
+  assert.equal(observed.originalTransactionHash, original.attempt.transactionHash);
+  assert.deepEqual(f.input, original);
+  assert.ok(!f.calls.some(call => /send|sign|accounts/i.test(call.method)));
+});
+test('historical terminal observation must meet both original and current confirmation floors', async () => {
+  const f = fixture(), stronger = createTaskReceiptAdapter({ provider: f.provider,
+    observationPolicy: { minimumConfirmations: '3' }, now: () => 2500000 });
+  await assert.rejects(stronger.observeHistorical(f.input), /HISTORICAL_OBSERVATION_DEPTH_REQUIRED/);
+  f.flags.head = '0x66';
+  assert.equal((await stronger.observeHistorical(f.input)).state, 'confirmed-at-depth');
+  const original = { ...f.input, observationPolicy: { minimumConfirmations: '3' } };
+  f.flags.head = '0x65';
+  assert.equal((await f.adapter.observeHistorical(original)).state, 'confirming');
+  f.flags.head = '0x66';
+  assert.equal((await f.adapter.observeHistorical(original)).state, 'confirmed-at-depth');
+});
+test('historical capability still independently refuses changed actual wire, account, chain and nonce', async () => {
+  for (const changes of [{ from: recipient }, { nonce: '0x2' }, { value: '0xff' },
+    { input: '0xab' }, { chainId: '0x1' }, { hash: h('e') }]) {
+    const f = fixture(); Object.assign(f.tx, changes);
+    await assert.rejects(f.adapter.observeHistorical(f.input));
+    assert.ok(!f.calls.some(call => /send|sign|accounts/i.test(call.method)));
+  }
+});
+test('historical capability cannot be selected by a request field or ordinary method argument', async () => {
+  const f = fixture(), wrongPolicy = { ...f.input, observationPolicy: { minimumConfirmations: '1' } };
+  await assert.rejects(f.adapter.observe({ ...f.input, historical: true }));
+  await assert.rejects(f.adapter.observe(wrongPolicy, true), /POLICY_MISMATCH/);
+  await assert.rejects(f.adapter.assessChild({ ...assessmentInput(f.input), historical: true }));
+  assert.equal(f.calls.length, 0);
+});
+test('historical replacement keeps original hash and both depth floors without sending', async () => {
+  const f = fixture(); f.flags.pending = true;
+  const current = createTaskReceiptAdapter({ provider: f.provider, observationPolicy: { minimumConfirmations: '3' }, now: () => 2500000 });
+  await assert.rejects(current.observeReplacementHistorical(f.input, replacementHash), /HISTORICAL_OBSERVATION_DEPTH_REQUIRED/);
+  f.flags.head = '0x66';
+  const observed = await current.observeReplacementHistorical(f.input, replacementHash);
+  assert.equal(observed.state, 'superseded-at-depth');
+  assert.equal(observed.originalTransactionHash, transactionHash);
+  assert.equal(observed.replacementHash, replacementHash);
+  assert.equal(observed.effect, 'not-established');
+  assert.ok(!f.calls.some(call => /send|sign|accounts/i.test(call.method)));
+});
+test('historical observation cannot invent an UNKNOWN transaction hash or substitute executor binding', async () => {
+  for (const mutation of [input => input.attempt.transactionHash = null, input => input.executor.digest = h('e')]) {
+    const f = fixture(), input = structuredClone(f.input); mutation(input);
+    await assert.rejects(f.adapter.observeHistorical(input));
+    assert.equal(f.calls.length, 0);
   }
 });

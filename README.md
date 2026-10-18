@@ -2,21 +2,25 @@
 
 8415wallet is a general-purpose wallet compatible with existing wallet and asset standards, with native [ERC-8415 asynchronous register projection](https://github.com/GiraffeTechnology/ERC-8415) support. Its native projection views show the ERC-721 tradeable position separately from the register-confirmed holder, temporal finality, open gaps and chain freshness. Record agreement does not verify legal identity or title.
 
-## V2 and V3 DApp Beta
+Product positioning: the first native wallet built on ERC-8415, compatibility with the existing wallet ecosystem, V3 transaction-chain composition, and AI + crypto infrastructure. V2 remains standalone; the shared Beta 2.0 UI label does not change either runtime profile. Implementation and acceptance evidence below remain version-bound.
 
-- **V2 Beta:** the retained wallet PRD v2.2 foundation, sections 1–8: standalone projection and temporal views, dual histories, disclosure, conformance and identity checks, the three protocol settlement transactions, and legacy single-trade clearing.
-- **V3 Beta:** the same standalone foundation plus wallet PRD v3.0 section 9: accepted linked responsibilities, permanent completed-prefix detachment, bounded returns, separate optional payments and committed detached history. The acceptance matrix includes W-01 through W-24.
-- **Product and platform:** the product is 8415wallet and its UI platform domain is 8415wallet.com. Xiongan is a V2 tenant, identified separately from the product.
+## Beta 2.0 UI with V2 and V3 DApp profiles
 
-Both DApp packages are functional-testing Betas. Genuine wallet/public-testnet, physical-device and W-20 deployment evidence is collected after deployment; it is not silently supplied by local tests. The code is not independently audited. SDK tarballs are separate integration artifacts and do not replace either DApp.
+The sole current complete requirements are [the Wallet PRD](docs/ERC-8415-Wallet-PRD.md), including shared UI/API/security requirements in §§6 and 10 and historical-observation provenance in §§6.5.1 and 10.7.1. Beta 2.0 is the shared UI release label; it does not rename V2/V3 runtime profiles or package versions. AGENTS.md records the exact complete-document identity. Previous PRD revisions remain in Git history, not as parallel active requirements.
 
-See [DApp packaging and deployment](docs/BETA-DAPP-DELIVERY.md), [PRD coverage](docs/BETA-PRD-COVERAGE.md), and [the Xiongan tenant boundary](docs/XIONGAN-WALLET.md).
+- **V2 Beta:** the retained wallet PRD v2.2 foundation, sections 1–8 plus the shared Beta 2.0 requirements in section 10: standalone projection and temporal views, dual histories, disclosure, conformance and identity checks, the three protocol settlement transactions, and legacy single-trade clearing.
+- **V3 Beta:** the same standalone foundation plus wallet PRD v3.0 section 9 and the shared Beta 2.0 requirements in section 10: accepted linked responsibilities, permanent completed-prefix detachment, bounded returns, separate optional payments and committed detached history. The acceptance matrix includes W-01 through W-24.
+- **Product and platform:** the product is 8415wallet and its UI platform domain is 8415wallet.com. Wallet-specific deployment bindings remain private; tenant configurations are not separate products.
+
+Both DApp profiles remain functional-testing Betas. Installation/product downloads remain withdrawn; do not restore or publish packages before the current privacy and profile-specific online/on-chain acceptance, fixes and successful retests required by PRD §10.8. Only the CI installer/product-kit upload is temporarily suppressed; tests, builds and validations remain required. Genuine wallet/public-testnet, physical-device and W-20 deployment evidence is collected after deployment; it is not silently supplied by local tests. The code is not independently audited. SDK tarballs are separate integration artifacts and do not replace either DApp.
+
+See [DApp packaging and deployment](docs/BETA-DAPP-DELIVERY.md), [PRD coverage](docs/BETA-PRD-COVERAGE.md), and [the current package publication hold](docs/INSTALLATION-ASSET-PUBLICATION.md).
 
 ## Login methods
 
 Assets and history stay hidden until login. Choose password, an authenticator
 code (Google Authenticator / FreeOTP), a local wallet/private-key signature, or
-a configured hardware CA token. OTP means RFC 6238 TOTP; email OTP is not used.
+a configured hardware CA token. Authenticator OTP means RFC 6238 TOTP; email OTP is not a standalone login method.
 Password, TOTP and CA methods require the same-origin authentication service and
 an independently provisioned account-to-wallet binding. Local wallet signing
 still works in a static deployment. Keys stay in the wallet or hardware device;
@@ -31,7 +35,7 @@ archive is unchanged and does not contain these new login methods.
 
 ## Build and verify
 
-Use Node 22.18 or newer and the committed lockfile.
+Use Node 22.18 or newer and the committed lockfile. Product execution uses only the already authorized non-Windows server environment; these command examples do not authorize local/workstation execution or package publication. Existing CI requirements remain active and their exact runner/results are reported separately.
 
 ```sh
 npm ci
@@ -70,7 +74,7 @@ Compatibility is a product requirement across existing standards; the native ERC
 
 ## Requirements and historical evidence
 
-- [Wallet PRD](docs/ERC-8415-Wallet-PRD.md): retained V2 foundation and additive V3 requirements.
+- [Wallet PRD](docs/ERC-8415-Wallet-PRD.md): the complete current Beta 2.0 requirements, retained V2 foundation, additive V3 scope and all applicable stages/acceptance.
 - [V2 closeout](docs/V2-CLOSEOUT.md): dated semantic evidence and its asynchronous-registrar limitation.
 - [Integration boundaries](docs/INTEGRATION-BOUNDARIES.md): protocol, custody and SDK responsibilities.
 - [Public evidence](docs/public-evidence/README.md): exact historical runs.
@@ -96,7 +100,7 @@ Token metadata remains source-original. See [UI localization](docs/UI-LOCALIZATI
 for privacy, transaction-value and verification boundaries.
 # Authentication deployment preparation
 
-The Xiongan account-service and browser-local authenticator QR preparation is
+The account-service and browser-local authenticator QR preparation is
 documented in [AUTH-PROVISIONING-PREPARATION](docs/AUTH-PROVISIONING-PREPARATION.md).
 The service/proxy templates are **not activated**; the public template has no
 account binding and intentionally cannot start. New regression sources have not

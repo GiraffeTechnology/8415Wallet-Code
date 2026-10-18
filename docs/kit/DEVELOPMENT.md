@@ -1,17 +1,23 @@
 # Development Environment
 
+This guide covers the retained embedded Kit. The sole current complete product
+requirements are the [Wallet PRD](../ERC-8415-Wallet-PRD.md); the current
+[execution rules](../../AGENTS.md) also apply. The commands below are reference
+instructions, not permission to execute them on an unapproved host.
+
 ## Requirements
 
 Node 22.18 or newer. That is where Node runs TypeScript from source without a
-flag, which is what lets this project ship with no build step. The repository
-has no runtime dependencies; TypeScript, the Node type definitions, solc and ethereum-cryptography are
-development dependencies. Python 3 is needed for the SDK checks.
+flag, which lets the embedded Kit run directly from source. The containing Wallet
+has runtime dependencies and separate build tasks; `package.json` is authoritative
+for its dependencies and scripts. The Kit selector tests use the repository's own
+Keccak implementation, not `ethereum-cryptography`. Python 3 is needed for the SDK checks.
 
 ## Commands
 
 ```sh
 npm install
-npm run verify      # typecheck + tests
+npm run verify      # typecheck + tests + EVM tests; approved execution environment only
 npm run typecheck   # tsc --noEmit
 npm test            # node --test
 ```
@@ -19,22 +25,22 @@ npm test            # node --test
 ## Container
 
 ```sh
-docker compose -f docker/compose.yaml run --rm kit
+docker compose -f docker/compose.yaml run --rm wallet
 ```
 
 ## Layout
 
 ```
-api/         Stage 1   HTTP surface: temporal routes, admission endpoint
-engine/      Stage 1   projection kernel
-             Stage 2   verification engine and proof profiles
-             Stage 4   settlement composition
-adapters/    Stage 3   chain abstraction, mock adapter first
-contracts/   Stage 3   frozen Solidity interfaces and identifier helpers
-sdk/         Stage 5   JavaScript and Python SDKs
-console/     Stage 6   institutional console
-tests/       every stage
-docker/      Stage 0   development container
+src/kit/api/       Kit Stage 1   HTTP surface: temporal routes, admission endpoint
+src/kit/engine/    Kit Stage 1   projection kernel
+                  Kit Stage 2   verification engine and proof profiles
+                  Kit Stage 4   settlement composition
+src/kit/adapters/  Kit Stage 3   chain abstraction, mock adapter first
+contracts/        Kit Stage 3   frozen Solidity interfaces and identifier helpers
+src/kit/sdk/       Kit Stage 5   JavaScript and Python SDKs
+src/kit/console/   Kit Stage 6   institutional console
+tests/kit/        embedded Kit tests
+docker/           containing Wallet development container
 ```
 
 ## Rules that bind every stage
@@ -46,7 +52,8 @@ docker/      Stage 0   development container
 - commitment uniqueness is per token, never enforced across tokens;
 - state names come from the standard: open gap / closed gap, provisional /
   final, admitted;
-- no frontend talks to a chain directly; everything goes through the engine and
-  the adapter layer.
+- the retained Kit console uses the engine and adapter layer. The Wallet's
+  architecture separately requires direct chain reads for chain facts, as
+  specified in Wallet PRD §§2.1–2.3.
 
-The full rule set is in `AGENTS.md`.
+The full current rule set is in [AGENTS.md](../../AGENTS.md).

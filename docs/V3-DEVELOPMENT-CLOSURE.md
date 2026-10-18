@@ -56,9 +56,11 @@ and tree externally, avoiding a self-referential commit hash in this file.
    merge the five overlapping input branches; retain their history and close
    them as superseded only after the integration is accepted. If main changes,
    rebase/integrate explicitly and record the resulting new commit/tree.
-2. The development commits use `[skip ci]`; the CI owner must deliberately
-   enable a fresh run using a CI-eligible reviewed commit. Do not call an absent
-   or skipped run green and do not disable workflow/security checks.
+2. Current P0 requires every new commit to remain CI-eligible. Never add CI-skip
+   directives to commit messages or PR metadata, including when a runner or
+   required check is blocked. Continue independent development without waiting
+   for CI; the assigned CI owner handles exact-head validation. Do not call an
+   absent or skipped run green and do not disable workflow/security checks.
 3. Run clean locked install, typecheck, Node suites, browser compilation, EVM
    suites and reference client per the existing Node 22/24 CI matrix. Add actual
    V2/V3 package build and external install verification to the release checks;

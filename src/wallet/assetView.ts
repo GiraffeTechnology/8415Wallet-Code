@@ -367,7 +367,7 @@ function explainPresentFinality(
   }
   return (
     `The present instant is at or after the latest entry's effective time ` +
-    `(${latestEffectiveAt}), so it is provisional, as every present instant is. ` +
+    `(${latestEffectiveAt}), so this observed instant is provisional. ` +
     `It becomes final once an entry with a later effective time is admitted — ` +
     `including a confirming entry naming the same holder. Admission is what does ` +
     `it; the clock advancing on its own admits nothing.`

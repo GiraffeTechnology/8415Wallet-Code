@@ -15,13 +15,13 @@ async function fixture() {
     contract: reader.source.address, tokenId: TOKEN,
     registerId: await reader.registerId(), verificationProfile: await reader.verificationProfile(),
     wallets: [
-      { tenant: 'xiongan', account: ALICE }, { tenant: 'giraffe', account: CAROL },
-      { tenant: 'lala', account: DAVE },
+      { tenant: 'fixture-tenant-a', account: ALICE }, { tenant: 'fixture-tenant-b', account: CAROL },
+      { tenant: 'fixture-tenant-c', account: DAVE },
     ],
   };
   const v2 = await reader.entryAt(TOKEN, 2n);
   const release: ReleaseObservation = {
-    legId: h('1'), controlId: h('2'), buyerTenant: 'giraffe',
+    legId: h('1'), controlId: h('2'), buyerTenant: 'fixture-tenant-b',
     buyerOccurrence: 1n, ownerOccurrence: 2n, holderOccurrence: 1n,
     owner: DAVE, holder: CAROL, termsDigest: h('3'), acceptedConditions: [h('4')],
     release: { blockNumber: 20n, blockHash: h('5'), transactionHash: h('6'), recordedAt: T.asOf },
@@ -77,8 +77,8 @@ test('missing or repeated wallet bindings are refused without guessed replacemen
     { ...f.manifest, wallets: f.manifest.wallets.slice(0, 2) }, f.release,
   ), /THREE_WALLETS_REQUIRED/);
   assert.throws(() => captureHoodiRelease({ ...f.manifest, wallets: [
-    { tenant: 'xiongan', account: ALICE }, { tenant: 'giraffe', account: ALICE },
-    { tenant: 'lala', account: DAVE },
+    { tenant: 'fixture-tenant-a', account: ALICE }, { tenant: 'fixture-tenant-b', account: ALICE },
+    { tenant: 'fixture-tenant-c', account: DAVE },
   ] }, f.release), /WALLET_BINDING_INVALID/);
 });
 
@@ -141,4 +141,31 @@ test('an unavailable historical query propagates without rewriting the original'
     }),
   }), (error: unknown) => error === failure);
   assert.equal(serialiseHoodiJourney(original), before);
+});
+
+test('private tenant bindings are opaque and independently unique, not a built-in roster', async () => {
+  const f = await fixture();
+  const wallets = f.manifest.wallets.map((wallet, i) => ({ ...wallet, tenant: 'synthetic-' + i }));
+  assert.equal(captureHoodiRelease({ ...f.manifest, wallets },
+    { ...f.release, buyerTenant: 'synthetic-1' }).observation.buyerTenant, 'synthetic-1');
+  for (const tenant of ['', 'UPPER', '<tenant>', 'a'.repeat(65)]) {
+    assert.throws(() => captureHoodiRelease({ ...f.manifest,
+      wallets: [{ ...wallets[0]!, tenant }, wallets[1]!, wallets[2]!] },
+      { ...f.release, buyerTenant: 'synthetic-1' }), /WALLET_BINDING_INVALID/);
+  }
+  assert.throws(() => captureHoodiRelease({ ...f.manifest,
+    wallets: [wallets[0]!, { ...wallets[1]!, tenant: wallets[0]!.tenant }, wallets[2]!] },
+    { ...f.release, buyerTenant: 'synthetic-1' }), /WALLET_BINDING_INVALID/);
+});
+
+test('human-readable comparison does not disclose tenant roster or holder identities', async () => {
+  const f = await fixture();
+  const report = await compareHoodiReleaseHistory(captureHoodiRelease(f.manifest, f.release), f.v3, f.anchor);
+  const rendered = renderHoodiReleaseHistory(report);
+  for (const wallet of f.manifest.wallets) {
+    assert.equal(rendered.includes(wallet.tenant), false);
+    assert.equal(rendered.includes(wallet.account), false);
+  }
+  assert.match(rendered, /Then-known v2 commitment/);
+  assert.match(rendered, /actually admitted at/);
 });

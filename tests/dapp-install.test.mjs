@@ -21,7 +21,7 @@ const passwordRoutingPaths = ['web/tenant-password-routing.mjs', 'web/tenant-pas
 function fixture(t, revision = 'first', routingMutation = {}, omittedAuthPath = null) {
   const root = mkdtempSync(join(tmpdir(), 'wallet-kit-test-')); t.after(() => rmSync(root, { recursive: true, force: true }));
   const sourceRoot = join(root, 'source'), runtime = join(root, 'runtime'), kit = join(root, 'kit'); mkdirSync(sourceRoot); mkdirSync(runtime); mkdirSync(kit);
-  const authPaths = ['server/task-listing-package-pin.mjs', 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-xiongan/install.mjs', 'deploy/auth-xiongan/8415wallet-auth-xiongan.service', 'deploy/auth-xiongan/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
+  const authPaths = ['server/credential-instance.mjs', 'server/task-listing-package-pin.mjs', 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
   for (const path of new Set([...authPaths, ...DELIVERY_FILES, 'docs/ERC-8415-Wallet-PRD.md'])) put(sourceRoot, path, `Synthetic fixture ${revision}: ${path}\n`);
   for (const path of passwordRoutingPaths) put(sourceRoot, path, readFileSync(new URL(`../${path}`, import.meta.url)));
   const pkg = { name: '8415wallet', version: '0.1.0', license: 'SEE LICENSE IN LICENSE', dependencies: { ethers: '^6.17.0' } };
@@ -197,11 +197,11 @@ test('public CLI config, plan, install and rollback complete without dependency 
 
 test('generic installer accepts 443 when unreserved and refuses explicitly reserved deployment ports', t => {
   const f = fixture(t), publicConfig = config();
-  publicConfig.deployment = { environment: 'ctyun', url: 'https://wallet.example.invalid/web/index.html', reservedPorts: [22, 18443] };
+  publicConfig.deployment = { environment: 'other', url: 'https://wallet.example.invalid/web/index.html', reservedPorts: [22, 18443] };
   const installed = installDapp({ ...f.input, config: publicConfig }); assert.equal(installed.entryUrl, publicConfig.deployment.url);
   publicConfig.deployment.reservedPorts = [443];
   assert.throws(() => installDapp({ ...f.input, config: publicConfig, target: join(f.root, 'other') }), /RESERVED_PORT/);
-  assert.throws(() => createDappConfig({ tenant: 'example', label: 'Example', profile: 'v2', environment: 'ctyun', url: publicConfig.deployment.url, reservedPorts: [443], output: join(f.root, 'reserved.json') }), /RESERVED_PORT/);
+  assert.throws(() => createDappConfig({ tenant: 'example', label: 'Example', profile: 'v2', environment: 'other', url: publicConfig.deployment.url, reservedPorts: [443], output: join(f.root, 'reserved.json') }), /RESERVED_PORT/);
 });
 
 for (const missing of passwordRoutingPaths) {
@@ -212,16 +212,36 @@ for (const missing of passwordRoutingPaths) {
 }
 test('self-consistent synthetic kit refuses enabled packaged password readiness', t => {
   const routes = JSON.parse(readFileSync(new URL('../web/tenant-password-routing.json', import.meta.url), 'utf8'));
-  routes.entries[0].url = 'https://xiongan.8415wallet.com/deployed/web/index.html';
-  routes.entries[0].passwordManagementReady = true;
+  routes.entries.push({ tenant: 'example', profile: 'v3', url: 'https://example.8415wallet.com/deployed/web/index.html', passwordManagementReady: true });
   const f = fixture(t, 'ready-routing', { config: routes });
-  assert.throws(() => verifyDeliveryArchive(f.archive, f.pins), /PASSWORD_ROUTING_DEFAULT_NOT_READY_REQUIRED/);
+  assert.throws(() => verifyDeliveryArchive(f.archive, f.pins), /PASSWORD_ROUTING_UNAVAILABLE/);
+});
+test('static plan retires the anonymous directory without an existence oracle', t => {
+  const f = fixture(t), first = installDapp(f.input), plan = readFileSync(first.nginxPlan, 'utf8');
+  assert.match(plan, /location = \/\.well-known\/8415wallet-password-routing\.json/);
+  assert.match(plan, /return 404 '\{"error":"UNAVAILABLE"\}'/);
+  assert.match(plan, /Cache-Control "no-store" always/);
+  assert.doesNotMatch(plan, /passwordManagementReady|\"entries\"/);
+});
+test('upgrade verifies the exact old static format but rollback cannot reactivate it', t => {
+  const f = fixture(t, 'old-plan'), first = installDapp(f.input);
+  const oldPlan = readFileSync(first.nginxPlan, 'utf8')
+    .replace('# Replace the retired public directory location; do not append a duplicate.\n', '')
+    .replace(/location = \/\.well-known\/8415wallet-password-routing\.json \{\n[\s\S]*?\n\}\n/, '');
+  writeFileSync(first.nginxPlan, oldPlan);
+  assert.throws(() => verifyInstalledRelease(f.input.target, first.release), /NGINX_PLAN_MISMATCH/);
+  assert.doesNotThrow(() => verifyInstalledRelease(f.input.target, first.release, { allowLegacyPlan: true }));
+  const next = fixture(t, 'new-plan');
+  const upgraded = installDapp({ ...next.input, target: f.input.target, config: f.input.config, upgrade: true });
+  assert.notEqual(upgraded.release, first.release);
+  assert.throws(() => rollbackDapp({ target: f.input.target, tenant: f.input.tenant, profile: f.input.profile,
+    release: first.release, expectedReceiptSha256: first.receiptSha256, expectedTree: f.pins.expectedTree }), /NGINX_PLAN_MISMATCH/);
 });
 test('self-consistent synthetic kit refuses malformed packaged password routing schema', t => {
   const routes = JSON.parse(readFileSync(new URL('../web/tenant-password-routing.json', import.meta.url), 'utf8'));
   routes.schema = 'unsupported-routing-schema';
   const f = fixture(t, 'malformed-routing', { config: routes });
-  assert.throws(() => verifyDeliveryArchive(f.archive, f.pins), /PASSWORD_ROUTING_SCHEMA_REFUSED/);
+  assert.throws(() => verifyDeliveryArchive(f.archive, f.pins), /PASSWORD_ROUTING_UNAVAILABLE/);
 });
 
 for (const path of LEGAL_FILES) for (const mode of ['omit-document', 'omit-runtime', 'replace-both']) {

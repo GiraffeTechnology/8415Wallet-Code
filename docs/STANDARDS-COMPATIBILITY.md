@@ -2,8 +2,8 @@
 
 ## Product requirement
 
-8415wallet is a general-purpose wallet compatible with existing wallet and
-asset standards, with native ERC-8415 support. Its asynchronous projection and
+8415wallet is a general-purpose multi-chain wallet compatible with existing
+wallet and asset standards, with native ERC-8415 support. Its asynchronous projection and
 linked-responsibility features are additive. The product is not restricted to
 ERC-8415 tokens or specialized-only assets.
 
@@ -26,11 +26,52 @@ validation of every existing standard, extension or nonstandard implementation.
 | EIP-712 / ERC-1271 control acceptance | Exact-domain typed linked consent and supported controlled-account signature checks | Native V3 control tests/local EVM; not a claim of arbitrary smart-account compatibility |
 | ERC-8415 | Projection/settlement discovery, separate owner/holder/finality/gap observations, begin/finalize/cancel settlement | V2/V3 PRD mapping and SDK/local-EVM regressions; W-20 and genuine deployed wallet/device observations remain separate |
 
-Network recognition currently includes Ethereum, Base, Sepolia and Base
-Sepolia for the external-asset panel. Native DApp protocol/control manifests
-use their supported testnet set. Legacy clearing also has an explicit local
-EVM test profile. Chain recognition does not authorize a transaction or prove
-compatibility with every wallet application on that chain.
+The current external-asset implementation recognizes five EVM networks:
+Ethereum (1), Base (8453), Sepolia (11155111), Base Sepolia (84532) and Hoodi
+(560048). Native DApp protocol/control manifests retain their supported
+Sepolia/Hoodi testnet deployment set. The exact agent execution runtime retains
+its Hoodi-specific chain and genesis checks. Legacy clearing also has an
+explicit local EVM test profile. Chain recognition does not authorize a
+transaction or prove compatibility with every wallet application on that chain.
+
+The product's multi-chain requirement is not limited to the EVM family. Other
+chain families require their own address, asset, signing, fee and receipt
+adapters; this implementation matrix does not claim that those adapters exist.
+Keep chain-family support, implemented operations, deployment enablement,
+owner-granted authority and executed acceptance separately recorded. A new
+network entry or a wider allowlist alone is not multi-chain implementation or
+permission for mainnet/real-asset execution.
+
+### Chain-identity read hardening: source-only increment
+
+The CLI defaults to Ethereum (chain ID 1). An explicit `--chain-id` selects
+another expected identity. The RPC's actual `eth_chainId` must match that
+expected identity before business reads; an endpoint on another network never
+silently changes the default selection or supplies incorrectly labelled data.
+Projection, Kit companion and watchtower readers receive that same confirmed
+chain identity. HTTP chain discovery requires a canonical positive
+hex quantity and preserves its exact bigint value.
+
+RPC projection, escrow and watchtower readers bind every transport read to
+that identity when `getChainId` is available. They verify before and after
+contract calls, timestamps, block numbers, code lookups and log requests,
+including failed/reverted requests. An observed wrong-chain result fails as a
+transport error rather than an unsupported-interface or empty-history answer.
+EIP-1193 reads apply the same pre/post identity checks; the existing signer's
+two chain checks before sending remain unchanged. Reader source identity is
+immutable. Legacy custom/in-memory transports without `getChainId` remain
+compatible, but their supplied chain is not independently verified by this
+mechanism. Pre/post checks detect observed changes; they are not proof against
+a malicious endpoint or an atomic multi-request snapshot.
+
+Status: SOURCE_ONLY; tests, typecheck, syntax checks, build, runtime, UI and
+on-chain acceptance for this increment are NOT_RUN. New mock-only definitions
+cover the five recognized networks, wrong-chain and mid-read changes,
+revert/error precedence, immutable source, shared-transport isolation,
+paginated logs, provider reads and CLI provenance. Run the affected checks only
+on the existing authorized non-Windows Linux QA environment. No network calls,
+deployment, signing, transaction submission or expanded execution permission
+are implied by this source increment.
 
 ## Deliberate limits and remaining integrations
 

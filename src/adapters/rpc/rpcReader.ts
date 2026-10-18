@@ -19,7 +19,7 @@ import {
   type Version,
 } from '../../sdk/types.ts';
 import type { LogFilter, RawLog } from '../../sdk/events.ts';
-import type { CallTransport } from './transport.ts';
+import { bindChainTransport, type CallTransport } from './transport.ts';
 
 /**
  * Reads an ERC-8415 contract over `eth_call`.
@@ -72,8 +72,9 @@ export class RpcErc8415Reader implements Erc8415Reader {
     if (options.fromBlock !== undefined && options.fromBlock < 0n) {
       throw new ValueOutOfRangeError('fromBlock', options.fromBlock);
     }
-    this.#transport = transport;
-    this.source = { chainId, address };
+    this.#transport = bindChainTransport(transport, chainId);
+    this.source = Object.freeze({ chainId, address });
+    Object.defineProperty(this, 'source', { writable: false, configurable: false });
     this.#logWindow = logWindow;
     this.#configuredFromBlock = options.fromBlock;
   }

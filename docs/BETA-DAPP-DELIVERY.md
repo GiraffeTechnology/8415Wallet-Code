@@ -5,12 +5,14 @@
 The product is **8415wallet**, a general-purpose wallet with existing wallet
 and asset standards compatibility and native ERC-8415 support. The platform identity is **8415wallet.com**;
 that identity is not a configured URL, a DNS assertion or permission to bind a
-server port. The Xiongan tenant uses the **V2** profile.
+server port. Wallet-specific deployment bindings remain private. The complete
+current `ERC-8415-Wallet-PRD.md` is the only active requirements document;
+Beta 2.0 names the shared UI release, not a change to the runtime/package versions.
 
 | Artifact | Wallet PRD mapping | Browser capability boundary |
 | --- | --- | --- |
-| `8415wallet-dapp-v2-2.2.0-beta.tar.gz` | Preserved v2.2 foundation, sections 1–8 of `docs/ERC-8415-Wallet-PRD.md` | Standalone projection/temporal/history views, protocol transaction and legacy clearing paths, separately reviewed external-asset transfers, and optional account creation/deposit/unencumbered withdrawal with basic request review and recovery. Linked responsibility controls are unavailable in this profile. |
-| `8415wallet-dapp-v3-3.0.0-beta.tar.gz` | Additive v3.0, sections 1–8 retained and section 9, W-01–W-24 | V2 foundation plus protected linked receipt/forwarding, completion/detachment, scoped return, optional payments, detached history and recovery. |
+| `8415wallet-dapp-v2-2.2.0-beta.tar.gz` | Retained v2.2 foundation, sections 1–8, plus shared Beta 2.0 section 10 of `docs/ERC-8415-Wallet-PRD.md` | Standalone projection/temporal/history views, protocol transaction and legacy clearing paths, separately reviewed external-asset transfers, and optional account creation/deposit/unencumbered withdrawal with basic request review and recovery. Linked responsibility controls are unavailable in this profile. |
+| `8415wallet-dapp-v3-3.0.0-beta.tar.gz` | Additive v3.0, sections 1–8 retained, section 9 (W-01–W-24), and shared Beta 2.0 section 10 | V2 foundation plus protected linked receipt/forwarding, completion/detachment, scoped return, optional payments, detached history and recovery. |
 
 Both retain optional controlled-account creation, deposit, unencumbered
 withdrawal, basic account-request review and recovery. V2 restricts linked
@@ -23,13 +25,18 @@ exact PRD file hash, sections and scenario identifiers travel in `RELEASE.json`.
 V2 does not mean version 2 of the SDK npm tarball. SDK `pack:v2` and `pack:v3`
 artifacts remain separate library deliverables; they are not hosted websites.
 
-The release status is
-`BETA_FUNCTIONAL_TESTING_NOT_INDEPENDENTLY_AUDITED`. These bundles can be
-published for authorized functional Beta testing. Independent security review
-is not a blocker to functional Beta publication. They have not thereby passed
-an independent audit, general-release acceptance, W-20, public-chain execution
-or physical desktop/mobile wallet journeys. Never replace these distinctions
-with a single “passed” label.
+The release status remains
+`BETA_FUNCTIONAL_TESTING_NOT_INDEPENDENTLY_AUDITED`; it grants no publication
+permission. Installation/product packages remain withdrawn. Suppress only the
+CI installer/product-kit upload while preserving all tests, builds, artifact
+integrity/origin checks and other required validations. Runner-local CI builds
+are not a downloadable release. Final distributable packages are rebuilt from
+the final integrated version after all applicable valid PRs are merged; download
+publication additionally requires privacy review and the applicable V2/V3 online
+UI and on-chain acceptance, fixes and successful retests in PRD §10.8. Authorized
+functional testing and independent security review remain distinct; neither a
+Beta label nor an earlier package lifts the current hold. Do not turn CI, W-20,
+device, source or deployment evidence into a single unsupported “passed” label.
 
 The normal DApp control-manifest and agent-request paths enforce testnet
 guards. Direct SDK consumers must enforce their own chain policy; the SDK is
@@ -41,6 +48,10 @@ to deploy contracts, spend mainnet funds, publish to a server or change its
 security settings.
 
 ## Build and validate
+
+Run product verification only on the already authorized non-Windows server,
+with existing CI requirements separately preserved. The instructions below do
+not authorize local/Windows/sandbox execution, deployment or publication.
 
 Requirements: the repository's Node version (at least 22.18.0), npm, Git,
 GNU tar and gzip. Use the lockfile. A build must run at the root of the actual
@@ -127,15 +138,16 @@ source archive.
 
 ## Explicit profile, tenant and endpoint configuration
 
-Source templates are `config/releases/v2.json`, `v3.json` and
-`xiongan-v2.json`. Their deployment URL is deliberately `null`; that means no
+Public profile templates are `config/releases/v2.json` and `v3.json`.
+Their deployment URL is deliberately `null`; that means no
 endpoint has been assigned. The source browser defaults to the V3 template.
 Packaging writes the chosen template to the artifact's
 `web/release-config.json` without modifying the source template.
 
 Copy the desired template to a public deployment configuration file. Keep the
-schema, product, platform and profile unchanged; set the approved tenant and
-confirmed environment/URL. The configuration must contain exactly:
+schema, product, platform and profile unchanged; use only approved public
+labels and the confirmed environment/URL. Keep private deployment mappings out
+of public source and downloadable examples. The configuration must contain exactly:
 
 ```json
 {
@@ -143,7 +155,7 @@ confirmed environment/URL. The configuration must contain exactly:
   "product": "8415wallet",
   "platform": "8415wallet.com",
   "profile": "v2",
-  "tenant": { "id": "xiongan", "label": "Xiongan" },
+  "tenant": { "id": "default", "label": "8415wallet" },
   "deployment": { "environment": "unconfigured", "url": null }
 }
 ```
@@ -182,7 +194,8 @@ npm run pack:dapp:v3 -- --config /path/to/confirmed-public-config.json
 npm run pack:dapp:verify
 ```
 
-The requested profile must match the file. Xiongan with V3 is refused. Tenant
+The requested profile must match the file and any deployment-specific profile
+restriction remains enforced. Tenant
 identity changes display/configuration; it does not authenticate a sender,
 select a wallet account, prove a deployment or authorize a transaction.
 The runtime loader fails closed on missing or malformed configuration; it must
@@ -225,7 +238,7 @@ A website release profile never substitutes for those chain checks.
 
 The repository loopback development server is not a production host. Its
 `WALLET_BROWSER_PORT` setting is for a locally selected available test port and
-does not allocate any CTYun/SIN port.
+does not allocate a port on an authorized deployment server.
 
 ## Rollback and recovery
 
@@ -255,7 +268,7 @@ Screenshots alone cannot prove signing, chain execution or device identity.
 
 - Confirm product, V2/V3 Beta label, tenant and unaudited scope at the exact
   deployment URL. Verify missing/corrupt config prevents actions. Confirm
-  Xiongan identifies V2 and cannot expose linked actions.
+  a V2-only configuration cannot expose linked actions.
 - Open in a genuine desktop wallet extension and a supported physical mobile
   wallet's in-app browser. Connect without importing keys. Reject a connection
   prompt once, retry deliberately, and switch accounts/chains mid-read.

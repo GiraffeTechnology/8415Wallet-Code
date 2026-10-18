@@ -1,5 +1,6 @@
 import * as nativeI18n from '../web/native-i18n.mjs';
 import * as uiI18n from '../web/i18n.mjs';
+import * as privacy from '../web/wallet-identity-display.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -22,13 +23,13 @@ function fixture() {
   let sends = 0, connects = 0, verifications = 0;
   const hooks = { profile: async (): Promise<unknown> => ({}), connect: async (): Promise<unknown> => [actor],
     verify: async (): Promise<unknown> => undefined, prepare: async (): Promise<any> => ({ digest, tradeKey: digest, facts: '{}', transaction: {} }),
-    send: async (): Promise<any> => digest, status: async (): Promise<any> => ({ status: 'idle' }) };
+    observe: async (): Promise<any> => ({ trade: 'read-only' }), send: async (): Promise<any> => digest, status: async (): Promise<any> => ({ status: 'idle' }) };
   class Session {
     verify() { verifications++; return hooks.verify(); }
     status() { return hooks.status(); }
     prepare() { return hooks.prepare(); }
     submit() { sends++; return hooks.send(); }
-    observe() { return Promise.resolve({ trade: 'read-only' }); }
+    observe() { return hooks.observe(); }
     reconcile() { return Promise.resolve({ state: 'confirmed' }); }
     acknowledge() { return Promise.resolve(); }
     recover() { return Promise.resolve({ state: 'confirmed' }); }
@@ -36,9 +37,9 @@ function fixture() {
   }
   const provider = { request() {}, on(name: string, fn: () => void) { events.set(name, fn); } };
   let authChanged: ((session: any) => void) | null = null;
-  const sdk = { ...uiI18n, ...nativeI18n,
+  const sdk = { ...uiI18n, ...nativeI18n, ...privacy,
     // Authentication is isolated in wallet-login.test.ts and the full browser suite.
-    walletLogin: { assert() {}, check: async () => {}, provider: () => provider, subscribe(listener: (session: any) => void) { authChanged = listener; } }, WalletLoginError: class extends Error {}, LegacyClearingSession: Session, BrowserLegacyClearingStore: class {}, parseLegacyClearingDeployment, CLEARING_NOTES, ControlAdapterError,
+    walletLogin: { assert() { return { account: actor }; }, check: async () => {}, provider: () => provider, subscribe(listener: (session: any) => void) { authChanged = listener; } }, WalletLoginError: class extends Error {}, LegacyClearingSession: Session, BrowserLegacyClearingStore: class {}, parseLegacyClearingDeployment, CLEARING_NOTES, ControlAdapterError,
     getReleaseProfile: () => hooks.profile(), controlRpc: () => { connects++; return hooks.connect(); }, acquireWalletUi: () => Symbol(), releaseWalletUi() {} };
   new Function('document', 'globalThis', ...Object.keys(sdk), source)({ getElementById: element, querySelectorAll: () => [...elements.values()] }, { ethereum: provider, addEventListener: (name: string, fn: (event: any) => void) => lifecycle.set(name, fn) }, ...Object.values(sdk));
   element('clearing-deployment').files = [{ size: 1, text: async () => JSON.stringify({ schema: '8415-legacy-clearing/1', chainId: '31337',
@@ -107,3 +108,39 @@ test('logout removes automatically populated trade and submission identifiers be
   f.logout(); assert.equal(f.element('clearing-trade-key').value, ''); assert.equal(f.element('clearing-recovery-hash').value, '');
   assert.equal(f.element('clearing-review').textContent, 'No clearing review prepared'); assert.equal(f.counts().sends, 1);
 });
+
+
+// Display copies only: the verified observation and exact transaction review
+// must never be rewritten by privacy or locale presentation.
+test('clearing historical read filters counterparties while preserving pinned contracts and source facts', async () => {
+  const f = fixture(); await f.connect();
+  const other = `0x${'e'.repeat(40)}`, escrow = `0x${'c'.repeat(40)}`, projection = `0x${'d'.repeat(40)}`;
+  const observation = { tradeKey: digest, escrow, projection, trade: { seller: actor, buyer: other, projection },
+    observation: { holder: other }, notes: `Counterparty ${other}; contract in prose ${projection}` };
+  const original = JSON.stringify(observation); f.hooks.observe = async () => observation;
+  await f.click('clearing-observe');
+  for (const locale of ['en', 'zh-Hans', 'zh-Hant', 'fr', 'es', 'ja']) {
+    uiI18n.setLocale(locale, { persist: false });
+    const text = f.element('clearing-result').textContent;
+    assert.ok(!text.includes(actor) && !text.includes(other));
+    assert.ok(text.includes(escrow) && text.includes(projection));
+    assert.ok(!text.includes('[wallet:'));
+  }
+  assert.equal(JSON.stringify(observation), original); assert.equal(f.counts().sends, 0);
+  uiI18n.setLocale('en', { persist: false });
+});
+
+for (const event of ['accountsChanged', 'chainChanged', 'disconnect', 'pagehide', 'pageshow', 'logout']) {
+  test(`clearing historical read cannot be revived by locale after ${event}`, async () => {
+    const f = fixture(); await f.connect();
+    f.hooks.observe = async () => ({ trade: { buyer: `0x${'e'.repeat(40)}` }, marker: 'SYNTHETIC_OLD_READ' });
+    await f.click('clearing-observe'); assert.match(f.element('clearing-result').textContent, /SYNTHETIC_OLD_READ/);
+    if (event === 'logout') f.logout();
+    else if (event === 'pagehide' || event === 'pageshow') f.lifecycle(event);
+    else f.emit(event);
+    for (const locale of ['fr', 'ja', 'en']) {
+      uiI18n.setLocale(locale, { persist: false });
+      assert.ok(!f.element('clearing-result').textContent.includes('SYNTHETIC_OLD_READ'));
+    }
+  });
+}

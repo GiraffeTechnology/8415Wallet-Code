@@ -5,10 +5,11 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { freezeTaskPolicy, emptyNftListingBudget } from '../src/agent/taskContract.ts';
+import { freezeTaskPolicy, emptyTaskBudget, emptyNftListingBudget } from '../src/agent/taskContract.ts';
 import { freezeNftValuationPolicy } from '../server/task-authorization.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const evidence = process.env.WALLET_TASK_EVIDENCE;
@@ -125,6 +126,77 @@ test('synthetic desktop and mobile real-page task approval, app switch, reload, 
       assert.equal(requests.filter(path => path === 'tasks/authorize').length, 1);
       assert.equal(await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, history: history.state })), JSON.stringify({ local: { '8415wallet.ui.locale.v1': 'en' }, session: {}, history: { walletPage: 'tasks', walletTaskDigest: task.digest } }));
       if (evidence) await page.screenshot({ path: `${evidence}/task-authorized-blocked-${viewport.width}.png`, fullPage: true });
+      assert.deepEqual(errors, []); await context.close();
+    }
+  } finally { await browser?.close(); server.kill('SIGTERM'); }
+});
+
+/** Isolated real-DOM contract, not a claim that foundation mounts task UI. */
+test('synthetic real-DOM pre-operational approval hides OTP guidance and sends only empty code', async () => {
+  const port = await endpoint(), origin = `http://127.0.0.1:${port}`;
+  const server = spawn(process.execPath, ['scripts/controls/serve-browser.cjs'], { cwd: root, env: { ...process.env, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  await once(server.stdout, 'data'); let browser;
+  try {
+    browser = await chromium.launch({ executablePath: process.env.WALLET_BROWSER_CHROMIUM ?? '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+      const context = await browser.newContext({ viewport }), page = await context.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.route('**/task-factor-fixture.html', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body></body></html>' }));
+      await page.goto(`${origin}/task-factor-fixture.html`);
+      const account = `0x${'11'.repeat(20)}`;
+      const task = freezeTaskPolicy({ schema: '8415-agent-task/1', taskId: 'synthetic-preoperational', origin, tenant: 'default', chainId: '1', actor: account,
+        expiresAt: String(Math.floor(Date.now() / 1000) + 3600), fees: { perOperationWei: '1', totalWei: '1' },
+        intent: { kind: 'exact-operation', operation: { kind: 'native-transfer', chainId: '1', actor: account, recipient: `0x${'22'.repeat(20)}`, valueWei: '1' } } });
+      const identity = { schema: '8415-task-executor/1', agentId: 'synthetic-agent', agentVersion: '1', adapterId: 'synthetic-test-adapter', adapterVersion: '1', implementationDigest: `0x${'9'.repeat(64)}` };
+      const executor = { identity, digest: `0x${createHash('sha256').update(JSON.stringify(identity)).digest('hex')}` };
+      const ids = [...readFileSync(new URL('../web/index.html', import.meta.url), 'utf8').matchAll(/id="(task-[^"]+)"/g)].map(match => match[1]);
+      await page.evaluate(async ({ ids, account, task, executor, budget }) => {
+        const el = id => document.getElementById(id);
+        for (const id of new Set(ids)) {
+          const node = document.createElement(id === 'task-authorize-form' ? 'form' : ['task-code', 'task-ack'].includes(id) ? 'input' : id === 'task-authorize' ? 'button' : 'div');
+          node.id = id; document.body.append(node);
+        }
+        el('task-code').type = 'password'; el('task-ack').type = 'checkbox'; el('task-authorize').type = 'button'; el('task-authorize').textContent = 'Authorize';
+        el('task-authorize-form').append(el('task-authorize-fields'));
+        el('task-authorize-fields').append(el('task-authenticator-help'), el('task-code-label'), el('task-code'), el('task-ack'), el('task-authorize'));
+        const evaluation = { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' };
+        const session = { origin: location.origin, account, chainId: '1', tenant: 'default', id: 1, serverId: 'synthetic-server' };
+        let authorized = false;
+        window.factorRequests = [];
+        const view = () => ({ task, executor, observationPolicy: null, receiptVerifier: null, observations: [], observationRevision: '0', completion: { state: 'not-attempted', fresh: false },
+          authorization: authorized ? { schema: '8415-task-authorization-reference/1', taskDigest: task.digest, reference: 'grant:synthetic', status: 'authorized', grantPolicyVersion: '1', credentialRevisionAtApproval: '0' } : null,
+          effectiveStatus: authorized ? 'authorized' : 'pending', budget: authorized ? budget : null,
+          ...(authorized ? { approvalFactor: 'preoperational-default-on', approvalEvaluation: evaluation } : {}),
+          capabilities: { executable: false, adapterConfigured: false, receiptVerifierConfigured: false, missing: ['TASK_EXECUTION_ADAPTER_NOT_CONNECTED'] } });
+        const request = async (path, body) => {
+          window.factorRequests.push({ path, body });
+          if (path === 'tasks/list') return { tasks: [view()], nextCursor: null, revision: '1' };
+          if (path === 'tasks/status') return view();
+          if (path === 'tasks/prepare') return { task, executor, observationPolicy: null, receiptVerifier: null, purpose: 'authorize-task', challengeId: `challenge:${'a'.repeat(43)}`, expiresAt: Date.now() + 120000, approvalFactor: 'preoperational-default-on', approvalEvaluation: evaluation };
+          if (path === 'tasks/authorize') { if (body.code !== '') throw Error('NONEMPTY_CODE'); authorized = true; return view(); }
+          if (path === 'tasks/resume') return { ...view(), continuation: { state: 'blocked', code: 'TASK_EXECUTION_ADAPTER_NOT_CONNECTED' } };
+          throw Error('Unexpected fixture request');
+        };
+        const { mountTaskAuthorization } = await import('/web/task-authorization-ui.mjs');
+        history.replaceState({ walletTaskDigest: task.digest }, '');
+        window.factorUi = mountTaskAuthorization({ document, window, walletLogin: { check: async () => session, capture: () => ({}), assert: () => session, subscribe() {} }, getClient: () => ({ request }) });
+        document.dispatchEvent(new CustomEvent('wallet:page', { detail: 'tasks' }));
+      }, { ids, account, task, executor, budget: emptyTaskBudget(task) });
+      await page.waitForFunction(() => window.factorUi.snapshot()?.phase === 'review');
+      for (const id of ['task-code', 'task-code-label', 'task-authenticator-help']) assert.equal(await page.locator(`#${id}`).isVisible(), false);
+      assert.equal(await page.locator('#task-code').isDisabled(), true);
+      assert.equal(await page.locator('#task-code').evaluate(node => node.required), false);
+      for (const locale of ['en', 'zh-Hans', 'zh-Hant', 'fr', 'es', 'ja']) {
+        const expected = await page.evaluate(async locale => { const i18n = await import('/web/i18n.mjs'); i18n.setLocale(locale, { persist: false }); return i18n.t('task.approvalNotEvaluated'); }, locale);
+        assert.ok((await page.locator('#task-summary').innerText()).includes(expected));
+      }
+      await page.evaluate(() => { document.getElementById('task-code').value = '654321'; });
+      await page.locator('#task-ack').check(); await page.locator('#task-authorize').click();
+      await page.waitForFunction(() => window.factorUi.snapshot()?.phase === 'authorized-blocked');
+      const sent = await page.evaluate(() => window.factorRequests.filter(request => request.path === 'tasks/authorize'));
+      assert.equal(sent.length, 1); assert.equal(sent[0].body.code, '');
+      assert.equal(await page.locator('#task-code').inputValue(), '');
+      assert.match(await page.locator('#task-summary').innerText(), /NOT_EVALUATED/);
       assert.deepEqual(errors, []); await context.close();
     }
   } finally { await browser?.close(); server.kill('SIGTERM'); }

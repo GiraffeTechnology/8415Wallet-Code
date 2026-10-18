@@ -3,7 +3,7 @@ import { KitErc8415Reader } from '../adapters/kit/kitReader.ts';
 import { RpcErc8415Reader } from '../adapters/rpc/rpcReader.ts';
 import { HttpCallTransport } from '../adapters/rpc/transport.ts';
 import { RpcWatchtowerReader } from '../adapters/rpc/watchtowerRpcReader.ts';
-import { ProjectionNotInitialized } from '../sdk/errors.ts';
+import { ProjectionNotInitialized, TransportError } from '../sdk/errors.ts';
 import type { WatchtowerBinding } from '../sdk/watchtower.ts';
 import { discoverHeldTokens } from '../wallet/discovery.ts';
 import { renderAssetView } from '../wallet/renderAssetView.ts';
@@ -17,7 +17,12 @@ import type { CliOptions } from './args.ts';
 /** Read a live deployment through the same views the scenarios use. */
 export async function runLive(options: CliOptions, banner: (title: string) => void): Promise<void> {
   const transport = new HttpCallTransport(options.rpc!);
-  const chain = new RpcErc8415Reader(transport, options.chainId ?? 1n, options.contract!, {
+  const expectedChainId = options.chainId ?? 1n;
+  const chainId = await transport.getChainId();
+  if (expectedChainId !== chainId) {
+    throw new TransportError('eth_chainId', `chain mismatch: expected ${expectedChainId}, received ${chainId}`);
+  }
+  const chain = new RpcErc8415Reader(transport, chainId, options.contract!, {
     ...(options.fromBlock === undefined ? {} : { fromBlock: options.fromBlock }),
   });
 
@@ -44,7 +49,7 @@ export async function runLive(options: CliOptions, banner: (title: string) => vo
     options.watchtower === undefined || options.assetId === undefined
       ? undefined
       : {
-          reader: new RpcWatchtowerReader(transport, options.chainId ?? 1n, options.watchtower),
+          reader: new RpcWatchtowerReader(transport, chainId, options.watchtower),
           assetId: options.assetId,
           provenance: 'configured',
           claimedRegisterId: await reader.registerId(),

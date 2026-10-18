@@ -128,14 +128,31 @@ describe('executed prefix and return boundaries', () => {
     assert.deepEqual(view.completionPrefix, []);
     assert.equal(view.returnBoundary.account, parties[3]);
   });
-  for (const outcome of ['returning', 'returned'] as const) {
-    test(`${outcome} cannot race into a completion preview on late admission`, () => {
-      const snapshot = changeLeg(chain(), 2, { outcome });
-      const view = buildLinkedChainView(snapshot, evidence(snapshot, 3, 3));
-      assert.deepEqual(view.completionPrefix, []);
-      assert.equal(view.legs[2]!.outcome, outcome);
-    });
-  }
+  test('active callback still blocks completion preview on late admission', () => {
+    const snapshot = changeLeg(chain(), 2, { outcome: 'returning' });
+    const view = buildLinkedChainView(snapshot, evidence(snapshot, 3, 3));
+    assert.deepEqual(view.completionPrefix, []);
+    assert.equal(view.legs[2]!.outcome, 'returning');
+  });
+  test('returned CD does not suppress unaffected AB completion at owner C / holder B', () => {
+    const snapshot = changeLeg(chain(), 2, { outcome: 'returned' });
+    const view = buildLinkedChainView(snapshot, evidence(snapshot, 2, 1));
+    assert.deepEqual(view.completionPrefix, [hash(1)]);
+    assert.equal(view.legs[2]!.completionPredicate, 'not-applicable');
+    assert.equal(view.returnBoundary.account, parties[0]);
+  });
+  test('returned suffix permits the satisfied remaining prefix without reactivating detached AB', () => {
+    const snapshot = changeLeg(changeLeg(chain(), 0, { outcome: 'completed' }), 2, { outcome: 'returned' });
+    const view = buildLinkedChainView(snapshot, evidence(snapshot, 2, 2));
+    assert.deepEqual(view.completionPrefix, [hash(2)]);
+    assert.deepEqual(view.detachedLegIds, [hash(1)]);
+    assert.equal(view.returnBoundary.account, parties[1]);
+    assert.equal(view.legs[2]!.completionPredicate, 'not-applicable');
+  });
+  test('returned suffix does not substitute for unavailable completion evidence', () => {
+    const snapshot = changeLeg(chain(), 2, { outcome: 'returned' });
+    assert.deepEqual(buildLinkedChainView(snapshot, { kind: 'unavailable' }).completionPrefix, []);
+  });
   test('cannot mark a descendant completed through an unresolved predecessor', () => {
     refused(changeLeg(chain(), 1, { outcome: 'completed' }), { kind: 'unavailable' }, 'LINKED_COMPLETION_PREFIX_INVALID');
   });

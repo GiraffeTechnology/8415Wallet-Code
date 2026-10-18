@@ -59,7 +59,7 @@ function fixture(options: any = {}) {
   const call = (path: string, body: any) => service.handler(`tasks/${path}`, body, session);
   const approval = (p: any) => ({ challengeId: p.challengeId, taskDigest: p.task.digest, executorDigest: p.executor.digest,
     observationPolicyDigest: p.observationPolicy?.digest ?? null, ...(p.valuationPolicy ? { valuationPolicyDigest: p.valuationPolicy.digest, priceAt: p.valuationPolicy.policy.priceAt } : {}),
-    code: hotp(secret, Math.floor(state.now / 30000)) });
+    code: p.approvalFactor === 'totp' ? hotp(secret, Math.floor(state.now / 30000)) : '' });
   const prepare = (p = policy(), v: any = valuation()) => call('prepare', { policy: p, ...(v === null ? {} : { valuationPolicy: v }) });
   const authorize = (p: any) => call('authorize', approval(p));
   const grant = async (p = policy(), v: any = valuation()) => authorize(await prepare(p, v));
@@ -73,7 +73,9 @@ function fixture(options: any = {}) {
 import { listingEvidenceFixture } from './helpers/listing-results-fixture.mjs';
 
 test('durable consumer -> service status/list shows listed, partial and observed depth without changing task budget', async () => {
-  const evidence = listingEvidenceFixture(), f = fixture({ listingResults: evidence.results }), grant = await f.grant();
+  const evidence = listingEvidenceFixture(), f = fixture({ listingResults: evidence.results });
+  const credential = await f.store.read('xiongan:tester'), grant = await f.grant();
+  assert.equal(grant.humanVerification.mode, 'ON'); assert.equal(grant.humanVerification.revision, '0');
   const published = await f.call('resume', { taskDigest: grant.task.digest });
   assert.equal(published.completion.state, 'listed-awaiting-evidence'); assert.equal(evidence.state.scans, 0);
   let read = await f.call('status', { taskDigest: grant.task.digest });
@@ -90,7 +92,8 @@ test('durable consumer -> service status/list shows listed, partial and observed
   evidence.state.quantities.push('1'); read = await f.call('resume', { taskDigest: grant.task.digest });
   assert.equal(read.listing.result.state, 'observed-at-depth'); assert.equal(read.completion.state, 'listing-observed-at-depth');
   assert.equal(read.listing.result.summary.availableFillCount, 2); assert.equal(read.listing.result.summary.finality, 'NOT_EVALUATED');
-  assert.deepEqual(read.budget, budget); assert.equal(f.calls.send, 1); assert.equal(f.calls.plan, 1); assert.equal(f.calls.otp, 1);
+  assert.deepEqual(read.budget, budget); assert.equal(f.calls.send, 1); assert.equal(f.calls.plan, 1); assert.equal(f.calls.otp, 0);
+  assert.deepEqual(await f.store.read('xiongan:tester'), credential);
 });
 
 test('background observes after logout, revoke and expiry and keeps checking full quantity for reorgs', async () => {
@@ -103,7 +106,7 @@ test('background observes after logout, revoke and expiry and keeps checking ful
   evidence.state.reorg = true; f.state.now += 5000;
   tick = await runner.tick(); assert.equal(tick.results[0].state, 'listing-reorg');
   assert.equal(evidence.state.scans, 2, 'each continuation attempts at most one bounded scan');
-  assert.equal(f.calls.send, 1); assert.equal(f.calls.plan, 1); assert.equal(f.calls.otp, 1);
+  assert.equal(f.calls.send, 1); assert.equal(f.calls.plan, 1); assert.equal(f.calls.otp, 0);
 });
 
 test('unavailable canonical reads downgrade to unknown with no current aggregate; reorg removes quantity', async () => {
@@ -130,7 +133,7 @@ test('untrusted HTTP evidence, wrong owner and revoked execution never enter obs
   const status = await f.call('status', { taskDigest: grant.task.digest });
   await assert.rejects(f.call('execute', { taskDigest: grant.task.digest, operationId: status.budget.reservations[0].operationId,
     childDigest: status.budget.reservations[0].childDigest, expectedBudgetRevision: status.budget.revision }), /TASK_GRANT_REVOKED/);
-  assert.equal(f.calls.send, 1); assert.equal(f.calls.otp, 1);
+  assert.equal(f.calls.send, 1); assert.equal(f.calls.otp, 0);
 });
 
 test('consumer and service restart read persisted fills without a new signature or scanning', async t => {

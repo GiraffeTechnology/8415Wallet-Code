@@ -1,14 +1,172 @@
 import test from 'node:test';
+
+test('test scope remains live at actual signing even before owner settings activation', async () => {
+  const wallet = new Wallet('0x' + '9'.repeat(64)); // Public synthetic fixture only.
+  let active = true;
+  const authority = { allows(task) { return active && task.policy.actor === wallet.address.toLowerCase() &&
+    task.policy.chainId === '11155111' && task.policy.intent.operation?.kind === 'native-transfer'; } };
+  const f = await fixture({ wallet, operationVerificationEnabled: false, composeRuntime: true, testAuthorization: authority,
+    onSign: async () => { active = false; } });
+  const reserved = await f.start(), unknown = await f.call('execute', f.body(reserved));
+  assert.equal(unknown.outcome, 'outcome-unknown'); assert.equal(f.state.broadcasts, 0);
+  const op = await f.store.read(f.state.operationKey);
+  assert.equal(op.humanVerificationEnforced, true); assert.equal(op.exactSignature.state, 'claimed');
+  assert.equal(op.humanVerificationEvaluation.state, 'NOT_EVALUATED');
+  assert.equal(op.humanVerificationEvaluation.reason, 'server-test-scope');
+  assert.equal((await f.store.read('synthetic-tenant:tester')).lastStep, -1);
+  assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 0);
+});
+
+test('original runtime passes one trusted scoped test authority through actual signing gates without human proof', async () => {
+  const wallet = new Wallet('0x' + '7'.repeat(64)); // Public synthetic fixture only.
+  let scopeChecks = 0;
+  const authority = { allows(task) { scopeChecks++; return task.policy.actor === wallet.address.toLowerCase() &&
+    task.policy.chainId === '11155111' && task.policy.intent.operation?.kind === 'native-transfer' &&
+    task.policy.intent.operation.recipient === recipient && task.policy.intent.operation.valueWei === '10'; } };
+  const f = await fixture({ wallet, operationVerificationEnabled: true, composeRuntime: true, testAuthorization: authority });
+  const reserved = await f.start();
+  assert.equal((await f.store.read('synthetic-tenant:tester')).lastStep, -1);
+  const before = scopeChecks, prepared = await f.call('prepare-operation-verification', f.body(reserved));
+  assert.equal(prepared.required, false); assert.equal(prepared.reason, 'server-test-scope');
+  const result = await f.call('execute', f.body(reserved));
+  assert.equal(result.budget.reservations[0].status, 'submitted');
+  assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1); assert.ok(scopeChecks > before + 3);
+  assert.equal((await f.store.read('synthetic-tenant:tester')).lastStep, -1);
+  assert.equal((await f.store.read(f.state.operationKey)).humanVerification, undefined);
+});
+test('test authority revocation during external signer await refuses actual signing and preserves UNKNOWN', async () => {
+  const wallet = new Wallet('0x' + '8'.repeat(64)); // Public synthetic fixture only.
+  let active = true;
+  const authority = { allows(task) { return active && task.policy.actor === wallet.address.toLowerCase() &&
+    task.policy.chainId === '11155111' && task.policy.intent.operation?.kind === 'native-transfer'; } };
+  const f = await fixture({ wallet, operationVerificationEnabled: true, composeRuntime: true, testAuthorization: authority,
+    onSign: async () => { active = false; } });
+  const reserved = await f.start(), unknown = await f.call('execute', f.body(reserved));
+  assert.equal(unknown.outcome, 'outcome-unknown'); assert.equal(f.state.broadcasts, 0);
+  assert.equal((await f.store.read(f.state.operationKey)).exactSignature.state, 'claimed');
+  assert.equal((await f.store.read('synthetic-tenant:tester')).lastStep, -1);
+  await assert.rejects(f.call('execute', f.body(unknown)));
+  assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 0);
+});
+
+async function saveSignerOperationPolicy(f, mode) {
+  const scope = { origin: 'https://wallet.example.invalid', tenant: 'synthetic-tenant', username: 'tester',
+    account: f.actor, chainId: '11155111', agentId: 'synthetic:agent' };
+  await f.store.transaction('synthetic-tenant:tester', credential => {
+    const k = taskVerificationPolicyKey(scope), prior = credential.taskVerificationPolicies?.[k];
+    const revision = String(BigInt(prior?.revision ?? '0') + 1n);
+    return { ...credential, taskVerificationPolicies: { ...(credential.taskVerificationPolicies ?? {}), [k]: {
+      schema: '8415-task-human-verification/2', scope, mode, revision, enforcedFromRevision: '1',
+      changes: [...(prior?.changes ?? []), { revision, previousRevision: prior?.revision ?? '0', mode,
+        changeId: 'A'.repeat(43), changeDigest: 'a'.repeat(64), scopeDigest: digest(JSON.stringify(scope)),
+        credentialRevision: 1, verifiedFactors: ['password', 'verified-email'], changedAt: f.state.now }] } } };
+  });
+}
+async function approveSignerOperation(f, reserved) {
+  f.state.now += 30000;
+  const proof = await f.call('prepare-operation-verification', f.body(reserved));
+  await f.call('confirm-operation-verification', { challengeId: proof.request.challengeId,
+    requestDigest: proof.requestDigest, code: hotp(secret, Math.floor(f.state.now / 30000)) });
+}
+test('initial ON signs through the authorized agent path without a per-operation human proof', async () => {
+  const f = await fixture({ operationVerificationEnabled: true }), reserved = await f.start();
+  assert.equal(reserved.humanVerification.mode, 'ON'); assert.equal(reserved.humanVerification.revision, '0');
+  const before = (await f.store.read('synthetic-tenant:tester')).lastStep;
+  assert.deepEqual(await f.call('prepare-operation-verification', f.body(reserved)),
+    { required: false, policyRevision: '0', reason: 'pre-operational-default-on' });
+  const result = await f.call('execute', f.body(reserved)), op = await f.store.read(f.state.operationKey);
+  assert.equal(result.outcome, 'submitted'); assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1);
+  assert.equal(op.exactSignature.state, 'signed'); assert.equal(op.exactSignature.transactionHash, f.state.visible.hash);
+  assert.equal(op.humanVerification, undefined);
+  assert.deepEqual(op.humanVerificationEvaluation,
+    { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' });
+  assert.equal((await f.store.read('synthetic-tenant:tester')).lastStep, before);
+});
+test('connecting owner management after reservation keeps the initial ON agent signing default', async () => {
+  const f = await fixture({ operationVerificationEnabled: false }), reserved = await f.start();
+  const connected = await fixture({ wallet: f.wallet, store: f.store, restart: true, operationVerificationEnabled: true });
+  const result = await connected.call('execute', connected.body(reserved));
+  assert.equal(result.outcome, 'submitted'); assert.equal(result.humanVerification.mode, 'ON');
+  assert.equal(result.humanVerification.revision, '0'); assert.equal(connected.state.signCalls, 1);
+  assert.equal(connected.state.broadcasts, 1);
+  assert.equal((await connected.store.read(connected.state.operationKey)).humanVerification, undefined);
+});
+test('a newly saved ON owner choice wins over the initial default at the real signing fence', async () => {
+  let f;
+  f = await fixture({ operationVerificationEnabled: true, onSign: async () => saveSignerOperationPolicy(f, 'ON') });
+  const reserved = await f.start(), result = await f.call('execute', f.body(reserved));
+  assert.equal(result.outcome, 'outcome-unknown'); assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 0);
+  const op = await f.store.read(f.state.operationKey);
+  assert.equal(op.exactSignature.state, 'claimed'); assert.equal(op.exactSignature.transactionHash, null);
+  assert.equal(op.humanVerification, undefined);
+  assert.equal(op.humanVerificationEvaluation.state, 'NOT_EVALUATED');
+  await assert.rejects(f.call('execute', f.body(result)));
+  assert.equal(f.state.signCalls, 1);
+});
+test('ON proof survives one exact claim, actual signing fence, persisted hash and one synthetic broadcast', async () => {
+  const f = await fixture({ operationVerificationEnabled: true }); await saveSignerOperationPolicy(f, 'ON');
+  const reserved = await f.start();
+  await assert.rejects(f.call('execute', f.body(reserved)), /VERIFICATION_REQUIRED/);
+  assert.equal(f.state.signCalls, 0); assert.equal(f.state.broadcasts, 0);
+  await approveSignerOperation(f, reserved);
+  const submitted = await f.call('execute', f.body(reserved));
+  assert.equal(submitted.budget.reservations[0].status, 'submitted');
+  assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1);
+  const op = await f.store.read(f.state.operationKey);
+  assert.equal(op.humanVerification.state, 'consumed'); assert.equal(op.exactSignature.state, 'signed');
+  assert.equal(op.humanVerification.binding.childDigest, f.child.digest);
+});
+test('ON policy revision changed during external signer await wins at actual signing fence', async () => {
+  let f;
+  f = await fixture({ operationVerificationEnabled: true, onSign: async () => saveSignerOperationPolicy(f, 'ON') });
+  await saveSignerOperationPolicy(f, 'ON');
+  const reserved = await f.start(); await approveSignerOperation(f, reserved);
+  const unknown = await f.call('execute', f.body(reserved));
+  assert.equal(unknown.outcome, 'outcome-unknown'); assert.equal(f.state.broadcasts, 0);
+  const op = await f.store.read(f.state.operationKey);
+  assert.equal(op.exactSignature.state, 'claimed'); assert.equal(op.exactSignature.transactionHash, null);
+  assert.equal(op.humanVerification.state, 'consumed');
+  await assert.rejects(f.call('execute', f.body(unknown)));
+  assert.equal(f.state.signCalls, 1);
+});
+test('ON policy changed after signed hash persistence wins before actual broadcast', async () => {
+  let f, changed = false;
+  f = await fixture({ operationVerificationEnabled: true, rpc: async ({ method, state }) => {
+    if (!changed && state.signCalls === 1 && method === 'eth_getBalance') {
+      changed = true; await saveSignerOperationPolicy(f, 'ON');
+    }
+  } });
+  await saveSignerOperationPolicy(f, 'ON');
+  const reserved = await f.start(); await approveSignerOperation(f, reserved);
+  const unknown = await f.call('execute', f.body(reserved));
+  assert.equal(changed, true); assert.equal(unknown.outcome, 'outcome-unknown');
+  assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 0);
+  assert.equal((await f.store.read(f.state.operationKey)).exactSignature.state, 'signed');
+});
+test('OFF marker remains prompt-free through actual signer fences and broadcast', async () => {
+  assert.ok(TASK_EXACT_SIGNER_RUNTIME_FILES.includes('server/task-operation-verification.mjs'));
+  const f = await fixture({ operationVerificationEnabled: true }); await saveSignerOperationPolicy(f, 'OFF');
+  const reserved = await f.start(), before = (await f.store.read('synthetic-tenant:tester')).lastStep;
+  const result = await f.call('execute', f.body(reserved));
+  assert.equal(result.budget.reservations[0].status, 'submitted');
+  assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1);
+  const op = await f.store.read(f.state.operationKey);
+  assert.equal(op.humanVerificationEnforced, true); assert.equal(op.humanVerification, undefined);
+  assert.equal((await f.store.read('synthetic-tenant:tester')).lastStep, before);
+});
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Wallet, Transaction } from 'ethers';
-import { createTaskExactSignerAdapter } from '../server/task-exact-signer-adapter.mjs';
+import { createTaskExactSignerAdapter, TASK_EXACT_SIGNER_RUNTIME_FILES } from '../server/task-exact-signer-adapter.mjs';
+import { createTaskExactSignOnly } from '../server/task-exact-sign-only.mjs';
+import { createTaskExactRuntime } from '../server/task-exact-runtime.mjs';
 import { encodeExactTaskOperation } from '../server/task-operation-encoding.mjs';
 import { createTaskAuthorizationService, freezeTaskExecutorIdentity } from '../server/task-authorization.mjs';
 import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
-import { base32, hotp, matchTotp } from '../server/crypto.mjs';
+import { base32, digest, hotp, matchTotp } from '../server/crypto.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-state.mjs';
 import { freezeTaskPolicy, freezeChildOperation } from '../src/agent/taskContract.ts';
 import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
 import { hashControlBytes } from '../src/controls/authorization.ts';
@@ -31,12 +189,13 @@ function observed(tx) {
 async function fixture(options = {}) {
   const wallet = options.wallet ?? Wallet.createRandom(), actor = wallet.address.toLowerCase();
   const store = options.store ?? new MemoryCredentialStore();
-  if (!options.restart) await store.transaction('xiongan:tester', () => ({ secret, lastStep: -1, revision: 1, sentinel: 'existing-credential' }));
+  if (!options.restart) await store.transaction('synthetic-tenant:tester', () => ({ secret, lastStep: -1, revision: 1, sentinel: 'existing-credential' }));
   const state = { actor, now: epoch, nonce: '0x7', chainId: '0xaa36a7', actorCode: '0x', visible: null, signCalls: 0, broadcasts: 0, methods: [], requests: [] };
   const provider = { async request({ method, params }) {
     state.methods.push(method);
     if (options.rpc) { const override = await options.rpc({ method, params, state }); if (override !== undefined) return override; }
     if (method === 'eth_chainId') return state.chainId;
+    if (method === 'eth_getBalance') return state.balance ?? '0xffffffffffffffff';
     if (method === 'eth_getCode') return params[0].toLowerCase() === actor ? state.actorCode : '0x';
     if (method === 'eth_getTransactionCount') return state.nonce;
     if (method === 'eth_call') return '0x';
@@ -53,7 +212,11 @@ async function fixture(options = {}) {
     }
     throw Error(`Unexpected synthetic RPC: ${method}`);
   } };
-  const externalSigner = { async signExactTransaction(request) {
+  const syntheticSigner = { async signExactTransaction(request, execution) {
+    if (options.captureFence) options.captureFence(execution?.withSigningFence);
+    // Test-only legacy fallback permits a true before/after comparison with
+    // the old adapter. Product code never supplies this fallback.
+    const invokeFenced = execution?.withSigningFence ?? (invoke => invoke());
     state.signCalls++; state.requests.push(request);
     assert.deepEqual(Object.keys(request), ['requestId', 'unsignedSerialized', 'unsignedDigest', 'binding']);
     assert.ok(Object.isFrozen(request) && Object.isFrozen(request.binding));
@@ -61,10 +224,33 @@ async function fixture(options = {}) {
     if (options.onSign) await options.onSign({ request, state, store });
     if (options.invalid !== undefined) return options.invalid;
     const tx = Transaction.from(request.unsignedSerialized); options.mutate?.(tx);
-    return (options.wrongActor ? Wallet.createRandom() : wallet).signTransaction(tx);
+    const invoke = () => (options.wrongActor ? Wallet.createRandom() : wallet).signTransaction(tx);
+    if (options.ignoreFence) return invoke();
+    const signed = await invokeFenced(invoke);
+    if (options.repeatFence) await invokeFenced(invoke);
+    return signed;
   } };
-  const execution = createTaskExactSignerAdapter({ provider, externalSigner, signerIdentity, store,
-    maxPriorityFeePerGasWei: '1', agentId: 'synthetic:agent', agentVersion: '1', now: () => state.now });
+  const walletProvider = { async request({ method, params }) {
+    if (method === 'eth_signTransaction') state.signCalls++;
+    if (options.walletRPC) await options.walletRPC({ method, params, state, store });
+    if (method === 'eth_chainId') return state.chainId;
+    if (method === 'eth_accounts') return [wallet.address];
+    if (method === 'eth_signTransaction') {
+      const p = params[0];
+      return wallet.signTransaction({ type: 2, chainId: BigInt(p.chainId), nonce: Number(BigInt(p.nonce)),
+        to: p.to, data: p.data, value: BigInt(p.value), gasLimit: BigInt(p.gas),
+        maxFeePerGas: BigInt(p.maxFeePerGas), maxPriorityFeePerGas: BigInt(p.maxPriorityFeePerGas), accessList: [] });
+    }
+    assert.fail('Unexpected synthetic wallet RPC ' + method);
+  } };
+  const externalSigner = options.bridge ? createTaskExactSignOnly({ walletProvider }) : syntheticSigner;
+  const exactOptions = { provider, externalSigner, signerIdentity, store,
+    maxPriorityFeePerGasWei: '1', agentId: 'synthetic:agent', agentVersion: options.agentVersion ?? '1', now: () => state.now,
+    testAuthorization: options.testAuthorization ?? null };
+  const execution = options.composeRuntime ? createTaskExactRuntime({ store, now: () => state.now,
+    testAuthorization: options.testAuthorization ?? null, serverConfiguration: { provider, externalSigner, signerIdentity,
+      maxPriorityFeePerGasWei: '1', agentId: 'synthetic:agent', agentVersion: options.agentVersion ?? '1',
+      observationPolicy: observationPolicy.policy } }).authOptions.taskExecution : createTaskExactSignerAdapter(exactOptions);
   const executor = freezeTaskExecutorIdentity(execution.identity);
   const session = { username: 'tester', account: actor, chainId: '11155111', id: 'synthetic:session', revision: 1,
     issuedAt: epoch, expiresAt: epoch + 900_000 };
@@ -74,13 +260,15 @@ async function fixture(options = {}) {
     async assessChild(input) { return { taskDigest: input.task.digest, childDigest: input.child.digest, executorDigest: input.executor.digest,
       observationPolicyDigest: observationPolicy.digest, ...verifier, capability: 'exact-operation-observable' }; },
     async observe() { throw Error('Synthetic observation not needed'); } };
-  const service = createTaskAuthorizationService({ origin: 'https://wallet.example.invalid', tenant: 'xiongan', store, now: () => state.now,
-    assertSession, async credentialFor(s) { const c = await store.read('xiongan:tester'); assertSession(s, c); return c; },
+  const service = createTaskAuthorizationService({ origin: 'https://wallet.example.invalid', tenant: 'synthetic-tenant', store, now: () => state.now,
+    operationVerificationEnabled: options.operationVerificationEnabled ?? false,
+    testAuthorization: options.testAuthorization ?? null,
+    assertSession, async credentialFor(s) { const c = await store.read('synthetic-tenant:tester'); assertSession(s, c); return c; },
     consumeTotp(s, c, code) { assertSession(s, c); const step = matchTotp(c.secret, code, state.now, c.lastStep);
       assert.notEqual(step, null); return { ...c, lastStep: step }; }, execution, executorIdentity: execution.identity,
     observationPolicy: observationPolicy.policy, receipt });
   const call = (path, body) => service.handler(`tasks/${path}`, body, session);
-  const policy = { schema: '8415-agent-task/1', taskId: 'synthetic:task', tenant: 'xiongan', origin: 'https://wallet.example.invalid',
+  const policy = { schema: '8415-agent-task/1', taskId: 'synthetic:task', tenant: 'synthetic-tenant', origin: 'https://wallet.example.invalid',
     chainId: '11155111', actor, expiresAt: String(epoch / 1000 + 7200), fees: { perOperationWei: '1000000', totalWei: '1000000' },
     intent: { kind: 'exact-operation', operation: options.operation ? options.operation(actor) : { kind: 'native-transfer', chainId: '11155111', actor, recipient, valueWei: '10' } } };
   const task = freezeTaskPolicy(policy), child = freezeChildOperation({ schema: '8415-agent-child/1', operationId: 'synthetic:operation',
@@ -91,7 +279,7 @@ async function fixture(options = {}) {
   async function start() {
     const prepared = await call('prepare', { policy });
     const authorized = await call('authorize', { challengeId: prepared.challengeId, taskDigest: task.digest,
-      executorDigest: executor.digest, observationPolicyDigest: observationPolicy.digest, code: hotp(secret, Math.floor(state.now / 30000)) });
+      executorDigest: executor.digest, observationPolicyDigest: observationPolicy.digest, code: prepared.approvalFactor === 'totp' ? hotp(secret, Math.floor(state.now / 30000)) : '' });
     return call('reserve', { taskDigest: task.digest, child: child.child, expectedBudgetRevision: authorized.budget.revision });
   }
   // Use exactly the existing service key, without reaching into an input cache.
@@ -108,7 +296,7 @@ test('exact sign-only injection persists hash before sole raw broadcast; preserv
   const op = await f.store.read(f.state.operationKey);
   assert.equal(op.exactSignature.state, 'signed'); assert.equal(op.status, 'submitted');
   assert.ok(!JSON.stringify(op).includes('serialized')); assert.ok(!JSON.stringify(op).includes(f.state.requests[0].unsignedSerialized));
-  assert.equal((await f.store.read('xiongan:tester')).sentinel, 'existing-credential');
+  assert.equal((await f.store.read('synthetic-tenant:tester')).sentinel, 'existing-credential');
   assert.ok(!f.state.methods.some(method => ['eth_accounts', 'eth_sendTransaction', 'eth_signTransaction', 'personal_sign'].includes(method)));
 });
 const mutations = {
@@ -149,6 +337,36 @@ test('a lost broadcast response recovers from full queried signed transaction wi
   const recovered = await f.call('recover', f.body(unknown)); assert.equal(recovered.outcome, 'submitted');
   assert.deepEqual([f.state.signCalls, f.state.broadcasts], before);
 });
+test('executor version upgrade reconciles original UNKNOWN without signing or replaying', async () => {
+  const f = await fixture({ lostResponse: true }), reserved = await f.start();
+  const unknown = await f.call('execute', f.body(reserved));
+  const before = await f.store.read(f.state.operationKey);
+  const upgraded = await fixture({ wallet: f.wallet, store: f.store, restart: true, agentVersion: '2' });
+  upgraded.state.visible = structuredClone(f.state.visible);
+  assert.notEqual(upgraded.executor.digest, f.executor.digest);
+  const result = await upgraded.call('recover', upgraded.body(unknown));
+  assert.equal(result.outcome, 'submitted');
+  assert.equal(result.budget.reservations[0].transactionHash, f.state.visible.hash);
+  const after = await f.store.read(f.state.operationKey);
+  assert.deepEqual(after.attemptExecutor, before.attemptExecutor);
+  assert.deepEqual(after.exactSignature, before.exactSignature);
+  assert.equal(upgraded.state.signCalls, 0); assert.equal(upgraded.state.broadcasts, 0);
+  assert.ok(!upgraded.state.methods.includes('eth_sendRawTransaction'));
+  await assert.rejects(upgraded.execution.send(f.input), /TASK_EXACT_BINDING_REFUSED/);
+});
+
+test('upgraded recovery rejects forged historical identity and leaves UNKNOWN quota reserved', async () => {
+  const f = await fixture({ lostResponse: true }), reserved = await f.start();
+  const unknown = await f.call('execute', f.body(reserved));
+  const upgraded = await fixture({ wallet: f.wallet, store: f.store, restart: true, agentVersion: '2' });
+  upgraded.state.visible = structuredClone(f.state.visible);
+  const forged = structuredClone(f.input); forged.executor.identity.agentVersion = 'forged';
+  await assert.rejects(upgraded.execution.recover(forged), /TASK_EXACT_BINDING_REFUSED/);
+  assert.equal((await f.store.read(f.state.operationKey)).status, 'outcome-unknown');
+  assert.equal((await f.status()).budget.revision, unknown.budget.revision);
+  assert.equal(upgraded.state.signCalls, 0); assert.equal(upgraded.state.broadcasts, 0);
+});
+
 test('persisted signed hash with no observed transaction stays unknown; read-only retries never resend', async () => {
   const f = await fixture({ onSign({ state }) { state.nonce = '0x8'; } }), g = await f.start();
   const unknown = await f.call('execute', f.body(g)); assert.equal(unknown.outcome, 'outcome-unknown');
@@ -181,7 +399,7 @@ for (const failState of ['claimed', 'signed']) test(`${failState} durable write 
   assert.equal(f.state.broadcasts, 0); assert.equal(f.state.signCalls, failState === 'claimed' ? 0 : 1);
   await assert.rejects(f.execution.send(f.input), /AUTH_STORE_UNHEALTHY/);
   assert.equal(store.durable[f.state.operationKey].status, 'outcome-unknown');
-  assert.equal(store.durable['xiongan:tester'].sentinel, 'existing-credential');
+  assert.equal(store.durable['synthetic-tenant:tester'].sentinel, 'existing-credential');
 });
 test('revocation while external signer is pending prevents hash persistence and broadcast', async () => {
   let release, entered; const started = new Promise(resolve => { entered = resolve; });
@@ -194,7 +412,7 @@ test('revocation while external signer is pending prevents hash persistence and 
 });
 test('factor change while signing blocks broadcast and preserves unrelated concurrent operation fields', async () => {
   const f = await fixture({ async onSign({ store, state }) {
-    await store.transaction('xiongan:tester', c => ({ ...c, revision: 2 }));
+    await store.transaction('synthetic-tenant:tester', c => ({ ...c, revision: 2 }));
     await store.transaction(state.operationKey, op => ({ ...op, syntheticConcurrentMetadata: 'preserve-me' }));
   } });
   const g = await f.start(); assert.equal((await f.call('execute', f.body(g))).outcome, 'outcome-unknown');
@@ -251,7 +469,7 @@ test('encrypted restart retains original store key/credential and recovers witho
   const restart = await fixture({ store, wallet: f.wallet, restart: true }); restart.state.visible = saved;
   assert.equal((await restart.call('recover', restart.body(unknown))).outcome, 'submitted');
   assert.equal(restart.state.signCalls, 0); assert.equal(restart.state.broadcasts, 0);
-  assert.equal((await store.read('xiongan:tester')).sentinel, 'existing-credential');
+  assert.equal((await store.read('synthetic-tenant:tester')).sentinel, 'existing-credential');
 });
 test('configuration methods are captured; fee/signer changes bind another executor identity', async () => {
   const f = await fixture(), g = await f.start();
@@ -287,25 +505,53 @@ test('unhealthy store refuses serialized boundary without invoking any external 
 });
 test('revocation queued ahead of final serialized boundary refuses a stale send continuation', async () => {
   class Store extends MemoryCredentialStore {
-    before = null; boundaries = 0;
-    async withReadSnapshot(keys, inspect) { if (++this.boundaries === 2 && this.before) { const fn = this.before; this.before = null; await fn(); } return super.withReadSnapshot(keys, inspect); }
+    before = null; operationKey = null; injected = null;
+    async withReadSnapshot(keys, inspect) {
+      // Inspect the durable milestone outside the held callback. Adding an
+      // earlier service fence must not move this test's revocation to signing.
+      const op = this.before && this.operationKey && keys.includes(this.operationKey) ? await this.read(this.operationKey) : null;
+      if (this.before && op?.exactSignature?.state === 'signed') {
+        assert.match(op.exactSignature.transactionHash, /^0x[0-9a-f]{64}$/);
+        this.injected = structuredClone(op.exactSignature);
+        const fn = this.before; this.before = null; await fn();
+      }
+      return super.withReadSnapshot(keys, inspect);
+    }
   }
   const store = new Store(), f = await fixture({ store }), g = await f.start();
+  store.operationKey = f.state.operationKey;
   store.before = () => f.call('revoke', { taskDigest: f.task.digest, expectedGrantPolicyVersion: '1' });
   assert.equal((await f.call('execute', f.body(g))).outcome, 'outcome-unknown');
   assert.equal((await f.status()).effectiveStatus, 'revoked'); assert.equal(f.state.broadcasts, 0); assert.equal(f.state.signCalls, 1);
+  assert.equal(store.injected.state, 'signed');
+  const operation = await store.read(f.state.operationKey);
+  assert.equal(operation.status, 'outcome-unknown');
+  assert.equal(operation.exactSignature.transactionHash, store.injected.transactionHash);
+  assert.equal((await f.status()).budget.reservations[0].status, 'outcome-unknown');
 });
 test('revocation queued after durable claim but before signer invocation produces zero signatures', async () => {
   class Store extends MemoryCredentialStore {
-    before = null;
-    async withReadSnapshot(keys, inspect) { if (this.before) { const fn = this.before; this.before = null; await fn(); } return super.withReadSnapshot(keys, inspect); }
+    before = null; operationKey = null; injected = null;
+    async withReadSnapshot(keys, inspect) {
+      const op = this.before && this.operationKey && keys.includes(this.operationKey) ? await this.read(this.operationKey) : null;
+      if (this.before && op?.exactSignature?.state === 'claimed') {
+        assert.equal(op.exactSignature.transactionHash, null);
+        this.injected = structuredClone(op.exactSignature);
+        const fn = this.before; this.before = null; await fn();
+      }
+      return super.withReadSnapshot(keys, inspect);
+    }
   }
   const store = new Store(), f = await fixture({ store }), g = await f.start();
+  store.operationKey = f.state.operationKey;
   store.before = () => f.call('revoke', { taskDigest: f.task.digest, expectedGrantPolicyVersion: '1' });
   assert.equal((await f.call('execute', f.body(g))).outcome, 'outcome-unknown');
   assert.equal(f.state.signCalls, 0); assert.equal(f.state.broadcasts, 0);
   assert.equal((await f.store.read(f.state.operationKey)).exactSignature.state, 'claimed');
+  assert.equal(store.injected.state, 'claimed');
+  assert.equal((await f.store.read(f.state.operationKey)).exactSignature.transactionHash, null);
   assert.equal((await f.status()).effectiveStatus, 'revoked');
+  assert.equal((await f.status()).budget.reservations[0].status, 'outcome-unknown');
 });
 test('revocation ordered after RPC invocation does not await network or undo already initiated send', async () => {
   let entered, release; const invoked = new Promise(resolve => { entered = resolve; });
@@ -383,4 +629,82 @@ test('all nine operation encodings remain closed and exact, including dynamic co
     assert.throws(() => encodeExactTaskOperation(tampered, account), /TASK_RECEIPT_ENCODING_MISMATCH/);
     if (['deposit','standalone-withdraw'].includes(operation.kind)) assert.throws(() => encodeExactTaskOperation(child), /TASK_OPERATION_ACCOUNT_REQUIRED/);
   }
+});
+
+test('insufficient pending maximum-cost balance refuses before signer and preserves reservation',async()=>{
+  const f=await fixture(), reserved=await f.start();f.state.balance='0x0';
+  await assert.rejects(f.call('execute',f.body(reserved)),/TASK_EXACT_BALANCE_INSUFFICIENT/);
+  assert.equal(f.state.signCalls,0);assert.equal(f.state.broadcasts,0);
+  assert.equal((await f.status()).budget.reservations[0].status,'reserved');
+});
+test('balance lost while signer is active preserves signed UNKNOWN and never broadcasts or resends',async()=>{
+  const f=await fixture({onSign({state}){state.balance='0x0';}}),reserved=await f.start();
+  const result=await f.call('execute',f.body(reserved));assert.equal(result.outcome,'outcome-unknown');
+  assert.equal(f.state.signCalls,1);assert.equal(f.state.broadcasts,0);
+  // Nothing was broadcast, so eth_getTransactionByHash has nothing to return
+  // and recovery cannot be established. Refusing is the required outcome: it
+  // keeps the signed attempt UNKNOWN instead of concluding "not mined", which
+  // is the only reading that would license a resend.
+  await assert.rejects(f.call('recover',f.body(result)),/TASK_EXACT_RECOVERY_NOT_ESTABLISHED/);
+  assert.equal(f.state.signCalls,1);assert.equal(f.state.broadcasts,0);
+  assert.equal((await f.status()).budget.reservations[0].status,'outcome-unknown');
+});
+
+test('real shipped bridge refuses signing RPC when grant revoked during awaited wallet checks', async () => {
+  let f, revoked = false;
+  f = await fixture({ bridge: true, async walletRPC({ method }) {
+    if (method === 'eth_accounts' && !revoked) {
+      revoked = true; await f.call('revoke', { taskDigest: f.task.digest, expectedGrantPolicyVersion: '1' });
+    }
+  } });
+  const g = await f.start(), outcome = await f.call('execute', f.body(g));
+  assert.equal(outcome.outcome, 'outcome-unknown');
+  assert.equal(f.state.signCalls, 0, 'actual eth_signTransaction must not be invoked');
+  assert.equal(f.state.broadcasts, 0);
+  const op = await f.store.read(f.state.operationKey);
+  assert.equal(op.exactSignature.state, 'claimed');
+  assert.equal(op.exactSignature.transactionHash, null);
+});
+test('real shipped bridge refuses signing after credential revision changes during selection', async () => {
+  let checks = 0;
+  const f = await fixture({ bridge: true, async walletRPC({ method, store }) {
+    if (method === 'eth_chainId' && ++checks === 2)
+      await store.transaction('synthetic-tenant:tester', credential => ({ ...credential, revision: 2 }));
+  } });
+  const g = await f.start(), outcome = await f.call('execute', f.body(g));
+  assert.equal(outcome.outcome, 'outcome-unknown');
+  assert.equal(f.state.signCalls, 0); assert.equal(f.state.broadcasts, 0);
+});
+test('revocation after signing RPC invocation does not deadlock or allow broadcast', async () => {
+  let f, revoked = false;
+  f = await fixture({ bridge: true, async walletRPC({ method }) {
+    if (method === 'eth_signTransaction' && !revoked) {
+      revoked = true; await f.call('revoke', { taskDigest: f.task.digest, expectedGrantPolicyVersion: '1' });
+    }
+  } });
+  const g = await f.start(), outcome = await f.call('execute', f.body(g));
+  assert.equal(outcome.outcome, 'outcome-unknown');
+  assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 0);
+  assert.equal((await f.status()).effectiveStatus, 'revoked');
+});
+test('signer without fence contract is refused; late captured fence cannot invoke a side effect', async () => {
+  let saved;
+  const f = await fixture({ ignoreFence: true, captureFence(fence) { saved = fence; } }), g = await f.start();
+  assert.equal((await f.call('execute', f.body(g))).outcome, 'outcome-unknown');
+  assert.equal(f.state.broadcasts, 0);
+  let effects = 0;
+  await assert.rejects(saved(() => { effects++; }), /SIGNING_FENCE_REFUSED/);
+  assert.equal(effects, 0);
+});
+test('signing fence is one use per durable claim', async () => {
+  const f = await fixture({ repeatFence: true }), g = await f.start();
+  assert.equal((await f.call('execute', f.body(g))).outcome, 'outcome-unknown');
+  assert.equal(f.state.broadcasts, 0);
+  assert.equal((await f.store.read(f.state.operationKey)).exactSignature.transactionHash, null);
+});
+test('shipped bridge signs once and sole journal-bound raw send remains separate', async () => {
+  const f = await fixture({ bridge: true }), g = await f.start();
+  const result = await f.call('execute', f.body(g));
+  assert.equal(result.outcome, 'submitted'); assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1);
+  assert.equal((await f.store.read(f.state.operationKey)).exactSignature.state, 'signed');
 });

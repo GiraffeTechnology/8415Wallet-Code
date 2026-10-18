@@ -55,7 +55,8 @@ Options:
                          discover the tokens it holds when --token is omitted
   --instant <seconds>    the instant to ask about, as uint64 Unix seconds;
                          defaults to the latest block's timestamp
-  --chain-id <id>        chain id for provenance labelling (default 1)
+  --chain-id <id>        expected chain id (default Ethereum: 1); the RPC
+                         must match and is verified for each chain read
   --from-block <n>       block the log scan starts from, normally the one the
                          contract was deployed in. Without it the reader
                          bisects eth_getCode, which only an archive node can

@@ -48,7 +48,12 @@ export const words = (data: string): string[] => {
 export const toBigInt = (slot: string): bigint => BigInt(`0x${slot}`);
 export const toBytes32 = (slot: string): Bytes32 => `0x${slot}`;
 export const toAddress = (slot: string): Address => `0x${slot.slice(24)}`;
-export const toBool = (slot: string): boolean => toBigInt(slot) !== 0n;
+export const toBool = (slot: string): boolean => {
+  if (!/^[0-9a-fA-F]{64}$/.test(slot)) throw new Error('ABI bool must be exactly one hexadecimal word');
+  const value = toBigInt(slot);
+  if (value !== 0n && value !== 1n) throw new Error('ABI bool must be 0 or 1');
+  return value === 1n;
+};
 
 /**
  * `RegisterEntry` is seven static words, so it decodes in field order with no

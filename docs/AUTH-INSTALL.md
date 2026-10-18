@@ -1,4 +1,8 @@
 # Reusable same-origin authentication installation
+> Deployment names and host addresses in this public document are synthetic
+> examples or unresolved placeholders. They do not identify an existing instance
+> and must not replace the operator's separately retained approved bindings.
+
 
 This is the server component of the V2/V3 DApp kit. It includes its nine pinned
 production dependencies and needs no `npm install` on the deployment host. Use
@@ -28,7 +32,7 @@ password, key, OTP seed or CA claim. Keep actual deployment bindings out of Git.
 Run as root from the verified package:
 
 ```
-node deploy/auth-xiongan/install.mjs prepare \
+node deploy/auth-runtime/install.mjs prepare \
   --package PACKAGE_DIRECTORY --node ABSOLUTE_NODE_EXECUTABLE \
   --origin EXISTING_HTTPS_ORIGIN --tenant TENANT \
   --bindings PRIVATE_BINDINGS_JSON --reserved-ports HOST_RESERVED_PORT_LIST_OR_none
@@ -71,8 +75,8 @@ use the user's independently approved secret-storage process.
 ## 3. Enable the existing same-origin route (deployment operator)
 
 ```
-node deploy/auth-xiongan/install.mjs check --tenant TENANT
-node deploy/auth-xiongan/install.mjs enable-proxy --tenant TENANT \
+node deploy/auth-runtime/install.mjs check --tenant TENANT
+node deploy/auth-runtime/install.mjs enable-proxy --tenant TENANT \
   --nginx-site EXACT_EXISTING_TLS_SITE_FILE
 ```
 
@@ -95,7 +99,7 @@ TOTP, registered-wallet and CA support are separate from actual device acceptanc
 ## Rollback and updates
 
 ```
-node deploy/auth-xiongan/install.mjs rollback --tenant TENANT
+node deploy/auth-runtime/install.mjs rollback --tenant TENANT
 ```
 
 Rollback restores only the exact saved nginx site when it still matches the
@@ -115,9 +119,10 @@ executable. All active sessions expire when the service restarts. Do not use an
 upgrade to smuggle a new state format or new permission requirement. DApp UI version rollback
 is independent of credential-store rollback.
 
-The older `operator-init.mjs` and fixed `service-entry.mjs` remain legacy source
-for compatibility; the reusable installer uses tenant-scoped `runtime-entry.mjs`
-and the complete first-initialization tool above. No preparation or package test
+The retained `operator-init.mjs` and `service-entry.mjs` have no implicit live
+instance: initialization requires an explicit existing tenant and confirmed public
+binding; service entry resolves the exact systemd credential instance. The reusable
+installer uses tenant-scoped `runtime-entry.mjs` and the first-initialization tool above. No preparation or package test
 is production activation, genuine-wallet, CA-device or independent-audit evidence.
 
 ## Review scope and evidence
@@ -184,7 +189,7 @@ Endpoint changes do not require code edits. Stop the tenant unit, then use the
 current verified installer's nonsecret configuration command:
 
 ```
-node deploy/auth-xiongan/install.mjs configure-mail --tenant TENANT \
+node deploy/auth-runtime/install.mjs configure-mail --tenant TENANT \
   --mail-transport smtp --smtp-port APPROVED_PORT --smtp-addresses APPROVED_IPS
 ```
 
@@ -254,14 +259,14 @@ its backup is not permission to discard newer authorization evidence.
 
 An already initialized account must retain its original key and ciphertext.
 `prepare`/`operator-activate` are for a new independent tenant, not an upgrade.
-The package now includes `deploy/auth-xiongan/migrate-legacy.mjs` for the exact
+The package now includes `deploy/auth-runtime/migrate-legacy.mjs` for the exact
 reviewed PR58 runtime at commit `a942495d6b6913a0026a6c2a8ce27eed9e9098f2`.
 It recognizes pinned source blobs, protected Node/source/configuration ownership,
 the fixed legacy service-entry contract, and one unshared existing nginx include.
 The supplied paths and service name are observations from the host, never defaults
 to guess. A different runtime, custom unit/drop-in, inline auth location, CA
 configuration, unknown include syntax, shared proxy, or existing managed receipt
-is refused for a separately reviewed migration. PR58 supports the Xiongan tenant
+is refused for a separately reviewed migration. PR58 supports the example-tenant-a tenant
 only. Never copy its identity, key or state to a platform/default tenant.
 
 The authorized deployment operator first inventories the actual unit, resolved
@@ -270,10 +275,10 @@ The operator checks the new package using the approved external digest and its
 manifest, then runs this read-only preflight from that verified package:
 
 ```
-node deploy/auth-xiongan/migrate-legacy.mjs check \
+node deploy/auth-runtime/migrate-legacy.mjs check \
   --package VERIFIED_NEW_PACKAGE_DIRECTORY --node RESOLVED_NODE_EXECUTABLE \
   --legacy-node EXACT_LEGACY_EXECUTABLE \
-  --tenant xiongan --origin EXISTING_EXACT_HTTPS_ORIGIN \
+  --tenant example-tenant-a --origin EXISTING_EXACT_HTTPS_ORIGIN \
   --source-commit a942495d6b6913a0026a6c2a8ce27eed9e9098f2 \
   --legacy-source RESOLVED_OLD_RUNTIME_DIRECTORY \
   --legacy-service EXACT_EXISTING_SERVICE_NAME \
@@ -317,7 +322,7 @@ The operator fixes the reported host condition, preserves current credentials,
 and executes:
 
 ```
-node deploy/auth-xiongan/migrate-legacy.mjs resume --tenant xiongan
+node deploy/auth-runtime/migrate-legacy.mjs resume --tenant example-tenant-a
 ```
 
 Resume requires the same trusted-terminal confirmation, revalidates protected
@@ -393,7 +398,7 @@ Only the candidate can then be started; existing key/state bytes are preserved.
 
 Any failed transition retains the operation lock/journal and stops the bound unit
 where possible. It NEVER calls the protected-mode legacy restore/restart branch.
-This can require continued downtime. `resume --tenant xiongan` dispatches by the
+This can require continued downtime. `resume --tenant example-tenant-a` dispatches by the
 separate journal and only resumes a fully installed verified candidate. Failures
 before that phase, unfinished writer locks and partially removed/changed fences
 require explicit scoped operator review; there is no inferred stale-lock cleanup
@@ -435,3 +440,5 @@ legacy unit and acquired the writer lock. An invalid credential then retains a
 stopped/fenced service for review; it never causes a legacy restart. Default
 protected-node `check` retains its existing in-memory credential validation, so
 do not invoke the default mode under a no-key-read preflight instruction.
+
+

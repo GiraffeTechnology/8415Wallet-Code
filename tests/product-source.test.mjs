@@ -78,6 +78,20 @@ test('checked-in reviewed Wallet boundary has all exact entries mandatory', () =
   assert.equal(Object.hasOwn(currentPolicy, 'upstream'), false);
 });
 
+test('only the exact public requirement pin is admitted from general configuration', t => {
+  const f = fixture(t);
+  assert.ok(MANDATORY_PATHS.includes('config/current-prd.json'));
+  assert.ok(loadPolicy(f.policyPath, f.options.expectedAllowlistSha256).policy.entries.some(entry => entry.path === 'config/current-prd.json'));
+  const original = structuredClone(f.policy);
+  for (const path of ['config/private.json', 'config/current-prd.private.json', 'config/current-prd.json/secret.json', 'config/other/current-prd.json']) {
+    f.policy = structuredClone(original);
+    f.policy.entries.push({ path, mode: '100644', git_blob_sha1: '1'.repeat(40), sha256: '2'.repeat(64) });
+    f.policy.entries.sort((a, b) => a.path < b.path ? -1 : 1);
+    f.policy.mandatory.documentation.push(path); writePolicy(f);
+    assert.throws(() => loadPolicy(f.policyPath, f.options.expectedAllowlistSha256), /PATH_ALLOWLIST_REFUSED/);
+  }
+});
+
 test('reviewed policy legal notice and companion guide preserve distribution boundaries', () => {
   const notice = currentPolicy.entries.find(entry => entry.path === 'THIRD_PARTY_NOTICES.md');
   assert.equal(notice.git_blob_sha1, '5e1aa6fb3fb450da4c957a9398ebb9f962cd9625');
@@ -89,7 +103,7 @@ test('reviewed policy legal notice and companion guide preserve distribution bou
   assert.ok(guide.includes('No source-availability promise is made for components absent from this curated kit.'));
   assert.ok(guide.includes('export-tooling workspace'));
   for (const operation of ['prepare', 'check', 'enable-proxy'])
-    assert.ok(guide.includes(`node "$PACKAGE_DIRECTORY/deploy/auth-xiongan/install.mjs" ${operation}`));
+    assert.ok(guide.includes(`node "$PACKAGE_DIRECTORY/deploy/auth-runtime/install.mjs" ${operation}`));
   if (process.env.PRODUCT_POLICY_ASSERTION_SOURCE) {
     const bytes = readFileSync(join(process.env.PRODUCT_POLICY_ASSERTION_SOURCE, notice.path));
     assert.equal(gitHash('blob', bytes), notice.git_blob_sha1); assert.equal(sha256(bytes), notice.sha256);
@@ -124,9 +138,9 @@ test('deterministic fresh exports have one truthful root commit and identical or
 });
 
 test('excluded tracked private configuration and historical archive are never selected', t => {
-  const f = fixture(t, { extras: { 'docs/deployment/PRIVATE.md': 'SYNTHETIC_PRIVATE_ONLY', 'releases/old.zip': 'SYNTHETIC_HISTORY_ONLY', 'config/auth.xiongan.preparation.json': '{}' } });
+  const f = fixture(t, { extras: { 'docs/deployment/PRIVATE.md': 'SYNTHETIC_PRIVATE_ONLY', 'releases/old.zip': 'SYNTHETIC_HISTORY_ONLY', 'config/auth.tenant.preparation.json': '{}' } });
   const result = materialize(f);
-  for (const path of ['docs/deployment/PRIVATE.md', 'releases/old.zip', 'config/auth.xiongan.preparation.json']) assert.equal(existsSync(join(result.productRoot, path)), false);
+  for (const path of ['docs/deployment/PRIVATE.md', 'releases/old.zip', 'config/auth.tenant.preparation.json']) assert.equal(existsSync(join(result.productRoot, path)), false);
   assert.equal(JSON.stringify(result.plan.origin).includes('SYNTHETIC_PRIVATE_ONLY'), false);
 });
 
@@ -170,7 +184,7 @@ test('policy and tooling pins are required and substitution is refused', t => {
 });
 
 test('even a freshly rehashed policy cannot omit mandatory input contracts', t => {
-  for (const missing of ['package-lock.json', 'docs/DAPP-INSTALL.md', 'deploy/auth-xiongan/install.mjs', 'LICENSE']) {
+  for (const missing of ['package-lock.json', 'docs/DAPP-INSTALL.md', 'deploy/auth-runtime/install.mjs', 'LICENSE']) {
     const f = fixture(t); f.policy.entries = f.policy.entries.filter(entry => entry.path !== missing);
     for (const key of Object.keys(f.policy.mandatory)) f.policy.mandatory[key] = f.policy.mandatory[key].filter(path => path !== missing);
     writePolicy(f); assert.throws(() => inspectSource(f.options), /MANDATORY_INPUT_MISSING/);
@@ -601,3 +615,4 @@ test('CI contract rejects always-upload, missing output, private dist fallback a
   ];
   for (const mutated of mutations) { assert.notEqual(mutated, text); assert.throws(() => assertCiContract(mutated), /CI_/); }
 });
+

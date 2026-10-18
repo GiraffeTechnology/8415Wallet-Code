@@ -18,10 +18,16 @@ async function fixture(t, options = {}) {
   const wallet = Wallet.createRandom(), actor = wallet.address.toLowerCase();
   const secret = base32(Buffer.alloc(20, 0x35)), store = new MemoryCredentialStore();
   await store.transaction('xiongan:tester', () => ({ secret, lastStep: -1, revision: 1 }));
-  const state = { signed: 0, broadcasts: 0, mined: false, visible: null, methods: [] };
+  const state = { signed: 0, actualSigningEffects: 0, broadcasts: 0, mined: false, visible: null, methods: [] };
   const provider = { async request({ method, params = [] }) {
     state.methods.push(method);
     if (method === 'eth_chainId') return '0x88bb0';
+    if (method === 'eth_getBalance') return '0xffffffffffffffff';
+    // Block zero is what the fixed-genesis check reads; a case can replace it.
+    if (method === 'eth_getBlockByNumber' && params[0] === '0x0') {
+      return options.genesis === null ? null
+        : {number:'0x0',hash:options.genesis ?? '0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b'};
+    }
     if (method === 'eth_getCode') return '0x';
     if (method === 'eth_getTransactionCount') return '0x7';
     if (method === 'eth_call') return '0x';
@@ -48,10 +54,14 @@ async function fixture(t, options = {}) {
   } };
   const config = { origin, tenant: 'xiongan', port: 31999, statePath: '/synthetic-task-runtime/credentials.enc',
     accounts: [{ username: 'tester', wallets: [{ account: actor, chainId: '560048' }] }] };
-  const exactServerConfiguration = { provider, externalSigner: { async signExactTransaction(input) {
+  const exactServerConfiguration = { provider, externalSigner: { async signExactTransaction(input, execution) {
     state.signed++;
     if (options.beforeSign) await options.beforeSign({ call, state });
-    return wallet.signTransaction(Transaction.from(input.unsignedSerialized));
+    assert.equal(typeof execution?.withSigningFence, 'function', 'real one-use signing fence is required');
+    return execution.withSigningFence(() => {
+      state.actualSigningEffects++;
+      return wallet.signTransaction(Transaction.from(input.unsignedSerialized));
+    });
   } }, signerIdentity: { signerId: 'synthetic:signer', signerVersion: '1', implementationDigest: `0x${'5'.repeat(64)}` },
   maxPriorityFeePerGasWei: '1', agentId: 'synthetic:agent', agentVersion: '1', observationPolicy: { minimumConfirmations: '2' } };
   const runtime = await createAuthRuntime({ config, store, exactServerConfiguration, now: () => epoch,
@@ -92,7 +102,7 @@ async function fixture(t, options = {}) {
     const prepared = await call('tasks/prepare', { policy: task.policy });
     const authorized = await call('tasks/authorize', { challengeId: prepared.challengeId, taskDigest: task.digest,
       executorDigest: prepared.executor.digest, observationPolicyDigest: prepared.observationPolicy.digest,
-      code: hotp(secret, Math.floor(epoch / 30000)) });
+      code: prepared.approvalFactor === 'totp' ? hotp(secret, Math.floor(epoch / 30000)) : '' });
     return call('tasks/reserve', { taskDigest: task.digest, child: child.child, expectedBudgetRevision: authorized.budget.revision });
   }
   return { runtime, state, task, child, call, reserve, operation };
@@ -113,6 +123,7 @@ test('standard entry handler authorizes, executes, observes and reads the same t
   assert.equal(status.observations[0].observation.effect, 'exact-operation-observed');
   assert.equal(status.observations[0].observation.protocolFinality, 'not-evaluated');
   assert.equal(f.state.signed, 1); assert.equal(f.state.broadcasts, 1);
+  assert.equal(f.state.actualSigningEffects, 1);
   assert.equal(f.runtime.server.listening, false);
 });
 test('entry handler rejects unauthenticated execution and replay without another signer call', async t => {
@@ -140,5 +151,29 @@ test('revocation during external signing prevents raw dispatch through the stand
   const reserved = await f.reserve(), result = await f.call('tasks/execute', f.operation(reserved));
   assert.equal(result.outcome, 'outcome-unknown');
   assert.equal(f.state.signed, 1); assert.equal(f.state.broadcasts, 0);
+  assert.equal(f.state.actualSigningEffects, 0, 'revocation must win before the actual signature effect');
   assert.equal((await f.call('tasks/status', { taskDigest })).effectiveStatus, 'revoked');
 });
+
+
+// Chain560048 with another genesis is another chain. The refusal code itself is
+// asserted at the unit boundary in task-exact-chain-state.test.mjs; across the
+// entry handler it must stay a generic refusal, so what these pin is the
+// observable outcome: block zero was read, the operation did not proceed, and
+// no internal detail crossed the boundary. The same flow on the real genesis
+// signs and broadcasts once, two tests above, which is the control.
+for (const [label, genesis] of [
+  ['a replaced genesis block', `0x${'c'.repeat(64)}`],
+  ['no genesis block at all', null],
+]) {
+  test(`the standard entry refuses to execute against ${label}, without signing`, async t => {
+    const f = await fixture(t, { genesis }), reserved = await f.reserve();
+    await assert.rejects(f.call('tasks/execute', f.operation(reserved)), error => {
+      assert.doesNotMatch(String(error), /GENESIS|0x0|chain-state/i, 'the refusal leaked its internals');
+      return true;
+    });
+    assert.ok(f.state.methods.includes('eth_getBlockByNumber'), 'block zero was never read');
+    assert.equal(f.state.signed, 0, 'a refused chain reached the signer');
+    assert.equal(f.state.broadcasts, 0);
+  });
+}

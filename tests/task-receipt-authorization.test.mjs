@@ -27,7 +27,7 @@ function fixture({handler='artfi:whole-receipt:v1',store:configuredStore=null}={
  const call=(path,body)=>service.handler('tasks/'+path,body,session);
  async function grant(){
   const c=await call('prepare',{policy});
-  return call('authorize',{challengeId:c.challengeId,taskDigest:c.task.digest,executorDigest:c.executor.digest,observationPolicyDigest:null,code:'123456'});
+  return call('authorize',{challengeId:c.challengeId,taskDigest:c.task.digest,executorDigest:c.executor.digest,observationPolicyDigest:null,code:c.approvalFactor==='totp'?'123456':''});
  }
  function operation(g,phase){
   const p=g.task.policy.intent.phases.find(p=>p.phase===phase);
@@ -37,14 +37,15 @@ function fixture({handler='artfi:whole-receipt:v1',store:configuredStore=null}={
  const send=async(g,phase,callback=async()=>h('a'))=>{const x=operation(g,phase);return service.receiptAuthorization.withAuthorization(x.claimed,x.wire,async(snapshot,revalidate)=>{sends++;revalidate();assert.equal(snapshot.scope.phase,phase);return callback(snapshot,revalidate);});};
  return {state,store,session,policy,service,call,grant,operation,send,count:()=>({approvals,sends})};
 }
-test('one existing human approval freezes three separately budgeted phases; no repeated approval',async()=>{
+test('initial ON freezes three separately budgeted phases without a human-factor evaluation',async()=>{
  const f=fixture(),g=await f.grant();assert.equal(g.task.digest,freezeReceiptTask(f.policy).digest);
+ assert.equal(g.humanVerification.mode,'ON');assert.equal(g.humanVerification.revision,'0');
  for(const phase of ['funded','registered','paid'])assert.equal((await f.send(g,phase)).phase,phase);
- assert.deepEqual(f.count(),{approvals:1,sends:3});await assert.rejects(f.send(g,'funded'),/TASK_RECEIPT_ALREADY_ATTEMPTED/);assert.equal(f.count().sends,3);await f.store.close();
+ assert.deepEqual(f.count(),{approvals:0,sends:3});await assert.rejects(f.send(g,'funded'),/TASK_RECEIPT_ALREADY_ATTEMPTED/);assert.equal(f.count().sends,3);await f.store.close();
 });
 test('old grant/old operation normalization is not reinterpreted as receipt authority',async()=>{
  const f=fixture();const old={...f.policy,intent:{kind:'exact-operation',operation:{kind:'create-account',chainId:'560048',actor:a('1'),controller:{contract:a('5'),runtimeCodeHash:h('8')}}}};
- const p=await f.call('prepare',{policy:old}),g=await f.call('authorize',{challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,code:'123456'});
+ const p=await f.call('prepare',{policy:old}),g=await f.call('authorize',{challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,code:p.approvalFactor==='totp'?'123456':''});
  const x={taskId:g.task.policy.taskId,taskDigest:g.task.digest,executorDigest:g.executor.digest,grantReference:g.authorization.reference,grantPolicyVersion:'1',operationId:'receipt-old',phase:'funded',planDigest:h('1'),journalBindingHash:h('4')};
  await assert.rejects(f.service.receiptAuthorization.withAuthorization(x,{},async()=>h('a')));assert.equal(f.count().sends,0);await f.store.close();
 });
@@ -141,6 +142,8 @@ test('receipt preparation does not invoke getter side effects or accept wildcard
 import {readFileSync} from 'node:fs';
 const browserText=readFileSync(new URL('../web/task-authorization.mjs',import.meta.url),'utf8')
  .replace('./task-listing-results.mjs',new URL('../web/task-listing-results.mjs',import.meta.url).href)
+  .replace('./observation-source-contract.mjs',new URL('../web/observation-source-contract.mjs',import.meta.url).href)
+  .replace('./task-observer-context.mjs',new URL('../web/task-observer-context.mjs',import.meta.url).href)
  .replace('../dist/browser/agent/taskContract.js',new URL('../src/agent/taskContract.ts',import.meta.url).href)
  .replace('../dist/browser/agent/receiptTask.js',new URL('../src/agent/receiptTask.ts',import.meta.url).href)
  .replace('../dist/browser/agent/receiptObservation.js',new URL('../src/agent/receiptObservation.ts',import.meta.url).href)
@@ -149,12 +152,14 @@ const {TaskAuthorizationClient}=await import('data:text/javascript;base64,'+Buff
 test('existing browser task approval presents receipt scope and submission markers without chain-finality claim',async()=>{
  const f=fixture(),client=new TaskAuthorizationClient({request:(path,body)=>f.service.handler(path,body,f.session),
   context:{origin:f.policy.origin,tenant:'xiongan',account:a('1'),chainId:'560048'}});
- const task=freezeReceiptTask(f.policy),challenge=await client.prepare(task),view=await client.authorize(challenge,'123456');
+ const task=freezeReceiptTask(f.policy),challenge=await client.prepare(task);
+ assert.equal(challenge.approvalFactor,'preoperational-default-on');
+ const view=await client.authorize(challenge,challenge.approvalFactor==='totp'?'123456':'');
  assert.equal(view.task.policy.intent.kind,'artfi-receipt');assert.deepEqual(view.receiptAttempts,[]);
  await f.send(view,'funded');
  const updated=await client.status(task.digest);assert.equal(updated.receiptAttempts[0].phase,'funded');
  assert.equal(updated.receiptAttempts[0].status,'submitted');assert.equal(updated.completion.fresh,false);
- assert.equal(f.count().approvals,1);await f.store.close();
+ assert.equal(f.count().approvals,0);await f.store.close();
 });
 test('receipt phases cannot enter the generic automatic-resume path',async()=>{
  const f=fixture(),g=await f.grant(),result=await f.call('resume',{taskDigest:g.task.digest});
@@ -192,7 +197,7 @@ test('seller listing grant with valuation cannot borrow receipt financial author
  const f=fixture();f.session.chainId='1';
  const policy={...f.policy,chainId:'1',intent:{kind:'nft-sale',direction:'sell',standard:'ERC-721',contract:a('3'),tokenId:'7',quantity:'1',minimumProceeds:{currency:'USD',amountMinor:'100',minorUnit:2,comparison:'gte',basis:'net'},marketAdapters:['artfi:seaport']}};
  const valuationPolicy={source:'synthetic:quote',base:{chainId:'1',token:a('0'),decimals:18},quote:{currency:'USD',decimals:2},rateDecimals:8,priceAt:'order-review',validFrom:String(epoch/1000-1),validUntil:String(epoch/1000+600),maxAgeSeconds:'60'};
- const p=await f.call('prepare',{policy,valuationPolicy}),g=await f.call('authorize',{challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,valuationPolicyDigest:p.valuationPolicy.digest,priceAt:'order-review',code:'123456'});
+ const p=await f.call('prepare',{policy,valuationPolicy}),g=await f.call('authorize',{challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,valuationPolicyDigest:p.valuationPolicy.digest,priceAt:'order-review',code:p.approvalFactor==='totp'?'123456':''});
  const claimed={taskId:g.task.policy.taskId,taskDigest:g.task.digest,executorDigest:g.executor.digest,grantReference:g.authorization.reference,grantPolicyVersion:'1',operationId:'fake-receipt',phase:'paid',planDigest:h('1'),journalBindingHash:h('4')};
  let entered=0;await assert.rejects(f.service.receiptAuthorization.withAuthorization(claimed,{},async()=>{entered++;return h('a');}));assert.equal(entered,0);await f.store.close();
 });

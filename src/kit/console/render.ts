@@ -5,6 +5,8 @@ const escape = (value: string): string =>
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[char] as string));
 
+export { escape as escapeHtml };
+
 const row = (label: string, value: string): string =>
   `<tr><th scope="row">${escape(label)}</th><td>${escape(value)}</td></tr>`;
 

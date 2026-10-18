@@ -5,35 +5,53 @@ import { createInterface } from 'node:readline/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { validateAuthConfig } from './config-validation.mjs';
-export const CONFIG_DIRECTORY = '/etc/8415wallet-auth-xiongan';
-const CONFIG_FILE = `${CONFIG_DIRECTORY}/auth.json`;
-export function initialXionganConfig(username, account, chainIds) {
+// Public template only; every live path requires the explicitly confirmed tenant.
+export const CONFIG_DIRECTORY = '/etc/8415wallet-auth-@TENANT@';
+export function initializationPaths(tenant) {
+  const matched = typeof tenant === 'string' ? /^[a-z][a-z0-9-]{0,47}$/.exec(tenant) : null;
+  if (!matched || matched[0] !== tenant) throw Error('AUTH_OPERATOR_TENANT_REFUSED');
+  const directory = `/etc/8415wallet-auth-${tenant}`;
+  return Object.freeze({ directory, configFile: `${directory}/auth.json`, statePath: `/var/lib/8415wallet-auth-${tenant}/credentials.enc` });
+}
+/** Ordinary registration has no pre-provisioned user or wallet prerequisite. */
+export function initialRegistrationConfig(binding) {
+  if (!binding || typeof binding !== 'object' || Array.isArray(binding) ||
+      Object.keys(binding).sort().join(',') !== 'origin,port,tenant' ||
+      typeof binding.origin !== 'string' || !Number.isSafeInteger(binding.port)) throw Error('AUTH_CONFIRMED_DEPLOYMENT_REQUIRED');
+  const paths = initializationPaths(binding.tenant);
+  const config = { origin: binding.origin, tenant: binding.tenant, port: binding.port,
+    statePath: paths.statePath, accounts: [] };
+  validateAuthConfig(config); return config;
+}
+export function initialTenantConfig(username, account, chainIds, binding) {
   if (!Array.isArray(chainIds) || !chainIds.length || chainIds.some(chain => !['1', '8453'].includes(chain)) || new Set(chainIds).size !== chainIds.length) throw Error('AUTH_CONFIRMED_CHAIN_SCOPE_REQUIRED');
-  const config = { origin: 'https://xiongan.8415wallet.com:9446', tenant: 'xiongan', port: 18417,
-    statePath: '/var/lib/8415wallet-auth-xiongan/credentials.enc',
+  const config = { ...initialRegistrationConfig(binding),
     accounts: [{ username, wallets: chainIds.map(chainId => ({ account, chainId })) }] };
   validateAuthConfig(config); return config;
 }
-async function protectedDirectory() {
-  for (const directory of ['/etc', CONFIG_DIRECTORY]) {
+async function protectedDirectory(configDirectory) {
+  for (const directory of ['/etc', configDirectory]) {
     const stat = await lstat(directory);
     if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== 0 || (stat.mode & 0o022) || await realpath(directory) !== directory) throw Error('AUTH_OPERATOR_DIRECTORY_REFUSED');
   }
-  if ((await lstat(CONFIG_DIRECTORY)).mode & 0o077) throw Error('AUTH_OPERATOR_DIRECTORY_REFUSED');
+  if ((await lstat(configDirectory)).mode & 0o077) throw Error('AUTH_OPERATOR_DIRECTORY_REFUSED');
 }
 export async function runOperatorInit(args, input = process.stdin, output = process.stdout) {
-  if (args.length !== 1 || !['--help', '--check', '--initialize'].includes(args[0])) throw Error('AUTH_OPERATOR_ARGUMENT_REFUSED');
-  if (args[0] === '--help') {
-    output.write('New tool: --check validates fixed private config; --initialize requires root and an interactive trusted terminal, public EOA/chain confirmation, and creates config once. No secret input, password/store-key generation, listener or activation. Operator separately provisions the store key through systemd credentials.\n'); return;
+  if (args.length === 1 && args[0] === '--help') {
+    output.write('New tool: --check --tenant <existing> validates private config; --initialize --tenant <existing> preserves explicit existing bindings; --initialize-registration --tenant <existing> starts an empty ordinary-registration directory. Initialization requires root and an interactive trusted terminal, public EOA/chain confirmation, and creates config once. No secret input, password/store-key generation, listener or activation. Operator separately provisions the store key through systemd credentials.\n'); return;
   }
+  if (args.length !== 3 || !['--check', '--initialize', '--initialize-registration'].includes(args[0]) || args[1] !== '--tenant') throw Error('AUTH_OPERATOR_ARGUMENT_REFUSED');
+  const tenant = args[2], paths = initializationPaths(tenant);
   if (process.platform !== 'linux' || process.getuid?.() !== 0) throw Error('AUTH_OPERATOR_LINUX_ROOT_REQUIRED');
-  await protectedDirectory();
+  await protectedDirectory(paths.directory);
   if (args[0] === '--check') {
-    const file = await open(CONFIG_FILE, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const file = await open(paths.configFile, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const stat = await file.stat();
       if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== 0 || (stat.mode & 0o077) || stat.size > 1_000_000) throw Error('AUTH_OPERATOR_CONFIG_FILE_REFUSED');
-      const summary = validateAuthConfig(JSON.parse(await file.readFile('utf8')));
+      const checkedConfig = JSON.parse(await file.readFile('utf8'));
+      const summary = validateAuthConfig(checkedConfig);
+      if (checkedConfig.tenant !== tenant) throw Error('AUTH_CONFIRMED_DEPLOYMENT_REQUIRED');
       output.write(JSON.stringify({ bindingConfigValid: true, ...summary, activated: false, storeKeyVerified: false }) + '\n');
     } finally { await file.close(); }
     return;
@@ -42,15 +60,25 @@ export async function runOperatorInit(args, input = process.stdin, output = proc
   const prompt = createInterface({ input, output });
   let file;
   try {
-    const username = (await prompt.question('Confirmed username (default xiongan): ')).trim() || 'xiongan';
-    const account = (await prompt.question('Public EOA controlled by you (never a private key): ')).trim();
-    const chains = (await prompt.question('Confirmed Ethereum/Base chain scope (1, 8453, or 1,8453): ')).trim().split(',').map(v => v.trim());
-    const config = initialXionganConfig(username, account, chains);
-    if (await prompt.question('Independently verified EOA control and approved these bindings? Type APPROVED: ') !== 'APPROVED') throw Error('AUTH_BINDING_APPROVAL_REQUIRED');
-    file = await open(CONFIG_FILE, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    const registrationOnly = args[0] === '--initialize-registration';
+    const username = registrationOnly ? null : (await prompt.question('Confirmed existing username (no default): ')).trim();
+    const origin = (await prompt.question('Confirmed existing canonical HTTPS origin including explicit port: ')).trim();
+    const portText = (await prompt.question('Confirmed existing private listener port (decimal, no default): ')).trim();
+    if (!/^[1-9][0-9]{0,4}$/.test(portText)) throw Error('AUTH_CONFIRMED_DEPLOYMENT_REQUIRED');
+    let config;
+    if (registrationOnly) {
+      config = initialRegistrationConfig({ tenant, origin, port: Number(portText) });
+      if (await prompt.question('Confirmed deployment scope for ordinary registration? Type APPROVED: ') !== 'APPROVED') throw Error('AUTH_BINDING_APPROVAL_REQUIRED');
+    } else {
+      const account = (await prompt.question('Public EOA controlled by you (never a private key): ')).trim();
+      const chains = (await prompt.question('Confirmed Ethereum/Base chain scope (1, 8453, or 1,8453): ')).trim().split(',').map(v => v.trim());
+      config = initialTenantConfig(username, account, chains, { tenant, origin, port: Number(portText) });
+      if (await prompt.question('Independently verified EOA control and approved these bindings? Type APPROVED: ') !== 'APPROVED') throw Error('AUTH_BINDING_APPROVAL_REQUIRED');
+    }
+    file = await open(paths.configFile, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     await file.writeFile(JSON.stringify(config, null, 2) + '\n'); await file.sync();
-    const directory = await open(CONFIG_DIRECTORY, constants.O_RDONLY | constants.O_DIRECTORY); try { await directory.sync(); } finally { await directory.close(); }
-    output.write('AUTH_CONFIG_CREATED_NOT_ACTIVATED: registered-wallet only. Store key remains independently operator-provisioned; no password, CA or TOTP configured.\n');
+    const directory = await open(paths.directory, constants.O_RDONLY | constants.O_DIRECTORY); try { await directory.sync(); } finally { await directory.close(); }
+    output.write('AUTH_CONFIG_CREATED_NOT_ACTIVATED: ' + (registrationOnly ? 'empty ordinary-registration directory; verified email and wallet proof remain required' : 'registered-wallet only') + '. Store key remains independently operator-provisioned; no password, CA or TOTP configured.\n');
   } finally { await file?.close(); prompt.close(); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
@@ -58,3 +86,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     process.stderr.write(/^[A-Z0-9_]+$/.test(error.message) ? error.message + '\n' : 'AUTH_OPERATOR_INITIALIZATION_FAILED\n'); process.exitCode = 1;
   });
 }
+

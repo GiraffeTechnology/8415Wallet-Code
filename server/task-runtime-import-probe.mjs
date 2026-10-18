@@ -1,3 +1,9 @@
+import './task-exact-bootstrap.mjs';
+import './task-exact-config.mjs';
+import './task-exact-sign-only.mjs';
+import './task-test-asset-authorization.mjs';
+import './task-test-mint-contract.mjs';
+import './task-test-nft721-contract.mjs';
 /** Inert installed-runtime check. Import factories without invoking capabilities. */
 import './task-exact-operation-planner.mjs';
 import './task-exact-signer-adapter.mjs';
@@ -17,3 +23,11 @@ import '../web/task-listing-results.mjs';
 import { loadInstalledTaskListingModules } from './task-listing-installed.mjs';
 await loadInstalledTaskListingModules();
 import './main.mjs';
+
+
+import './task-exact-chain-state.mjs';
+
+
+import './task-test-nft721-binding.mjs';
+import './task-test-nft721-metadata.mjs';
+

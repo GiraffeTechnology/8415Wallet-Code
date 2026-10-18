@@ -16,6 +16,9 @@ import type { FreshnessView } from './freshness.ts';
  */
 
 export type PostureCase =
+  | 'projection-unavailable'
+  | 'projection-not-covered'
+  | 'projection-unverified'
   /** The instant is final and the feed is current. */
   | 'settled-and-current'
   /** A change may still land, and the feed is current. */
@@ -48,6 +51,9 @@ const BOUNDARY =
   'a risk decision belonging to the parties’ terms.';
 
 const LABELS: Record<PostureCase, string> = {
+  'projection-unavailable': 'Projection answer unavailable',
+  'projection-not-covered': 'Projection does not cover this instant',
+  'projection-unverified': 'Projection interval not verified',
   'settled-and-current': 'Settled, feed current',
   'expected-change-feed-current': 'Change expected, feed current',
   'feed-not-current': 'Feed not current',
@@ -55,12 +61,15 @@ const LABELS: Record<PostureCase, string> = {
 };
 
 const REFERENCE: Record<PostureCase, string> = {
+  'projection-unavailable': 'No projection-based action follows from an unavailable answer.',
+  'projection-not-covered': 'No projection-based action follows from an uncovered instant.',
+  'projection-unverified': 'No projection-based action follows from unverified or inconsistent observations.',
   'settled-and-current':
     'The reference pattern circulating in the ERC’s discussion releases held ' +
     'consideration at this point.',
   'expected-change-feed-current':
-    'The reference pattern holds consideration while a gap is open, releasing it ' +
-    'when an entry is admitted and returning it if the gap is cancelled without one.',
+    'A gap or freshness classification does not authorize payment release or refund. ' +
+    'Any action requires the independent accepted conditions and verified execution evidence.',
   'feed-not-current':
     'The reference pattern treats this as its own case, separate from an ordinary ' +
     'pending change, precisely so a register that has gone quiet is not handled as ' +
@@ -74,13 +83,19 @@ export function describePosture(finality: FinalityView, freshness: FreshnessView
   const feedStale = freshness.display === 'stale' || freshness.display === 'unknown';
   const noFeed = freshness.display === 'not-configured';
 
-  const postureCase: PostureCase = noFeed
-    ? 'no-feed-configured'
-    : feedStale
-      ? 'feed-not-current'
-      : finality.display === 'final'
-        ? 'settled-and-current'
-        : 'expected-change-feed-current';
+  const { reported, firstEffectiveAt: first, latestEffectiveAt: latest, instant } = finality;
+  // Compare supplied evidence only to assess consistency. Never replace the
+  // contract's reported answer or obtain a projection answer from feed freshness.
+  const unavailable = reported === undefined || finality.display === 'unavailable';
+  const unverified = first === undefined || latest === undefined || first > latest ||
+    reported !== (instant >= first && instant < latest);
+  const postureCase: PostureCase = unavailable ? 'projection-unavailable'
+    : unverified ? 'projection-unverified'
+    : finality.display === 'not-covered' ? 'projection-not-covered'
+    : noFeed ? 'no-feed-configured'
+    : feedStale ? 'feed-not-current'
+    : finality.display === 'final' ? 'settled-and-current'
+    : 'expected-change-feed-current';
 
   return {
     case: postureCase,
@@ -95,6 +110,12 @@ export function describePosture(finality: FinalityView, freshness: FreshnessView
 
 function explain(postureCase: PostureCase): string {
   switch (postureCase) {
+    case 'projection-unavailable':
+      return 'No projection finality answer was obtained. Feed freshness is reported separately and supplies no missing answer.';
+    case 'projection-not-covered':
+      return 'The projection does not cover this instant. This is not an ordinary pending change; feed freshness cannot supply coverage.';
+    case 'projection-unverified':
+      return 'The reported projection answer is retained, but its boundaries are missing or inconsistent. Feed freshness cannot verify that interval.';
     case 'settled-and-current':
       return (
         'No later admission can change the holder at this instant, and the attestation ' +

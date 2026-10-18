@@ -47,9 +47,10 @@ Those four are tagged refusals, so only wallet-authored text can reach the
 page: an untagged failure, including any error from the pinned read, still
 shows the generic message and a regression holds that apart.
 
-The collision limit reaches the page only as its code: `web/app.mjs` displays
-`error.code` and not the message. Showing the number needs one line there, and
-that file is on the standard startup wiring, so it belongs to that writer.
+The integrated `web/app.mjs` displays the typed `CollisionScanError.code` and
+its numeric `limit`. Untyped provider failures retain the generic refusal; their
+message text is never used as a trusted threshold. This source wiring is not
+served UI or runtime acceptance evidence.
 
 ## Local, no longer a threshold
 
@@ -91,15 +92,12 @@ and these are deployment choices.
 `TaskContractError` keeps `code` exactly as it was and carries the policy in
 `detail`, so existing consumers that match the code are unaffected.
 
-The exact-chain funding branch carries a different asset set and a fourth
-560048 is in the asset set here as well, ported from the reviewed commit
-`296e96b` that first admitted it, because the runtime composition suites
-authorize native transfers on Hoodi and the pull request that carried that
-admission was closed before reaching this base. Only the admission was ported:
-the test-series mint operation kind from the same commit, which is held to
-560048 alone, is not in this tree. Control operations and the session policy
-are unchanged, and a chain outside the applicable set is still refused with
-both the accepted set and the chain asked.
+The exact-chain funding branch independently validates its configured asset
+scope and actual funds before signing. The task contract also retains the
+Hoodi-only test-series and test-NFT mint operation shapes from the integrated
+candidate. Admitting native asset transfers on Hoodi does not widen those mint
+operations to another chain, alter the session policy, or grant signing authority.
+The dedicated test-mint cases cover that narrower scope.
 
 ## Legs: a protocol rule and an input guard
 
@@ -195,3 +193,8 @@ filling the result into the policy at authorization time, both on the
 execution path held by another writer, which still checks actual funds before
 signing because a read is not a claim on external state. Recorded here for
 that coordination. No threshold was relaxed.
+
+Actual fee limits are still enforced together with grant scope, pending funds,
+noncancelled reservations, exact outgoing value and nonce/UNKNOWN reconciliation.
+No cross-wallet or cross-asset aggregation is permitted. Source calculations and
+fixture definitions are not current balances, signer availability or receipts.

@@ -24,7 +24,7 @@ import type { Conformance } from './types.ts';
  * it would tell a user their contract is not an ERC-8415 contract because their
  * node was down, which is a cause the wallet never established.
  */
-export async function detectConformance(reader: Erc8415Reader): Promise<Conformance> {
+export async function detectConformance(reader: Pick<Erc8415Reader, 'supportsInterface'>): Promise<Conformance> {
   const supports = async (interfaceId: string): Promise<boolean | undefined> => {
     try {
       const answer = await reader.supportsInterface(interfaceId);

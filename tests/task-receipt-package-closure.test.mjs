@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
 import { TASK_RECEIPT_RUNTIME_FILES, createTaskReceiptAdapter } from '../server/task-receipt-adapter.mjs';
+import { runtimePackage } from '../scripts/package/verify-auth.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 function imports(path) {
   const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true);
@@ -24,22 +25,26 @@ function closure(entry) {
     if (paths.has(path)) return; paths.add(path);
     for (const dependency of imports(path)) {
       if (dependency.startsWith('node:')) continue;
-      assert.ok(dependency.startsWith('.'), `unexpected external runtime dependency: ${dependency}`);
+      if (!dependency.startsWith('.')) { assert.equal(dependency, 'ethers'); continue; }
       visit(resolve(dirname(path), dependency));
     }
   }; visit(resolve(root, entry)); return [...paths].map(path => relative(root, path)).sort();
 }
 test('declared receipt runtime closure equals the actual non-type import graph exactly', () => {
-  // Same three modules as the signer port declares: they affect this port's
-  // trusted runtime while importing it, and are named rather than inferred.
-  assert.deepEqual([...TASK_RECEIPT_RUNTIME_FILES].sort(), [...new Set([...closure('server/task-receipt-adapter.mjs'), 'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs'])].sort());
+  assert.deepEqual([...TASK_RECEIPT_RUNTIME_FILES].sort(), [...new Set([...closure('server/task-receipt-adapter.mjs'), ...['server/task-authorization.mjs', 'server/task-observation-sources.mjs', 'web/task-observer-context.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs', 'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs', 'server/task-listing-transport.mjs']])].sort());
   assert.equal(TASK_RECEIPT_RUNTIME_FILES.length, new Set(TASK_RECEIPT_RUNTIME_FILES).size);
 });
 test('exact native-TS runtime closure loads alone, missing dependencies refuse, source changes change identity', () => {
   const directory = mkdtempSync(join(tmpdir(), 'receipt-runtime-'));
   try {
     for (const path of TASK_RECEIPT_RUNTIME_FILES) { const destination = join(directory, path); mkdirSync(dirname(destination), { recursive: true }); cpSync(join(root, path), destination); }
-    writeFileSync(join(directory, 'package.json'), JSON.stringify({ type: 'module' }));
+    const tarball = 'vendor/artfi-task-listing-runtime-1.0.0.tgz';
+    mkdirSync(dirname(join(directory, tarball)), { recursive: true }); cpSync(join(root, tarball), join(directory, tarball));
+    const { manifest, lock } = runtimePackage(JSON.parse(readFileSync(join(root, 'package.json'))), JSON.parse(readFileSync(join(root, 'package-lock.json'))));
+    writeFileSync(join(directory, 'package.json'), JSON.stringify(manifest)); writeFileSync(join(directory, 'package-lock.json'), JSON.stringify(lock));
+    const installed = spawnSync('npm', ['ci', '--offline', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--bin-links=false'],
+      { cwd: directory, encoding: 'utf8', timeout: 90000, env: { ...process.env, npm_config_offline: 'true' } });
+    assert.equal(installed.status, 0, installed.stdout + '\n' + installed.stderr);
     const program = "import {createTaskReceiptAdapter} from './server/task-receipt-adapter.mjs'; console.log(createTaskReceiptAdapter({provider:{async request(){}},observationPolicy:{minimumConfirmations:'2'}}).identity.verifierImplementationDigest)";
     const run = () => spawnSync(process.execPath, ['--input-type=module', '-e', program], { cwd: directory, encoding: 'utf8' });
     const original = run(); assert.equal(original.status, 0, original.stderr);

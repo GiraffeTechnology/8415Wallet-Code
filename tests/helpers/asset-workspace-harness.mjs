@@ -141,7 +141,7 @@ export function runAssetWorkspaceCases() {
     assert.equal(panel.output.textContent, '');
     assert.equal(panel.login.subscriberCount(), 1);
     assert.deepEqual([...panel.windowEvents.handlers.keys()].sort(), ['pagehide', 'pageshow']);
-    assert.deepEqual([...panel.documentEvents.handlers.keys()], ['wallet:summary-stale']);
+    assert.deepEqual([...panel.documentEvents.handlers.keys()].sort(), ['visibilitychange', 'wallet:page', 'wallet:summary-stale']);
     assert.deepEqual([...panel.tokenNode.handlers.keys()].sort(), ['change', 'input']);
     assert.deepEqual(
       panel.select.children.map(option => option.value),
@@ -325,6 +325,8 @@ export function runAssetWorkspaceCases() {
   for (const clearing of [
     { label: 'logout', fire: panel => panel.login.logout() },
     { label: 'a stale summary', fire: panel => panel.documentEvents.dispatchEvent({ type: 'wallet:summary-stale' }) },
+    { label: 'navigation away', fire: panel => panel.documentEvents.dispatchEvent({ type: 'wallet:page', detail: 'activity' }) },
+    { label: 'visibility change', fire: panel => panel.documentEvents.dispatchEvent({ type: 'visibilitychange' }) },
     { label: 'a token selection change', fire: panel => panel.tokenNode.dispatchEvent({ type: 'input' }) },
     { label: 'pagehide', fire: panel => panel.windowEvents.dispatchEvent({ type: 'pagehide' }) },
     { label: 'pageshow', fire: panel => panel.windowEvents.dispatchEvent({ type: 'pageshow' }) },

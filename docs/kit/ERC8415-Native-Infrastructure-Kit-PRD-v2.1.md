@@ -1,6 +1,12 @@
 # ERC-8415 Native Infrastructure Kit (NIK)
 # PRD v2.1 — Ecosystem Infrastructure Evolution
 
+Retained embedded Kit scope document only. The sole current complete product
+requirements are the [Wallet PRD](../ERC-8415-Wallet-PRD.md), including the
+standalone and linked profiles and current multichain and agent authority
+requirements. This document is not a parallel active Wallet PRD or an
+implementation acceptance record.
+
 ## Product Definition
 
 ERC-8415 NIK is a temporal projection infrastructure layer for ERC-8415 ecosystems.
@@ -146,6 +152,9 @@ event: a proof that fails verification never becomes an admitted entry, and
 there is no mechanism to retroactively invalidate an admitted entry. What can
 happen is a gap staying open indefinitely — a liveness concern, not a veto — or
 being cancelled before admission, in which case nothing was ever finalised.
+A new settlement may also supersede an open one: the old record becomes
+`SUPERSEDED`, the projection is unchanged and proofs for the old settlement
+become unusable. No gap closure alone establishes temporal finality.
 
 ---
 

@@ -38,11 +38,14 @@ export function describeAcquisition(view: AssetView, at: Instant): AcquisitionDi
       `and it will not confirm you until a transfer to you is recorded in turn.`,
   );
 
-  points.push(
-    `The instant you acquire at (${at}) will not be final at the moment it happens. ` +
-      `The present instant never is — it is at or after the latest entry's effective ` +
-      `time, so a later admission can still change what the register says about it.`,
-  );
+  const finality = view.presentFinality;
+  points.push(at === view.observedAt && at === finality.instant
+    ? `At the observed instant (${at}), isFinalAsOf reports ${finality.final ? 'final' : 'not final'}. ` +
+      `${finality.explanation} This is an observed protocol answer, not a prediction ` +
+      'about a later purchase instant or a transfer approval.'
+    : `No finality answer for the acquisition instant (${at}) was obtained in this view. ` +
+      'Read isFinalAsOf at that exact instant; neither the clock nor an acquisition ' +
+      'supplies a finality answer.');
 
   if (registration.state === 'registering-with-more-behind') {
     points.push(

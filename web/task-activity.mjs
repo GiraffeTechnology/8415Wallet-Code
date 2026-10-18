@@ -63,11 +63,12 @@ export class TaskActivityReader {
     if (new Set(tasks.map(item => item.taskDigest)).size !== tasks.length) refuse();
     return Object.freeze({ tasks: Object.freeze(tasks), revision: raw.revision, nextCursor: raw.nextCursor });
   }
-  async status(taskDigest) {
+  async detail(taskDigest) {
     if (!digest(taskDigest)) refuse();
     const raw = await this.#request('tasks/status', { taskDigest });
-    const result = taskActivity(this.#decode(raw));
-    if (result.taskDigest !== taskDigest) refuse();
-    return result;
+    const view = this.#decode(raw);
+    if (view.task.digest !== taskDigest) refuse();
+    return view;
   }
+  async status(taskDigest) { return taskActivity(await this.detail(taskDigest)); }
 }

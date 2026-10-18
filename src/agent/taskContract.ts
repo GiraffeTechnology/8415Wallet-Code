@@ -99,6 +99,12 @@ export type ExistingOperation = Identity & (
   | { readonly kind: 'erc20-transfer'; readonly contract: string; readonly recipient: string; readonly amount: string }
   | { readonly kind: 'erc721-transfer'; readonly contract: string; readonly recipient: string; readonly tokenId: string }
   | { readonly kind: 'erc1155-transfer'; readonly contract: string; readonly recipient: string; readonly tokenId: string; readonly amount: string }
+  | { readonly kind: 'artfi-test-nft721-mint'; readonly taskId: string; readonly sourceTaskId: string;
+      readonly taskIdBytes32: string; readonly artifactDigest: string; readonly collection: Pin;
+      readonly sourceHash: string; readonly assetKind: 0 | 1; readonly metadataHash: string; readonly metadataURI: string }
+  | { readonly kind: 'artfi-test-series-mint'; readonly taskId: string; readonly collection: Pin;
+      readonly artworkId: string; readonly masterArtworkHash: string; readonly metadataHash: string;
+      readonly distributionWallet: string; readonly metadataURI: string }
   | { readonly kind: 'create-account'; readonly controller: Pin }
   | { readonly kind: 'deposit'; readonly controller: Pin; readonly token: Pin; readonly tokenId: string }
   | { readonly kind: 'standalone-withdraw'; readonly controller: Pin; readonly token: Pin; readonly tokenId: string; readonly destination: string }
@@ -121,10 +127,28 @@ export function normalizeExistingOperation(value: unknown): ExistingOperation {
     'standalone-withdraw': ['controller', 'token', 'tokenId', 'destination'],
     'complete': ['controller', 'token', 'sequenceId', 'legId', 'expectedRevision'],
     'return-hop': ['controller', 'token', 'sequenceId', 'legId', 'expectedRevision'],
+    'artfi-test-nft721-mint': ['taskId','sourceTaskId','taskIdBytes32','artifactDigest','collection','sourceHash','assetKind','metadataHash','metadataURI'],
+    'artfi-test-series-mint': ['taskId', 'collection', 'artworkId', 'masterArtworkHash', 'metadataHash', 'distributionWallet', 'metadataURI'],
   };
   refuse(typeof kind === 'string' && Object.hasOwn(fields, kind), 'TASK_OPERATION_REFUSED');
   const r = object(value, ['kind', 'chainId', 'actor', ...fields[kind]!]);
   const identity = { chainId: uint(r.chainId, true), actor: address(r.actor) };
+  if (kind === 'artfi-test-nft721-mint') {
+    refuse(identity.chainId === '560048' && (r.assetKind === 0 || r.assetKind === 1), 'TASK_TEST_721_SCOPE_REFUSED');
+    refuse(typeof r.metadataURI === 'string' && /^(https:\/\/|ipfs:\/\/).+/.test(r.metadataURI) &&
+      new TextEncoder().encode(r.metadataURI).length <= 512 && !/[\x00-\x20\x7f]/.test(r.metadataURI), 'TASK_TEST_MINT_METADATA_REFUSED');
+    return freeze({ ...identity, kind, taskId:text(r.taskId), sourceTaskId:text(r.sourceTaskId), taskIdBytes32:hash(r.taskIdBytes32),
+      artifactDigest:hash(r.artifactDigest), collection:pin(r.collection), sourceHash:hash(r.sourceHash),
+      assetKind:r.assetKind as 0 | 1, metadataHash:hash(r.metadataHash), metadataURI:r.metadataURI });
+  }
+  if (kind === 'artfi-test-series-mint') {
+    refuse(identity.chainId === '560048', 'TASK_CHAIN_REFUSED');
+    refuse(typeof r.metadataURI === 'string' && /^(https:\/\/|ipfs:\/\/)/.test(r.metadataURI) &&
+      new TextEncoder().encode(r.metadataURI).length <= 512, 'TASK_TEST_MINT_METADATA_REFUSED');
+    return freeze({ ...identity, kind, taskId: text(r.taskId), collection: pin(r.collection),
+      artworkId: hash(r.artworkId), masterArtworkHash: hash(r.masterArtworkHash), metadataHash: hash(r.metadataHash),
+      distributionWallet: address(r.distributionWallet), metadataURI: r.metadataURI });
+  }
   const asset = ['native-transfer', 'erc20-transfer', 'erc721-transfer', 'erc1155-transfer'].includes(kind);
   refuse((asset ? ASSET_CHAINS : CONTROL_CHAINS).includes(identity.chainId), 'TASK_CHAIN_REFUSED',
     chainPolicy(asset ? 'asset' : 'control', asset ? ASSET_CHAINS : CONTROL_CHAINS, identity.chainId));
@@ -185,6 +209,7 @@ export function freezeTaskPolicy(value: unknown): FrozenTask {
     const i = object(r.intent, ['kind', 'operation']);
     const operation = normalizeExistingOperation(i.operation);
     refuse(operation.chainId === chainId && operation.actor === actor, 'TASK_IDENTITY_REFUSED');
+    refuse((operation.kind !== 'artfi-test-series-mint' && operation.kind !== 'artfi-test-nft721-mint') || operation.taskId === taskId, 'TASK_TEST_MINT_TASK_BINDING_REFUSED');
     intent = { kind, operation };
   } else {
     refuse(kind === 'nft-sale' && ASSET_CHAINS.includes(chainId), 'TASK_INTENT_REFUSED');
@@ -277,6 +302,7 @@ export function assessChildScope(taskInput: FrozenTask, childInput: FrozenChild,
   // conceal a contract call behind otherwise matching recipient/value fields.
   if (op.kind === 'native-transfer' && c.wire.calldataHash !== keccak256Utf8('')) reasons.push('TASK_NATIVE_CALLDATA_REFUSED');
   if ((op.kind === 'erc20-transfer' || op.kind === 'erc721-transfer' || op.kind === 'erc1155-transfer') && c.wire.to !== op.contract) reasons.push('TASK_WIRE_TARGET_OUTSIDE_SCOPE');
+  if ((op.kind === 'artfi-test-series-mint' || op.kind === 'artfi-test-nft721-mint') && (c.wire.to !== op.collection.contract || op.taskId !== t.taskId)) reasons.push('TASK_TEST_MINT_TARGET_OUTSIDE_SCOPE');
   if ((op.kind === 'create-account' || op.kind === 'complete' || op.kind === 'return-hop') && c.wire.to !== op.controller.contract) reasons.push('TASK_WIRE_TARGET_OUTSIDE_SCOPE');
   if (op.kind === 'deposit' && c.wire.to !== op.token.contract) reasons.push('TASK_WIRE_TARGET_OUTSIDE_SCOPE');
   // The account address is resolved from the pinned controller and checked

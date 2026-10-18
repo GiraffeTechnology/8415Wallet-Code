@@ -27,9 +27,9 @@ export const MANDATORY_PATHS = Object.freeze([
   'docs/stages/STAGE-5J-PUBLIC-PATH-AND-UI.md', 'docs/V3-DEVELOPMENT-CLOSURE.md', 'docs/XIONGAN-WALLET.md',
   'PACKAGE.md', 'PACKAGE-V3.md', 'README.md', 'README-package.md', 'package.json', 'package-lock.json',
   'tsconfig.json', 'tsconfig.browser.json', 'tsconfig.package.json', 'tsconfig.package-v3.json',
-  'config/releases/v2.json', 'config/releases/v3.json', 'config/releases/xiongan-v2.json',
-  'deploy/dapp/install.mjs', 'deploy/auth-xiongan/install.mjs', 'deploy/auth-xiongan/migrate-legacy.mjs',
-  'deploy/auth-xiongan/8415wallet-auth-xiongan.service', 'deploy/auth-xiongan/auth-location.nginx.conf',
+  'config/current-prd.json', 'config/releases/v2.json', 'config/releases/v3.json', 'config/releases/xiongan-v2.json',
+  'deploy/dapp/install.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/migrate-legacy.mjs',
+  'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf',
   'server/main.mjs', 'server/runtime-entry.mjs', 'server/service-entry.mjs',
   'src/index.ts', 'src/v2.ts', 'src/browser.ts', 'src/cli/main.ts', 'src/controls/index.ts',
   'src/controls/fileOperationStore.ts', 'web/index.html', 'web/release-profile.mjs', 'web/release-config.json',
@@ -66,8 +66,9 @@ export function permittedSourcePath(path) {
     && !/(?:^|\/)(?:AGENTS\.md|CONTROL-DEVELOPMENT-STATUS\.md|DEPLOY\.md|DOMAIN\.md|SIN-DEPLOYMENT-HANDOFF\.md)$/i.test(path)
     && !/^(?:config\/)/.test(path) && !/\.pyc$/i.test(path) && !path.split('/').includes('__pycache__');
 }
-// Configuration has a deliberately separate exact public-profile exception.
-const sourcePathAllowed = path => (path === 'vendor/artfi-task-listing-runtime-1.0.0.tgz' || permittedSourcePath(path) || /^config\/releases\/(?:v2|v3|xiongan-v2)\.json$/.test(path))
+// Configuration has separate exact public-profile and requirement-pin exceptions.
+// The PRD pin is public source provenance, never an operational configuration.
+const sourcePathAllowed = path => (path === 'config/current-prd.json' || path === 'vendor/artfi-task-listing-runtime-1.0.0.tgz' || permittedSourcePath(path) || /^config\/releases\/(?:v2|v3|xiongan-v2)\.json$/.test(path))
   && !['docs/AUTH-PROVISIONING-PREPARATION.md', 'docs/AUTH-RECOVERY.md', ...TOOLING_FILES].includes(path);
 
 export function cleanEnvironment() {

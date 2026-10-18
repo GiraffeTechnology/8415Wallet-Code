@@ -5,6 +5,9 @@ import { verifyMessage, getAddress } from 'ethers';
 import { validateAccountBindings } from './config-validation.mjs';
 import { createRecoveryService, RecoveryError } from './recovery-service.mjs';
 import { createTaskAuthorizationService, TaskAuthorizationError } from './task-authorization.mjs';
+import { createForwardProgressService, ForwardProgressError } from './forward-progress-service.mjs';
+import { createRpcForwardProgressReader } from './forward-progress-reader.mjs';
+import { createTaskVerificationPolicyService, TaskVerificationPolicyError } from './task-verification-policy.mjs';
 import { createMethodChangeService, MethodChangeError } from './method-change-service.mjs';
 import { createAccountDirectory } from './account-directory.mjs';
 import { createRegistrationService, RegistrationError } from './registration-service.mjs';
@@ -30,10 +33,10 @@ function cookies(request) {
   }
   return result;
 }
-export function createAuthService({ origin, tenant, accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null, taskReceiptHandlerId = null, taskChannelBindings = null }) {
+export function createAuthService({ origin, tenant, accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null, taskReceiptHandlerId = null, taskChannelBindings = null, taskTestAuthorization = null, forwardProgressReader = null, forwardProgressSource = null, taskVerificationPolicyEnabled = false }) {
   const url = loginOrigin(origin);
   requireThat(typeof tenant === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(tenant), 'AUTH_CONFIG_REFUSED', 500);
-  requireThat(Array.isArray(accounts) && accounts.length > 0 && accounts.length <= 10000 && store, 'AUTH_CONFIG_REFUSED', 500);
+  requireThat(Array.isArray(accounts) && accounts.length <= 10000 && store, 'AUTH_CONFIG_REFUSED', 500);
   try { validateAccountBindings(accounts); } catch { throw new AuthError('AUTH_CONFIG_REFUSED', 500); }
   const users = new Map();
   for (const input of accounts) {
@@ -48,7 +51,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
   const secure = url.protocol === 'https:', sessionName = secure ? '__Host-8415session' : '8415session-local', preauthName = secure ? '__Host-8415preauth' : '8415preauth-local';
   const sessions = new Map(), preauth = new Map(), challenges = new Map(), limits = new Map();
   let expensive = 0;
-  let recoveryService = null, registrationService = null, methodChangeService = null, taskService = null;
+  let recoveryService = null, registrationService = null, methodChangeService = null, taskService = null, verificationPolicyService = null;
   const stamp = () => { const time = now(); requireThat(Number.isSafeInteger(time) && time >= 0, 'AUTH_CLOCK_REFUSED', 503); return time; };
   function sweep() {
     const time = stamp();
@@ -85,7 +88,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     sweep(); requireThat(sessions.get(session.key) === session);
   }
   function revokeSession(session) {
-    sessions.delete(session.key); recoveryService?.cancel(session); registrationService?.cancel(session, true); methodChangeService?.cancel(session); taskService?.cancel(session);
+    sessions.delete(session.key); recoveryService?.cancel(session); registrationService?.cancel(session, true); methodChangeService?.cancel(session); taskService?.cancel(session); verificationPolicyService?.cancel(session);
   }
   function revokeAccount(username) {
     for (const current of sessions.values()) if (current.username === username) revokeSession(current);
@@ -178,14 +181,30 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     consumeResetProof: (session, proof, prior) => recoveryService.consumeProof(session, proof, prior), revokeAccount });
   methodChangeService = createMethodChangeService({ origin, tenant, store, directory, users, sendOtp, now,
     assertRecent: recentIndependent, credentialFor, passwordFor, methodStates, withConsumedCode, revokeAccount });
-  taskService = createTaskAuthorizationService({ origin, tenant, store, now, execution: taskExecution, executorIdentity: taskExecutorIdentity, observationPolicy: taskObservationPolicy, receipt: taskReceipt, listingExecution: taskListingExecution, listingResults: taskListingResults, receiptHandlerId: taskReceiptHandlerId, channelBindings: taskChannelBindings,
+  // Policy scope follows actual configured Agent identities, never caller JSON.
+  // Multiple distinct configured agents need an explicit per-agent management
+  // selector; do not silently attach a wallet-wide switch to a made-up identity.
+  const policyAgents = new Set([taskExecutorIdentity?.agentId,
+    ...Object.values(taskChannelBindings ?? {}).map(binding => binding.executorIdentity?.agentId)].filter(Boolean));
+  // Do not activate settings until the owning runtime binds its execution gates.
+  // This server-owned composition flag is never taken from a request or UI.
+  if (taskVerificationPolicyEnabled === true && policyAgents.size <= 1) verificationPolicyService = createTaskVerificationPolicyService({ origin, tenant,
+    agentId: [...policyAgents][0] ?? '8415wallet:local-task-service',
+    store, directory, users, sendOtp, now, assertSession: activeSession, credentialFor, passwordFor, methodStates });
+  const publicVerificationPolicy = value => {
+    const { changes, ...status } = value;
+    return { ...status, changeCount: changes.length, lastChange: changes.at(-1) ?? null };
+  };
+  taskService = createTaskAuthorizationService({ origin, tenant, store, now, execution: taskExecution, executorIdentity: taskExecutorIdentity, observationPolicy: taskObservationPolicy, receipt: taskReceipt, listingExecution: taskListingExecution, listingResults: taskListingResults, receiptHandlerId: taskReceiptHandlerId, channelBindings: taskChannelBindings, testAuthorization: taskTestAuthorization,
+    operationVerificationEnabled: verificationPolicyService !== null,
     principalReady: directory.ready,
     assertPrincipal(principal, credential) {
       const user = users.get(principal.username);
       requireThat(user && user.wallets.some(wallet => wallet.account.toLowerCase() === principal.account && wallet.chainId === principal.chainId),
         'TASK_BACKGROUND_PRINCIPAL_REFUSED', 403);
       if (credential !== undefined) {
-        requireThat(credential !== null, 'TASK_BACKGROUND_CREDENTIAL_REQUIRED', 403);
+        // Configured wallet-only accounts can legitimately have no credential
+        // record. The directory still rejects missing registered-account state.
         directory.checkCredential(principal.username, credential);
       }
     },
@@ -198,6 +217,27 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     }, consumeTotp(session, credential, code) {
       requireThat(methodStates(users.get(session.username), credential).totp.enabled, 'TASK_AUTHENTICATOR_REQUIRED', 403);
       return withConsumedCode(credential, code, false);
+    } });
+  // This capability comes from server composition, never a route/body/session flag.
+  requireThat(forwardProgressReader === null || forwardProgressSource === null, 'AUTH_FORWARD_SOURCE_CONFIG_REFUSED', 500);
+  if (forwardProgressSource !== null) {
+    requireThat(typeof forwardProgressSource === 'object' && !Array.isArray(forwardProgressSource) &&
+      [Object.prototype, null].includes(Object.getPrototypeOf(forwardProgressSource)), 'AUTH_FORWARD_SOURCE_CONFIG_REFUSED', 500);
+    const descriptors = Object.getOwnPropertyDescriptors(forwardProgressSource), keys = Reflect.ownKeys(descriptors);
+    requireThat(['provider', 'pin', 'fromBlock'].every(k => Object.hasOwn(descriptors, k)) &&
+      keys.every(k => typeof k === 'string' && ['provider', 'pin', 'fromBlock', 'limits'].includes(k) &&
+        Object.hasOwn(descriptors[k], 'value')), 'AUTH_FORWARD_SOURCE_CONFIG_REFUSED', 500);
+    const source = Object.fromEntries(keys.map(k => [k, descriptors[k].value]));
+    try { forwardProgressReader = createRpcForwardProgressReader({ ...source, tenant, origin }); }
+    catch { throw new AuthError('AUTH_FORWARD_SOURCE_CONFIG_REFUSED', 500); }
+  }
+  const forwardProgress = createForwardProgressService({ store, reader: forwardProgressReader, origin, tenant,
+    assertSession(session, credential) {
+      activeSession(session);
+      if (credential !== undefined) {
+        requireThat((credential?.revision ?? 0) === session.revision);
+        directory.checkCredential(session.username, credential);
+      }
     } });
   async function route(req, res) {
     requireThat(req.headers.host === url.host, 'AUTH_ORIGIN_REFUSED', 403);
@@ -227,6 +267,8 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
         registration: registrationService.status(session.username, credential),
         authenticator: methodChangeService.authenticatorStatus(session, credential),
         methodChange: methodChangeService.status(session, credential),
+        forwardProgressAvailable: forwardProgressReader !== null,
+        taskHumanVerification: verificationPolicyService === null ? null : publicVerificationPolicy(await verificationPolicyService.status(session)),
         management: { freshIndependentLogin: independent(session) && stamp() - session.issuedAt < ENROLL,
           reauthenticateBy: independent(session) ? session.issuedAt + ENROLL : null, existingCodeRequired: enrolled } };
     }
@@ -243,10 +285,39 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       }
       res.setHeader('Set-Cookie', [cookie(sessionName, '', 0), cookie(preauthName, '', 0)]); return { loggedOut: true };
     }
+    if (path === 'assets/forward-progress') {
+      const session = await sessionFor(req);
+      limit(`forward-progress:${session.username}`, 120);
+      return forwardProgress.read(body, session);
+    }
     if (path.startsWith('tasks/')) {
       const session = localSession(req); limit(`tasks:${session.username}`, 120);
+      if (path === 'tasks/observation-source' || path === 'tasks/observation-details') {
+        requireThat(taskService.observationDetails !== undefined, 'TASK_OBSERVATION_SOURCE_UNSUPPORTED', 503);
+        return path === 'tasks/observation-source' ?
+          taskService.observationDetails.resolve(body, session) : taskService.observationDetails.read(body, session);
+      }
       if (path === 'tasks/authorize') limit(`task-approval:${session.username}`, 10);
       return taskService.handler(path, body, session);
+    }
+    if (path.startsWith('account/task-verification/')) {
+      const session = await sessionFor(req); limit(`task-policy:${session.username}`, 30);
+      requireThat(verificationPolicyService !== null, 'AUTH_POLICY_AGENT_SCOPE_UNAVAILABLE', 503);
+      // Owner settings are not task grants. Two established factors are bound
+      // to each exact ON/OFF revision; an existing OFF or Agent grant never saves.
+      if (path === 'account/task-verification/status') {
+        requireThat(Object.keys(body).length === 0, 'AUTH_REQUEST_REFUSED', 400);
+        return publicVerificationPolicy(await verificationPolicyService.status(session));
+      }
+      if (path === 'account/task-verification/prepare') return verificationPolicyService.prepare(session, body);
+      if (path === 'account/task-verification/verify') return verificationPolicyService.verify(session, body);
+      if (path === 'account/task-verification/confirm') return publicVerificationPolicy(await verificationPolicyService.confirm(session, body));
+      if (path === 'account/task-verification/on') return publicVerificationPolicy(await verificationPolicyService.enable(session, body));
+      if (path === 'account/task-verification/cancel') {
+        requireThat(Object.keys(body).length === 0, 'AUTH_REQUEST_REFUSED', 400);
+        verificationPolicyService.cancel(session); return { cancelled: true };
+      }
+      throw new AuthError('AUTH_ROUTE_REFUSED', 404);
     }
     if (path.startsWith('account/change/')) {
       const result = await methodChangeService.handler(path, body, localSession(req));
@@ -338,7 +409,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     res.setHeader('Pragma', 'no-cache'); res.setHeader('X-Content-Type-Options', 'nosniff');
     // No Access-Control-Allow-Origin: only the configured same-origin UI can read.
     try { const result = await route(req, res); res.statusCode = 200; res.end(JSON.stringify(result)); }
-    catch (error) { const expected = error instanceof AuthError || error instanceof RecoveryError || error instanceof RegistrationError || error instanceof MethodChangeError || error instanceof TaskAuthorizationError; res.statusCode = expected ? error.status : 503;
+    catch (error) { const expected = error instanceof AuthError || error instanceof RecoveryError || error instanceof RegistrationError || error instanceof MethodChangeError || error instanceof TaskAuthorizationError || error instanceof ForwardProgressError || error instanceof TaskVerificationPolicyError; res.statusCode = expected ? error.status : 503;
       const retryAfterSeconds = expected && error.status === 429 && req.url?.startsWith('/auth/tasks/') &&
         Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds >= 1 && error.retryAfterSeconds <= 900 ? error.retryAfterSeconds : null;
       if (retryAfterSeconds !== null) res.setHeader('Retry-After', String(retryAfterSeconds));

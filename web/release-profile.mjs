@@ -6,10 +6,10 @@ const freeze = value => {
 };
 export const RELEASE_PROFILES = freeze({
   v2: { id: 'v2', label: '8415wallet V2 Beta', version: '2.2.0-beta',
-    prd: { version: '2.2', sections: ['1', '2', '3', '4', '5', '6', '7', '8'], scenarios: [] },
+    prd: { version: '2.2', sections: ['1', '2', '3', '4', '5', '6', '7', '8', '10'], scenarios: [] },
     features: { standalone: true, externalAssets: true, assetStandards: ['native-ETH', 'ERC-20', 'ERC-721', 'ERC-1155'], controlledAccounts: true, linkedResponsibilities: false } },
   v3: { id: 'v3', label: '8415wallet V3 Beta', version: '3.0.0-beta',
-    prd: { version: '3.0', sections: ['1', '2', '3', '4', '5', '6', '7', '8', '9'],
+    prd: { version: '3.0', sections: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
       scenarios: Array.from({ length: 24 }, (_, i) => `W-${String(i + 1).padStart(2, '0')}`) },
     features: { standalone: true, externalAssets: true, assetStandards: ['native-ETH', 'ERC-20', 'ERC-721', 'ERC-1155'], controlledAccounts: true, linkedResponsibilities: true } },
 });

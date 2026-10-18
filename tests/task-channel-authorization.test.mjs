@@ -49,7 +49,7 @@ test('approval cannot substitute another channel executor digest', async () => {
   const f = await fixture(), prepared = await f.call('prepare', { policy: f.exact });
   const body = { challengeId: prepared.challengeId, taskDigest: prepared.task.digest,
     executorDigest: freezeTaskExecutorIdentity(listingIdentity).digest,
-    observationPolicyDigest: prepared.observationPolicy.digest, code: 'synthetic-proof' };
+    observationPolicyDigest: prepared.observationPolicy.digest, code: prepared.approvalFactor === 'totp' ? 'synthetic-proof' : '' };
   await assert.rejects(f.call('authorize', body), /TASK_APPROVAL_CHALLENGE_REFUSED/);
   const authorized = await f.call('authorize', { ...body, executorDigest: prepared.executor.digest });
   assert.equal(authorized.effectiveStatus, 'authorized');
@@ -74,7 +74,7 @@ test('unknown or accessor channel fields refuse before capability getters execut
 test('removed channel suspends existing approval rather than borrowing a live port', async () => {
   const f = await fixture(), prepared = await f.call('prepare', { policy: f.exact });
   await f.call('authorize', { challengeId: prepared.challengeId, taskDigest: prepared.task.digest,
-    executorDigest: prepared.executor.digest, observationPolicyDigest: prepared.observationPolicy.digest, code: 'synthetic-proof' });
+    executorDigest: prepared.executor.digest, observationPolicyDigest: prepared.observationPolicy.digest, code: prepared.approvalFactor === 'totp' ? 'synthetic-proof' : '' });
   const active = bindings(); delete active['exact-operation'];
   const restarted = createTaskAuthorizationService({ ...f.args, execution: null, channelBindings: active });
   const status = await restarted.handler('tasks/status', { taskDigest: prepared.task.digest }, f.session);
@@ -97,7 +97,7 @@ test('approval cannot borrow another channel observation policy', async () => {
   const listing = await f.call('prepare', { policy: f.listing });
   await assert.rejects(f.call('authorize', { challengeId: exact.challengeId, taskDigest: exact.task.digest,
     executorDigest: exact.executor.digest, observationPolicyDigest: listing.observationPolicy.digest,
-    code: 'synthetic-proof' }), /TASK_APPROVAL_CHALLENGE_REFUSED/);
+    code: exact.approvalFactor === 'totp' ? 'synthetic-proof' : '' }), /TASK_APPROVAL_CHALLENGE_REFUSED/);
   const pending = await f.call('status', { taskDigest: exact.task.digest });
   assert.equal(pending.effectiveStatus, 'pending');
 });
@@ -109,7 +109,7 @@ test('changing only listing approval facts does not suspend the exact channel', 
     const value = await f.call('prepare', { policy }); prepared.push(value);
     await f.call('authorize', { challengeId: value.challengeId, taskDigest: value.task.digest,
       executorDigest: value.executor.digest, observationPolicyDigest: value.observationPolicy.digest,
-      code: 'synthetic-proof' });
+      code: value.approvalFactor === 'totp' ? 'synthetic-proof' : '' });
   }
   const source = bindings(); source['nft-sale'].observationPolicy.minimumConfirmations = '4';
   const restarted = createTaskAuthorizationService({ ...f.args, channelBindings: source });

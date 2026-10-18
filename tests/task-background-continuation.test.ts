@@ -9,7 +9,8 @@ import { createAuthService } from '../server/auth-service.mjs';
 import { createTaskAuthorizationService } from '../server/task-authorization.mjs';
 import { createTaskBackgroundRunner } from '../server/task-background-runner.mjs';
 import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
-import { base32, hotp, matchTotp, hashPassword } from '../server/crypto.mjs';
+import { base32, digest, hotp, matchTotp, hashPassword } from '../server/crypto.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-state.mjs';
 import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
 
 // Synthetic keys, actors, receipts and time only. No provider/network/signing.
@@ -69,14 +70,27 @@ function fixture(options: any = {}) {
   const call = (path: string, body: any) => service.handler(`tasks/${path}`, body, session);
   const prepare = (p = policy()) => call('prepare', { policy: p });
   const authorize = (p: any) => call('authorize', { challengeId: p.challengeId, taskDigest: p.task.digest, executorDigest: p.executor.digest,
-    observationPolicyDigest: p.observationPolicy?.digest ?? null, code: hotp(secret, Math.floor(state.now / 30000)) });
+    observationPolicyDigest: p.observationPolicy?.digest ?? null, code: p.approvalFactor === 'totp' ? hotp(secret, Math.floor(state.now / 30000)) : '' });
   const grant = async (p = policy()) => authorize(await prepare(p));
   const runner = (config: any = {}) => createTaskBackgroundRunner({ store, continuation: service.background, now: () => state.now, ...config });
   return { service, store, state, session, sessions, calls, call, prepare, authorize, grant, runner, execution, receipt };
 }
 
-test('only completed durable human approval enters the background queue', async () => {
-  const f = fixture(), p = await f.prepare();
+// A saved nonzero ON policy exercises the OTP path; absence stays prompt-free.
+async function saveBackgroundOnPolicy(f: any) {
+  const scope = { origin: policy().origin, tenant: 'xiongan', username: 'tester',
+    account: actor, chainId: '11155111', agentId: executorIdentity.agentId };
+  await f.store.transaction('xiongan:tester', (credential: any) => ({ ...credential,
+    taskVerificationPolicies: { ...(credential.taskVerificationPolicies ?? {}), [taskVerificationPolicyKey(scope)]: {
+      schema: '8415-task-human-verification/2', scope, mode: 'ON', revision: '1', enforcedFromRevision: '1',
+      changes: [{ revision: '1', previousRevision: '0', mode: 'ON', changeId: 'A'.repeat(43),
+        changeDigest: 'a'.repeat(64), scopeDigest: digest(JSON.stringify(scope)), credentialRevision: 1,
+        verifiedFactors: ['password', 'verified-email'], changedAt: f.state.now }] } } }));
+}
+
+test('saved ON permits background queue registration only after durable human approval', async () => {
+  const f = fixture(); await saveBackgroundOnPolicy(f); const p = await f.prepare();
+  assert.equal(p.approvalFactor, 'totp');
   assert.deepEqual((await f.service.background.list({ cursor: '0', limit: 10 })).entries, []);
   await assert.rejects(f.call('authorize', { challengeId: p.challengeId, taskDigest: p.task.digest, executorDigest: p.executor.digest,
     observationPolicyDigest: p.observationPolicy.digest, code: 'invalid' }));
@@ -218,7 +232,7 @@ test('real HTTP approval then logout or session expiry continues only via the in
     const prepared = await call('tasks/prepare', { policy: { ...policy(), origin } }); assert.equal(prepared.status, 200);
     const p = prepared.data;
     const approved = await call('tasks/authorize', { challengeId: p.challengeId, taskDigest: p.task.digest, executorDigest: p.executor.digest,
-      observationPolicyDigest: p.observationPolicy.digest, code: hotp(secret, Math.floor(f.state.now / 30000)) });
+      observationPolicyDigest: p.observationPolicy.digest, code: p.approvalFactor === 'totp' ? hotp(secret, Math.floor(f.state.now / 30000)) : '' });
     assert.equal(approved.status, 200);
     assert.equal(Object.keys(handler).includes('taskBackground'), false);
     if (end === 'logout') assert.equal((await call('logout', {})).status, 200);
@@ -251,12 +265,14 @@ test('approval storage failure does not consume the OTP or register a background
     }
   }
   const store = new CapacityStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } }), f = fixture({ store });
-  const p = await f.prepare(); store.fail = true; await assert.rejects(f.authorize(p), /TASK_STORE_CAPACITY/); store.fail = false;
+  await saveBackgroundOnPolicy(f); const p = await f.prepare(); assert.equal(p.approvalFactor, 'totp');
+  store.fail = true; await assert.rejects(f.authorize(p), /TASK_STORE_CAPACITY/); store.fail = false;
   assert.equal((await f.service.background.list({})).entries.length, 0); assert.equal((await store.read('xiongan:tester')).lastStep, -1);
   assert.equal((await f.authorize(p)).effectiveStatus, 'authorized');
   // An uncertain persist failure poisons the store; no worker can infer approval.
   const uncertain = new RejectingStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } }), u = fixture({ store: uncertain });
-  const pending = await u.prepare(); uncertain.fail = true; await assert.rejects(u.authorize(pending), /Synthetic durable write failure/);
+  await saveBackgroundOnPolicy(u); const pending = await u.prepare(); assert.equal(pending.approvalFactor, 'totp');
+  uncertain.fail = true; await assert.rejects(u.authorize(pending), /Synthetic durable write failure/);
   await assert.rejects(u.runner().tick(), /AUTH_STORE_UNHEALTHY/); assert.equal(u.calls.send, 0);
 });
 

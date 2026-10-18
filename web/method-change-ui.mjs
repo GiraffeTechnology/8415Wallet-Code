@@ -44,7 +44,7 @@ function prompt(flow, { kind, emailMasked, state }) {
       if (flow.intent.enabledMethods) paint(node('p', null, form), msg('change.enabledMethods', { methods: flow.intent.enabledMethods.join(', ') }));
     } else {
       paint(node('p', null, form), msg(kind === 'newEmail' ? 'change.newEmail' : 'change.emailSent', { email: emailMasked }));
-      controls.code = input(form, 'change.emailCode', 'text'); controls.code.inputMode = 'numeric'; controls.code.maxLength = 8;
+      controls.code = input(form, 'change.emailCode'); controls.code.autocomplete = 'one-time-code'; controls.code.inputMode = 'numeric'; controls.code.maxLength = 8;
       controls.code.pattern = '[0-9]{8}'; controls.code.required = true; privateFields.push(controls.code);
     }
     const actions = node('div', null, form); actions.className = 'actions';

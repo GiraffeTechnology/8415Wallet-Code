@@ -1,3 +1,5 @@
+import * as identityProjection from '../web/wallet-identity-display.mjs';
+import * as identityI18n from '../web/i18n.mjs';
 /** Pure synthetic DOM/login scheduling probe. No provider requests, sockets or browser. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +26,7 @@ function fixture(){
 for(const kind of ['asset-workspace','hoodi-journey']) test(`${kind}: rapid repeated click cannot leave a stale request holding the UI lock`,async()=>{
  const f=fixture();let source=readFileSync(join(root,`web/${kind}-panel.mjs`),'utf8');
  source=source.replace(/^import[\s\S]*?;\n/gm,'').replace('export function mountAssetWorkspace','function mountAssetWorkspace');
- const context={document:f.document,globalThis:f.window,walletLogin:f.login,readAssetWorkspace:async()=>({registerHistory:{state:'not-requested'}}),renderAssetWorkspace:()=> 'synthetic workspace',openHoodiJourneyRead:async()=>({}),compareHoodiReleaseHistory:async()=>({}),renderHoodiReleaseHistory:()=> 'synthetic history'};
+ const context={...identityProjection,...identityI18n,document:f.document,globalThis:f.window,walletLogin:f.login,readAssetWorkspace:async()=>({registerHistory:{state:'not-requested'}}),renderAssetWorkspace:()=> 'synthetic workspace',openHoodiJourneyRead:async()=>({}),compareHoodiReleaseHistory:async()=>({}),renderHoodiReleaseHistory:()=> 'synthetic history'};
  if(kind==='asset-workspace')source+='\nmountAssetWorkspace({root:document.getElementById("wallet-private"),login:walletLogin,getContext:()=>({wallet:{reader:{source:{chainId:560048n}}},tokenId:1n})});';
  // Stable wallet identity matters for publication; the fixture below supplies one object.
  if(kind==='asset-workspace')source=source.replace('mountAssetWorkspace({root:', 'const wallet={reader:{source:{chainId:560048n}}};mountAssetWorkspace({root:').replace('wallet:{reader:{source:{chainId:560048n}}},tokenId:1n','wallet,tokenId:1n');
@@ -44,7 +46,7 @@ for(const kind of ['asset-workspace','hoodi-journey']) test(`${kind}: rapid repe
 for(const kind of ['asset-workspace','hoodi-journey']) test(`${kind}: pagehide/pageshow during read releases controls and rejects late content`,async()=>{
  const f=fixture();let source=readFileSync(join(root,`web/${kind}-panel.mjs`),'utf8');
  source=source.replace(/^import[\s\S]*?;\n/gm,'').replace('export function mountAssetWorkspace','function mountAssetWorkspace');
- const context={document:f.document,globalThis:f.window,walletLogin:f.login,readAssetWorkspace:async()=>({registerHistory:{state:'not-requested'}}),renderAssetWorkspace:()=> 'synthetic workspace',openHoodiJourneyRead:async()=>({}),compareHoodiReleaseHistory:async()=>({}),renderHoodiReleaseHistory:()=> 'synthetic history'};
+ const context={...identityProjection,...identityI18n,document:f.document,globalThis:f.window,walletLogin:f.login,readAssetWorkspace:async()=>({registerHistory:{state:'not-requested'}}),renderAssetWorkspace:()=> 'synthetic workspace',openHoodiJourneyRead:async()=>({}),compareHoodiReleaseHistory:async()=>({}),renderHoodiReleaseHistory:()=> 'synthetic history'};
  if(kind==='asset-workspace')source+='\nconst wallet={reader:{source:{chainId:560048n}}};mountAssetWorkspace({root:document.getElementById("wallet-private"),login:walletLogin,getContext:()=>({wallet,tokenId:1n})});';
  vm.runInNewContext(source,context);const panel=f.root.children[0],input=panel.children[kind==='asset-workspace'?1:2],button=panel.children[kind==='asset-workspace'?4:3],output=panel.children.at(-1);
  if(kind==='asset-workspace')input.value='42';else input.files=[{size:100,text:async()=>JSON.stringify({original:{manifest:{wallets:[{account:f.session.account,tenant:'xiongan'}]}},laterV3:{}})}];

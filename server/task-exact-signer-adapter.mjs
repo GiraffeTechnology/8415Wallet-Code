@@ -1,6 +1,12 @@
+import { readTaskGrantVerificationPolicy } from './task-verification-execution.mjs';
+import { assertTaskOperationVerificationAttempt } from './task-operation-verification.mjs';
+import { normalizeTestNFT721Bindings, verifyTestNFT721OperationPreflight, readTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
+import { captureTestNFT721MetadataVerifier } from './task-test-nft721-metadata.mjs';
+import { verifyTaskExactChain, verifyTaskExactFunding } from './task-exact-chain-state.mjs';
 /** Optional server-owned sign-only injection. No credential loading, key storage,
  * default signer, eth_sendTransaction, signer-side filling, or recovery resend. */
 import { createHash } from 'node:crypto';
+import { normalizeTestAssetPins, testAssetPinForTask } from './task-test-asset-authorization.mjs';
 import { readFileSync } from 'node:fs';
 import { Transaction, version as ethersVersion } from 'ethers';
 import { freezeTaskPolicy, freezeChildOperation, assessChildScope } from '../src/agent/taskContract.ts';
@@ -10,12 +16,17 @@ import { ControlledAccountClient } from '../src/controls/accounts.ts';
 import { decodeControlSequence } from '../src/controls/client.ts';
 import { encodeExactTaskOperation } from './task-operation-encoding.mjs';
 import { createTaskExactOperationPlanner, normalizeTaskExactFeeRule } from './task-exact-operation-planner.mjs';
+import { testSeriesMintRequest, verifyTestSeriesMintPreflight } from './task-test-mint-contract.mjs';
 
 export const TASK_EXACT_SIGNER_RUNTIME_FILES = Object.freeze([
+  'server/task-operation-verification.mjs',
+  'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
   // Approval selection, channel isolation, and the shared-store constructor
   // affect this port's trusted runtime; UI/build/test code does not.
-  'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
-  'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs', 'server/task-exact-operation-planner.mjs',
+  'server/task-authorization.mjs', 'server/task-observation-sources.mjs', 'web/task-observer-context.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
+  'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-listing-transport.mjs',
+  'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
+  'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs', 'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs', 'server/task-exact-operation-planner.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts',
@@ -42,11 +53,15 @@ const hash = value => { check(typeof value === 'string' && /^0x[0-9a-f]{64}$/.te
 const hex = value => `0x${BigInt(value).toString(16)}`;
 const key = (kind, values) => `task-${kind}:${sha(JSON.stringify(values))}`;
 const pin = (p, chainId) => ({ controller: p.contract, runtimeCodeHash: p.runtimeCodeHash, chainId: BigInt(chainId) });
-const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_getCode', 'eth_call', 'eth_getTransactionByHash']);
+const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_getCode', 'eth_call', 'eth_getTransactionByHash', 'eth_getBlockByNumber', 'eth_getBalance']);
 
 /** ExternalExactSigner.signExactTransaction({requestId, unsignedSerialized,
- * unsignedDigest, binding}) -> signedSerialized. The injected implementation
+ * unsignedDigest, binding}, {withSigningFence}) -> signedSerialized. The injected implementation
  * must be sign-only and must not fill nonce/fees, broadcast or retain raw bytes.
+ * Invoke the actual signing side effect through withSigningFence exactly once,
+ * after asynchronous preparation. Returning without a completed fence is refused.
+ * The shipped sign-only bridge enforces this capability. Existing custom signers
+ * must implement this contract; do not claim they are compatible without review.
  * This interface cannot sandbox a dishonest signer; its custody/integration
  * and metadata require independent review. No external implementation ships.
  *
@@ -54,7 +69,11 @@ const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_get
  * exact maxFee. Policy and external signer provenance bind the executor digest.
  */
 export function createTaskExactSignerAdapter({ provider, externalSigner, signerIdentity, store,
-  maxPriorityFeePerGasWei, agentId, agentVersion, plannerFeeRule = null, now = Date.now }) {
+  maxPriorityFeePerGasWei, agentId, agentVersion, plannerFeeRule = null, testAssetPins = [], testMint721Bindings = [], testNFT721Metadata = null, now = Date.now, testAuthorization = null }) {
+  check(testAuthorization === null || typeof testAuthorization.allows === 'function', 'TASK_EXACT_TEST_SCOPE_CONFIG_REFUSED');
+  const testScope = testAuthorization === null ? null : testAuthorization.allows.bind(testAuthorization);
+  const pins = normalizeTestAssetPins(testAssetPins);
+  const mint721Bindings=normalizeTestNFT721Bindings(testMint721Bindings), metadata=captureTestNFT721MetadataVerifier(testNFT721Metadata);
   check(provider && typeof provider.request === 'function' && externalSigner && typeof externalSigner.signExactTransaction === 'function' &&
     store && typeof store.readMany === 'function' && typeof store.transactionMany === 'function' &&
     typeof store.withReadSnapshot === 'function' && typeof now === 'function', 'TASK_EXACT_CONFIG_REQUIRED');
@@ -64,10 +83,10 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   const priority = uint(maxPriorityFeePerGasWei);
   const planningRule = plannerFeeRule === null ? null : normalizeTaskExactFeeRule(plannerFeeRule);
   check(planningRule === null || planningRule.maxPriorityFeePerGasWei === maxPriorityFeePerGasWei, 'TASK_EXACT_PLANNER_PRIORITY_MISMATCH');
-  const planner = planningRule === null ? null : createTaskExactOperationPlanner({ provider, feeRule: planningRule, now });
+  const planner = planningRule === null ? null : createTaskExactOperationPlanner({ provider, feeRule: planningRule, testAssetPins: pins, testMint721Bindings: mint721Bindings, testNFT721Metadata: metadata, now });
   const identity = freeze({ schema: '8415-task-executor/1', agentId: identifier(agentId), agentVersion: identifier(agentVersion),
     adapterId: '8415wallet:external-exact-signer', adapterVersion: '2',
-    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, ethersVersion, signer, maxPriorityFeePerGasWei, planner: planner?.identity ?? null }))}` });
+    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, ethersVersion, signer, maxPriorityFeePerGasWei, testAssetPins: pins, mint721Bindings, metadataIdentity: metadata?.identity ?? null, planner: planner?.identity ?? null }))}` });
   const executorDigest = `0x${sha(JSON.stringify(identity))}`;
   // Capture all configured methods once. No endpoint, signer, fee policy or
   // account selection can be supplied by HTTP JSON or swapped after approval.
@@ -79,17 +98,30 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
   };
   const readonlyProvider = Object.freeze({ request: ({ method, params = [] }) => rpc(method, params) });
   function seconds() { const time = now(); check(Number.isSafeInteger(time) && time >= 0, 'TASK_EXACT_CLOCK_REFUSED'); return BigInt(Math.floor(time / 1000)); }
-  function context(input) {
+  function context(input, recoveryOnly = false) {
     fields(input, ['task', 'child', 'executor', 'grantPolicyVersion']);
     const task = freezeTaskPolicy(input.task.policy), child = freezeChildOperation(input.child.child);
+    let boundExecutorDigest = executorDigest;
+    if (recoveryOnly) {
+      // Only read-only reconciliation may retain a historical executor. Verify,
+      // planning and signing remain bound to the current exact runtime identity.
+      fields(input.executor, ['identity', 'digest']);
+      fields(input.executor.identity, ['schema', 'agentId', 'agentVersion', 'adapterId', 'adapterVersion', 'implementationDigest']);
+      const prior = input.executor.identity;
+      const canonical = { schema: prior.schema, agentId: identifier(prior.agentId), agentVersion: identifier(prior.agentVersion),
+        adapterId: identifier(prior.adapterId), adapterVersion: identifier(prior.adapterVersion), implementationDigest: hash(prior.implementationDigest) };
+      check(canonical.schema === identity.schema && canonical.agentId === identity.agentId && canonical.adapterId === identity.adapterId &&
+        input.executor.digest === `0x${sha(JSON.stringify(canonical))}`, 'TASK_EXACT_BINDING_REFUSED');
+      boundExecutorDigest = input.executor.digest;
+    }
     check(task.digest === input.task.digest && child.digest === input.child.digest && child.child.taskDigest === task.digest &&
-      input.executor?.digest === executorDigest && JSON.stringify(input.executor.identity) === JSON.stringify(identity), 'TASK_EXACT_BINDING_REFUSED');
+      (recoveryOnly || input.executor?.digest === executorDigest && JSON.stringify(input.executor.identity) === JSON.stringify(identity)), 'TASK_EXACT_BINDING_REFUSED');
     uint(input.grantPolicyVersion);
     check(task.policy.intent.kind === 'exact-operation', 'TASK_ATOMIC_SALE_VERIFIER_NOT_CONNECTED');
     check(task.policy.actor === child.child.operation.actor && task.policy.chainId === child.child.operation.chainId &&
       JSON.stringify(task.policy.intent.operation) === JSON.stringify(child.child.operation) && child.child.market === null, 'TASK_EXACT_BINDING_REFUSED');
     const binding = freeze({ taskDigest: task.digest, childDigest: child.digest, chainId: child.child.operation.chainId,
-      actor: child.child.operation.actor, nonce: child.child.nonce, executorDigest, grantPolicyVersion: input.grantPolicyVersion });
+      actor: child.child.operation.actor, nonce: child.child.nonce, executorDigest: boundExecutorDigest, grantPolicyVersion: input.grantPolicyVersion });
     return { task, child, binding,
       okey: key('operation', [binding.chainId, binding.actor, child.child.operationId]),
       nkey: key('nonce', [binding.chainId, binding.actor, binding.nonce]) };
@@ -114,9 +146,12 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
       maxFeePerGas: BigInt(child.fees.maxFeePerGasWei), maxPriorityFeePerGas: priority, accessList: [] });
     if (live) {
       activeScope(c);
+      await verifyTaskExactChain(readonlyProvider, op.chainId);
       check(await rpc('eth_getCode', [op.actor, 'latest']) === '0x', 'TASK_EXACT_EOA_ACTOR_REQUIRED');
       if (op.kind === 'native-transfer') check(await rpc('eth_getCode', [op.recipient, 'latest']) === '0x', 'TASK_EXACT_NATIVE_EOA_REQUIRED');
       else { const code = await rpc('eth_getCode', [encoded.to, 'latest']); check(controlHex(code) && code !== '0x', 'TASK_EXACT_TARGET_CODE_REQUIRED'); }
+      const testPin = testAssetPinForTask(pins, c.task);
+      if (testPin) check(hashControlBytes(await rpc('eth_getCode', [testPin.contract, 'latest'])) === testPin.runtimeCodeHash, 'TASK_EXACT_TEST_ASSET_CODE_REFUSED');
       if ('controller' in op) await verifyControlDeployment(readonlyProvider, pin(op.controller, op.chainId));
       if ('token' in op) await verifyControlDeployment(readonlyProvider, pin(op.token, op.chainId));
       if (op.kind === 'complete' || op.kind === 'return-hop') {
@@ -125,6 +160,14 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
         check(sequence.token === op.token.contract && sequence.tokenCodeHash === op.token.runtimeCodeHash &&
           sequence.revision === BigInt(op.expectedRevision), 'TASK_EXACT_SEQUENCE_BINDING_REFUSED');
       }
+      if (op.kind === 'artfi-test-series-mint') await verifyTestSeriesMintPreflight({
+        request: testSeriesMintRequest(op), provider: readonlyProvider, allowedWallets: [op.actor, op.distributionWallet] });
+      if(op.kind==='artfi-test-nft721-mint') {
+        check(metadata!==null,'TASK_TEST_721_METADATA_NOT_ADMITTED');await metadata.verify(op);
+        await verifyTestNFT721OperationPreflight({operation:op,bindings:mint721Bindings,provider:readonlyProvider});
+      }
+      await verifyTaskExactFunding(readonlyProvider, { actor: op.actor, valueWei: tx.value.toString(),
+        gasLimit: child.fees.gasLimit, maxFeePerGasWei: child.fees.maxFeePerGasWei });
       check(quantity(await rpc('eth_getTransactionCount', [op.actor, 'pending'])) === BigInt(child.nonce), 'TASK_EXACT_NONCE_MISMATCH');
       const simulation = await rpc('eth_call', [{ from: op.actor, to: tx.to, data: tx.data, value: hex(tx.value),
         chainId: hex(tx.chainId), nonce: hex(tx.nonce), type: '0x2', gas: hex(tx.gasLimit),
@@ -162,11 +205,23 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
     const op = values[c.okey], nonce = values[c.nkey], grant = values[j.gkey];
     check(op?.schema === '8415-task-operation/1' && op.grantKey === j.gkey && op.child?.digest === c.child.digest &&
       freezeChildOperation(op.child.child).digest === c.child.digest && op.nonceKey === c.nkey &&
-      ['outcome-unknown', 'submitted'].includes(op.status) && op.attemptExecutor?.digest === executorDigest &&
+      ['outcome-unknown', 'submitted'].includes(op.status) && op.attemptExecutor?.digest === c.binding.executorDigest &&
       op.attemptGrantPolicyVersion === c.binding.grantPolicyVersion && nonce?.permanent === true && nonce.operationKey === c.okey &&
       nonce.taskDigest === c.task.digest && nonce.childDigest === c.child.digest && grant?.task?.digest === c.task.digest &&
       freezeTaskPolicy(grant.task.policy).digest === c.task.digest, 'TASK_EXACT_ATTEMPT_REQUIRED');
     if (active) {
+      // Same authoritative credential snapshot as grant, nonce and signature.
+      // Historical recovery intentionally keeps its existing active=false path.
+      const verificationPolicy = readTaskGrantVerificationPolicy(values[j.ckey], grant);
+      let testExempt = false;
+      if (grant.approvalFactor === 'server-test-scope') {
+        check(testScope !== null, 'TASK_EXACT_TEST_SCOPE_NOT_CONNECTED');
+        testExempt = testScope(grant.task); check(typeof testExempt === 'boolean', 'TASK_EXACT_TEST_SCOPE_CONFIG_REFUSED');
+        check(testExempt, 'TASK_EXACT_TEST_SCOPE_NOT_ACTIVE');
+      }
+      if (op.humanVerificationEnforced === true || verificationPolicy.mode === 'ON' && verificationPolicy.revision !== '0') {
+        assertTaskOperationVerificationAttempt(values[j.ckey], grant, op, nonce, now(), testExempt);
+      }
       activeScope(c);
       check(op.status === 'outcome-unknown' && grant.status === 'authorized' && grant.grantPolicyVersion === c.binding.grantPolicyVersion &&
         grant.executor?.digest === executorDigest && String(values[j.ckey]?.revision ?? 0) === grant.credentialRevisionAtApproval,
@@ -193,16 +248,36 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
       return { ...values, [c.okey]: { ...op, exactSignature: { schema: '8415-task-exact-signature/1',
         requestId: requestId(c, tx), binding: c.binding, unsignedDigest: tx.unsignedHash, transactionHash: null, state: 'claimed' } } };
     });
-    let signing;
+    let signing, signingOpen = true, signingFenceUsed = false, signingFenceComplete = false;
+    // A configured signer must use this one-use capability at its actual
+    // signing side effect, not merely at entry before asynchronous preparation.
+    // No asynchronous callback or held-store re-entry is allowed at the gate.
+    const withSigningFence = async invoke => {
+      check(signingOpen && !signingFenceUsed && typeof invoke === 'function', 'TASK_EXACT_SIGNING_FENCE_REFUSED');
+      signingFenceUsed = true;
+      let pending;
+      await withReadSnapshot(j.keys, values => {
+        check(signingOpen, 'TASK_EXACT_SIGNING_FENCE_CLOSED');
+        const op = journal(c, j, values, true); checkClaim(op.exactSignature, c, tx, 'claimed');
+        pending = Promise.resolve(invoke()).then(value => ({ value }), error => ({ error }));
+      });
+      const result = await pending;
+      if (Object.hasOwn(result, 'error')) throw result.error;
+      signingFenceComplete = true;
+      return result.value;
+    };
+    const signingExecution = Object.freeze({ withSigningFence });
     // Claim persistence also crosses an await. A queued revoke must win before
     // signer invocation, not merely prevent the eventual broadcast.
     await withReadSnapshot(j.keys, values => {
       const op = journal(c, j, values, true); checkClaim(op.exactSignature, c, tx, 'claimed');
       signing = Promise.resolve(sign(freeze({ requestId: requestId(c, tx), unsignedSerialized: tx.unsignedSerialized,
-        unsignedDigest: tx.unsignedHash, binding: c.binding }))).then(value => ({ value }), error => ({ error }));
+        unsignedDigest: tx.unsignedHash, binding: c.binding }), signingExecution)).then(value => ({ value }), error => ({ error }))
+        .finally(() => { signingOpen = false; });
     });
     const signature = await signing;
     if (Object.hasOwn(signature, 'error')) throw new TaskExactSignerError('TASK_EXACT_SIGNATURE_OUTCOME_UNKNOWN');
+    check(signingFenceUsed && signingFenceComplete, 'TASK_EXACT_SIGNING_FENCE_NOT_USED');
     const signed = signedTransaction(signature.value, tx, c.binding.actor);
     // Persist only the hash, never broadcastable signed bytes. Expand the latest
     // record, retaining concurrent receipt metadata and all existing fields.
@@ -231,7 +306,7 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
     return Object.freeze({ ...c.binding, transactionHash: signed.hash });
   }
   async function recover(input) {
-    const c = context(input), tx = await unsigned(c, false), j = await journalKeys(c), values = await readMany(j.keys);
+    const c = context(input, true), tx = await unsigned(c, false), j = await journalKeys(c), values = await readMany(j.keys);
     const op = journal(c, j, values, false); checkClaim(op.exactSignature, c, tx, 'signed');
     const expectedHash = op.exactSignature.transactionHash;
     // A locally signed hash proves no submission. Require full independently
@@ -258,5 +333,7 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
     check(input.executor?.digest === executorDigest && JSON.stringify(input.executor.identity) === JSON.stringify(identity), 'TASK_EXACT_BINDING_REFUSED');
     return planner.plan(input);
   }
-  return Object.freeze({ identity, verify, send, recover, ...(planner === null ? {} : { plan }) });
+  // Explicit server-owned read-only capability, not a generic adapter promise
+  // or HTTP flag. Other adapters remain exact-identity-bound on recovery.
+  return Object.freeze({ identity, verify, send, recover, recoverHistorical: recover, ...(planner === null ? {} : { plan }) });
 }

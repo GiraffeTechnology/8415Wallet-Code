@@ -1,0 +1,105 @@
+/** Beta 2.0 asset-scope policy evaluation. Pure data: no grant, signer, API or wallet state mutation. */
+export const ASSET_POLICY_OPERATIONS = [
+  'erc8183:createJob', 'erc8183:setProvider', 'erc8183:setBudget', 'erc8183:fund',
+  'erc8183:submit', 'erc8183:complete', 'erc8183:reject', 'erc8183:claimRefund',
+  'wallet:native-transfer', 'wallet:erc20-transfer', 'wallet:erc721-transfer',
+  'wallet:erc1155-transfer', 'wallet:receive',
+] as const;
+export type AssetPolicyOperation = typeof ASSET_POLICY_OPERATIONS[number];
+type Level = 'all' | 'category' | 'subcategory' | 'asset';
+export type AssetScopeNode = {
+  readonly id: string; readonly level: Level; readonly enabled: boolean;
+  readonly operations: Readonly<Partial<Record<AssetPolicyOperation, boolean>>>;
+  readonly children: readonly AssetScopeNode[];
+};
+export type AssetAuthorizationPolicy = {
+  readonly schema: '8415-asset-authorization/1'; readonly revision: string;
+  readonly allowAgent: boolean; readonly revoked: boolean; readonly expiresAt: string;
+  readonly root: AssetScopeNode;
+};
+const levels: readonly Level[] = ['all', 'category', 'subcategory', 'asset'];
+function check(ok: unknown): asserts ok { if (!ok) throw Error('ASSET_POLICY_REFUSED'); }
+function fields(raw: unknown, names: readonly string[], optional: readonly string[] = []): Record<string, unknown> {
+  check(raw !== null && typeof raw === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(raw)));
+  const d = Object.getOwnPropertyDescriptors(raw);
+  const keys = Reflect.ownKeys(d);
+  check(keys.every(k => typeof k === 'string' && names.includes(k) && Object.hasOwn(d[k]!, 'value')) &&
+    names.every(k => optional.includes(k) || Object.hasOwn(d, k)));
+  return Object.fromEntries(keys.map(k => [k, d[k as string]!.value]));
+}
+function decimal(raw: unknown): string {
+  check(typeof raw === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(raw) && BigInt(raw) < 1n << 256n); return raw;
+}
+function boolean(raw: unknown): boolean { check(typeof raw === 'boolean'); return raw; }
+// Absence is the initial ON default, never a falsy-value fallback. A saved false
+// remains authoritative for that setting. Invalid present values still refuse.
+function defaultOn(record: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(record, key) ? boolean(record[key]) : true;
+}
+/** Normalization never approves a policy change. Only the authoritative owner-change service may persist it. */
+export function normalizeAssetAuthorizationPolicy(raw: unknown): AssetAuthorizationPolicy {
+  const p = fields(raw, ['schema', 'revision', 'allowAgent', 'revoked', 'expiresAt', 'root'], ['allowAgent']);
+  check(p.schema === '8415-asset-authorization/1');
+  const ids = new Set<string>();
+  function node(rawNode: unknown, depth: number): AssetScopeNode {
+    const n = fields(rawNode, ['id', 'level', 'enabled', 'operations', 'children'], ['enabled', 'operations']);
+    if (!Object.hasOwn(n, 'operations')) n.operations = {};
+    check(typeof n.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(n.id) && !ids.has(n.id));
+    ids.add(n.id); check(n.level === levels[depth] && depth <= 3);
+    check(n.operations !== null && typeof n.operations === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(n.operations)));
+    const descriptors = Object.getOwnPropertyDescriptors(n.operations), operations: Partial<Record<AssetPolicyOperation, boolean>> = {};
+    for (const key of Reflect.ownKeys(descriptors)) {
+      check(typeof key === 'string' && (ASSET_POLICY_OPERATIONS as readonly string[]).includes(key));
+      const d = descriptors[key]!; check(Object.hasOwn(d, 'value'));
+      operations[key as AssetPolicyOperation] = boolean(d.value);
+    }
+    check(Array.isArray(n.children));
+    const children = Object.getOwnPropertyDescriptors(n.children);
+    check(Reflect.ownKeys(children).length === n.children.length + 1 && (depth < 3 || n.children.length === 0));
+    const copied = Array.from({ length: n.children.length }, (_, i) => {
+      const d = children[String(i)]; check(d && Object.hasOwn(d, 'value')); return node(d.value, depth + 1);
+    });
+    return Object.freeze({ id: n.id, level: levels[depth]!, enabled: defaultOn(n, 'enabled'),
+      operations: Object.freeze(operations), children: Object.freeze(copied) });
+  }
+  return Object.freeze({ schema: '8415-asset-authorization/1', revision: decimal(p.revision),
+    allowAgent: defaultOn(p, 'allowAgent'), revoked: boolean(p.revoked), expiresAt: decimal(p.expiresAt), root: node(p.root, 0) });
+}
+/** Effective policy preview, shared by human review and server enforcement.
+ * Not an execution capability: active task grant, actual asset binding, supported
+ * operation/contract role/state, balance, nonce and UNKNOWN reconciliation remain mandatory.
+ * Asset ancestor ON blankets descendants; operation overrides still apply at every level.
+ */
+export function resolveAssetAuthorization(raw: unknown, path: readonly string[], operation: AssetPolicyOperation, now: bigint) {
+  const policy = normalizeAssetAuthorizationPolicy(raw);
+  check(Array.isArray(path) && path.length === 4 &&
+    typeof now === 'bigint' && now >= 0n && (ASSET_POLICY_OPERATIONS as readonly string[]).includes(operation));
+  const pathDescriptors = Object.getOwnPropertyDescriptors(path);
+  check(Reflect.ownKeys(pathDescriptors).length === 5);
+  const pathValues = Array.from({ length: 4 }, (_, i) => {
+    const d = pathDescriptors[String(i)]; check(d && Object.hasOwn(d, 'value') && typeof d.value === 'string'); return d.value as string;
+  });
+  const nodes: AssetScopeNode[] = [];
+  let selected: AssetScopeNode | undefined = policy.root;
+  for (let depth = 0; depth < 4; depth++) {
+    check(selected && selected.id === pathValues[depth]); nodes.push(selected);
+    if (depth < 3) selected = selected.children.find(n => n.id === pathValues[depth + 1]);
+  }
+  const assetSource = nodes.find(n => n.enabled) ?? null;
+  let operationSource: AssetScopeNode | null = null, operationEnabled = true;
+  // Unconfigured operations default ON; children without an explicit value
+  // inherit, so materializing UI defaults cannot erase a saved parent OFF.
+  for (const n of nodes) if (Object.hasOwn(n.operations, operation)) {
+    operationEnabled = n.operations[operation]!; operationSource = n;
+  }
+  const lifecycleActive = policy.allowAgent && !policy.revoked && now < BigInt(policy.expiresAt);
+  let covered = false;
+  const branchExpanded = nodes.slice(0, 3).map(n => { const expanded = !covered && !n.enabled; covered = covered || n.enabled; return expanded; });
+  return Object.freeze({ revision: policy.revision, assetAuthorized: assetSource !== null,
+    assetAuthorizationSource: assetSource?.id ?? null, operationEnabled,
+    operationSettingSource: operationSource?.id ?? null,
+    operationInherited: operationSource !== null && operationSource.id !== nodes[3]!.id,
+    branchExpanded: Object.freeze(branchExpanded),
+    policyAllows: lifecycleActive && assetSource !== null && operationEnabled,
+    lifecycleActive, executable: false as const });
+}

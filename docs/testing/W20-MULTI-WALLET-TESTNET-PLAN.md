@@ -1,5 +1,46 @@
 # W-20 — deployed same-token multi-wallet journey, on a public testnet
 
+## Current W-20 scope and historical plan
+
+The original run plan below is retained as historical scenario/evidence context.
+Its tenant-subdomain topology, browser-prompt procedure, source-era test counts
+and runner commands are **not current product prerequisites or execution
+permission**. Do not revive its subdomain or manual-agent-signature gates.
+
+The complete canonical [Wallet PRD §9.7, W-20](../ERC-8415-Wallet-PRD.md#97-stages-and-required-acceptance-scenarios)
+still requires the deployed same-token multi-wallet observations, independent
+control acceptance, detachment and callback; its funded variant demonstrates
+segregated payments/refunds. Preserve these substantive observations.
+
+Current routing follows [§10.1](../ERC-8415-Wallet-PRD.md#101-release-boundary-and-wallet-entry):
+use canonical `https://8415wallet.com/<wallet-name>` paths, without per-wallet DNS
+changes, public tenant directories or roster suggestions. A shared host/origin is
+not by itself weaker multi-wallet evidence, and distinct subdomains do not prove
+independent authority. Establish distinct authenticated wallet/account contexts,
+correct chain and signer attribution, valid independent recipient acceptance,
+and isolation of assets, authorization, state and recovery between wallets.
+Record the actual route and source/build identities. Preserve old origin-bound
+journals as historical evidence; never silently reattribute or migrate them.
+
+[§6.2](../ERC-8415-Wallet-PRD.md#62-task-authority-and-agent-execution),
+[§6.3.1](../ERC-8415-Wallet-PRD.md#631-owner-controlled-per-operation-verification-switch)
+and [§10.3](../ERC-8415-Wallet-PRD.md#103-agent-api-and-authorization-controls)
+control agent execution: authenticated APIs only, unlocked defaults for the
+not-yet-operational controls, and no recurring human prompts for covered
+operations under effective owner-verified OFF. Keep genuine authorized
+transaction/acceptance signatures and machine-enforced scope; do not equate a
+signature with a mandatory interactive human dialog. Human UI/device evidence
+remains a separate acceptance workstream, not an agent browser prerequisite.
+
+Under [§10.8](../ERC-8415-Wallet-PRD.md#108-confidentiality-and-release-acceptance),
+linked-chain W-20 applies to V3; it is N/A for V2 standalone, not a V2 blocker.
+Record exact-version results and failures separately for each applicable profile;
+no old count or historical package proves current acceptance. Any future run
+remains subject to current [AGENTS.md](../../AGENTS.md) and explicit execution
+authorization, including current environment and chain-transaction restrictions.
+
+## Retained historical run plan
+
 For the operator running this against a real chain with real wallets.
 
 W-20 is the one scenario of W-01 to W-24 that has no local evidence, and

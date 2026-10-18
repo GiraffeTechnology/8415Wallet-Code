@@ -1,0 +1,8 @@
+{
+  "origin": "https://tenant.example.invalid:9446",
+  "tenant": "example-tenant",
+  "port": 21001,
+  "statePath": "/var/lib/8415wallet-auth-example-tenant/credentials.enc",
+  "accounts": []
+}
+

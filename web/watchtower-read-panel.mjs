@@ -1,4 +1,5 @@
 import { paint } from './i18n.mjs';
+import { privateNativeUi } from './wallet-identity-display.mjs';
 import { readOnlyPaint, readOnlyLabel } from './readonly-i18n.mjs';
 import { RpcWatchtowerReader, Eip1193ReadTransport, buildFreshnessView,
   renderFreshness, renderTemporalQuery } from '../dist/browser/browser.js';
@@ -24,7 +25,7 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
   let epoch = 0, busy = false, binding = null, selected = null;
   function clear() {
     epoch++; busy = false; binding = null; selected = null;
-    projection.textContent = ''; feedOutput.textContent = ''; paint(tradingSummary, ''); paint(tradingCaveat, ''); paint(status, ''); read.disabled = false;
+    paint(projection, ''); feedOutput.textContent = ''; paint(tradingSummary, ''); paint(tradingCaveat, ''); paint(status, ''); read.disabled = false;
   }
   function guard(ticket) {
     if (ticket !== epoch || host.hidden || document.visibilityState === 'hidden') throw new Error('WATCHTOWER_SELECTION_CHANGED');
@@ -56,7 +57,7 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
           return buildFreshnessView({ reader, assetId: feed.assetId, provenance: 'configured', claimedRegisterId: registerId });
         } });
       await login.check(); guard(ticket);
-      projection.textContent = renderTemporalQuery(value.temporal);
+      paint(projection, privateNativeUi(renderTemporalQuery, value.temporal, login.assert(binding).account));
       feedOutput.textContent = [
         `Asserted feed: chain ${value.assertedCurrentFeed.chainId} / ${value.assertedCurrentFeed.address} / ${value.assertedCurrentFeed.assetId}`,
         'Register/feed pairing: UNVERIFIED_CONFIGURATION. Predecessor links: UNVERIFIED, not queried.',
@@ -66,7 +67,7 @@ export function mountWatchtowerRead({ root, login, getContext, document = global
       readOnlyPaint(tradingCaveat, 'trade.caveat');
       readOnlyPaint(status, 'wt.ok');
     } catch {
-      if (ticket === epoch) { projection.textContent = ''; feedOutput.textContent = '';
+      if (ticket === epoch) { paint(projection, ''); feedOutput.textContent = '';
         paint(tradingSummary, ''); paint(tradingCaveat, '');
         readOnlyPaint(status, 'wt.error'); }
     } finally { if (ticket === epoch) { busy = false; read.disabled = false; } }

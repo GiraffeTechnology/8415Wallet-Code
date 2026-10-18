@@ -174,10 +174,10 @@ export class KitProjectionApi {
     if (response.status >= 400) {
       const code = typeof body['error'] === 'string' ? body['error'] : 'UNKNOWN';
       const message = typeof body['message'] === 'string' ? body['message'] : code;
-      if (REVERT_CODES.has(code)) {
-        // The projection's own answer, carried across as the chain would give
-        // it. The wallet layer establishes the cause from protocol data; it
-        // never reads it out of this text.
+      if (response.status === 404 && REVERT_CODES.has(code)) {
+        // The Kit maps these projection-domain errors to 404. A matching body
+        // code cannot turn authentication, rate-limit or server failures into
+        // a protocol answer. The wallet establishes noncoverage from facts.
         throw new ContractRevertError(`${path} (${code})`, undefined);
       }
       throw new KitTransportError(code, `${path} refused: ${message}`, response.status);

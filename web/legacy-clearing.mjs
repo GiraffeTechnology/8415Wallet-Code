@@ -1,5 +1,6 @@
 import { clearingDisplay, clearingReviewDisplay } from './native-i18n.mjs';
-import { msg, paint, jsonUi, translateStatic, trustedMessage } from './i18n.mjs';
+import { msg, paint, jsonUi, translateStatic, trustedMessage, presentation, renderUi } from './i18n.mjs';
+import { privateReadProjection, identityText } from './wallet-identity-display.mjs';
 import { walletLogin, WalletLoginError } from './wallet-auth.mjs';
 import { LegacyClearingSession, parseLegacyClearingDeployment, CLEARING_NOTES, controlRpc, ControlAdapterError } from '../dist/browser/browser.js';
 import { BrowserLegacyClearingStore } from './legacy-clearing-store.mjs';
@@ -57,7 +58,7 @@ if (mount) {
   paint(el('clearing-notes'), trustedMessage(CLEARING_NOTES));
   let provider = null, deployment = null, session = null, review = null, generation = 0, busy = false;
   const clearReview = () => { review = null; el('clearing-acknowledge').checked = false; paint(el('clearing-review'), msg('ui.202')); };
-  const disconnect = () => { generation++; session = null; clearReview(); paint(el('clearing-identity'), msg('message.043')); };
+  const disconnect = () => { generation++; session = null; clearReview(); paint(el('clearing-result'), ''); paint(el('clearing-identity'), msg('message.043')); };
   globalThis.addEventListener?.('pagehide', disconnect);
   globalThis.addEventListener?.('pageshow', event => { if (event.persisted) disconnect(); });
   const selected = () => { walletLogin.assert(); if (!session) throw new ControlAdapterError('CLEARING_CONNECTION_REQUIRED'); return session; };
@@ -135,7 +136,17 @@ if (mount) {
     const approved = review; clearReview(); const hash = await selected().submit(approved, approved.digest); guard();
     el('clearing-recovery-hash').value = hash; result({ transactionHash: hash, status: 'submitted', registerFinalityEstablished: false });
   }));
-  el('clearing-observe').addEventListener('click', () => run(async guard => { const observation = await selected().observe(text('clearing-trade-key')); guard(); paint(el('clearing-result'), clearingDisplay(observation)); }));
+  el('clearing-observe').addEventListener('click', () => run(async guard => {
+    paint(el('clearing-result'), '');
+    const observation = await selected().observe(text('clearing-trade-key')); guard();
+    const reduced = privateReadProjection(observation, walletLogin.assert().account);
+    // These exact fields are protocol contract identities from the verified
+    // read model. Party identities and free-text occurrences stay reduced.
+    const safe = { ...reduced, escrow: observation.escrow, projection: observation.projection,
+      ...(reduced.trade && typeof reduced.trade === 'object'
+        ? { trade: { ...reduced.trade, projection: observation.trade.projection } } : {}) };
+    paint(el('clearing-result'), presentation(locale => identityText(renderUi(clearingDisplay(safe), locale), locale)));
+  }));
   el('clearing-status').addEventListener('click', () => run(async guard => { const state = await selected().status(); guard(); result(state); }));
   el('clearing-reconcile').addEventListener('click', () => run(async guard => { const receipt = await selected().reconcile(); guard(); result(receipt); }));
   el('clearing-recover').addEventListener('click', () => run(async guard => { const receipt = await selected().recover(text('clearing-recovery-hash')); guard(); result(receipt); }));

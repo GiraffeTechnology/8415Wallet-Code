@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
+import { freezeTaskObservationPolicy, normalizeTaskObservation } from '../src/agent/receiptObservation.ts';
 import { freezeTaskPolicy, emptyTaskBudget } from '../src/agent/taskContract.ts';
 import { AccountAuthClient } from '../web/account-auth.mjs';
 import { CATALOGS, setLocale, renderUi } from '../web/i18n.mjs';
 // Import the actual browser controller with its immutable core source entry. Tests
 // do not depend on a previously generated dist directory or a fake success adapter.
 const moduleText = readFileSync(new URL('../web/task-authorization.mjs', import.meta.url), 'utf8')
+  .replace('./observation-source-contract.mjs', new URL('../web/observation-source-contract.mjs', import.meta.url).href)
+  .replace('./task-observer-context.mjs', new URL('../web/task-observer-context.mjs', import.meta.url).href)
   .replace('./task-listing-results.mjs', new URL('../web/task-listing-results.mjs', import.meta.url).href)
   .replace('../dist/browser/agent/taskContract.js', new URL('../src/agent/taskContract.ts', import.meta.url).href)
   .replace('../dist/browser/agent/receiptTask.js', new URL('../src/agent/receiptTask.ts', import.meta.url).href)
@@ -20,6 +22,16 @@ const { TaskAuthorizationClient, TaskAuthorizationFlow, normalizeExecutor, norma
 const uiText = readFileSync(new URL('../web/task-authorization-ui.mjs', import.meta.url), 'utf8')
   .replace('./task-authorization.mjs', moduleUrl).replace('./i18n.mjs', new URL('../web/i18n.mjs', import.meta.url).href);
 const { mountTaskAuthorization } = await import(`data:text/javascript;base64,${Buffer.from(uiText).toString('base64')}`);
+const detailsUiText = readFileSync(new URL('../web/observation-details-ui.mjs', import.meta.url), 'utf8')
+  .replace('./observation-details-flow.mjs', new URL('../web/observation-details-flow.mjs', import.meta.url).href)
+  .replace('./i18n.mjs', new URL('../web/i18n.mjs', import.meta.url).href);
+const detailsUiUrl = `data:text/javascript;base64,${Buffer.from(detailsUiText).toString('base64')}`;
+const activityUiText = readFileSync(new URL('../web/task-activity-ui.mjs', import.meta.url), 'utf8')
+  .replace('./observation-details-ui.mjs', detailsUiUrl)
+  .replace('./task-activity.mjs', new URL('../web/task-activity.mjs', import.meta.url).href)
+  .replace('./task-authorization.mjs', moduleUrl)
+  .replace('./i18n.mjs', new URL('../web/i18n.mjs', import.meta.url).href);
+const { mountTaskActivity } = await import(`data:text/javascript;base64,${Buffer.from(activityUiText).toString('base64')}`);
 const origin = 'https://wallet.example.invalid', account = `0x${'11'.repeat(20)}`, now = 1900000000000;
 const context = { origin, account, chainId: '1', tenant: 'xiongan' };
 const executorIdentity = { schema: '8415-task-executor/1', agentId: 'synthetic-agent', agentVersion: '1', adapterId: 'synthetic-test-adapter', adapterVersion: '1', implementationDigest: `0x${'9'.repeat(64)}` };
@@ -166,7 +178,7 @@ class Node {
   setAttribute() {} removeAttribute() {}
   addEventListener(name: string, fn: Function) { this.handlers.set(name, [...this.handlers.get(name) ?? [], fn]); }
   dispatchEvent(event: any) { for (const fn of this.handlers.get(event.type) ?? []) fn(event); }
-  click() { if (!this.disabled) this.dispatchEvent({ type: 'click' }); }
+  click() { if (!this.disabled) this.dispatchEvent({ type: 'click', preventDefault() {} }); }
 }
 const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(r => setImmediate(r)); };
 function fakeLocks() {
@@ -192,6 +204,66 @@ function uiFixture({ executable = false, fixtureOverride = null as any, nowFn = 
   const result = mountTaskAuthorization({ document, window: { history, navigator: { locks }, setTimeout(fn: Function, delay: number) { timers.set(++timerId, fn); delays.set(timerId, delay); return timerId; }, clearTimeout(id: number) { timers.delete(id); }, addEventListener: windowEvents.addEventListener.bind(windowEvents) }, walletLogin, getClient: () => ({ request }), Flow });
   return { ...f, result, el, document, events, history, windowEvents, timers, delays, subscriber: (s: any) => subscriber(s) };
 }
+// Insert after uiFixture in tests/task-authorization-ui.test.ts. NOT_RUN.
+// Also make Node.click() emit a browser-shaped cancelable event:
+// click() { if (!this.disabled) this.dispatchEvent({ type: 'click', preventDefault() {} }); }
+test('type=button authorization click dispatches exactly one grant and same-task continuation', async () => {
+  const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  f.el('task-authorize').type = 'button'; f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click();
+  assert.equal(f.result.snapshot().phase, 'authorizing', 'phase changes synchronously before transport awaits');
+  assert.equal(f.el('task-code').value, ''); assert.equal(f.el('task-authorize').disabled, true);
+  await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 1);
+  assert.equal(f.result.snapshot().phase, 'authorized-blocked');
+});
+test('repeated click and synthetic form submission during authorization cannot duplicate a grant', async () => {
+  const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  let release!: () => void; f.setHold(new Promise<void>(resolve => { release = resolve; }));
+  f.el('task-authorize').type = 'button'; f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click(); f.el('task-authorize').click();
+  f.el('task-authorize').dispatchEvent({ type: 'click', preventDefault() {} });
+  f.el('task-authorize-form').dispatchEvent({ type: 'submit', preventDefault() {} }); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 0);
+  release(); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 1);
+});
+test('cancel after a button click suppresses late continuation and never claims cancellation of the server grant', async () => {
+  const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  let release!: () => void; f.setHold(new Promise<void>(resolve => { release = resolve; }));
+  f.el('task-authorize').type = 'button'; f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click(); await tick();
+  f.el('task-cancel').click(); assert.equal(f.result.snapshot().phase, 'paused');
+  release(); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 0);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/revoke').length, 0);
+  assert.equal(f.el('task-code').value, ''); assert.equal(f.el('task-ack').checked, false);
+});
+test('unopened task view and cancelled review cannot authorize through button or direct handler dispatch', async () => {
+  const f = uiFixture(); f.el('task-authorize').type = 'button';
+  f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click();
+  f.el('task-authorize').dispatchEvent({ type: 'click', preventDefault() {} }); await tick();
+  assert.equal(f.requests.length, 0);
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick(); f.el('task-cancel').click();
+  f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').dispatchEvent({ type: 'click', preventDefault() {} }); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 0);
+});
+test('a future submit-type button relies on form submission and does not authorize from both handlers', async () => {
+  const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  f.el('task-authorize').type = 'submit'; f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click(); assert.equal(f.result.snapshot().phase, 'review');
+  // The small DOM fixture does not implement the browser's automatic submit default.
+  f.el('task-authorize-form').dispatchEvent({ type: 'submit', preventDefault() {} }); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 1);
+});
+
 test('app switch clears OTP without losing task or regenerating its challenge; cancel and Back clear consent', async () => {
   const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
   assert.equal(f.result.snapshot().phase, 'review'); const before = f.requests.filter((r: any) => r.path === 'tasks/prepare').length;
@@ -401,9 +473,18 @@ function receiptFixture() {
     operation: { kind: 'native-transfer', chainId: '1', actor: account, recipient: `0x${'33'.repeat(20)}`, valueWei: '10' } } });
   f.tasks.clear(); f.tasks.set(task.digest, task); f.statuses.set(task.digest, 'authorized');
   const operation = { operationId: 'op:receipt', childDigest: `0x${'a'.repeat(64)}`, feeWei: '1', units: '1', status: 'submitted', transactionHash: `0x${'b'.repeat(64)}` };
-  let observation: any = null, available = false, state = 'confirmed-at-depth', failure = false, hold: Promise<void> | null = null;
+  let observation: any = null, accepted: any = null, observationRevision = '0';
+  let currentVerifier = verifier, currentPolicy = receiptPolicy;
+  let available = false, state = 'confirmed-at-depth', failure = false, hold: Promise<void> | null = null;
   const view = (fresh = false): any => ({ ...f.view(task.digest), observationPolicy: receiptPolicy, receiptVerifier: verifier,
-    observations: observation || available ? [{ operationId: operation.operationId, observation, available }] : [], observationRevision: '1',
+    observations: observation || available ? [{ schema: '8415-task-observation-entry/2',
+      operationId: operation.operationId, observation, available, observationRevision,
+      provenance: accepted ? 'accepted-observer-context' : 'unverified', acceptedObserverContext: accepted }] : [],
+    observationRevision,
+    observationView: { schema: '8415-task-observation-view/2',
+      currentReadOnlyObserver: { verifier: { ...currentVerifier }, verificationPolicy: currentPolicy },
+      freshObservation: fresh ? { operationId: operation.operationId, observationRevision,
+        fullObservationDigest: accepted.fullObservationDigest } : null, canExecute: false },
     completion: { state: available && observation?.state === 'confirmed-at-depth' ? 'completed-at-observation-depth' :
       available && ['reverted-at-depth', 'superseded-at-depth'].includes(observation?.state) ? 'failed-at-observation-depth' : 'awaiting-evidence', fresh },
     budget: { schema: '8415-task-budget/1', taskDigest: task.digest, revision: '3', reservations: [operation] },
@@ -415,15 +496,267 @@ function receiptFixture() {
     assert.equal(path, 'tasks/observe', 'receipt refresh must never send or resume');
     assert.deepEqual(body, { taskDigest: task.digest, operationId: operation.operationId, childDigest: operation.childDigest, expectedBudgetRevision: '3' });
     if (hold) await hold;
+    observationRevision = (BigInt(observationRevision) + 1n).toString();
     if (failure) { available = false; throw Object.assign(Error('unavailable'), { code: 'TASK_OBSERVATION_UNAVAILABLE' }); }
-    observation = observationFor({ task, childDigest: operation.childDigest, executorDigest: executor.digest, transactionHash: operation.transactionHash }, state);
+    observation = normalizeTaskObservation({ ...observationFor({ task, childDigest: operation.childDigest,
+      executorDigest: executor.digest, transactionHash: operation.transactionHash }, state), ...currentVerifier });
+    // Explicit synthetic accepted server envelope. Its digest binds the full
+    // normalized observation; it is not a signature or real chain proof.
+    accepted = { schema: '8415-accepted-observer-context/1', acceptedObservationRevision: observationRevision,
+      verifier: { ...currentVerifier }, verificationPolicy: currentPolicy,
+      attempt: { taskDigest: task.digest, operationId: operation.operationId, childDigest: operation.childDigest,
+        chainId: task.policy.chainId, actor: task.policy.actor, nonce: observation.nonce,
+        transactionHash: operation.transactionHash, executorDigest: executor.digest, grantPolicyVersion: '1',
+        observationPolicy: receiptPolicy, receiptVerifier: { ...verifier } },
+      fullObservationDigest: `0x${createHash('sha256').update(JSON.stringify(observation)).digest('hex')}`, canExecute: false };
     available = true; return { ...view(true), observation, outcome: state };
   };
   const client = new TaskAuthorizationClient({ context, request }), snapshots: any[] = [];
   const flow = new TaskAuthorizationFlow({ client, now: () => now, onChange: (s: any) => snapshots.push(s) });
   return { ...f, task, client, flow, request, view, snapshots, operation,
+    setObserver(value: typeof verifier, minimum = '2') { currentVerifier = value; currentPolicy = freezeTaskObservationPolicy({ minimumConfirmations: minimum }); },
     state(value: string) { state = value; }, fail(value = true) { failure = value; }, setHold(value: Promise<void> | null) { hold = value; } };
 }
+
+async function detailsTransportFixture() {
+  const f = receiptFixture();
+  f.setObserver({ ...verifier, verifierVersion: '2' });
+  await f.client.observe(await f.client.status(f.task.digest));
+  const entry = f.view().observations[0], calls: any[] = [];
+  const scope = { ...context, taskDigest: f.task.digest, operationId: f.operation.operationId,
+    childDigest: f.operation.childDigest };
+  const source = { schema: '8415-observation-source/1', sourceReference: 'fixture:source:2', sourceRevision: '1',
+    principal: context, attempt: entry.acceptedObserverContext.attempt, verifier: entry.acceptedObserverContext.verifier,
+    verificationPolicy: entry.acceptedObserverContext.verificationPolicy,
+    capabilityReference: 'fixture:capability:2', capabilityRevision: '1', canExecute: false };
+  const bound = { schema: '8415-bound-observation-entry/1', operationId: scope.operationId,
+    sourceReference: source.sourceReference, sourceRevision: source.sourceRevision,
+    capabilityReference: source.capabilityReference, capabilityRevision: source.capabilityRevision,
+    observationRevision: entry.observationRevision, acceptedObserverContext: entry.acceptedObserverContext,
+    observation: entry.observation, available: true };
+  const client = new TaskAuthorizationClient({ context, request: async (path: string, body: any, options: any) => {
+    calls.push({ path, body, options });
+    if (path === 'tasks/status') return f.view();
+    if (path === 'tasks/observation-source') return source;
+    if (path === 'tasks/observation-details') return bound;
+    assert.fail('observation details cannot authorize, resume, sign or send');
+  } });
+  return { scope, source, bound, calls, client, adapter: client.observationDetailsClient() };
+}
+
+test('actual details client independently resolves then binds evidence through the two registered read routes', async () => {
+  const f = await detailsTransportFixture(), signal = new AbortController().signal;
+  const source = await f.adapter.resolveSource(f.scope, { mode: 'cache', signal });
+  const raw = await f.adapter.readEvidence(f.scope, { source, refresh: false, signal });
+  const result = f.adapter.decodeEvidence(raw, { expectedSource: source, context: f.scope });
+  assert.equal(result.observedBy.verifierVersion, '2'); assert.equal(result.approvedVerifier.verifierVersion, '1');
+  assert.deepEqual(f.calls.map(c => c.path), ['tasks/status','tasks/observation-source','tasks/observation-details']);
+  assert.deepEqual(Object.keys(f.calls[1].body).sort(), ['childDigest','mode','operationId','taskDigest']);
+  assert.deepEqual(Object.keys(f.calls[2].body).sort(), ['capabilityReference','capabilityRevision','childDigest',
+    'mode','operationId','sourceReference','sourceRevision','taskDigest']);
+  assert.ok(f.calls.every(c => c.options.signal === signal)); assert.equal(result.canExecute, false);
+});
+
+test('details client cannot read a copied descriptor or use cache source in refresh mode', async () => {
+  const f = await detailsTransportFixture(); const source = await f.adapter.resolveSource(f.scope, { mode: 'cache' });
+  await assert.rejects(f.adapter.readEvidence(f.scope, { source: { ...source }, refresh: false }), /OBSERVATION_BINDING_REFUSED/);
+  await assert.rejects(f.adapter.readEvidence(f.scope, { source, refresh: true }), /OBSERVATION_BINDING_REFUSED/);
+  assert.equal(f.calls.length, 2);
+});
+
+test('details decoder rejects changed source reference rather than trusting the evidence response', async () => {
+  const f = await detailsTransportFixture(); const source = await f.adapter.resolveSource(f.scope, { mode: 'refresh' });
+  assert.throws(() => f.adapter.decodeEvidence({ ...f.bound, sourceReference: 'fixture:other' },
+    { expectedSource: source, context: f.scope }), /OBSERVATION_BINDING_REFUSED/);
+});
+
+test('same-origin account transport forwards cancellation without changing cookie or CSRF policy', async () => {
+  const signal = new AbortController().signal; let captured: any;
+  const client = new AccountAuthClient({ tenant: context.tenant, origin: context.origin,
+    fetcher: async (_url: any, options: any) => { captured = options;
+      return { ok: true, text: async () => '{}' } as any; } });
+  await client.request('tasks/observation-source', { mode: 'cache' }, { signal });
+  assert.equal(captured.signal, signal); assert.equal(captured.credentials, 'same-origin');
+  assert.equal(captured.cache, 'no-store'); assert.equal(captured.headers['X-Wallet-Tenant'], context.tenant);
+});
+
+test('client accepts fresh O2 evidence without rewriting original approval or execution authority', async () => {
+  const f = receiptFixture(), o2 = { ...verifier, verifierVersion: '2', verifierImplementationDigest: `0x${'6'.repeat(64)}` };
+  f.setObserver(o2); await f.flow.load(f.task.digest);
+  const view = f.flow.snapshot().selected;
+  assert.deepEqual(view.receiptVerifier, verifier);
+  assert.deepEqual(view.observations[0].acceptedObserverContext.verifier, o2);
+  assert.equal(view.completion.fresh, true);
+  assert.equal(view.capabilities.executable, false);
+  assert.equal(f.requests.some((r: any) => /authorize|execute|reserve|resume/.test(r.path)), false);
+});
+
+test('client keeps accepted O2 cached while current reader becomes O3', async () => {
+  const f = receiptFixture(), o2 = { ...verifier, verifierVersion: '2' }, o3 = { ...verifier, verifierVersion: '3' };
+  f.setObserver(o2); await f.flow.load(f.task.digest); f.setObserver(o3);
+  const cached = await f.client.status(f.task.digest);
+  assert.deepEqual(cached.observations[0].acceptedObserverContext.verifier, o2);
+  assert.deepEqual(cached.observationView.currentReadOnlyObserver.verifier, o3);
+  assert.deepEqual(cached.receiptVerifier, verifier);
+  assert.equal(cached.observationView.freshObservation, null);
+  assert.equal(cached.completion.fresh, false);
+});
+
+test('client rejects tampered accepted tuple, observer, digest or revision', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest);
+  for (const mutate of [
+    (v: any) => { v.observations[0].acceptedObserverContext.fullObservationDigest = `0x${'f'.repeat(64)}`; },
+    (v: any) => { v.observations[0].acceptedObserverContext.attempt.nonce = '999'; },
+    (v: any) => { v.observations[0].acceptedObserverContext.attempt.receiptVerifier.verifierVersion = '2'; },
+    (v: any) => { v.observations[0].acceptedObserverContext.verifier.verifierVersion = '2'; },
+    (v: any) => { v.observations[0].acceptedObserverContext.acceptedObservationRevision = '999'; },
+  ]) {
+    const raw = structuredClone(f.view()); mutate(raw);
+    assert.throws(() => f.client.view(raw), /TASK_OBSERVER_CONTEXT_REFUSED/);
+  }
+});
+
+test('no current reader does not relabel or erase a previously accepted cached observation', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest); const raw = structuredClone(f.view());
+  raw.observationView.currentReadOnlyObserver = null; raw.capabilities.receiptVerifierConfigured = false;
+  const cached = f.client.view(raw);
+  assert.equal(cached.completion.fresh, false);
+  assert.deepEqual(cached.observations[0].acceptedObserverContext, raw.observations[0].acceptedObserverContext);
+});
+
+test('fresh marker must match accepted revision and current observer even with completion fresh false', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest);
+  for (const mutate of [
+    (v: any) => { v.observationView.currentReadOnlyObserver.verifier.verifierVersion = '9'; },
+    (v: any) => { v.observationView.freshObservation.observationRevision = '999'; },
+    (v: any) => { v.observationView.freshObservation.fullObservationDigest = `0x${'f'.repeat(64)}`; },
+  ]) {
+    const raw = structuredClone(f.view(true)); raw.completion.fresh = false; mutate(raw);
+    assert.throws(() => f.client.view(raw, { allowFresh: true }), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
+  }
+});
+
+test('failed refresh preserves accepted context only as unavailable cached evidence', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest);
+  const before = f.flow.snapshot().selected.observations[0].acceptedObserverContext;
+  f.fail(); await f.flow.recover(); const selected = f.flow.snapshot().selected;
+  assert.equal(selected.observations[0].available, false);
+  assert.deepEqual(selected.observations[0].acceptedObserverContext, before);
+  assert.ok(BigInt(selected.observations[0].observationRevision) > BigInt(before.acceptedObservationRevision));
+  assert.equal(selected.completion.fresh, false);
+});
+
+test('duplicate accepted operation entries cannot supply two evidence versions', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest); const raw = structuredClone(f.view());
+  raw.observations.push(structuredClone(raw.observations[0]));
+  assert.throws(() => f.client.view(raw), /TASK_OBSERVATION_RESPONSE_REFUSED/);
+});
+
+test('observer envelope accessor is refused without evaluating its value', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest); const raw = structuredClone(f.view()); let reads = 0;
+  Object.defineProperty(raw.observationView, 'canExecute', { enumerable: true, get() { reads++; return false; } });
+  assert.throws(() => f.client.view(raw), /TASK_OBSERVER_CONTEXT_REFUSED/);
+  assert.equal(reads, 0);
+});
+
+test('mounted receipt UI labels original approval, current observer and accepted evidence separately', async () => {
+  setLocale('en', { document: null, persist: false });
+  const fixture = receiptFixture(); fixture.setObserver({ ...verifier, verifierVersion: '2' });
+  const f = uiFixture({ fixtureOverride: fixture });
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  const texts = (node: Node): string[] => [node.textContent, ...node.children.flatMap(texts)];
+  const summary = texts(f.el('task-summary')).join('\n');
+  const evidence = texts(f.el('task-observation-states')).join('\n');
+  assert.match(summary, /Original approval verifier/);
+  assert.match(summary, /Current read-only observer/);
+  assert.match(summary, /does not renew approval or authorize execution/);
+  assert.match(evidence, /Observer that verified this saved evidence/);
+  assert.match(evidence, /Accepted observation revision/);
+  assert.deepEqual(f.result.snapshot().selected.receiptVerifier, verifier);
+  assert.equal(f.result.snapshot().selected.observations[0].acceptedObserverContext.verifier.verifierVersion, '2');
+  assert.equal(f.result.snapshot().selected.capabilities.executable, false);
+});
+
+test('mounted cached evidence remains labelled when current observer is disconnected', async () => {
+  setLocale('en', { document: null, persist: false });
+  const fixture = receiptFixture(); await fixture.flow.load(fixture.task.digest);
+  const request = async (path: string, body: any) => {
+    const raw: any = await fixture.request(path, body);
+    const disconnect = (value: any) => ({ ...value,
+      observationView: { ...value.observationView, currentReadOnlyObserver: null },
+      capabilities: { ...value.capabilities, receiptVerifierConfigured: false } });
+    return path === 'tasks/list' ? { ...raw, tasks: raw.tasks.map(disconnect) } : disconnect(raw);
+  };
+  const f = uiFixture({ fixtureOverride: { ...fixture, request } });
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  const texts = (node: Node): string[] => [node.textContent, ...node.children.flatMap(texts)];
+  assert.match(texts(f.el('task-summary')).join('\n'), /Current read-only observer unavailable/);
+  assert.match(texts(f.el('task-observation-states')).join('\n'), /Observer that verified this saved evidence/);
+  assert.equal(f.result.snapshot().selected.completion.fresh, false);
+});
+
+function mountedActivityFixture(connected = true) {
+  const f = receiptFixture(), nodes = new Map<string, Node>(), events = new Node(), windowEvents = new Node();
+  let subscriber: Function = () => {}; let sourceReads = 0, evidenceReads = 0;
+  const el = (id: string) => { if (!nodes.has(id)) nodes.set(id, new Node()); return nodes.get(id)!; };
+  const document = { getElementById: el, createElement: () => new Node(), visibilityState: 'visible', addEventListener: events.addEventListener.bind(events) };
+  const session = { ...context, serverId: 's'.repeat(43) }, captured = Object.freeze({});
+  const login = { check: async () => session, assert: () => session, capture: () => captured,
+    subscribe(fn: Function) { subscriber = fn; } };
+  const source = Object.freeze({ reference: 'independent-fixture-source', revision: '2' });
+  const port = { async resolveSource() { sourceReads++; return source; },
+    async readEvidence(c: any) { evidenceReads++; return { ...c }; },
+    decodeEvidence(raw: any, expected: any) {
+      assert.equal(expected.expectedSource, source);
+      return Object.freeze({ ...raw, availability: 'available', fresh: false, savedRevision: '2',
+        observedAt: '100', sourceRevision: '2', observedBy: { ...verifier, verifierVersion: '2' },
+        outcome: 'confirmed-at-depth' });
+    } };
+  const controller = mountTaskActivity({ document, window: { addEventListener: windowEvents.addEventListener.bind(windowEvents) },
+    walletLogin: login, getClient: () => ({ request: f.request }), observationDetailsClientFor: () => connected ? port : null });
+  events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' });
+  return { ...f, controller, el, events, windowEvents, document, logout: () => subscriber(null),
+    counts: () => ({ sourceReads, evidenceReads }) };
+}
+
+test('Activity mounts scoped operation details using independent read-only client with no business write', async () => {
+  const f = mountedActivityFixture(); await f.flow.load(f.task.digest);
+  await f.controller.readDetail(f.task.digest);
+  const activity = f.el('task-page').children[0]!, operations = activity.children[8]!;
+  assert.equal(operations.children.length, 1); operations.children[0]!.click(); await tick();
+  assert.equal(f.controller.observations.panel.hidden, false);
+  assert.deepEqual(f.counts(), { sourceReads: 1, evidenceReads: 1 });
+  assert.equal(f.controller.observations.snapshot().evidence.observedBy.verifierVersion, '2');
+  assert.equal(f.requests.some((r: any) => /execute|authorize|reserve|revoke/.test(r.path)), false);
+});
+
+test('missing independent observation client shows unsupported without substituting approved verifier', async () => {
+  setLocale('en', { document: null, persist: false });
+  const f = mountedActivityFixture(false); await f.flow.load(f.task.digest); await f.controller.readDetail(f.task.digest);
+  f.el('task-page').children[0]!.children[8]!.children[0]!.click(); await tick();
+  const panel = f.controller.observations.panel;
+  assert.match(panel.children[2]!.textContent, /unsupported or not connected/);
+  assert.equal(panel.children[4]!.children.length, 0);
+  assert.deepEqual(f.counts(), { sourceReads: 0, evidenceReads: 0 });
+});
+
+test('logout clears mounted observation details and its cached scoped view', async () => {
+  const f = mountedActivityFixture(); await f.flow.load(f.task.digest); await f.controller.readDetail(f.task.digest);
+  f.el('task-page').children[0]!.children[8]!.children[0]!.click(); await tick(); f.logout();
+  assert.equal(f.controller.observations.panel.hidden, true);
+  assert.equal(f.controller.observations.snapshot(), null);
+  assert.equal(f.controller.observations.panel.children[3]!.children.length, 0);
+  assert.equal(f.controller.observations.panel.children[4]!.children.length, 0);
+});
+
+test('removed Activity operation selection cannot reopen stale details after another page read', async () => {
+  const f = mountedActivityFixture(); await f.flow.load(f.task.digest); await f.controller.readDetail(f.task.digest);
+  const old = f.el('task-page').children[0]!.children[8]!.children[0]!;
+  await f.controller.readPage(true); old.click(); await tick();
+  assert.equal(f.controller.observations.panel.hidden, true);
+  assert.deepEqual(f.counts(), { sourceReads: 0, evidenceReads: 0 });
+});
+
 test('observation policy has no implicit default and independently verifies canonical policy digest', async () => {
   assert.equal(receiptPolicy.digest, '0xe834daeddaea8e8bc8d1aad561998012fd6f5a1b5a0803492441c0a9061c6beb');
   assert.deepEqual(normalizeObservationContext({ observationPolicy: null, receiptVerifier: null }), { observationPolicy: null, receiptVerifier: null });
@@ -970,4 +1303,125 @@ test('listing retry failure uses the fallback result and grant state instead of 
     assert.equal(flow.snapshot().phase, grantStatus === 'revoked' ? 'revoked' : 'listing-unknown');
     assert.equal(flow.snapshot().selected.completion.fresh, false); assert.equal(flow.snapshot().selected.listing.result.summary.aggregate, null);
   }
+});
+
+
+// Renderer-only regression: inject a validated-view boundary, not a synthetic
+// grant or successful transaction adapter. No request or signer may be called.
+function fixedReceiptReviewFixture(phases: string[]) {
+  const elements = new Map<string, Node>(), events = new Node(), windowEvents = new Node();
+  const el = (id: string) => { if (!elements.has(id)) elements.set(id, new Node()); return elements.get(id)!; };
+  const policy = { ...makeTask('synthetic-fixed-receipt-review').policy,
+    intent: { kind: 'artfi-receipt', escrow: `0x${'44'.repeat(20)}`,
+      sale: { tokenId: '9007199254740993123' }, phases: phases.map(phase => ({ phase })) } };
+  const selected = { task: { policy, digest: `0x${'5'.repeat(64)}` }, executor,
+    observationPolicy: null, receiptVerifier: null, observations: [],
+    completion: { state: 'not-attempted', fresh: false }, executionState: 'not-started',
+    capabilities: { adapterConfigured: false, receiptVerifierConfigured: false, missing: [] },
+    authorization: null, budget: null, receiptAttempts: [] };
+  let snapshot: any = null, requests = 0;
+  class RenderFlow {
+    onChange: Function;
+    constructor({ onChange }: any) { this.onChange = onChange; }
+    async load() { snapshot = { phase: 'review', tasks: [], selected, busy: false, error: null }; this.onChange(snapshot); }
+    snapshot() { return snapshot; }
+    lock() { snapshot = { phase: 'locked', tasks: [], selected: null, busy: false }; this.onChange(snapshot); }
+    suspend() {} markHistorical() {}
+  }
+  const document = { getElementById: el, createElement: () => new Node(), visibilityState: 'visible',
+    addEventListener: events.addEventListener.bind(events) };
+  const history = { state: { walletTaskDigest: selected.task.digest }, replaceState() {} };
+  const session = { ...context, id: 1, serverId: 's'.repeat(43) };
+  const result = mountTaskAuthorization({ document, window: { history,
+    addEventListener: windowEvents.addEventListener.bind(windowEvents), clearTimeout() {},
+    setTimeout() { throw Error('Receipt review must not schedule execution'); } },
+    walletLogin: { async check() { return session; }, capture() { return {}; }, assert() {}, subscribe() {} },
+    getClient: () => ({ request() { requests++; throw Error('Renderer must not request authority'); } }),
+    Client: class {}, Flow: RenderFlow });
+  return { el, events, result, requestCount: () => requests, policy };
+}
+test('mounted fixed receipt review uses catalog keys in every locale and keeps phase identifiers exact', async () => {
+  try {
+    for (const locale of Object.keys(CATALOGS)) {
+      setLocale(locale, { document: null, persist: false });
+      const phases = ['0', '2', '9007199254740991'], ui = fixedReceiptReviewFixture(phases);
+      ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+      assert.equal(ui.result.snapshot().phase, 'review', locale);
+      const notes = ui.el('task-summary').children.filter((node: Node) => node.children.length === 0);
+      assert.ok(notes.some((node: Node) => node.textContent === CATALOGS[locale]['task.receiptPhases'].replace('{phases}', phases.join(', '))), locale);
+      assert.ok(ui.el('task-summary').children.some((node: Node) => node.children.some(child => child.textContent === ui.policy.intent.sale.tokenId)), locale);
+      assert.equal(ui.el('task-detail').hidden, false);
+      assert.equal(ui.el('task-authorize-fields').hidden, false);
+      assert.equal(ui.requestCount(), 0);
+    }
+  } finally { setLocale('en', { document: null, persist: false }); }
+});
+test('receipt phase parameter is literal text and does not become markup or another message key', async () => {
+  setLocale('en', { document: null, persist: false });
+  const phase = '{phases}<svg onload=alert(1)>', ui = fixedReceiptReviewFixture([phase]);
+  ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(ui.result.snapshot().phase, 'review');
+  const note = ui.el('task-summary').children.find((node: Node) => node.textContent === 'Fixed receipt phases: ' + phase);
+  assert.ok(note); assert.equal(note.children.length, 0); assert.equal(ui.requestCount(), 0);
+});
+
+
+function preoperationalFixture(evaluation: any = { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' }) {
+  const f = fixture();
+  const request = async (path: string, body: any) => {
+    const raw: any = await f.request(path, body);
+    const add = (value: any) => value.authorization ? { ...value, approvalFactor: 'preoperational-default-on', approvalEvaluation: evaluation } : value;
+    if (path === 'tasks/prepare') return { ...raw, approvalFactor: 'preoperational-default-on', approvalEvaluation: evaluation };
+    if (path === 'tasks/list') return { ...raw, tasks: raw.tasks.map(add) };
+    return add(raw);
+  };
+  return { ...f, request };
+}
+test('pre-operational default ON renders NOT_EVALUATED in all locales, sends an empty code, and retains the label on reload', async () => {
+  const f = uiFixture({ fixtureOverride: preoperationalFixture() });
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(f.result.snapshot().approvalFactor, 'preoperational-default-on');
+  assert.equal(f.result.snapshot().approvalEvaluation.state, 'NOT_EVALUATED');
+  for (const id of ['task-code', 'task-code-label', 'task-authenticator-help']) assert.equal(f.el(id).hidden, true);
+  assert.equal(f.el('task-code').disabled, true); assert.equal((f.el('task-code') as any).required, false);
+  const prose = () => f.el('task-summary').children.map(node => node.textContent).join('\n');
+  for (const locale of Object.keys(CATALOGS)) {
+    setLocale(locale, { persist: false }); assert.ok(prose().includes(CATALOGS[locale]['task.approvalNotEvaluated']));
+  }
+  setLocale('en', { persist: false });
+  f.el('task-code').value = '654321'; f.el('task-ack').checked = true; f.el('task-authorize').type = 'button';
+  f.el('task-authorize').click(); f.el('task-authorize').click(); await tick();
+  const sent = f.requests.filter((r: any) => r.path === 'tasks/authorize');
+  assert.equal(sent.length, 1); assert.equal(sent[0].body.code, '');
+  assert.equal(f.result.snapshot().phase, 'authorized-blocked'); assert.ok(prose().includes('NOT_EVALUATED'));
+  assert.equal(f.el('task-code').value, '');
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'overview' });
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.ok(prose().includes('NOT_EVALUATED'));
+  f.subscriber(null); assert.equal(f.el('task-summary').children.length, 0);
+  assert.equal(f.result.snapshot(), null);
+});
+
+test('pre-operational evaluation rejects missing, forged, extra and nonzero-revision metadata before showing authorization controls', async () => {
+  for (const bad of [null, {}, { state: 'VERIFIED', reason: 'pre-operational-default-on', policyRevision: '0' },
+    { state: 'NOT_EVALUATED', reason: 'other', policyRevision: '0' },
+    { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '1' },
+    { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0', verified: true }]) {
+    const f = uiFixture({ fixtureOverride: preoperationalFixture(bad) });
+    f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+    assert.equal(f.result.snapshot().phase, 'error'); assert.equal(f.el('task-authorize').disabled, true);
+    assert.equal(f.requests.some((r: any) => r.path === 'tasks/authorize'), false);
+  }
+});
+
+test('saved-factor tasks still require OTP and cannot borrow pre-operational NOT_EVALUATED metadata', async () => {
+  const ordinary = uiFixture(); ordinary.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(ordinary.el('task-code').hidden, false); assert.equal(ordinary.el('task-code-label').hidden, false);
+  assert.equal(ordinary.el('task-authenticator-help').hidden, false); assert.equal((ordinary.el('task-code') as any).required, true);
+  assert.equal(ordinary.result.snapshot().approvalEvaluation, null);
+  const f = fixture(), client = new TaskAuthorizationClient({ context, request: async (path: string, body: any) => {
+    const raw = await f.request(path, body); return path === 'tasks/prepare' ? { ...raw, approvalFactor: 'totp', approvalEvaluation: { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' } } : raw;
+  } });
+  await assert.rejects(client.prepare(f.task), /TASK_APPROVAL_EVALUATION_REFUSED/);
 });

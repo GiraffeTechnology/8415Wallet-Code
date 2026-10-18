@@ -28,6 +28,16 @@ web.add('kit-read-panel.mjs'); web.add('kit-read.mjs');
 web.add('task-activity-ui.mjs'); web.add('task-activity.mjs');
 // Shared by those panels. The locales they read are served by the web/locales/ rule.
 web.add('readonly-i18n.mjs'); web.add('trading-observation.mjs');
+// Retained candidate entry points and their public read/settings dependencies.
+// Keep exact filenames: this must not expose arbitrary web or server sources.
+web.add('about-entry.mjs'); web.add('about.mjs');
+web.add('forward-progress-client.mjs'); web.add('forward-progress-panel.mjs');
+web.add('task-observer-context.mjs'); web.add('observation-source-contract.mjs');
+web.add('observation-details-flow.mjs'); web.add('observation-details-ui.mjs');
+web.add('task-verification-policy-startup.mjs'); web.add('task-verification-policy-entry.mjs');
+web.add('task-verification-policy-client.mjs'); web.add('task-verification-policy-wire.mjs');
+web.add('task-verification-policy-ceremony.mjs'); web.add('task-verification-policy-ui.mjs');
+web.add('wallet-identity-display.mjs');
 const mime={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8'};
 const server=http.createServer((req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cache-Control','no-store');

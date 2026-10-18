@@ -51,8 +51,18 @@ test('every HTML module entry and its closure is served exactly, while unlisted 
     assert.ok(visited.has('/web/task-authorization.mjs'));
     assert.ok(visited.has('/web/task-listing-results.mjs'));
     assert.ok(visited.has('/web/task-authorization-ui.mjs'));
+    for (const module of [
+      'about-entry.mjs', 'about.mjs', 'forward-progress-client.mjs', 'forward-progress-panel.mjs',
+      'task-observer-context.mjs', 'observation-source-contract.mjs',
+      'observation-details-flow.mjs', 'observation-details-ui.mjs',
+      'task-verification-policy-startup.mjs', 'task-verification-policy-entry.mjs',
+      'task-verification-policy-client.mjs', 'task-verification-policy-wire.mjs',
+      'task-verification-policy-ceremony.mjs', 'task-verification-policy-ui.mjs',
+      'wallet-identity-display.mjs', 'locales/task-verification-policy.mjs', 'locales/forward-progress.mjs',
+    ]) assert.ok(visited.has('/web/' + module), `Retained mounted dependency: ${module}`);
     assert.ok(visited.has('/dist/browser/agent/receiptObservation.js'));
     for (const path of ['/web/method-change-unsafe.mjs', '/server/task-authorization.mjs', '/server/task-listing-runtime.mjs', '/src/agent/taskContract.ts',
+      '/web/wallet-identity-unsafe.mjs', '/web/task-verification-policy-unsafe.mjs', '/server/task-verification-policy.mjs',
       '/vendor/artfi-task-listing-runtime-1.0.0.tgz'])
       assert.equal((await fetch(`${origin}${path}`)).status, 404, path);
   } finally {

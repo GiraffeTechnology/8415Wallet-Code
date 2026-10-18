@@ -13,12 +13,12 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
     // A digest is a public locator, never login, authority, a grant reference or OTP.
     window.history.replaceState({ ...(window.history.state ?? {}), walletTaskDigest: selectedDigest }, '');
   }
-  function row(key, value) {
+  function row(key, value, target = el('task-summary')) {
     const item = document.createElement('div'); item.className = 'review-row';
     const name = document.createElement('span'), data = document.createElement('strong');
-    paint(name, msg(key)); data.textContent = String(value); item.append(name, data); el('task-summary').append(item);
+    paint(name, msg(key)); data.textContent = String(value); item.append(name, data); target.append(item);
   }
-  function note(key) { const item = document.createElement('p'); paint(item, msg(key)); el('task-summary').append(item); }
+  function note(key, parameters = {}, target = el('task-summary')) { const item = document.createElement('p'); paint(item, msg(key, parameters)); target.append(item); }
   function stopContinuation() { if (continuationTimer !== null) window.clearTimeout(continuationTimer); continuationTimer = null; }
   function stopCoordination() {
     leaseEpoch++; leasePending = false; leader = false;
@@ -77,6 +77,7 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
     paint(el('task-observation-heading'), msg(view?.valuationPolicy ? 'task.listingObservationTitle' : 'task.observationTitle'));
     if (view) {
       const { policy, digest } = view.task;
+      if (snapshot.approvalEvaluation?.state === 'NOT_EVALUATED') note('task.approvalNotEvaluated');
       row('task.agentId', view.executor.identity.agentId); row('task.agentVersion', view.executor.identity.agentVersion);
       row('task.adapterId', view.executor.identity.adapterId); row('task.adapterVersion', view.executor.identity.adapterVersion);
       row('task.implementationDigest', view.executor.identity.implementationDigest); row('task.executorDigest', view.executor.digest);
@@ -86,10 +87,22 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
       }
       paint(el('task-policy-status'), msg(view.observationPolicy ? 'task.observationPolicyConfigured' : 'task.observationPolicyMissing'));
       if (view.receiptVerifier) {
+        note('task.originalApprovalVerifier');
         row('task.verifierId', view.receiptVerifier.verifierId); row('task.verifierVersion', view.receiptVerifier.verifierVersion);
         row('task.verifierDigest', view.receiptVerifier.verifierImplementationDigest);
       }
       paint(el('task-verifier-status'), msg(view.receiptVerifier ? 'task.verifierPinned' : 'task.verifierMissing'));
+      if (view.observationView) {
+        const current = view.observationView.currentReadOnlyObserver;
+        note('task.currentReadOnlyObserver'); note('task.readOnlyObserverNote');
+        if (current) {
+          row('task.verifierId', current.verifier.verifierId);
+          row('task.verifierVersion', current.verifier.verifierVersion);
+          row('task.verifierDigest', current.verifier.verifierImplementationDigest);
+          row('task.minimumConfirmations', current.verificationPolicy.policy.minimumConfirmations);
+          row('task.observationPolicyDigest', current.verificationPolicy.digest);
+        } else note('task.readOnlyObserverUnavailable');
+      }
       paint(el('task-completion'), msg(`task.completion.${view.completion.state}`));
       paint(el('task-observation-freshness'), msg(view.completion.fresh ? 'task.observationFresh' : 'task.observationHistorical'));
       el('task-observation-states').replaceChildren();
@@ -97,6 +110,22 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
         const item = document.createElement('p');
         paint(item, msg(entry.available && entry.observation ? `task.observation.${entry.observation.state}` : 'task.observationUnavailable'));
         el('task-observation-states').append(item);
+        if (entry.schema === '8415-task-observation-entry/2') {
+          const details = document.createElement('div');
+          const accepted = entry.acceptedObserverContext;
+          row('task.operationObservationRevision', entry.observationRevision, details);
+          if (accepted) {
+            note('task.acceptedEvidenceObserver', {}, details);
+            row('task.verifierId', accepted.verifier.verifierId, details);
+            row('task.verifierVersion', accepted.verifier.verifierVersion, details);
+            row('task.verifierDigest', accepted.verifier.verifierImplementationDigest, details);
+            row('task.acceptedObservationRevision', accepted.acceptedObservationRevision, details);
+            row('task.minimumConfirmations', accepted.verificationPolicy.policy.minimumConfirmations, details);
+            row('task.observationPolicyDigest', accepted.verificationPolicy.digest, details);
+          } else note(entry.provenance === 'legacy-approved-cache' ?
+            'task.legacyObserverCache' : 'task.unverifiedObserverContext', {}, details);
+          el('task-observation-states').append(details);
+        }
       }
       el('task-observations').textContent = JSON.stringify(view.listing?.result?.summary ?? view.observations, null, 2);
       if (view.listing?.result) {
@@ -137,8 +166,8 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
         if (policy.intent.kind === 'artfi-receipt') {
           row('task.intent', policy.intent.kind);
           row('task.contract', policy.intent.escrow);
-          row('task.tokenId', policy.intent.sale.tokenId);
-          note('Fixed receipt phases: ' + policy.intent.phases.map(p => p.phase).join(', '));
+          row('task.token', policy.intent.sale.tokenId);
+          note('task.receiptPhases', { phases: policy.intent.phases.map(p => p.phase).join(', ') });
         } else row('task.intent', policy.intent.operation.kind);
         const fields = (object, prefix = '') => { for (const [key, value] of Object.entries(object)) {
           if (value && typeof value === 'object') fields(value, `${prefix}${key}.`);
@@ -156,7 +185,12 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
     } else { for (const id of ['task-policy-status', 'task-verifier-status', 'task-completion', 'task-observation-freshness', 'task-observations']) el(id).textContent = '';
       el('task-observation-states').replaceChildren(); el('task-canonical').textContent = ''; el('task-missing').textContent = ''; el('task-execution-status').textContent = ''; el('task-operations').textContent = ''; }
     el('task-authorize-fields').hidden = snapshot.phase !== 'review';
-    el('task-code').disabled = snapshot.phase !== 'review';
+    const testFactorExempt = ['server-test-scope', 'preoperational-default-on'].includes(snapshot.approvalFactor);
+    el('task-code').disabled = snapshot.phase !== 'review' || testFactorExempt;
+    el('task-code').hidden = testFactorExempt;
+    el('task-code-label').hidden = testFactorExempt;
+    el('task-authenticator-help').hidden = testFactorExempt;
+    el('task-code').required = !testFactorExempt;
     el('task-authorize').disabled = snapshot.phase !== 'review';
     el('task-refresh').disabled = snapshot.busy || snapshot.retryAfterMs > 0;
     el('task-recheck').hidden = !view || snapshot.busy; el('task-recheck').disabled = snapshot.retryAfterMs > 0;
@@ -189,10 +223,16 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
   }
   el('task-refresh').addEventListener('click', () => { clearCode(); void flow?.load(selectedDigest); });
   el('task-recheck').addEventListener('click', () => { clearCode(); if (selectedDigest) void flow?.open(selectedDigest); });
-  el('task-authorize-form').addEventListener('submit', event => {
+  const authorize = event => {
     event.preventDefault();
     if (!visible || active?.phase !== 'review' || !el('task-ack').checked) { paint(el('task-error'), msg('task.ackRequired')); return; }
-    let code = el('task-code').value; clearCode(); void flow?.authorize(code); code = '';
+    let code = ['server-test-scope', 'preoperational-default-on'].includes(active.approvalFactor) ? '' : el('task-code').value; clearCode(); void flow?.authorize(code); code = '';
+  };
+  el('task-authorize-form').addEventListener('submit', authorize);
+  el('task-authorize').addEventListener('click', event => {
+    // Current foundation markup is type=button. If changed to submit later,
+    // let the form's default submission call the single handler instead.
+    if (el('task-authorize').type === 'button') authorize(event);
   });
   el('task-cancel').addEventListener('click', () => { clearCode(); flow?.suspend(); });
   el('task-recover').addEventListener('click', () => { clearCode(); void flow?.recover(); });
@@ -210,3 +250,4 @@ export function mountTaskAuthorization({ document, window, walletLogin, getClien
   render({ phase: 'locked', tasks: [], selected: null, busy: false, error: null });
   return { snapshot: () => flow?.snapshot() ?? null };
 }
+

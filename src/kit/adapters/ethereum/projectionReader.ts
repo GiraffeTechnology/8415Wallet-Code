@@ -1,5 +1,6 @@
 import { SELECTOR, decodeEntry, encodeCall, toAddress, toBigInt, toBool, toBytes32, words } from './abi.ts';
 import type { JsonRpcTransport } from './transport.ts';
+import { EvmChainIdentity } from './chainIdentity.ts';
 import type { Address, Bytes32, Instant, ProjectionEntry, TokenId } from '../../engine/projection/types.ts';
 
 export class ConformanceError extends Error {
@@ -12,6 +13,8 @@ export class ConformanceError extends Error {
 export interface ReaderOptions {
   readonly transport: JsonRpcTransport;
   readonly contract: Address;
+  /** Explicit expected EVM chain. Defaults to Ethereum, never the RPC's chain. */
+  readonly chainId?: bigint;
   /** Block tag reads are pinned to. Defaults to the finalized head. */
   readonly block?: string;
 }
@@ -31,13 +34,19 @@ export interface ReaderOptions {
  */
 export class EthereumProjectionReader {
   readonly #transport: JsonRpcTransport;
+  readonly #network: EvmChainIdentity;
   readonly #contract: Address;
   readonly #block: string;
 
   constructor(options: ReaderOptions) {
     this.#transport = options.transport;
+    this.#network = new EvmChainIdentity(options.transport, options.chainId ?? 1n);
     this.#contract = options.contract;
     this.#block = options.block ?? 'finalized';
+  }
+
+  get chainId(): bigint {
+    return this.#network.chainId;
   }
 
   async supportsProjection(): Promise<boolean> {
@@ -101,10 +110,12 @@ export class EthereumProjectionReader {
   }
 
   async #call(selector: string, args: readonly (bigint | string)[]): Promise<string> {
-    const result = await this.#transport.send({
+    const revision = this.#network.revision;
+    const result = await this.#network.read(() => this.#transport.send({
       method: 'eth_call',
       params: [{ to: this.#contract, data: encodeCall(selector, args) }, this.#block],
-    });
+    }));
+    this.#network.assertCurrent(revision);
     if (typeof result !== 'string') throw new ConformanceError(`eth_call returned ${typeof result}`);
     return result;
   }
