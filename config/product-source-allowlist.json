@@ -738,8 +738,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "8dc55c7808e07c5d7a6a63e51273566f04883869",
-      "sha256": "2822bad0fa9f2a1173549bc42e070b617c3cec0c248c6bd18df19bae7e699cbf"
+      "git_blob_sha1": "126c0d829310a5a593dd08febd94f818c55d3d64",
+      "sha256": "74c5e34838fb97a032b53813801f9f86c786e440cbacca250c4fc88b114c5eaa"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -2274,8 +2274,8 @@
     {
       "path": "web/task-activity.mjs",
       "mode": "100644",
-      "git_blob_sha1": "4a341074add9260d9eba16c43c1d50a70b90c503",
-      "sha256": "8ec42f7216609a1e217eda9954f7e2bf40a3818cea7a2e1e1aa2c96ec920c1bf"
+      "git_blob_sha1": "02e85e0b6f43fd78f138e53a15c0ff26a01cb6f5",
+      "sha256": "ff9fdc951474e9bb0d8c3f8defbeedca714a18d3194075c3d243e5e6fbf01e55"
     },
     {
       "path": "web/task-authorization-ui.mjs",
