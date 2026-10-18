@@ -417,7 +417,8 @@ test('committed in-repository policy and tooling need no self-referential source
   assert.equal(plan.origin.upstream.snapshotRelation, 'upstream-commit-tree');
   assert.equal(plan.origin.upstream.dirty, false);
   assert.deepEqual(readFileSync(join(f.source, '.git/index')), indexBefore);
-  assert.deepEqual(NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS.slice(2), TOOLING_FILES.filter(path => path.startsWith('scripts/package/')));
+  assert.deepEqual([...NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS], [...NONPRODUCT_GENERATED_CACHE,
+    ...NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT, ...TOOLING_FILES.filter(path => path.startsWith('scripts/package/'))]);
   for (const path of TOOLING_FILES) assert.equal(plan.productEntries.some(entry => entry.path === path), false);
   assert.equal(plan.policy.entries.length, currentPolicy.entries.length);
 });
