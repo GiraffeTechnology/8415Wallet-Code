@@ -208,6 +208,7 @@ test('account management status is authenticated, account-bound and secret-free'
   const result = await c.call('account'); assert.equal(result.status, 200);
   assert.deepEqual(result.data, { schema: '8415wallet-account/1', tenant: 'xiongan', origin: f.origin,
     username: 'tester', account: f.signer.address, chainId: '1',
+    forwardProgressAvailable: false, taskHumanVerification: null,
     methods: { password: { available: true, enabled: true, bound: true }, wallet: { available: true, enabled: true, bound: true }, ca: { available: true, enabled: true, bound: true }, totp: { available: true, enabled: false, bound: false } },
     recovery: { configured: false, emailMasked: null, questionId: null, emailOtpAvailable: true, questions: ['recovery-phrase', 'first-school', 'childhood-place'] },
     registration: { required: false, complete: true, email: registration.email, emailMasked: 's***@example.invalid', emailOtpAvailable: true },

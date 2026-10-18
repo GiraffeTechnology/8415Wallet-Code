@@ -330,9 +330,7 @@ export default Object.freeze({
   "protocol.342": "conformidad de liquidación",
   "protocol.343": "el contrato anuncia 0xf4a7d71b",
   "protocol.344": "el contrato no anuncia 0xf4a7d71b, por lo que no tiene operaciones de liquidación",
-  "protocol.345": "Se ha vuelto a derivar según el estado actual. Esto reduce la ventana entre la construcción y el envío, pero no la cierra. Solo una lectura en cadena, dentro de la misma transacción que la acción que depende de ella, la cierra."
-}
-);,
+  "protocol.345": "Se ha vuelto a derivar según el estado actual. Esto reduce la ventana entre la construcción y el envío, pero no la cierra. Solo una lectura en cadena, dentro de la misma transacción que la acción que depende de ella, la cierra.",
   "protocol.acquisition.observedFinal": "En el instante observado ({v0}), isFinalAsOf informa que es definitivo. {v1} Es una respuesta observada del protocolo, no una predicción sobre una compra posterior ni una aprobación de transferencia.",
   "protocol.acquisition.observedNotFinal": "En el instante observado ({v0}), isFinalAsOf informa que no es definitivo. {v1} Es una respuesta observada del protocolo, no una predicción sobre una compra posterior ni una aprobación de transferencia.",
   "protocol.acquisition.unobserved": "Esta vista no obtuvo una respuesta de finalidad para el instante de adquisición ({v0}). Consulte isFinalAsOf en ese instante exacto; ni el reloj ni la adquisición proporcionan esa respuesta.",

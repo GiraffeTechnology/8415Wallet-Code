@@ -78,6 +78,7 @@
       "scripts/package/dapp-release.mjs",
       "scripts/package/release-contract.mjs",
       "scripts/package/shared.mjs",
+      "scripts/package/supervise-auth.py",
       "scripts/package/v3-document-contract.mjs",
       "scripts/package/verify-auth.mjs",
       "scripts/package/verify-dapp.mjs",
@@ -98,6 +99,7 @@
       "server/config-validation.mjs",
       "server/credential-instance.mjs",
       "server/crypto.mjs",
+      "server/forward-progress-reader.mjs",
       "server/mail-config.mjs",
       "server/mail-otp.mjs",
       "server/main.mjs",
@@ -181,8 +183,13 @@
       "src/controls/client.ts",
       "src/controls/consentReview.ts",
       "src/controls/detachedHistory.ts",
+      "src/controls/detachedHistoryLocator.ts",
       "src/controls/execution.ts",
       "src/controls/fileOperationStore.ts",
+      "src/controls/historyDiscovery.ts",
+      "src/controls/historyEntitlement.ts",
+      "src/controls/historyMilestone.ts",
+      "src/controls/historyView.ts",
       "src/controls/index.ts",
       "src/controls/operationJournal.ts",
       "src/controls/payments.ts",
@@ -816,8 +823,8 @@
     {
       "path": "scripts/package/build-dapp.mjs",
       "mode": "100644",
-      "git_blob_sha1": "ef0e31d7a397b11a46d492cce35b5f15d3940bd0",
-      "sha256": "e8f2df690cdc1f50790ada7469a5f1b096a427f140261db953c1a3f26377735b"
+      "git_blob_sha1": "6bedcf4031fd3f9203af99599419a1a03b4ce42a",
+      "sha256": "b2e55b8df158322e23c70107646c96a988503bb334ab6d310470628d0b06397c"
     },
     {
       "path": "scripts/package/build-delivery.mjs",
@@ -1104,8 +1111,8 @@
     {
       "path": "server/task-listing-bootstrap.mjs",
       "mode": "100644",
-      "git_blob_sha1": "d0dc39f7deb22f44995586f0bceab935ab2b75d3",
-      "sha256": "641c79d0b17fe2dcc7e4897a4555282dd95cecd9095200baaf78d5ec28bbed36"
+      "git_blob_sha1": "919b47bda793af3115cc3f7d2c8c749afc309c84",
+      "sha256": "b1bc2e1c207fa07197df44aec9b84c9d0674fc39d6ed0ee9b01e1af4c1ebd79e"
     },
     {
       "path": "server/task-listing-config.mjs",
@@ -2388,14 +2395,14 @@
     {
       "path": "web/locales/native-es.mjs",
       "mode": "100644",
-      "git_blob_sha1": "8c27b68b3b09e90f4eb3efd211805e9cb4af99d2",
-      "sha256": "d2f853121600f9a309374d5f06fe9c1c3e133d8fd8c699b22b56167f8f4b33f5"
+      "git_blob_sha1": "6d124b214c44b815abd850678182e4b01ed5af4a",
+      "sha256": "e3914b2fc0deecf9abf96157fc9a5e7e6c76faa8263c6b6bb09e480ee047a56e"
     },
     {
       "path": "web/locales/native-fr.mjs",
       "mode": "100644",
-      "git_blob_sha1": "ca1ea6d4ab2540ca0b9ab725d0eee569b129f4d2",
-      "sha256": "05a53a13362e07eaa5701f795658d2bf86488d394a56b53c281d41ed76aa2222"
+      "git_blob_sha1": "3b7fe4b701591b745be64fc896df414b4f84a4b5",
+      "sha256": "67696fa8d36f28c06a9a828efde616f8d55b199481e4dd8a89d435772c0a03fd"
     },
     {
       "path": "web/locales/native-fragments.mjs",
@@ -2406,8 +2413,8 @@
     {
       "path": "web/locales/native-ja.mjs",
       "mode": "100644",
-      "git_blob_sha1": "3284ae672889034b1c1e386fc09c0e765d8fcd59",
-      "sha256": "f117ad5899d70c68f2a98df9babcf3fb110467c86e0a0b5dd3931251528a33e7"
+      "git_blob_sha1": "b356ddae5930f300570b4f19de9d9812b6431fff",
+      "sha256": "687165d155e382558d4a5bcd38863dd689d7c58e9c27b947fa2acde5afe5b382"
     },
     {
       "path": "web/locales/native-zh-Hans.mjs",

@@ -51,20 +51,34 @@ function moduleClosure(entries: string[]): Set<string> {
   return seen;
 }
 
-test('policy settings UI is in the actual page module closure', () => {
+test('foundation page retains policy host but does not mount unopened policy or task controls', () => {
   const html = readFileSync(resolve(root, 'web/index.html'), 'utf8');
   assert.match(html, /id=["']task-verification-policy-settings["']/);
   const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/g)]
     .map(match => resolve(root, 'web', match[1]!));
   assert.ok(scripts.length > 0);
   const reached = moduleClosure(scripts);
-  assert.ok(reached.has('web/task-verification-policy-ui.mjs'), 'policy UI must not be an orphan module');
+  assert.match(html, /<body[^>]*data-wallet-composition="foundation"/);
+  assert.equal(reached.has('web/task-verification-policy-ui.mjs'), false);
+  assert.equal(reached.has('web/task-verification-policy-startup.mjs'), false);
+  assert.equal(reached.has('web/task-ui.mjs'), false);
+  assert.ok(reached.has('web/wallet-auth.mjs'));
+  assert.ok(reached.has('web/about-entry.mjs'));
+});
+
+test('retained unmounted policy and read-only modules have a complete independent source and dev-server closure', () => {
+  // Explicit retained-module roots are not evidence of production page mounting.
+  // Do not enable business modules merely to satisfy this packaging assertion.
+  const reached = moduleClosure(['web/wallet-auth.mjs', 'web/wallet-shell.mjs',
+    'web/about-entry.mjs', 'web/task-ui.mjs', 'web/task-verification-policy-startup.mjs',
+    'web/forward-progress-panel.mjs']);
+  assert.ok(reached.has('web/task-verification-policy-ui.mjs'), 'retained policy startup must reach its controller');
   assert.ok(reached.has('web/locales/task-verification-policy.mjs'), 'policy locale catalog must ship in the same module graph');
   // This source-level regression runs before browser emit and never starts a
   // server. The separate HTTP closure test checks actual served bytes after emit.
   const server = readFileSync(resolve(root, 'scripts/controls/serve-browser.cjs'), 'utf8');
   for (const module of retainedPublicModules) {
-    assert.ok(reached.has('web/' + module), `${module} must remain reachable from the page`);
+    assert.ok(reached.has('web/' + module), `${module} must remain reachable from the explicit retained-module roots`);
     assert.ok(server.includes(`web.add('${module}')`), `${module} needs an explicit development-server allowlist entry`);
   }
 });

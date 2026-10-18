@@ -1,4 +1,4 @@
-/** Synthetic loopback HTTP authentication and grant boundaries, not live-chain acceptance.
+/** Synthetic loopback HTTP authentication and observation-route boundaries, not live-chain acceptance.
  * Run only on an approved Linux runtime. No browser, injected UI provider, real
  * wallet key, password, TOTP, transaction signing or broadcast is used here.
  */
@@ -9,11 +9,9 @@ import { once } from 'node:events';
 import { Wallet } from 'ethers';
 import { createAuthService } from '../server/auth-service.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
-import { createTaskTestAssetAuthorization } from '../server/task-test-asset-authorization.mjs';
 
-async function fixture(t, { scoped = true } = {}) {
-  const wallet = Wallet.createRandom(), recipient = Wallet.createRandom().address.toLowerCase();
-  const actor = wallet.address.toLowerCase(), chainId = '560048', tenant = 'synthetic';
+async function fixture(t) {
+  const wallet = Wallet.createRandom(), chainId = '560048', tenant = 'synthetic';
   const now = () => 1900000000000;
   const registration = { version: 1, email: 'tester@example.invalid', verifiedAt: 1 };
   const store = new MemoryCredentialStore({
@@ -25,16 +23,11 @@ async function fixture(t, { scoped = true } = {}) {
   t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const mode = scoped ? await createTaskTestAssetAuthorization({
-    inventory: { schema: '8415-agent-test-assets/1', chainId, origin, tenant,
-      expiresAt: '2000000000', wallets: [actor, recipient], assets: [] },
-    authorizedWallets: [actor, recipient].map(account => ({ account, chainId })), now,
-  }) : null;
+  // Read-only route rejection tests need no task grant or test-asset exemption.
   const forbiddenSideEffect = () => { sideEffects++; assert.fail('authentication and grant approval cannot sign or send a transaction'); };
   handler = createAuthService({
     origin, tenant, store, now,
     accounts: [{ username: 'tester', wallets: [{ account: wallet.address, chainId }] }],
-    taskTestAuthorization: mode,
     taskExecution: { verify: forbiddenSideEffect, send: forbiddenSideEffect, recover: forbiddenSideEffect },
     taskExecutorIdentity: { schema: '8415-task-executor/1', agentId: 'synthetic:agent', agentVersion: '1',
       adapterId: 'synthetic:adapter', adapterVersion: '1', implementationDigest: `0x${'3'.repeat(64)}` },
@@ -74,12 +67,7 @@ async function fixture(t, { scoped = true } = {}) {
     }
     return { call, login };
   }
-  const policy = { schema: '8415-agent-task/1', taskId: 'synthetic:api-native', tenant, origin, chainId, actor,
-    expiresAt: '1950000000', fees: { perOperationWei: '100000', totalWei: '100000' },
-    intent: { kind: 'exact-operation', operation: { kind: 'native-transfer', chainId, actor, recipient, valueWei: '1' } } };
-  const authorization = prepared => ({ challengeId: prepared.challengeId, taskDigest: prepared.task.digest,
-    executorDigest: prepared.executor.digest, observationPolicyDigest: prepared.observationPolicy.digest, code: '' });
-  return { client, policy, authorization, sideEffects: () => sideEffects, actor, chainId };
+  return { client, sideEffects: () => sideEffects };
 }
 
 test('observation source and details share original authenticated cookie CSRF and origin boundary', async t => {

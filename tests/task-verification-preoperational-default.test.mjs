@@ -14,6 +14,8 @@ const time = 1_800_000_000_000, hash = c => '0x' + c.repeat(64);
 const scope = { origin: 'https://wallet.example.invalid', tenant: 'example', username: 'alice',
   account: '0x' + '1'.repeat(40), chainId: '11155111', agentId: 'example:agent' };
 const recipient = '0x' + '2'.repeat(40), txHash = hash('a');
+const grantStorageKey = taskDigest => 'task-grant:' + digest(JSON.stringify([scope.origin, scope.tenant,
+  scope.username, scope.account, scope.chainId, taskDigest]));
 const executor = { schema: '8415-task-executor/1', agentId: scope.agentId, agentVersion: '1',
   adapterId: 'synthetic:adapter', adapterVersion: '1', implementationDigest: hash('9') };
 function saved(mode, selected = scope) {
@@ -175,9 +177,14 @@ test('revoked or expired authority cannot use the unlocked default', async () =>
 });
 test('an authoritative read failure propagates instead of selecting the default', async () => {
   const f = serviceFixture(), reserved = await f.reserve(await f.authorize());
-  f.store.readMany = async () => { throw Error('SYNTHETIC_AUTHORITATIVE_READ_FAILURE'); };
+  const read = f.store.read.bind(f.store); let failedReads = 0;
+  // execute obtains the authoritative credential through read, not readMany.
+  f.store.read = async key => {
+    if (key === 'example:alice') { failedReads++; throw Error('SYNTHETIC_AUTHORITATIVE_READ_FAILURE'); }
+    return read(key);
+  };
   await assert.rejects(f.call('execute', f.body(reserved)), /SYNTHETIC_AUTHORITATIVE_READ_FAILURE/);
-  assert.equal(f.state.sends, 0);
+  assert.equal(failedReads, 1); assert.equal(f.state.sends, 0); assert.equal(f.state.factors, 0);
 });
 test('concurrent default-ON execution retains one nonce attempt and one send', async () => {
   const f = serviceFixture(), reserved = await f.reserve(await f.authorize());
@@ -215,8 +222,7 @@ for (const mode of ['ON', 'OFF']) test(`a saved ${mode} between prepare and auth
 test('native preoperational task grant records NOT_EVALUATED without adding credentials or saved policies', async () => {
   const f = serviceFixture(), before = await f.store.read('example:alice');
   const g = await f.authorize();
-  const key = 'task-grant:' + digest(JSON.stringify([scope.origin, scope.tenant, scope.username,
-    scope.account, scope.chainId, g.task.digest]));
+  const key = grantStorageKey(g.task.digest);
   const raw = await f.store.read(key);
   assert.equal(raw.approvalFactor, 'preoperational-default-on');
   assert.deepEqual(raw.approvalEvaluation,
@@ -258,7 +264,7 @@ test('saved ON public grant does not mislabel evaluated approval as preoperation
 });
 test('legacy grants without approval metadata remain readable without manufactured NOT_EVALUATED evidence', async () => {
   const f = serviceFixture(), authorized = await f.authorize();
-  const key = (await f.service.background.list()).entries[0];
+  const key = grantStorageKey(authorized.task.digest);
   await f.store.transaction(key, grant => { const next = { ...grant }; delete next.approvalFactor; delete next.approvalEvaluation; return next; });
   const view = await f.call('status', { taskDigest: authorized.task.digest });
   assert.equal(view.approvalFactor, undefined); assert.equal(view.approvalEvaluation, undefined);
@@ -269,7 +275,7 @@ for (const altered of [null, { state: 'PASSED', reason: 'pre-operational-default
   { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0', verified: true }])
   test('malformed saved approval evaluation is refused instead of exposed as trusted proof: ' + JSON.stringify(altered), async () => {
     const f = serviceFixture(), authorized = await f.authorize();
-    const key = (await f.service.background.list()).entries[0];
+    const key = grantStorageKey(authorized.task.digest);
     await f.store.transaction(key, grant => ({ ...grant, approvalEvaluation: altered }));
     await assert.rejects(f.call('status', { taskDigest: authorized.task.digest }), /TASK_APPROVAL_STATE_REFUSED/);
     assert.equal(f.state.factors, 0); assert.equal(f.state.sends, 0);

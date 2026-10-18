@@ -88,15 +88,31 @@ test('unavailable strict bridge stays unavailable and factory exceptions are not
   entry.destroy();
 });
 
-test('actual page mounts the policy module within existing account settings and retains task entry', () => {
+test('foundation retains policy and task hosts without mounting unopened controls', () => {
   const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
   const start = html.indexOf('<section id="auth-management"');
   const host = html.indexOf('<section id="task-verification-policy-settings"');
   const password = html.indexOf('<section id="auth-password-settings"');
   assert.ok(start >= 0 && host > start && password > host);
   assert.equal(html.match(/id="task-verification-policy-settings"/g)?.length, 1);
-  assert.equal(html.match(/src="task-verification-policy-startup\.mjs"/g)?.length, 1);
-  assert.match(html, /src="task-ui\.mjs"/);
+  assert.match(html, /<body[^>]*data-wallet-composition="foundation"/);
+  const entries = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].map(match => match[1]);
+  assert.equal(entries.includes('task-verification-policy-startup.mjs'), false);
+  assert.equal(entries.includes('task-ui.mjs'), false);
+  assert.match(html, /<form id="task-authorize-form"[^>]*inert[^>]*data-foundation-placeholder="true"/);
+  const defaults = [...html.matchAll(/<button\b[^>]*data-policy-source="unconnected-default"[^>]*>/g)];
+  assert.equal(defaults.length, 4);
+  for (const [button] of defaults) {
+    assert.match(button, /\bdisabled\b/);
+    assert.match(button, /aria-disabled="true"/);
+    assert.match(button, /data-display-mode="ON"/);
+    assert.doesNotMatch(button, /aria-checked=|data-saved-revision=/);
+  }
+  // This is an unconnected default, not saved policy or integration acceptance.
+  // foundation-ui.test.mjs separately asserts real placeholder handlers are no-ops.
+});
+
+test('retained policy startup still connects the authenticated account-settings controller when explicitly mounted', () => {
   const startup = readFileSync(new URL('../web/task-verification-policy-startup.mjs', import.meta.url), 'utf8');
   assert.match(startup, /from '\.\/task-verification-policy-ui\.mjs'/);
   assert.match(startup, /currentAccountClient, subscribeAccountSettings/);

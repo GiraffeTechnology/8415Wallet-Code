@@ -327,7 +327,13 @@ test('simultaneous execute and direct send replay make one signer and broadcast 
   const f = await fixture(), g = await f.start();
   const results = await Promise.allSettled([f.call('execute', f.body(g)), f.call('execute', f.body(g))]);
   assert.equal(results.filter(r => r.status === 'fulfilled').length, 1); assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1);
-  await assert.rejects(f.execution.send(f.input), /TASK_EXACT_GRANT_NOT_ACTIVE|TASK_EXACT_SIGN_ALREADY_CLAIMED/);
+  const attempted = await f.store.read(f.state.operationKey);
+  assert.equal(attempted.status, 'submitted');
+  assert.equal(attempted.humanVerificationEnforced, true);
+  // The live attempt fence rejects an already submitted record before the
+  // later signer-claim fence. This remains a strict replay refusal.
+  await assert.rejects(f.execution.send(f.input), error => error.message === 'TASK_OPERATION_VERIFICATION_ATTEMPT_REFUSED');
+  assert.deepEqual(await f.store.read(f.state.operationKey), attempted);
   assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1);
 });
 test('a lost broadcast response recovers from full queried signed transaction without signing or broadcasting', async () => {

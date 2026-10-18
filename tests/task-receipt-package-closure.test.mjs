@@ -30,8 +30,16 @@ function closure(entry) {
     }
   }; visit(resolve(root, entry)); return [...paths].map(path => relative(root, path)).sort();
 }
-test('declared receipt runtime closure equals the actual non-type import graph exactly', () => {
-  assert.deepEqual([...TASK_RECEIPT_RUNTIME_FILES].sort(), [...new Set([...closure('server/task-receipt-adapter.mjs'), ...['server/task-authorization.mjs', 'server/task-observation-sources.mjs', 'web/task-observer-context.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs', 'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs', 'server/task-listing-transport.mjs']])].sort());
+// These trusted verification inputs affect approval selection even though the
+// read-only adapter does not import them. Keep this independent inventory: do
+// not derive expected identity inputs from TASK_RECEIPT_RUNTIME_FILES itself.
+const trustedVerificationInputs = [
+  'server/task-operation-verification.mjs',
+  'server/task-verification-execution.mjs',
+  'server/task-verification-state.mjs',
+];
+test('declared receipt identity closure equals its import graph and exact trusted runtime inputs', () => {
+  assert.deepEqual([...TASK_RECEIPT_RUNTIME_FILES].sort(), [...new Set([...closure('server/task-receipt-adapter.mjs'), ...trustedVerificationInputs, ...['server/task-authorization.mjs', 'server/task-observation-sources.mjs', 'web/task-observer-context.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs', 'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs', 'server/task-listing-transport.mjs']])].sort());
   assert.equal(TASK_RECEIPT_RUNTIME_FILES.length, new Set(TASK_RECEIPT_RUNTIME_FILES).size);
 });
 test('exact native-TS runtime closure loads alone, missing dependencies refuse, source changes change identity', () => {
@@ -50,8 +58,13 @@ test('exact native-TS runtime closure loads alone, missing dependencies refuse, 
     const original = run(); assert.equal(original.status, 0, original.stderr);
     const expected = createTaskReceiptAdapter({ provider: { async request() {} }, observationPolicy: { minimumConfirmations: '2' } }).identity.verifierImplementationDigest;
     assert.equal(original.stdout.trim(), expected);
-    const path = join(directory, 'src/codec/keccak.ts'); writeFileSync(path, readFileSync(path, 'utf8') + '\n// Changed fixture bytes.\n');
-    const changed = run(); assert.equal(changed.status, 0, changed.stderr); assert.notEqual(changed.stdout.trim(), expected);
+    for (const relativePath of ['src/codec/keccak.ts', ...trustedVerificationInputs]) {
+      const path = join(directory, relativePath), originalBytes = readFileSync(path);
+      writeFileSync(path, Buffer.concat([originalBytes, Buffer.from('\n// Changed fixture bytes.\n')]));
+      const changed = run(); assert.equal(changed.status, 0, changed.stderr);
+      assert.notEqual(changed.stdout.trim(), expected, relativePath);
+      writeFileSync(path, originalBytes);
+    }
     rmSync(join(directory, 'src/sdk/errors.ts')); const missing = run(); assert.notEqual(missing.status, 0); assert.match(missing.stderr, /ERR_MODULE_NOT_FOUND/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

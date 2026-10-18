@@ -277,11 +277,11 @@ test('encrypted restart preserves prior credentials, OTP use, grant, unknown out
   const directory = await mkdtemp(join(tmpdir(), 'wallet-task-synthetic-')); let cleanupStore: any; t.after(async () => { await cleanupStore?.close(); await rm(directory, { recursive: true, force: true }); });
   const path = join(directory, 'credentials.enc'), encryptionKey = Buffer.alloc(32, 0x42), store = await openEncryptedStore(path, encryptionKey);
   await store.transaction('xiongan:tester', () => ({ secret, lastStep: -1, revision: 1, sentinel: 'old-user' }));
-  const before = await readFile(path), a = syntheticAdapter({ failSend: true }), f = fixture({ store, ...a });
+  const before = await readFile(path), a = syntheticAdapter({ failSend: true }), f = fixture({ store, ...a, operationVerificationEnabled: true });
   await saveOperationPolicy(f, 'ON'); const g = await f.reserve(await f.grant());
   f.state.now += 30000; await operationProof(f, g);
   await f.call('execute', f.operationBody(g)); await store.close(); const ciphertext = await readFile(path, 'utf8'); assert.ok(!ciphertext.includes(secret)); assert.ok(!ciphertext.includes(g.task.digest));
-  const restartStore = await openEncryptedStore(path, encryptionKey); cleanupStore = restartStore; const restarted = fixture({ store: restartStore, ...a });
+  const restartStore = await openEncryptedStore(path, encryptionKey); cleanupStore = restartStore; const restarted = fixture({ store: restartStore, ...a, operationVerificationEnabled: true });
   const persisted = await restarted.call('status', { taskDigest: g.task.digest }); assert.equal(persisted.budget.reservations[0].status, 'outcome-unknown');
   assert.equal((await restartStore.read('xiongan:tester')).sentinel, 'old-user');
   assert.equal((await restartStore.read('xiongan:tester')).lastStep, epoch / 30000 + 1); await assert.rejects(restarted.call('execute', restarted.operationBody(persisted)), /TASK_SEND_ATTEMPT_REFUSED/);

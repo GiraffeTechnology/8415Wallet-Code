@@ -330,9 +330,7 @@ export default Object.freeze({
   "protocol.342": "conformité du règlement",
   "protocol.343": "le contrat annonce 0xf4a7d71b",
   "protocol.344": "le contrat n'annonce pas 0xf4a7d71b et ne propose donc aucune opération de règlement",
-  "protocol.345": "Recalculé selon l'état actuel. Cela réduit la fenêtre entre la construction et l'envoi sans la fermer. Seule une lecture sur la chaîne, dans la même transaction que l'action qui en dépend, la ferme."
-}
-);,
+  "protocol.345": "Recalculé selon l'état actuel. Cela réduit la fenêtre entre la construction et l'envoi sans la fermer. Seule une lecture sur la chaîne, dans la même transaction que l'action qui en dépend, la ferme.",
   "protocol.acquisition.observedFinal": "À l’instant observé ({v0}), isFinalAsOf indique un résultat définitif. {v1} C’est une réponse observée du protocole, pas une prévision pour un achat ultérieur ni une approbation de transfert.",
   "protocol.acquisition.observedNotFinal": "À l’instant observé ({v0}), isFinalAsOf indique un résultat non définitif. {v1} C’est une réponse observée du protocole, pas une prévision pour un achat ultérieur ni une approbation de transfert.",
   "protocol.acquisition.unobserved": "Cette vue n’a obtenu aucune réponse de finalité pour l’instant d’acquisition ({v0}). Lisez isFinalAsOf à cet instant exact ; ni le temps ni l’acquisition ne fournissent cette réponse.",

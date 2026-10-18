@@ -1,5 +1,6 @@
 """Synthetic Linux-only owned-process fixtures. No npm/network/credentials.
-Run only on the original approved SIN Linux; no local syntax/import/test run.
+Run only on approved Linux execution (SIN or the exact-head GitHub CI).
+No local/container/Windows syntax/import/test run.
 """
 import importlib.util
 import json
