@@ -451,8 +451,8 @@
     {
       "path": "config/current-prd.json",
       "mode": "100644",
-      "git_blob_sha1": "de99a6b598557494b8f7096e6da7f79d77af58cc",
-      "sha256": "97b77c89ad26770e89394fe86937aa610db8d4e0c1f25f90ada01987f703cd56"
+      "git_blob_sha1": "2bf5a946fa4288936329c20c18ce23642d9b42aa",
+      "sha256": "bf08798934101960da54c54fd5e9926481cff782600137f120faa58e46af3dcb"
     },
     {
       "path": "config/releases/v2.json",
@@ -643,8 +643,8 @@
     {
       "path": "docs/ERC-8415-Wallet-PRD.md",
       "mode": "100644",
-      "git_blob_sha1": "ba879456ae038922263530faad82c74b4a866c63",
-      "sha256": "de80f078aead881a35f42c52b8aa99bd0d37dbbb36640f059f7eef134f9ef5e3"
+      "git_blob_sha1": "8b502f59da4981ffd824757a9220559a191e2750",
+      "sha256": "3a4ac57c8cfec42b51799a26cf89ac91bc7218a14265c95e62493d5d6a95a39f"
     },
     {
       "path": "docs/FORWARD-PROGRESS-API.md",
@@ -1561,8 +1561,8 @@
     {
       "path": "src/kit/adapters/ethereum/projectionReader.ts",
       "mode": "100644",
-      "git_blob_sha1": "60fba2373e6384abae6e0b46f362418eed13fdfe",
-      "sha256": "2c0abe3cad778f94afce6093a68b82f018aa94997200eadc7254c6652c7c956c"
+      "git_blob_sha1": "e5a816a661c4262d738a6eeb775ff4c06adef3b1",
+      "sha256": "514c1fac2a577d864c72febe9bbd27a698d957bf8dbada394c32b55fe382d2b9"
     },
     {
       "path": "src/kit/adapters/ethereum/transport.ts",

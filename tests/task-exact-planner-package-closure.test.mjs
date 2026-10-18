@@ -77,7 +77,19 @@ test('actual checked-in source inspection resolves the installed runtime import 
     expectedToolingSha256: computeToolingPin(root), requireClean: false });
   assert.equal(plan.upstreamIdentity.snapshotTree, source.tree);
   const graph = closure([probeEntry]);
-  assert.deepEqual(graph.files, [...new Set([...TASK_RUNTIME_SOURCE_PATHS, ...TASK_RECEIPT_RUNTIME_FILES,
+  // Source packages retain this type contract, but native type stripping does
+  // not load it. Keep an exact, independently checked distinction from imports.
+  const typeOnlyInputs = ['src/sdk/linked.ts'];
+  for (const path of typeOnlyInputs) {
+    assert.equal(TASK_RUNTIME_SOURCE_PATHS.includes(path), false, 'type-only input is not executable runtime closure');
+    assert.ok(sourcePathAllowed(path), 'type contract stays eligible for source packaging');
+    assert.ok(plan.blobs.has(path), 'type contract must remain packaged');
+    const file = ts.createSourceFile(path, readFileSync(join(root, path), 'utf8'), ts.ScriptTarget.Latest, true);
+    assert.ok(file.statements.every(node => ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node) ||
+      (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly)), 'excluded input must contain types only');
+    assert.equal(graph.files.includes(path), false);
+  }
+  assert.deepEqual(graph.files, [...new Set([...TASK_RUNTIME_SOURCE_PATHS.filter(path => !typeOnlyInputs.includes(path)), ...TASK_RECEIPT_RUNTIME_FILES,
     ...['account-directory', 'auth-service', 'ca-verifier', 'config-validation', 'crypto', 'mail-config', 'mail-otp', 'main',
       'method-change-service', 'recovery-service', 'registration-service', 'socket-path', 'store',
       'task-authorization', 'task-background-runner', 'task-verification-policy'].map(name => `server/${name}.mjs`), 'web/login-core.mjs'])].sort());

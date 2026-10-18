@@ -61,8 +61,8 @@ test('native PRD requirements hold, and port reservations stay out of them', () 
 
 test('current complete PRD bytes and execution-entry pin stay synchronized', () => {
   const bytes = readFileSync(new URL('../docs/ERC-8415-Wallet-PRD.md', import.meta.url));
-  const expectedHash = 'de80f078aead881a35f42c52b8aa99bd0d37dbbb36640f059f7eef134f9ef5e3';
-  assert.equal(bytes.length, 110880);
+  const expectedHash = '3a4ac57c8cfec42b51799a26cf89ac91bc7218a14265c95e62493d5d6a95a39f';
+  assert.equal(bytes.length, 111167);
   assert.equal(createHash('sha256').update(bytes).digest('hex'), expectedHash);
   assert.ok(read('AGENTS.md').includes(expectedHash));
   const text = bytes.toString('utf8');

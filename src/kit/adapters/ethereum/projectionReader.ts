@@ -49,52 +49,63 @@ export class EthereumProjectionReader {
     return this.#network.chainId;
   }
 
-  async supportsProjection(): Promise<boolean> {
-    return this.#supports('0x6309e170');
+  supportsProjection(): Promise<boolean> {
+    return this.#publishCurrent(() => this.#supports('0x6309e170'));
   }
 
-  async supportsSettlement(): Promise<boolean> {
-    return this.#supports('0xf4a7d71b');
+  supportsSettlement(): Promise<boolean> {
+    return this.#publishCurrent(() => this.#supports('0xf4a7d71b'));
   }
 
-  async registerId(): Promise<Bytes32> {
-    return toBytes32(await this.#slot(SELECTOR.registerId, []));
+  registerId(): Promise<Bytes32> {
+    return this.#publishCurrent(async () => toBytes32(await this.#slot(SELECTOR.registerId, [])));
   }
 
-  async verificationProfile(): Promise<Bytes32> {
-    return toBytes32(await this.#slot(SELECTOR.verificationProfile, []));
+  verificationProfile(): Promise<Bytes32> {
+    return this.#publishCurrent(async () => toBytes32(await this.#slot(SELECTOR.verificationProfile, [])));
   }
 
-  async entryCount(tokenId: TokenId): Promise<bigint> {
-    return toBigInt(await this.#slot(SELECTOR.entryCount, [tokenId]));
+  entryCount(tokenId: TokenId): Promise<bigint> {
+    return this.#publishCurrent(async () => toBigInt(await this.#slot(SELECTOR.entryCount, [tokenId])));
   }
 
-  async currentEntry(tokenId: TokenId): Promise<ProjectionEntry> {
-    return decodeEntry(await this.#call(SELECTOR.currentEntry, [tokenId]));
+  currentEntry(tokenId: TokenId): Promise<ProjectionEntry> {
+    return this.#publishCurrent(async () => decodeEntry(await this.#call(SELECTOR.currentEntry, [tokenId])));
   }
 
-  async entryAt(tokenId: TokenId, version: bigint): Promise<ProjectionEntry> {
-    return decodeEntry(await this.#call(SELECTOR.entryAt, [tokenId, version]));
+  entryAt(tokenId: TokenId, version: bigint): Promise<ProjectionEntry> {
+    return this.#publishCurrent(async () => decodeEntry(await this.#call(SELECTOR.entryAt, [tokenId, version])));
   }
 
-  async entryAsOf(tokenId: TokenId, instant: Instant): Promise<ProjectionEntry> {
-    return decodeEntry(await this.#call(SELECTOR.entryAsOf, [tokenId, instant]));
+  entryAsOf(tokenId: TokenId, instant: Instant): Promise<ProjectionEntry> {
+    return this.#publishCurrent(async () => decodeEntry(await this.#call(SELECTOR.entryAsOf, [tokenId, instant])));
   }
 
-  async holderAsOf(tokenId: TokenId, instant: Instant): Promise<Address> {
-    return toAddress(await this.#slot(SELECTOR.holderAsOf, [tokenId, instant]));
+  holderAsOf(tokenId: TokenId, instant: Instant): Promise<Address> {
+    return this.#publishCurrent(async () => toAddress(await this.#slot(SELECTOR.holderAsOf, [tokenId, instant])));
   }
 
-  async isFinalAsOf(tokenId: TokenId, instant: Instant): Promise<boolean> {
-    return toBool(await this.#slot(SELECTOR.isFinalAsOf, [tokenId, instant]));
+  isFinalAsOf(tokenId: TokenId, instant: Instant): Promise<boolean> {
+    return this.#publishCurrent(async () => toBool(await this.#slot(SELECTOR.isFinalAsOf, [tokenId, instant])));
   }
 
-  async openGapOf(tokenId: TokenId): Promise<Bytes32> {
-    return toBytes32(await this.#slot(SELECTOR.openGapOf, [tokenId]));
+  openGapOf(tokenId: TokenId): Promise<Bytes32> {
+    return this.#publishCurrent(async () => toBytes32(await this.#slot(SELECTOR.openGapOf, [tokenId])));
   }
 
-  async isSettlementAuthority(tokenId: TokenId, account: Address): Promise<boolean> {
-    return toBool(await this.#slot(SELECTOR.isSettlementAuthority, [tokenId, account]));
+  isSettlementAuthority(tokenId: TokenId, account: Address): Promise<boolean> {
+    return this.#publishCurrent(async () => toBool(await this.#slot(SELECTOR.isSettlementAuthority, [tokenId, account])));
+  }
+
+  /** Public methods return this exact promise, with no outer async adoption. */
+  async #publishCurrent<T>(read: () => Promise<T>): Promise<T> {
+    // Capture at public invocation, before any provider-bound work starts.
+    const revision = this.#network.revision;
+    const result = await read();
+    // Decoding and every private helper have finished. No await follows this
+    // check before the public operation's promise is fulfilled.
+    this.#network.assertCurrent(revision);
+    return result;
   }
 
   async #supports(interfaceId: string): Promise<boolean> {
