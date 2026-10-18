@@ -6,10 +6,10 @@
   "sourceRevision": "2026-10-19 HKT multichain core requirement",
   "sourceCommit": null,
   "sourcePullRequest": null,
-  "gitBlobSHA1": "325e7b60e5075cda422daddbc3193e6f113c8db2",
-  "bytes": 109948,
+  "gitBlobSHA1": "3b36fc0f909a4e247ddb74856895ca0aafb187c0",
+  "bytes": 110377,
   "encoding": "utf-8",
-  "sha256": "dbc505b32d060028721515dba2f3c5cc07b85df219527eb543f1cbbd3ff227cf",
+  "sha256": "117426ba8a421d3dbd9312911ca45ac26ee948c308381e800f6fd383295ddb55",
   "releaseLabel": "Beta 2.0",
   "capabilityProfiles": [
     "v2",
