@@ -8,7 +8,7 @@ import { createTaskAuthorizationService, freezeNftValuationPolicy } from '../ser
 import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
 import { createTaskBackgroundRunner } from '../server/task-background-runner.mjs';
 import { base32, hotp, matchTotp } from '../server/crypto.mjs';
-import { taskVerificationPolicyKey } from '../server/task-verification-state.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-policy.mjs';
 import { freezeNftListingChild, freezeTaskPolicy, normalizeNftListingAuthorizationReference, normalizeAuthorizationReference } from '../src/agent/taskContract.ts';
 
 const a = (n: string) => `0x${n.repeat(40)}`, h = (n: string) => `0x${n.repeat(64)}`, d = (n: string) => n.repeat(64);

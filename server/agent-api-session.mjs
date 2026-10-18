@@ -27,12 +27,12 @@ export function createAgentHttpTransport({ origin, timeoutMs = 10_000, maxRespon
     Number.isSafeInteger(maxResponseBytes) && maxResponseBytes > 0 && maxResponseBytes <= 4_194_304,
   'AGENT_API_TRANSPORT_CONFIG_REFUSED');
   const send = base.protocol === 'https:' ? httpsRequest : httpRequest;
-  return Object.freeze({ request({ method, path, headers, body }) {
+  return Object.freeze({ request({ method, path, headers, body, signal }) {
     check(['GET', 'POST'].includes(method) && /^\/auth\/[a-z/-]+$/.test(path), 'AGENT_API_ROUTE_REFUSED');
     const bytes = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     return new Promise((resolve, reject) => {
       const fail = () => reject(new AgentApiError('AGENT_API_TRANSPORT_UNAVAILABLE'));
-      const req = send(new URL(path, base), { method, headers: { ...headers,
+      const req = send(new URL(path, base), { method, ...(signal === undefined ? {} : { signal }), headers: { ...headers,
         ...(bytes === undefined ? {} : { 'Content-Type': 'application/json', 'Content-Length': String(bytes.length) }) } }, res => {
         const chunks = []; let size = 0;
         res.on('data', chunk => {
@@ -66,10 +66,10 @@ export function createAgentApiSession({ origin, tenant, account, chainId, loginS
   const preauthCookie = prefix ? '__Host-8415preauth' : '8415preauth-local';
   const sessionCookie = prefix ? '__Host-8415session' : '8415session-local';
   const cookies = new Map(), attempted = new Set();
-  let session = null, csrf = '', epoch = 0, pending = false;
+  let session = null, csrf = '', epoch = 0, pending = false, abort = new AbortController();
   const time = () => { const t = now(); check(Number.isSafeInteger(t) && t >= 0, 'AGENT_API_CLOCK_REFUSED'); return t; };
   const current = version => check(version === epoch, 'AGENT_API_CONTEXT_CANCELLED');
-  const clear = () => { epoch++; session = null; csrf = ''; cookies.clear(); };
+  const clear = () => { epoch++; abort.abort(); abort = new AbortController(); session = null; csrf = ''; cookies.clear(); };
   const publicSession = () => Object.freeze({ origin, tenant, account: selected, chainId,
     sessionId: session.id, expiresAt: session.expiresAt, authentication: 'wallet-message-api', transactionAuthority: false });
   function validSession(value, expectedId = null) {
@@ -86,7 +86,7 @@ export function createAgentApiSession({ origin, tenant, account, chainId, loginS
   }
   async function call(method, path, body, version) {
     let response;
-    try { response = await request({ method, path: `/auth/${path}`, headers: {
+    try { response = await request({ method, path: `/auth/${path}`, signal: abort.signal, headers: {
       Origin: origin, 'X-Wallet-Tenant': tenant, Accept: 'application/json',
       ...(csrf ? { 'X-Wallet-CSRF': csrf } : {}),
       ...(cookies.size ? { Cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join('; ') } : {}),

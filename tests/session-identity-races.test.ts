@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {WalletSession} from '../src/wallet/session.ts';
-import {Eip1193Signer} from '../src/adapters/signing/eip1193Signer.ts';
+import {AccountMismatchError,Eip1193Signer} from '../src/adapters/signing/eip1193Signer.ts';
 import {cancelledGapToken,REGISTRAR,STRANGER,DAVE,TOKEN,settlementId,commitment} from '../src/adapters/memory/scenarios.ts';
 async function fixture(){const {contract,reader}=cancelledGapToken();const session=new WalletSession(reader,{account:REGISTRAR});const request=await session.transactions.beginSettlement({tokenId:TOKEN,settlementId:settlementId('4'),expectedHolder:DAVE,snapshotHash:commitment('5'),deadline:contract.now+600n});return {session,request,reader};}
 
@@ -12,15 +12,22 @@ test('review: session signer receives detached request across caller mutation du
  Object.assign(request,{from:STRANGER,to:STRANGER,data:'0xdead',chainId:999n});await pending;assert.deepEqual(sent,before);
 });
 
-test('review: mutable signer account cannot accept switched provider account after old sender was checked',async()=>{
- const {session,request}=await fixture();let sent=0;let signer:Eip1193Signer;
+test('review: immutable signer account rejects a switched provider account after old sender was checked',async()=>{
+ const {session,request}=await fixture();let sent=0;let accountReads=0;let signer:Eip1193Signer;
  const provider={request:async({method}:any)=>{
   if(method==='eth_chainId')return '0x'+request.chainId.toString(16);
-  if(method==='eth_accounts'){(signer as any).account=STRANGER;return [STRANGER];}
+  if(method==='eth_accounts'){
+   accountReads++;
+   // A direct assignment to the getter-only property throws before the
+   // selected account is returned, making a broad rejects assertion vacuous.
+   assert.equal(Reflect.set(signer,'account',STRANGER),false);
+   return [STRANGER];
+  }
   if(method==='eth_sendTransaction'){sent++;return '0x'+'a'.repeat(64);}
   throw Error('UNEXPECTED_METHOD');
  }};signer=new Eip1193Signer(provider,REGISTRAR);
- await assert.rejects(session.send(request,signer));assert.equal(sent,0);
+ await assert.rejects(session.send(request,signer),AccountMismatchError);
+ assert.equal(accountReads,1);assert.equal(signer.account,REGISTRAR);assert.equal(sent,0);
 });
 
 test('review: source mutation after session construction cannot retarget previously bound send',async()=>{

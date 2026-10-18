@@ -168,6 +168,21 @@ test('prepare is a complete inactive immutable installation without creating cre
   assert.equal((await inspect({ target: f.target, uid })).summary.storeKeyPresent, false);
   await assert.rejects(prepare(f.options), /EXISTING_INSTALLATION_REFUSED/);
 });
+test('prepare and inspection preserve an empty registration directory without inventing accounts or credentials', async t => {
+  const f = await fixture(t), result = await prepare({ ...f.options, accounts: [] });
+  assert.equal(result.status, 'prepared-not-activated');
+  assert.equal(result.accountCount, 0); assert.equal(result.bindingCount, 0);
+  assert.equal(result.secretCreated, false); assert.equal(result.serviceStarted, false);
+  const installed = await inspect({ target: f.target, uid });
+  assert.deepEqual(installed.config.accounts, []);
+  assert.equal(installed.summary.accountCount, 0); assert.equal(installed.summary.bindingCount, 0);
+  assert.equal(installed.summary.storeKeyPresent, false);
+  assert.deepEqual(f.calls, [['daemon-reload']]);
+  for (const name of ['store-key', 'credentials.enc']) {
+    const directory = name === 'store-key' ? f.target.config : f.target.state;
+    await assert.rejects(stat(join(directory, name)), { code: 'ENOENT' });
+  }
+});
 test('prepare refuses package tampering and private credential fields', async t => {
   const f = await fixture(t); f.options.accounts[0].passwordHash = 'untrusted';
   await assert.rejects(prepare(f.options), /PUBLIC_BINDINGS_ONLY/);

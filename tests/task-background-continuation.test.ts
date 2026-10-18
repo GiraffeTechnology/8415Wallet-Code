@@ -10,7 +10,7 @@ import { createTaskAuthorizationService } from '../server/task-authorization.mjs
 import { createTaskBackgroundRunner } from '../server/task-background-runner.mjs';
 import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
 import { base32, digest, hotp, matchTotp, hashPassword } from '../server/crypto.mjs';
-import { taskVerificationPolicyKey } from '../server/task-verification-state.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-policy.mjs';
 import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
 
 // Synthetic keys, actors, receipts and time only. No provider/network/signing.

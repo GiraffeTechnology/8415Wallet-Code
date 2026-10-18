@@ -229,3 +229,36 @@ test('settlement admission uses the recorded snapshot in the binding', () => {
   assert.equal(e.store.settlement(id).snapshotHash, snapshotHash);
   assert.equal(e.store.settlement(id).status, 'ADMITTED');
 });
+
+test('supersession invalidates an old bound proof without admitting or finalising', () => {
+  const oldId = commitment(90);
+  const newId = commitment(91);
+  const snapshotHash = commitment(92);
+  const e = engine(candidate, oldId);
+  e.store.openGap(TOKEN, gap({ settlementId: oldId, snapshotHash, expectedHolder: ALICE }));
+  const oldDigest = bindingDigest({ ...e.context.binding, snapshotHash }, candidate);
+  e.adapter.setStateRoot(HEIGHT, merkleRoot([oldDigest]));
+  e.store.openGap(TOKEN, gap({ settlementId: newId, snapshotHash, expectedHolder: ALICE }));
+
+  // Even with identical holder/snapshot/candidate fields, the new settlement ID
+  // changes the proof binding. Relabelling the old proof cannot admit it.
+  rejects('PROOF_PROFILE_REJECTED', () => e.store.admit(TOKEN, candidate, {
+    profile: e.merkle.id, remoteHeight: HEIGHT, payload: { path: [] },
+  }));
+  assert.equal(e.store.settlement(oldId).status, 'SUPERSEDED');
+  assert.equal(e.store.openGapOf(TOKEN), newId);
+  assert.equal(e.store.entryCount(TOKEN), 0);
+  assert.equal(e.adapter.acceptedHeight(TOKEN), 0n);
+  assert.equal(e.store.isFinalAsOf(TOKEN, 100n), false);
+
+  const newDigest = bindingDigest({ ...e.context.binding, settlementId: newId, snapshotHash }, candidate);
+  e.adapter.setStateRoot(HEIGHT + 1n, merkleRoot([newDigest]));
+  e.store.admit(TOKEN, candidate, {
+    profile: e.merkle.id, remoteHeight: HEIGHT + 1n, payload: { path: [] },
+  });
+  assert.equal(e.store.settlement(oldId).status, 'SUPERSEDED');
+  assert.equal(e.store.settlement(newId).status, 'ADMITTED');
+  assert.equal(e.store.openGapOf(TOKEN), ZERO_BYTES32);
+  assert.equal(e.store.entryCount(TOKEN), 1);
+  assert.equal(e.store.isFinalAsOf(TOKEN, 100n), false);
+});

@@ -1348,7 +1348,7 @@ test('mounted fixed receipt review uses catalog keys in every locale and keeps p
       ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
       assert.equal(ui.result.snapshot().phase, 'review', locale);
       const notes = ui.el('task-summary').children.filter((node: Node) => node.children.length === 0);
-      assert.ok(notes.some((node: Node) => node.textContent === CATALOGS[locale]['task.receiptPhases'].replace('{phases}', phases.join(', '))), locale);
+      assert.ok(notes.some((node: Node) => node.textContent === CATALOGS[locale]!['task.receiptPhases']!.replace('{phases}', phases.join(', '))), locale);
       assert.ok(ui.el('task-summary').children.some((node: Node) => node.children.some(child => child.textContent === ui.policy.intent.sale.tokenId)), locale);
       assert.equal(ui.el('task-detail').hidden, false);
       assert.equal(ui.el('task-authorize-fields').hidden, false);
@@ -1384,9 +1384,9 @@ test('pre-operational default ON renders NOT_EVALUATED in all locales, sends an 
   assert.equal(f.result.snapshot().approvalEvaluation.state, 'NOT_EVALUATED');
   for (const id of ['task-code', 'task-code-label', 'task-authenticator-help']) assert.equal(f.el(id).hidden, true);
   assert.equal(f.el('task-code').disabled, true); assert.equal((f.el('task-code') as any).required, false);
-  const prose = () => f.el('task-summary').children.map(node => node.textContent).join('\n');
+  const prose = () => f.el('task-summary').children.map((node: Node) => node.textContent).join('\n');
   for (const locale of Object.keys(CATALOGS)) {
-    setLocale(locale, { persist: false }); assert.ok(prose().includes(CATALOGS[locale]['task.approvalNotEvaluated']));
+    setLocale(locale, { persist: false }); assert.ok(prose().includes(CATALOGS[locale]!['task.approvalNotEvaluated']!));
   }
   setLocale('en', { persist: false });
   f.el('task-code').value = '654321'; f.el('task-ack').checked = true; f.el('task-authorize').type = 'button';

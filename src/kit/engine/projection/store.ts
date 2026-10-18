@@ -1,6 +1,6 @@
 import { TokenProjection, validateCandidateShape } from './kernel.ts';
 import { reject, ProjectionError } from './errors.ts';
-import { ZERO_ADDRESS, ZERO_BYTES32, type Address, type Bytes32, type CandidateEntry, type Instant, type ProjectionEntry, type Settlement, type TokenId } from './types.ts';
+import { ZERO_BYTES32, type Address, type Bytes32, type CandidateEntry, type Instant, type ProjectionEntry, type Settlement, type TokenId } from './types.ts';
 import type { ProofMaterial, ProofProfile, ProofProfileRegistry } from '../proof/profile.ts';
 import type { RemoteChainAdapter } from '../ports.ts';
 
@@ -95,37 +95,41 @@ export class ProjectionStore {
       .sort((a, b) => (a.openedAt < b.openedAt ? -1 : a.openedAt > b.openedAt ? 1 : 0));
   }
 
+  /** Internal workflow existence query; an absent record is not a settlement. */
+  hasSettlement(settlementId: Bytes32): boolean {
+    return this.#settlements.has(settlementId);
+  }
+
   settlement(settlementId: Bytes32): Settlement {
     const record = this.#settlements.get(settlementId);
     if (record === undefined) {
-      return {
-        settlementId,
-        tokenId: 0n,
-        initiator: ZERO_ADDRESS,
-        expectedHolder: ZERO_ADDRESS,
-        snapshotHash: ZERO_BYTES32,
-        openedAt: 0n,
-        deadline: 0n,
-        status: 'NONE',
-      };
+      return reject('NO_OPEN_GAP', `settlement ${settlementId} does not exist`);
     }
     return record;
   }
 
   /**
-   * Record an open gap. At most one per token.
+   * Record an open gap, superseding the previous one. At most one per token.
    *
    * Opening a gap does not touch the projection and does not block any
    * transfer. The settlement workflow that drives this is Stage 4; the record
    * lives here because admission has to be able to close it atomically.
    */
   openGap(tokenId: TokenId, gap: Omit<Settlement, 'status' | 'tokenId'>): Settlement {
-    if (this.#openGaps.has(key(tokenId))) {
-      reject('GAP_ALREADY_OPEN', `token ${tokenId} already has an open gap`);
+    const record: Settlement = Object.freeze({ ...gap, tokenId, status: 'OPEN' });
+    if (this.#settlements.has(record.settlementId)) {
+      reject('SETTLEMENT_EXISTS', `settlement ${record.settlementId} already exists`);
     }
-    const record: Settlement = { ...gap, tokenId, status: 'OPEN' };
-    this.#openGaps.set(key(tokenId), record.settlementId);
+    const previousId = this.#openGaps.get(key(tokenId));
+    const superseded: Settlement | undefined = previousId === undefined
+      ? undefined : Object.freeze({ ...this.settlement(previousId), status: 'SUPERSEDED' });
+
+    // All caller validation and record construction precede this synchronous
+    // commit. Preserve the old record; replacement admits no entry, consumes
+    // no proof and advances no remote height.
+    if (superseded !== undefined) this.#settlements.set(superseded.settlementId, superseded);
     this.#settlements.set(record.settlementId, record);
+    this.#openGaps.set(key(tokenId), record.settlementId);
     return record;
   }
 
@@ -140,7 +144,7 @@ export class ProjectionStore {
     if (settlementId === undefined) {
       return reject('NO_OPEN_GAP', `token ${tokenId} has no open gap`);
     }
-    const cancelled: Settlement = { ...this.settlement(settlementId), status: 'CANCELLED' };
+    const cancelled: Settlement = Object.freeze({ ...this.settlement(settlementId), status: 'CANCELLED' });
     this.#openGaps.delete(key(tokenId));
     this.#settlements.set(settlementId, cancelled);
     return cancelled;
@@ -207,7 +211,7 @@ export class ProjectionStore {
     let gapClosed = false;
     if (openId !== undefined) {
       this.#openGaps.delete(key(tokenId));
-      this.#settlements.set(openId, { ...this.settlement(openId), status: 'ADMITTED' });
+      this.#settlements.set(openId, Object.freeze({ ...this.settlement(openId), status: 'ADMITTED' }));
       gapClosed = true;
     }
 

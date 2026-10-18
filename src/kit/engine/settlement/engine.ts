@@ -42,8 +42,9 @@ export interface BeginRequest {
  *
  * - it cannot block a transfer. There is no transfer here to block, and an
  *   open gap is a record beside the projection, never a lock on it;
- * - it cannot finalise anything. Opening, cancelling, expiring and closing a
- *   gap all leave `isFinalAsOf` exactly where it was;
+ * - gap state alone cannot finalise anything. Opening, cancellation,
+ *   supersession and expiry leave the projection unchanged; admission affects
+ *   `isFinalAsOf` through the appended entry, not through gap closure;
  * - it cannot reject an entry. There is no rejection path: an admission that
  *   does not verify never becomes an entry, and one that does is permanent.
  */
@@ -79,7 +80,8 @@ export class SettlementEngine {
   /**
    * Open a gap. Only a settlement authority may, the identifier must be fresh,
    * the deadline must be in the future and within the settlement period, and
-   * a token may have at most one open gap.
+   * a token may have at most one open gap. A valid new settlement supersedes
+   * an existing open one without changing projection history or finality.
    */
   begin(request: BeginRequest): Settlement {
     const { store, clock } = this.#options;
@@ -99,7 +101,7 @@ export class SettlementEngine {
     if (!this.isSettlementAuthority(request.tokenId, request.initiator)) {
       reject('NOT_SETTLEMENT_AUTHORITY', `${request.initiator} may not open a gap on token ${request.tokenId}`);
     }
-    if (store.settlement(request.settlementId).status !== 'NONE') {
+    if (store.hasSettlement(request.settlementId)) {
       reject('SETTLEMENT_EXISTS', `settlement ${request.settlementId} already exists`);
     }
 

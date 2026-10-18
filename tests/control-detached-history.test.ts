@@ -21,18 +21,23 @@ function fixture(count=3, fault='', mutate?:()=>void) {
   });
   const anchor=count===0?h('0'):commitment;
   const document={schema:'8415-detached-history/1',chainId:'560048',controller:pin.controller,sequenceId,records};
-  const calls:string[]=[]; let chains=0;
+  const calls:string[]=[]; let chains=0, headers=0;
+  let snapshotChainChecked=false, finalVerification=false;
   const provider:Eip1193Provider={async request({method,params=[]}){
     calls.push(method);
     if(method==='eth_chainId'){
       if(++chains===1)mutate?.();
-      return fault==='chain-switch'&&chains===2?'0x1':'0x88bb0';
+      // The snapshot now has its own end-of-read chain check. Inject the
+      // outer verification fault only after that boundary has completed.
+      if(headers>=2) { finalVerification=snapshotChainChecked; snapshotChainChecked=true; }
+      return fault==='chain-switch'&&finalVerification?'0x1':'0x88bb0';
     }
-    if(method==='eth_getCode')return fault==='code-drift'&&chains===2?'0x6001':code;
+    if(method==='eth_getCode')return fault==='code-drift'&&finalVerification?'0x6001':code;
     if(method==='eth_getBlockByNumber'){
-      if(fault==='late-missing'&&chains===2)return null;
-      if(fault==='late-transport'&&chains===2)throw Error('not public');
-      return {number:'0x2',timestamp:'0x3',hash:fault==='late-reorg'&&chains===2?h('b'):h('a')};
+      headers++;
+      if(fault==='late-missing'&&finalVerification)return null;
+      if(fault==='late-transport'&&finalVerification)throw Error('not public');
+      return {number:'0x2',timestamp:'0x3',hash:fault==='late-reorg'&&finalVerification?h('b'):h('a')};
     }
     if(method==='eth_call'){
       assert.deepEqual(params[1],{blockHash:h('a'),requireCanonical:true});
