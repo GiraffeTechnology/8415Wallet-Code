@@ -88,6 +88,7 @@
       "deploy/auth-xiongan/migrate-legacy.mjs",
       "deploy/dapp/install.mjs",
       "server/account-directory.mjs",
+      "server/agent-api-session.mjs",
       "server/auth-service.mjs",
       "server/ca-verifier.mjs",
       "server/config-validation.mjs",
@@ -836,6 +837,12 @@
       "mode": "100644",
       "git_blob_sha1": "e75ff75158c3da51391bf5d59aaeb1b129ebfae4",
       "sha256": "e1ded7d056541da348d4da68cbaac0dfea3315a8241797dca410109244e546d0"
+    },
+    {
+      "path": "server/agent-api-session.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "2fb96aaca99d0f549e48ad0f4e97e997fdc16711",
+      "sha256": "a04938ac26ce8bfa77fcb384775c151fe80abddc90eb94c0e2f1dd88d1cd755b"
     },
     {
       "path": "server/auth-service.mjs",
