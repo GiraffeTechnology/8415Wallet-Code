@@ -46,7 +46,8 @@
     "wallet:auth:migrate-legacy": "node deploy/auth-runtime/migrate-legacy.mjs",
     "test:task-listing-runtime": "node --conditions=react-server --test tests/task-journal-capabilities.test.mjs tests/task-listing-runtime-config.test.mjs tests/task-listing-runtime-http.test.mjs tests/task-listing-bootstrap.test.mjs tests/task-listing-runtime-package.test.mjs",
     "test:read-only-ui": "npm run wallet:browser:build && node --test tests/task-activity.test.mjs tests/task-activity-integration-boundaries.test.mjs tests/read-only-panels-lifecycle.test.mjs tests/task-activity-observer-receipt.test.mjs tests/observation-details-flow.test.mjs tests/observation-source-contract.test.mjs",
-    "test:forward-progress": "node --test tests/forward-progress-service.test.mjs tests/forward-progress-reader.test.mjs"
+    "test:forward-progress": "node --test tests/forward-progress-service.test.mjs tests/forward-progress-reader.test.mjs",
+    "test:agent-api": "node --test tests/agent-api-session.test.mjs"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.3",
