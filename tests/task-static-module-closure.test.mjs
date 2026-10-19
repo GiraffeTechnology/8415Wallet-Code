@@ -29,7 +29,7 @@ test('foundation entries and separately retained module closures are served exac
     assert.ok(pending.includes('/web/wallet-auth.mjs'));
     assert.match(html, /<body[^>]*data-wallet-composition="foundation"/);
     assert.equal(pending.includes('/web/task-ui.mjs'), false);
-    assert.equal(pending.includes('/web/task-verification-policy-startup.mjs'), false);
+    assert.equal(pending.includes('/web/task-verification-policy-startup.mjs'), true);
     const entryCount = pending.length;
     async function servedClosure(roots) {
       const pending = [...roots], visited = new Set();
@@ -57,7 +57,10 @@ test('foundation entries and separately retained module closures are served exac
     t.diagnostic(`Verified ${entryCount} actual foundation entries and ${actual.size} served modules`);
     assert.ok(actual.has('/web/method-change-ui.mjs'));
     assert.equal(actual.has('/web/task-ui.mjs'), false);
-    assert.equal(actual.has('/web/task-verification-policy-ui.mjs'), false);
+    assert.equal(actual.has('/web/task-verification-policy-ui.mjs'), true);
+    assert.ok(actual.has('/web/task-verification-policy-entry.mjs'));
+    assert.ok(actual.has('/web/task-verification-policy-client.mjs'));
+    assert.ok(actual.has('/web/task-verification-policy-wire.mjs'));
     // These modules remain packaged for explicit component/integration fixtures;
     // availability is not a claim that the production foundation mounts them.
     const visited = await servedClosure([...pending, '/web/task-ui.mjs',

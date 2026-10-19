@@ -51,7 +51,7 @@ function moduleClosure(entries: string[]): Set<string> {
   return seen;
 }
 
-test('foundation page retains policy host but does not mount unopened policy or task controls', () => {
+test('foundation page reaches read-only policy settings without mounting task execution', () => {
   const html = readFileSync(resolve(root, 'web/index.html'), 'utf8');
   assert.match(html, /id=["']task-verification-policy-settings["']/);
   const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/g)]
@@ -59,8 +59,10 @@ test('foundation page retains policy host but does not mount unopened policy or 
   assert.ok(scripts.length > 0);
   const reached = moduleClosure(scripts);
   assert.match(html, /<body[^>]*data-wallet-composition="foundation"/);
-  assert.equal(reached.has('web/task-verification-policy-ui.mjs'), false);
-  assert.equal(reached.has('web/task-verification-policy-startup.mjs'), false);
+  assert.equal(reached.has('web/task-verification-policy-ui.mjs'), true);
+  assert.equal(reached.has('web/task-verification-policy-entry.mjs'), true);
+  assert.equal(reached.has('web/task-verification-policy-client.mjs'), true);
+  assert.equal(reached.has('web/task-verification-policy-startup.mjs'), true);
   assert.equal(reached.has('web/task-ui.mjs'), false);
   assert.ok(reached.has('web/wallet-auth.mjs'));
   assert.ok(reached.has('web/about-entry.mjs'));
