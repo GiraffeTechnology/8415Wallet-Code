@@ -78,9 +78,9 @@ function fixture(initialEntry = null) {
     route(name) { nodes.find(node => node.dataset.route === name && !node.attributes.has('data-foundation-placeholder')).click(); } };
 }
 
-test('foundation mounts auth, public presentation and About, with no operation entry module', () => {
+test('foundation mounts authenticated read-only policy status without operation entry modules', () => {
   const scripts = [...html.matchAll(/<script\b([^>]*)>/g)].map(([, raw]) => attrsOf(raw));
-  assert.deepEqual(scripts.map(attrs => attrs.get('src')), ['locale-ui.mjs', 'wallet-auth.mjs', 'wallet-shell.mjs', 'tenant-password-ui.mjs', 'about-entry.mjs']);
+  assert.deepEqual(scripts.map(attrs => attrs.get('src')), ['locale-ui.mjs', 'wallet-auth.mjs', 'wallet-shell.mjs', 'tenant-password-ui.mjs', 'about-entry.mjs', 'task-verification-policy-startup.mjs']);
   for (const script of scripts) assert.equal(script.get('type'), 'module');
   for (const path of ['app.mjs', 'external-assets.mjs', 'legacy-clearing.mjs', 'task-ui.mjs', 'task-verification-policy-startup.mjs']) {
     assert.ok(readFileSync(new URL(`../web/${path}`, import.meta.url)).byteLength > 0);

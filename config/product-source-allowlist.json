@@ -811,8 +811,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "b50aa72550e7929fd925a318fe611f840f5cf281",
-      "sha256": "4defa15592e7ea977bf056ac876b75f3ed33a822626e6d584231a30aef314e0e"
+      "git_blob_sha1": "9a905254b198cffa9f7b891313140f17a517b193",
+      "sha256": "5a86a3c56b1f487d2c5a61ee6e08afb05b6df69ea58130a9b8da8c55e9709ac5"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -2305,8 +2305,8 @@
     {
       "path": "web/index.html",
       "mode": "100644",
-      "git_blob_sha1": "c4855097cf573b417702af026572404bd525c693",
-      "sha256": "fc2a4304df3e7dd821000bc0e0f3fbae1e9f2b318f2a8ccc8084c28b337ceb1b"
+      "git_blob_sha1": "62624a2fb205fe68da8e83e35442cadf09749732",
+      "sha256": "3f9addc3ce496f41b5d24ef8c3bf29db2852337ebbed660697eaecefac89bb4f"
     },
     {
       "path": "web/kit-read-panel.mjs",

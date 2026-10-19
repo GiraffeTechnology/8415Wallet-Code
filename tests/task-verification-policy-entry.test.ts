@@ -88,7 +88,7 @@ test('unavailable strict bridge stays unavailable and factory exceptions are not
   entry.destroy();
 });
 
-test('foundation retains policy and task hosts without mounting unopened controls', () => {
+test('foundation connects the read-only policy host without mounting task execution', () => {
   const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
   const start = html.indexOf('<section id="auth-management"');
   const host = html.indexOf('<section id="task-verification-policy-settings"');
@@ -97,7 +97,7 @@ test('foundation retains policy and task hosts without mounting unopened control
   assert.equal(html.match(/id="task-verification-policy-settings"/g)?.length, 1);
   assert.match(html, /<body[^>]*data-wallet-composition="foundation"/);
   const entries = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)].map(match => match[1]);
-  assert.equal(entries.includes('task-verification-policy-startup.mjs'), false);
+  assert.equal(entries.includes('task-verification-policy-startup.mjs'), true);
   assert.equal(entries.includes('task-ui.mjs'), false);
   assert.match(html, /<form id="task-authorize-form"[^>]*inert[^>]*data-foundation-placeholder="true"/);
   const defaults = [...html.matchAll(/<button\b[^>]*data-policy-source="unconnected-default"[^>]*>/g)];
