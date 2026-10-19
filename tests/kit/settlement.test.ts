@@ -87,16 +87,70 @@ test('the deadline is bounded by the settlement period', () => {
   assert.equal(s.engine.settlementPeriod, PERIOD);
 });
 
-test('a token has at most one open gap, and an id is never reused', () => {
+test('a new settlement supersedes the open gap, and no id is reused', () => {
   const s = scene();
-  begin(s);
-  rejects('GAP_ALREADY_OPEN', () => begin(s, { settlementId: commitment(0x5e78) }));
+  const original = begin(s);
+  const previousEntries = s.h.store.entries(TOKEN);
+  const previousHeight = s.h.adapter.acceptedHeight(TOKEN);
+  const replacementId = commitment(0x5e78);
+  const replacement = begin(s, { settlementId: replacementId, snapshotHash: commitment(0x5b) });
+  assert.deepEqual(s.engine.settlement(SETTLEMENT), { ...original, status: 'SUPERSEDED' });
+  assert.equal(replacement.status, 'OPEN');
+  assert.equal(s.engine.openGapOf(TOKEN), replacementId);
+  assert.equal(s.h.store.settlementsFor(TOKEN).filter(record => record.status === 'OPEN').length, 1);
+  assert.deepEqual(s.h.store.entries(TOKEN), previousEntries);
+  assert.equal(s.h.adapter.acceptedHeight(TOKEN), previousHeight);
+  assert.equal(s.h.store.isFinalAsOf(TOKEN, 150n), false);
   rejects('SETTLEMENT_EXISTS', () => begin(s, { settlementId: SETTLEMENT }));
+  rejects('SETTLEMENT_EXISTS', () => begin(s, { settlementId: replacementId }));
+  rejects('NO_OPEN_GAP', () => s.engine.finalize(SETTLEMENT, nextEntry(), {
+    profile: 'test:open', remoteHeight: 500n, payload: {},
+  }));
+  rejects('NO_OPEN_GAP', () => s.engine.cancel(SETTLEMENT, ALICE));
+  assert.equal(s.engine.openGapOf(TOKEN), replacementId);
 
   s.clock.advance(3_601n);
-  s.engine.cancel(SETTLEMENT, ALICE);
-  // The identifier stays spent after the gap closes.
+  s.engine.cancel(replacementId, ALICE);
+  // Both identifiers stay spent, and closing the new gap cannot rewrite the old record.
   rejects('SETTLEMENT_EXISTS', () => begin(s, { settlementId: SETTLEMENT }));
+  rejects('SETTLEMENT_EXISTS', () => begin(s, { settlementId: replacementId }));
+  assert.equal(s.engine.settlement(SETTLEMENT).status, 'SUPERSEDED');
+  assert.equal(s.engine.settlement(replacementId).status, 'CANCELLED');
+  assert.equal(s.h.store.isFinalAsOf(TOKEN, 150n), false);
+});
+
+test('invalid replacements preserve the open settlement and projection atomically', () => {
+  const s = scene();
+  const original = begin(s);
+  const entries = s.h.store.entries(TOKEN);
+  const height = s.h.adapter.acceptedHeight(TOKEN);
+  const invalid: readonly [string, Partial<Parameters<SettlementEngine['begin']>[0]>][] = [
+    ['SETTLEMENT_EXISTS', { settlementId: SETTLEMENT }],
+    ['NOT_SETTLEMENT_AUTHORITY', { initiator: CAROL }],
+    ['MALFORMED_ENTRY', { expectedHolder: 'not-an-address' }],
+    ['MALFORMED_ENTRY', { snapshotHash: ZERO_BYTES32 }],
+    ['DEADLINE_OUT_OF_RANGE', { deadline: s.clock.now() }],
+    ['DEADLINE_OUT_OF_RANGE', { deadline: s.clock.now() + PERIOD + 1n }],
+  ];
+  for (const [code, fields] of invalid) {
+    rejects(code, () => begin(s, { settlementId: commitment(0x5e78), ...fields }));
+    assert.equal(s.engine.openGapOf(TOKEN), SETTLEMENT);
+    assert.deepEqual(s.engine.settlement(SETTLEMENT), original);
+    assert.equal(s.h.store.settlementsFor(TOKEN).length, 1);
+    assert.deepEqual(s.h.store.entries(TOKEN), entries);
+    assert.equal(s.h.adapter.acceptedHeight(TOKEN), height);
+  }
+});
+
+test('a replacement cannot overwrite a settlement from another token', () => {
+  const s = scene();
+  begin(s);
+  const otherId = commitment(0x5e79);
+  const other = begin(s, { tokenId: 2n, settlementId: otherId });
+  rejects('SETTLEMENT_EXISTS', () => begin(s, { settlementId: otherId }));
+  assert.equal(s.engine.openGapOf(TOKEN), SETTLEMENT);
+  assert.equal(s.engine.openGapOf(2n), otherId);
+  assert.deepEqual(s.engine.settlement(otherId), other);
 });
 
 test('admission closes the gap and records the outcome', () => {
@@ -221,6 +275,23 @@ test('a closed gap cannot be reopened, refinalized or recancelled', () => {
   rejects('NO_OPEN_GAP', () => s.engine.finalize(commitment(0xabc), nextEntry(), {
     profile: 'test:open', remoteHeight: 500n, payload: {},
   }));
+});
+
+test('unknown settlement queries reject without fabricating NONE or blocking a fresh begin', () => {
+  const s = scene();
+  for (const unknown of [ZERO_BYTES32, SETTLEMENT]) {
+    rejects('NO_OPEN_GAP', () => s.engine.settlement(unknown));
+    rejects('NO_OPEN_GAP', () => s.engine.hasExpired(unknown));
+    rejects('NO_OPEN_GAP', () => s.engine.cancel(unknown, ALICE));
+    rejects('NO_OPEN_GAP', () => s.engine.finalize(unknown, nextEntry(), {
+      profile: 'test:open', remoteHeight: 500n, payload: {},
+    }));
+  }
+  assert.equal(s.engine.openGapOf(TOKEN), ZERO_BYTES32);
+  assert.equal(s.h.store.entryCount(TOKEN), 1);
+  assert.equal(s.h.store.isFinalAsOf(TOKEN, 150n), false);
+  assert.equal(begin(s).status, 'OPEN');
+  assert.equal(s.engine.openGapOf(TOKEN), SETTLEMENT);
 });
 
 test('the settlement engine exposes no rejection, freeze or override path', () => {

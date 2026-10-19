@@ -1,8 +1,15 @@
+import { readTaskGrantVerificationPolicy } from './task-verification-execution.mjs';
+import { taskOperationVerificationBinding, consumeTaskOperationVerification,
+  assertTaskOperationVerificationAttempt, taskOperationVerificationRequirement,
+  TASK_OPERATION_PROOF_LIFE_MS } from './task-operation-verification.mjs';
+import { normalizeTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
 import { normalizeListingResult, listingCompletion } from '../web/task-listing-results.mjs';
 /** Durable bounded task grants. Login is not operation authorization.
  * No signer, market verifier or receipt verifier is supplied by this module.
  */
 import { digest, equal, randomToken } from './crypto.mjs';
+import { createTaskObserverContextCodec } from '../web/task-observer-context.mjs';
+import { createTaskObservationSources } from './task-observation-sources.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
@@ -15,6 +22,7 @@ import { TaskObservationError, freezeTaskObservationPolicy, normalizeObservation
 
 import { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from '../src/agent/receiptTask.ts';
 import { validateReceiptWire } from './receipt-operation-encoding.mjs';
+import { testMintInventoryKey } from './task-test-asset-authorization.mjs';
 function freezeAuthorizedTask(policy) {
   const descriptor = policy && typeof policy === 'object' ? Object.getOwnPropertyDescriptor(policy, 'intent') : null;
   const intent = descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : null;
@@ -36,6 +44,16 @@ function version(value) { requireThat(typeof value === 'string' && /^(0|[1-9][0-
 const immutable = value => { for (const child of Object.values(value)) if (child && typeof child === 'object') immutable(child); return Object.freeze(value); };
 const key = (kind, values) => `task-${kind}:${digest(JSON.stringify(values))}`;
 const missing = ['OPERATION_ENCODING_VERIFIER_NOT_CONNECTED', 'USER_CONTROLLED_SIGNER_NOT_CONNECTED'];
+const observerContextCodec = createTaskObserverContextCodec({
+  normalizeTaskObservation, normalizeObservationVerifier, freezeTaskObservationPolicy,
+  hashCanonical: value => `0x${digest(JSON.stringify(value))}`,
+  fail: code => { throw new TaskAuthorizationError(code, 503); },
+});
+const observationSources = createTaskObservationSources({ observerContextCodec, normalizeObservationVerifier,
+  normalizeTaskObservation, freezeTaskObservationPolicy,
+  hashCanonical: value => `0x${digest(JSON.stringify(value))}`,
+  fail: code => { throw new TaskAuthorizationError(code, 503); },
+});
 
 const SERVICE_IMPLEMENTATION_DIGEST = `0x${digest(readFileSync(fileURLToPath(import.meta.url)))}`;
 export function freezeTaskExecutorIdentity(input) {
@@ -97,11 +115,16 @@ const isListing = child => child.child.schema === '8415-nft-listing-child/1';
  */
 export function createTaskAuthorizationService({ origin, tenant, store, now = Date.now,
   assertSession, credentialFor, consumeTotp, assertPrincipal = null, principalReady = null,
-  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null, channelBindings = null }) {
+  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null, channelBindings = null, testAuthorization = null, operationVerificationEnabled = false }) {
+  requireThat(typeof operationVerificationEnabled === 'boolean' && (!operationVerificationEnabled || typeof store?.withReadSnapshot === 'function'),
+    'TASK_OPERATION_VERIFICATION_CONFIG_REFUSED', 500);
   requireThat(receiptHandlerId === null || receiptHandlerId === 'artfi:whole-receipt:v1', 'TASK_RECEIPT_CONFIG_REFUSED', 500);
   requireThat(store && typeof store.transactionMany === 'function' &&
     [assertSession, credentialFor, consumeTotp, now].every(value => typeof value === 'function'), 'TASK_CONFIG_REFUSED', 500);
-  requireThat(execution === null || execution && ['verify', 'send', 'recover'].every(name => typeof execution[name] === 'function') && (execution.plan === undefined || typeof execution.plan === 'function'), 'TASK_ADAPTER_CONFIG_REFUSED', 500);
+  requireThat(execution === null || typeof store.withReadSnapshot === 'function', 'TASK_EXECUTION_GATE_NOT_CONFIGURED', 500);
+  requireThat(execution === null || execution && ['verify', 'send', 'recover'].every(name => typeof execution[name] === 'function') &&
+    (execution.plan === undefined || typeof execution.plan === 'function') &&
+    (execution.recoverHistorical === undefined || typeof execution.recoverHistorical === 'function'), 'TASK_ADAPTER_CONFIG_REFUSED', 500);
   requireThat(listingExecution === null || listingExecution && ['verify', 'send', 'recover'].every(name => typeof listingExecution[name] === 'function') &&
     (listingExecution.plan === undefined || typeof listingExecution.plan === 'function') && typeof store.withReadSnapshot === 'function', 'TASK_LISTING_CONFIG_REFUSED', 500);
   requireThat(listingResults === null || ['read', 'scan'].every(name => typeof listingResults?.[name] === 'function'), 'TASK_LISTING_RESULTS_CONFIG_REFUSED', 500);
@@ -147,7 +170,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   // replace the verifier/signer beneath an already reviewed executor identity.
   if (execution !== null) {
     const configured = execution;
-    execution = Object.freeze(Object.fromEntries(['verify', 'send', 'recover', 'plan'].filter(name => typeof configured[name] === 'function')
+    execution = Object.freeze(Object.fromEntries(['verify', 'send', 'recover', 'recoverHistorical', 'plan'].filter(name => typeof configured[name] === 'function')
       .map(name => [name, configured[name].bind(configured)])));
   }
   if (listingExecution !== null) {
@@ -164,9 +187,13 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       observationPolicyCopy(receipt.observationPolicy)?.digest === approvedObservationPolicy.digest, 'TASK_RECEIPT_CONFIG_REFUSED', 500);
     receiptVerifier = normalizeObservationVerifier(receipt.identity);
     const configured = receipt;
-    receipt = Object.freeze({ assessChild: configured.assessChild.bind(configured), observe: configured.observe.bind(configured), ...(typeof configured.observeReplacement === 'function' ?
-      { observeReplacement: configured.observeReplacement.bind(configured) } : {}) });
+    receipt = Object.freeze(Object.fromEntries(['assessChild', 'observe', 'observeReplacement', 'observeMintResult',
+      'observeHistorical', 'observeReplacementHistorical', 'observeMintResultHistorical']
+      .filter(name => typeof configured[name] === 'function').map(name => [name, configured[name].bind(configured)])));
   }
+  const capturedObservationSource = receipt === null ? null : observationSources.capture({
+    verifier: receiptVerifier, verificationPolicy: approvedObservationPolicy, methods: receipt,
+  });
   // Selection is always from a normalized task (or the stored grant), never a
   // request-supplied adapter name. Removing/replacing a port suspends its grants;
   // it never falls back to another channel's approval identity.
@@ -191,8 +218,27 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     if (!internalContexts.has(context)) return ownerCredentialFor(context);
     const credential = await store.read(`${tenant}:${context.username}`); assertSession(context, credential); return credential;
   };
+  requireThat(testAuthorization === null || typeof testAuthorization.allows === 'function', 'TASK_TEST_ASSET_CONFIG_REFUSED', 500);
+  const testScope = testAuthorization === null ? null : testAuthorization.allows.bind(testAuthorization);
+  const acceptCommittedMintRecord = typeof testAuthorization?.acceptCommittedMintRecord === 'function' ?
+    testAuthorization.acceptCommittedMintRecord.bind(testAuthorization) : null;
+  function testFactorAllowed(task) {
+    if (testScope === null) return false;
+    const value = testScope(task);
+    requireThat(typeof value === 'boolean', 'TASK_TEST_ASSET_CONFIG_REFUSED', 500);
+    return value;
+  }
+  // The absent owner policy is the native unlocked initial state. Select it
+  // only from the authoritative credential and canonical task/executor scope;
+  // never from request flags or the availability of the management UI.
+  function taskApprovalPolicy(credential, grant) {
+    const policy = readTaskGrantVerificationPolicy(credential, grant);
+    return Object.freeze({ factor: testFactorAllowed(grant.task) ? 'server-test-scope' :
+      policy.mode === 'ON' && policy.revision === '0' ? 'preoperational-default-on' : 'totp',
+      policyRevision: policy.revision });
+  }
   const queueKey = key('queue', [origin, tenant]);
-  const challenges = new Map();
+  const challenges = new Map(), operationChallenges = new Map();
   const stamp = () => { const time = now(); requireThat(Number.isSafeInteger(time) && time >= 0, 'TASK_CLOCK_REFUSED', 503); return time; };
   const seconds = () => BigInt(Math.floor(stamp() / 1000));
   const principal = session => [origin, tenant, session.username, session.account.toLowerCase(), session.chainId];
@@ -208,13 +254,156 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   function sweep() {
     const time = stamp();
     for (const [id, challenge] of challenges) if (time < challenge.issuedAt || time >= challenge.expiresAt) challenges.delete(id);
+    for (const [id, challenge] of operationChallenges) if (time < challenge.issuedAt || time >= challenge.expiresAt) operationChallenges.delete(id);
   }
   function cancel(session) {
     for (const [id, challenge] of challenges) if (challenge.sessionId === session.id) challenges.delete(id);
+    for (const [id, challenge] of operationChallenges) if (challenge.sessionId === session.id) operationChallenges.delete(id);
   }
   function checkTask(task, session) {
     requireThat(task.policy.origin === origin && task.policy.tenant === tenant && task.policy.actor === session.account.toLowerCase() &&
       task.policy.chainId === session.chainId, 'TASK_PRINCIPAL_BINDING_REFUSED', 403);
+  }
+  const observerSourceScope = grant => ({ principal: grant.principal, grantReference: grant.reference,
+    taskDigest: grant.task.digest });
+  function durableObserverAttempt(grant, operation, operationId) {
+    const child = freezeChildOperation(operation?.child?.child);
+    const reservation = grant.budget?.reservations.find(r => r.operationId === operationId);
+    requireThat(operation.status === 'submitted' && child.digest === operation.child.digest &&
+      child.child.taskDigest === grant.task.digest && child.child.operationId === operationId &&
+      reservation?.status === 'submitted' && reservation.childDigest === child.digest &&
+      reservation.transactionHash !== null && operation.attemptExecutor && operation.attemptReceiptVerifier &&
+      operation.attemptObservationPolicy, 'TASK_OBSERVATION_SOURCE_ATTEMPT_REFUSED', 503);
+    return observerContextCodec.normalizeAttempt({ taskDigest: grant.task.digest, operationId,
+      childDigest: child.digest, chainId: child.child.operation.chainId, actor: child.child.operation.actor,
+      nonce: child.child.nonce, transactionHash: reservation.transactionHash,
+      executorDigest: executorCopy(operation.attemptExecutor).digest,
+      grantPolicyVersion: operation.attemptGrantPolicyVersion,
+      observationPolicy: observationPolicyCopy(operation.attemptObservationPolicy),
+      receiptVerifier: normalizeObservationVerifier(operation.attemptReceiptVerifier) });
+  }
+  function originalObserverAttempt(grant, entry, observation) {
+    if (entry.schema === '8415-task-observation-record/3') {
+      const source = observationSources.resolve(grant.observationSources, observerSourceScope(grant),
+        observationSources.entryReferences(entry));
+      const original = source.attempt;
+      const reservation = grant.budget?.reservations.find(r => r.operationId === entry.operationId);
+      requireThat(reservation?.status === 'submitted' && original.taskDigest === grant.task.digest &&
+        original.childDigest === reservation.childDigest && original.operationId === entry.operationId &&
+        original.chainId === grant.task.policy.chainId && original.actor === grant.task.policy.actor &&
+        original.transactionHash === reservation.transactionHash && original.executorDigest === grant.executor.digest &&
+        BigInt(original.grantPolicyVersion) <= BigInt(grant.grantPolicyVersion) &&
+        original.observationPolicy.digest === grant.observationPolicy?.digest &&
+        sameVerifier(original.receiptVerifier, grant.receiptVerifier), 'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+      return original;
+    }
+    const reservation = grant.budget?.reservations.find(r => r.operationId === entry.operationId);
+    requireThat(reservation?.status === 'submitted' && observation.taskDigest === grant.task.digest &&
+      observation.childDigest === reservation.childDigest && observation.chainId === grant.task.policy.chainId &&
+      observation.actor === grant.task.policy.actor && observation.originalTransactionHash === reservation.transactionHash &&
+      observation.attemptExecutorDigest === grant.executor.digest &&
+      BigInt(observation.attemptGrantPolicyVersion) <= BigInt(grant.grantPolicyVersion) &&
+      observation.observationPolicyDigest === grant.observationPolicy?.digest,
+    'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+    return { taskDigest: grant.task.digest, operationId: entry.operationId, childDigest: reservation.childDigest,
+      chainId: grant.task.policy.chainId, actor: grant.task.policy.actor, nonce: observation.nonce,
+      transactionHash: reservation.transactionHash, executorDigest: grant.executor.digest,
+      grantPolicyVersion: observation.attemptGrantPolicyVersion, observationPolicy: grant.observationPolicy,
+      receiptVerifier: grant.receiptVerifier };
+  }
+  function checkedObserverEntry(grant, entry) {
+    const mint = grant.task.policy.intent.kind === 'exact-operation' &&
+      ['artfi-test-series-mint','artfi-test-nft721-mint'].includes(grant.task.policy.intent.operation.kind);
+    const names = ['operationId','observation','available', ...(mint ? ['mintResult'] : [])];
+    const descriptors = entry && typeof entry === 'object' && Object.getOwnPropertyDescriptors(entry);
+    requireThat(descriptors && [Object.prototype, null].includes(Object.getPrototypeOf(entry)),
+      'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+    const schema = descriptors.schema;
+    if (schema !== undefined) {
+      requireThat(Object.hasOwn(schema, 'value') && ['8415-task-observation-record/2','8415-task-observation-record/3'].includes(schema.value),
+        'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+      names.push('schema','observationRevision','acceptedObserverContext');
+      if (schema.value === '8415-task-observation-record/3')
+        names.push('sourceReference','sourceRevision','capabilityReference','capabilityRevision');
+    }
+    requireThat(Reflect.ownKeys(descriptors).length === names.length &&
+      names.every(name => descriptors[name] && Object.hasOwn(descriptors[name], 'value')),
+    'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+    identifier(entry.operationId);
+    requireThat(typeof entry.available === 'boolean' && (!entry.available || entry.observation !== null),
+      'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+    const observation = entry.observation === null ? null : normalizeTaskObservation(entry.observation);
+    if (entry.schema === '8415-task-observation-record/3') {
+      // Shape/integrity validation is not registry authority. Revocation or a
+      // missing source downgrades this observation only in publicObserverEntry;
+      // it must not stop an unrelated grant action or mutate old evidence.
+      version(entry.observationRevision);
+      requireThat(observation !== null && entry.acceptedObserverContext !== null,
+        'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+      observerContextCodec.normalize(entry.acceptedObserverContext, { observation,
+        attempt: entry.acceptedObserverContext.attempt, currentObservationRevision: entry.observationRevision });
+      for (const field of ['sourceReference','capabilityReference']) requireThat(typeof entry[field] === 'string' &&
+        /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(entry[field]), 'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+      for (const field of ['sourceRevision','capabilityRevision']) requireThat(BigInt(version(entry[field])) > 0n,
+        'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+    } else if (entry.schema === '8415-task-observation-record/2') {
+      version(entry.observationRevision);
+      if (entry.acceptedObserverContext !== null) {
+        requireThat(observation !== null, 'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+        observerContextCodec.normalize(entry.acceptedObserverContext, { observation,
+          attempt: originalObserverAttempt(grant, entry, observation), currentObservationRevision: entry.observationRevision });
+      } else requireThat(entry.available === false, 'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+    }
+    return entry;
+  }
+  function publicObserverEntry(grant, entry) {
+    checkedObserverEntry(grant, entry);
+    let observation = entry.observation, available = entry.available, provenance = 'unverified';
+    let acceptedObserverContext = null;
+    if (entry.schema === '8415-task-observation-record/3') {
+      try {
+        const original = originalObserverAttempt(grant, entry, observation);
+        const accepted = observationSources.checkEntry(entry, grant.observationSources, observerSourceScope(grant), original);
+        acceptedObserverContext = accepted.acceptedObserverContext;
+        observation = accepted.observation; provenance = 'accepted-observer-context';
+      } catch { observation = null; available = false; }
+    }
+    else if (observation !== null) {
+      // A legacy row can retain only the original same-verifier cached contract.
+      // Never manufacture accepted provenance for a cross-version raw record.
+      try {
+        originalObserverAttempt(grant, entry, observation);
+        requireThat(sameVerifier(normalizeObservationVerifier({ verifierId: observation.verifierId,
+          verifierVersion: observation.verifierVersion, verifierImplementationDigest: observation.verifierImplementationDigest }),
+          grant.receiptVerifier), 'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+        provenance = 'legacy-approved-cache';
+      } catch { observation = null; available = false; }
+    } else available = false;
+    return { operationId: entry.operationId, observation, available,
+      ...(Object.hasOwn(entry, 'mintResult') ? { mintResult: observation === null ? null : entry.mintResult } : {}),
+      schema: '8415-task-observation-entry/2', provenance,
+      observationRevision: entry.observationRevision ?? '0', acceptedObserverContext };
+  }
+  function publicApprovalEvidence(grant) {
+    // Metadata describes the original grant approval, never current authority.
+    // Pending and legacy grants must not acquire invented evaluation evidence.
+    if (grant.status === 'pending') return {};
+    const factor = grant.approvalFactor, evaluation = grant.approvalEvaluation;
+    if (factor === undefined) {
+      requireThat(evaluation === undefined, 'TASK_APPROVAL_STATE_REFUSED', 503); return {};
+    }
+    requireThat(['totp', 'server-test-scope', 'preoperational-default-on'].includes(factor),
+      'TASK_APPROVAL_STATE_REFUSED', 503);
+    if (factor !== 'preoperational-default-on') {
+      requireThat(evaluation === undefined, 'TASK_APPROVAL_STATE_REFUSED', 503);
+      return { approvalFactor: factor };
+    }
+    requireThat(evaluation !== null && typeof evaluation === 'object' && !Array.isArray(evaluation) &&
+      Object.keys(evaluation).length === 3 && evaluation.state === 'NOT_EVALUATED' &&
+      evaluation.reason === 'pre-operational-default-on' && evaluation.policyRevision === '0',
+      'TASK_APPROVAL_STATE_REFUSED', 503);
+    return { approvalFactor: factor, approvalEvaluation: { state: 'NOT_EVALUATED',
+      reason: 'pre-operational-default-on', policyRevision: '0' } };
   }
   function readGrant(raw, session, taskDigest) {
     requireThat(['8415-task-grant/1', '8415-task-grant/2'].includes(raw?.schema) && raw.principal === JSON.stringify(principal(session)) &&
@@ -225,21 +414,24 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         (raw.status === 'pending' || raw.budget?.schema === '8415-task-budget/2'), 'TASK_VALUATION_POLICY_STATE_REFUSED', 503);
     } else requireThat(raw.valuationPolicy === undefined && (raw.status === 'pending' || raw.budget?.schema === '8415-task-budget/1'), 'TASK_GRANT_STATE_REFUSED', 503);
     const task = freezeAuthorizedTask(raw.task.policy); checkTask(task, session); executorCopy(raw.executor); observationPolicyCopy(raw.observationPolicy);
+    if (raw.observationSources !== undefined) observationSources.registry(raw.observationSources, observerSourceScope(raw));
     if (raw.receiptVerifier !== null) normalizeObservationVerifier(raw.receiptVerifier);
     requireThat(Array.isArray(raw.observations), 'TASK_OBSERVATION_STATE_REFUSED', 503); version(raw.observationRevision);
-    for (const entry of raw.observations) { identifier(entry.operationId);
-      requireThat(typeof entry.available === 'boolean' && (!entry.available || entry.observation !== null), 'TASK_OBSERVATION_STATE_REFUSED', 503);
-      if (entry.observation !== null) normalizeTaskObservation(entry.observation); }
+    requireThat(new Set(raw.observations.map(entry => entry?.operationId)).size === raw.observations.length,
+      'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+    for (const entry of raw.observations) checkedObserverEntry(raw, entry);
     requireThat(task.digest === taskDigest && (raw.status === 'pending' ? raw.budget === null : raw.budget?.taskDigest === taskDigest) &&
       typeof raw.reference === 'string' && Number.isSafeInteger(raw.issuedAt) && raw.issuedAt >= 0,
     'TASK_GRANT_STATE_REFUSED', 503);
     version(raw.grantPolicyVersion);
     if (raw.status !== 'pending') { version(raw.credentialRevisionAtApproval); normalizeTaskBudget(raw.budget); }
+    publicApprovalEvidence(raw);
     return raw;
   }
   function effectiveStatus(grant, credential) {
     const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(grant.task);
     if (grant.status === 'revoked') return 'revoked';
+    if (grant.approvalFactor === 'server-test-scope' && !testFactorAllowed(grant.task)) return 'suspended';
     if (stamp() < grant.issuedAt || seconds() >= BigInt(grant.task.policy.expiresAt)) return 'expired';
     // Factor changes pause this principal only; they never renew or expand a task.
     if (grant.status === 'pending') return 'pending';
@@ -250,6 +442,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   }
   function requireActive(grant, credential) {
     const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(grant.task);
+    // Validate the current scoped owner policy inside every existing live grant
+    // gate; never treat its projection as a replacement grant or ON proof.
+    readTaskGrantVerificationPolicy(credential, grant);
     const status = effectiveStatus(grant, credential);
     requireThat(status === 'authorized', status === 'suspended' ? (grant.executor.digest !== executor.digest ? 'TASK_EXECUTOR_REVALIDATION_REQUIRED' : grant.observationPolicy?.digest !== approvedObservationPolicy?.digest ? 'TASK_OBSERVATION_POLICY_REVALIDATION_REQUIRED' :
       !sameVerifier(grant.receiptVerifier, receiptVerifier) ? 'TASK_RECEIPT_VERIFIER_REVALIDATION_REQUIRED' : 'TASK_FACTOR_REVALIDATION_REQUIRED') : `TASK_GRANT_${status.toUpperCase()}`, 403);
@@ -267,6 +462,10 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   }
   function view(grant, credential) {
     const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(grant.task);
+    const v2Observation = grant.task.policy.intent.kind === 'exact-operation';
+    const publicObservations = v2Observation ? grant.observations.map(entry => publicObserverEntry(grant, entry)) : grant.observations;
+    const readOnlyObserver = receiptVerifier === null || approvedObservationPolicy === null ? null :
+      { verifier: receiptVerifier, verificationPolicy: approvedObservationPolicy };
     const effective = effectiveStatus(grant, credential), gaps = grant.schema === '8415-task-grant/2' ?
       (listingResults ? [] : ['TASK_LISTING_OBSERVER_NOT_CONNECTED']) : execution ? ['TASK_CHILD_VERIFICATION_REQUIRED'] : [...missing,
       ...(grant.task.policy.intent.kind === 'nft-sale' ? ['MARKET_PRICE_VERIFIER_NOT_CONNECTED', 'ATOMIC_SALE_SETTLEMENT_VERIFIER_NOT_CONNECTED'] : [])];
@@ -276,13 +475,17 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       listingExecution === null ? 'TASK_LISTING_ADAPTER_NOT_CONNECTED' : 'TASK_LISTING_VERIFICATION_REQUIRED');
     return { ...(grant.schema === '8415-task-grant/2' ? { valuationPolicy: grant.valuationPolicy, listing: {
       revocationCancelsPublishedOrder: false, settlementObservationConfigured: Boolean(listingResults), ...(listingResults ? { result: null } : {}) } } : {}), task: grant.task, executor: grant.executor, observationPolicy: grant.observationPolicy, receiptVerifier: grant.receiptVerifier,
-      observations: grant.observations, observationRevision: grant.observationRevision, completion: completion(grant), authorization: grant.status === 'pending' ? null : {
+      observations: publicObservations, observationRevision: grant.observationRevision,
+      ...(v2Observation ? { observationView: { schema: '8415-task-observation-view/2',
+        currentReadOnlyObserver: readOnlyObserver, freshObservation: null, canExecute: false } } : {}),
+      completion: completion({ ...grant, observations: publicObservations }), authorization: grant.status === 'pending' ? null : {
       schema: grant.schema === '8415-task-grant/2' ? '8415-task-authorization-reference/2' : '8415-task-authorization-reference/1',
       ...(grant.schema === '8415-task-grant/2' ? { valuationPolicyDigest: grant.valuationPolicy.digest, priceAt: grant.valuationPolicy.policy.priceAt } : {}),
       taskDigest: grant.task.digest, reference: grant.reference,
       status: effective, grantPolicyVersion: grant.grantPolicyVersion,
       credentialRevisionAtApproval: grant.credentialRevisionAtApproval,
-    }, effectiveStatus: effective, budget: grant.budget,
+    }, effectiveStatus: effective, budget: grant.budget, ...publicApprovalEvidence(grant),
+    humanVerification: readTaskGrantVerificationPolicy(credential, grant),
     ...(grant.task.policy.intent.kind === 'artfi-receipt' ? { receiptAttempts: normalizeReceiptAttempts(grant.task, grant.receiptAttempts ?? []) } : {}),
     capabilities: { executable: false, adapterConfigured: Boolean(grant.task.policy.intent.kind === 'artfi-receipt' ? receiptHandlerId : grant.schema === '8415-task-grant/2' ? listingExecution : execution), missing: gaps,
       sessionRequired: true, factorRevalidationRequired: String(credential?.revision ?? 0) !== grant.credentialRevisionAtApproval && grant.status !== 'pending',
@@ -356,6 +559,10 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   async function prepare(body, session) {
     const withValuation = body !== null && typeof body === 'object' && Object.hasOwn(body, 'valuationPolicy'); fields(body, withValuation ? ['policy', 'valuationPolicy'] : ['policy']);
     const task = freezeAuthorizedTask(body.policy); checkTask(task, session);
+    requireThat(!['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation?.kind) || testFactorAllowed(task),
+      'TASK_TEST_MINT_INVENTORY_REQUIRED', 403);
+    requireThat(!['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation?.kind) || typeof receipt?.observeMintResult === 'function',
+      'TASK_TEST_MINT_OBSERVER_NOT_CONNECTED', 503);
     requireThat(channelContexts === null || Object.hasOwn(channelContexts, task.policy.intent.kind), 'TASK_CHANNEL_NOT_CONFIGURED', 503);
     const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(task);
     requireThat(task.policy.intent.kind !== 'artfi-receipt' || receiptHandlerId !== null, 'TASK_RECEIPT_GATE_NOT_CONFIGURED', 503);
@@ -365,7 +572,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const time = stamp(); requireThat(BigInt(task.policy.expiresAt) > seconds(), 'TASK_EXPIRED', 400);
     requireThat(challenges.size < 10000, 'TASK_BUSY', 503);
     const ckey = credentialKey(session), gkey = grantKey(session, task.digest), ikey = taskIdKey(session, task.policy.taskId), lkey = ownerIndexKey(session);
-    await transaction([ckey, gkey, ikey, lkey], values => {
+    const preparedState = await transaction([ckey, gkey, ikey, lkey], values => {
       assertSession(session, values[ckey]); requireThat(BigInt(task.policy.expiresAt) > seconds(), 'TASK_EXPIRED', 400);
       requireThat(values[ikey] === null || values[ikey].taskDigest === task.digest, 'TASK_ID_ALREADY_BOUND');
       if (values[gkey] !== null) {
@@ -387,8 +594,12 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const challengeId = `challenge:${randomToken()}`, expiresAt = Math.min(time + CHALLENGE_LIFE, session.expiresAt,
       Number(BigInt(task.policy.expiresAt) * 1000n > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : BigInt(task.policy.expiresAt) * 1000n));
     requireThat(stamp() < expiresAt, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
-    challenges.set(challengeId, { task, executor, valuationPolicy, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), issuedAt: time, expiresAt, attempts: 0 });
-    return { challengeId, task, executor, ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, purpose: 'authorize-task' };
+    const approvalPolicy = taskApprovalPolicy(preparedState[ckey], preparedState[gkey]);
+    const approvalEvaluation = approvalPolicy.factor === 'preoperational-default-on' ?
+      { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' } : null;
+    challenges.set(challengeId, { task, executor, valuationPolicy, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), testFactorExempt: approvalPolicy.factor === 'server-test-scope', approvalPolicy, issuedAt: time, expiresAt, attempts: 0 });
+    return { challengeId, task, executor, ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, approvalFactor: approvalPolicy.factor,
+      ...(approvalEvaluation === null ? {} : { approvalEvaluation }), purpose: 'authorize-task' };
   }
   async function authorize(body, session) {
     const withValuation = body !== null && typeof body === 'object' && (Object.hasOwn(body, 'valuationPolicyDigest') || Object.hasOwn(body, 'priceAt'));
@@ -397,6 +608,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const current = () => {
       assertSession(session); sweep();
       requireThat(challenge, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
+      requireThat(testFactorAllowed(challenge.task) === challenge.testFactorExempt, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
       const { executor, approvedObservationPolicy } = approvalContext(challenge.task);
       requireThat(challenge && challenges.get(body.challengeId) === challenge && challenge.binding === binding(session) &&
         equal(challenge.task.digest, body.taskDigest) && equal(challenge.executor.digest, body.executorDigest) && equal(executor.digest, body.executorDigest) &&
@@ -412,12 +624,22 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       const proposal = readGrant(values[gkey], session, body.taskDigest);
       requireThat(proposal.status === 'pending' && proposal.executor.digest === body.executorDigest && values[ikey]?.taskDigest === body.taskDigest, 'TASK_ALREADY_EXISTS');
       requireThat((proposal.valuationPolicy?.digest ?? null) === (challenge.valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_REAUTHORIZATION_REQUIRED');
-      // One durable replace consumes the OTP and creates every grant/index field.
-      const credential = consumeTotp(session, values[ckey], body.code);
+      // Compare the live saved policy in the same atomic commit as the bounded
+      // task grant. A saved ON/OFF arriving after prepare cannot use revision 0.
+      const approvalPolicy = taskApprovalPolicy(values[ckey], proposal);
+      requireThat(approvalPolicy.factor === challenge.approvalPolicy.factor &&
+        approvalPolicy.policyRevision === challenge.approvalPolicy.policyRevision, 'TASK_APPROVAL_POLICY_CHANGED', 409);
+      if (approvalPolicy.factor === 'preoperational-default-on')
+        requireThat(body.code === '', 'TASK_APPROVAL_CODE_NOT_REQUIRED', 400);
+      // No new credential or owner-setting write for the native unlocked state.
+      const credential = approvalPolicy.factor === 'totp' ? consumeTotp(session, values[ckey], body.code) : values[ckey];
       const grant = { schema: challenge.valuationPolicy === null ? '8415-task-grant/1' : '8415-task-grant/2',
         ...(challenge.valuationPolicy === null ? {} : { valuationPolicy: challenge.valuationPolicy }), principal: JSON.stringify(principal(session)),
         task: challenge.task, executor: challenge.executor, observationPolicy: challenge.observationPolicy, receiptVerifier: challenge.receiptVerifier,
         observations: [], observationRevision: '0', reference: proposal.reference, status: 'authorized', grantPolicyVersion: '1',
+        approvalFactor: approvalPolicy.factor,
+        ...(approvalPolicy.factor === 'preoperational-default-on' ? { approvalEvaluation: {
+          state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' } } : {}),
         credentialRevisionAtApproval: String(session.revision), issuedAt: stamp(), revokedAt: null,
         budget: challenge.task.policy.intent.kind === 'artfi-receipt' ? { schema: '8415-task-budget/1', taskDigest: challenge.task.digest, revision: '0', reservations: [] } : challenge.valuationPolicy === null ? emptyTaskBudget(challenge.task) : emptyNftListingBudget(challenge.task) };
       const queue = values[queueKey] ?? { schema: '8415-task-queue/1', entries: [] };
@@ -441,7 +663,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       const budget = isListing(child) ? reserveNftListingBudget(grant.task, child, listingGrantBinding(grant), grant.budget, body.expectedBudgetRevision, seconds()) :
         reserveTaskBudget(grant.task, child, grant.budget, body.expectedBudgetRevision, seconds());
       const operation = { schema: isListing(child) ? '8415-task-operation/2' : '8415-task-operation/1', grantKey: gkey, child, status: 'reserved',
-        ...(isListing(child) ? { orderKey: nkey } : { nonceKey: nkey }), observationRevision: '0' };
+        ...(isListing(child) ? { orderKey: nkey } : { nonceKey: nkey }), observationRevision: '0',
+        humanVerificationEnforced: true };
       return { [ckey]: values[ckey], [gkey]: { ...grant, budget }, [okey]: operation,
         [nkey]: { operationKey: okey, taskDigest: body.taskDigest, childDigest: child.digest, permanent: false } };
     });
@@ -469,6 +692,83 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       values[nkey]?.operationKey === okey && values[nkey]?.childDigest === body.childDigest, 'TASK_OPERATION_STATE_REFUSED', 503);
     requireThat(grant.budget.revision === body.expectedBudgetRevision, 'TASK_BUDGET_REVISION_CONFLICT');
     return grant;
+  }
+  // Only an owner session can mint a purpose-bound operation challenge. The
+  // background WeakSet context can consume an already verified durable proof,
+  // never create human intent or reuse task-authorization/login challenges.
+  async function prepareOperationVerification(body, session) {
+    requireThat(operationVerificationEnabled && !internalContexts.has(session), 'TASK_OPERATION_VERIFICATION_NOT_CONNECTED', 503);
+    const context = await operationContext(body, session), { ckey, gkey, okey, nkey } = context;
+    let output;
+    await store.withReadSnapshot([ckey, gkey, okey, nkey], values => {
+      const grant = checkOperation(values, context, body, session); requireActive(grant, values[ckey]);
+      requireThat(values[okey].status === 'reserved' && values[nkey].permanent === false, 'TASK_SEND_ATTEMPT_REFUSED');
+      const requirement = taskOperationVerificationRequirement(values[ckey], grant, operationTestExempt(grant));
+      if (!requirement.required) {
+        output = requirement; return;
+      }
+      sweep(); requireThat(operationChallenges.size < 10000, 'TASK_APPROVAL_CAPACITY', 503);
+      const childSeconds = BigInt(context.child.child.expiresAt), taskSeconds = BigInt(grant.task.policy.expiresAt);
+      const cap = value => Number(value * 1000n > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : value * 1000n);
+      const issuedAt = stamp(), expiresAt = Math.min(issuedAt + TASK_OPERATION_PROOF_LIFE_MS, session.expiresAt, cap(childSeconds), cap(taskSeconds));
+      requireThat(Number.isSafeInteger(expiresAt) && issuedAt < expiresAt, 'TASK_OPERATION_VERIFICATION_EXPIRED');
+      const request = { schema: '8415-task-operation-verification-request/1', purpose: 'execute-exact-child',
+        binding: taskOperationVerificationBinding(values[ckey], grant, values[okey], values[nkey]),
+        challengeId: `operation-challenge:${randomToken()}`, issuedAt, expiresAt };
+      const requestDigest = digest(JSON.stringify(request));
+      operationChallenges.set(request.challengeId, { request, requestDigest, body: { ...body }, issuedAt, expiresAt,
+        sessionId: session.id, sessionBinding: binding(session), attempts: 0 });
+      output = immutable(structuredClone({ required: true, request, requestDigest, task: grant.task, child: context.child }));
+    });
+    return output;
+  }
+  async function confirmOperationVerification(body, session) {
+    requireThat(operationVerificationEnabled && !internalContexts.has(session), 'TASK_OPERATION_VERIFICATION_NOT_CONNECTED', 503);
+    fields(body, ['challengeId', 'requestDigest', 'code']); sweep();
+    const challenge = operationChallenges.get(body.challengeId);
+    const current = () => {
+      assertSession(session); sweep();
+      requireThat(challenge && operationChallenges.get(body.challengeId) === challenge && challenge.sessionBinding === binding(session) &&
+        challenge.requestDigest === body.requestDigest && challenge.request.purpose === 'execute-exact-child', 'TASK_OPERATION_VERIFICATION_CHALLENGE_REFUSED', 403);
+    };
+    current(); requireThat(challenge.attempts++ < 5, 'TASK_APPROVAL_ATTEMPTS_EXHAUSTED', 429);
+    const context = await operationContext(challenge.body, session), { ckey, gkey, okey, nkey } = context;
+    try {
+      await transaction([ckey, gkey, okey, nkey], values => {
+        current(); const grant = checkOperation(values, context, challenge.body, session); requireActive(grant, values[ckey]);
+        requireThat(values[okey].status === 'reserved' && values[nkey].permanent === false, 'TASK_SEND_ATTEMPT_REFUSED');
+        requireThat(taskOperationVerificationRequirement(values[ckey], grant, operationTestExempt(grant)).required,
+          'TASK_OPERATION_VERIFICATION_NOT_REQUIRED');
+        requireThat(taskOperationVerificationBinding(values[ckey], grant, values[okey], values[nkey]).digest === challenge.request.binding.digest,
+          'TASK_OPERATION_VERIFICATION_BINDING_CHANGED');
+        const credential = consumeTotp(session, values[ckey], body.code); assertSession(session, credential);
+        requireThat(taskOperationVerificationBinding(credential, grant, values[okey], values[nkey]).digest === challenge.request.binding.digest,
+          'TASK_OPERATION_VERIFICATION_BINDING_CHANGED');
+        const humanVerification = { schema: '8415-task-operation-human-verification/1', purpose: 'execute-exact-child', state: 'ready',
+          binding: challenge.request.binding, challengeId: challenge.request.challengeId, issuedAt: challenge.issuedAt,
+          expiresAt: challenge.expiresAt, verifiedAt: stamp() };
+        const operation = { ...values[okey], humanVerificationEnforced: true, humanVerification };
+        // Validate without spending. Real consumption happens ONLY in the later
+        // atomic reservation -> UNKNOWN + permanent nonce transaction.
+        consumeTaskOperationVerification(credential, grant, operation, values[nkey], stamp());
+        return { ...values, [ckey]: credential, [okey]: operation };
+      });
+      operationChallenges.delete(body.challengeId);
+      return { verified: true, purpose: 'execute-exact-child', childDigest: context.child.digest,
+        policyRevision: challenge.request.binding.policyRevision, expiresAt: challenge.expiresAt };
+    } finally { body.code = ''; }
+  }
+  function operationTestExempt(grant) {
+    return grant.approvalFactor === 'server-test-scope' && testFactorAllowed(grant.task);
+  }
+  function consumeOperationProof(values, grant, okey, nkey) {
+    const principal = JSON.parse(grant.principal), credential = values[`${principal[1]}:${principal[2]}`];
+    // Always record the decision, including the unlocked pre-operational
+    // default. Service availability cannot erase an effective owner revision.
+    return consumeTaskOperationVerification(credential, grant, values[okey], values[nkey], stamp(), operationTestExempt(grant));
+  }
+  function assertOperationProof(values, credential, grant, okey, nkey) {
+    assertTaskOperationVerificationAttempt(credential, grant, values[okey], values[nkey], stamp(), operationTestExempt(grant));
   }
   async function cancelReservation(body, session) {
     const context = await operationContext(body, session), { ckey, gkey, okey, nkey } = context;
@@ -515,15 +815,34 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       requireThat(grant.grantPolicyVersion === context.grant.grantPolicyVersion && values[okey].status === 'reserved' &&
         !values[nkey].permanent, 'TASK_SEND_ATTEMPT_REFUSED');
       requireThat(assessChildScope(grant.task, context.child, seconds()).state !== 'outside-declared-scope', 'TASK_CHILD_OUTSIDE_SCOPE');
+      const operation = consumeOperationProof(values, grant, okey, nkey);
       return { [ckey]: values[ckey], [gkey]: { ...grant, budget: markTaskSendAttempt(grant.budget, body.operationId, body.childDigest, body.expectedBudgetRevision) },
-        [okey]: { ...values[okey], status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: grant.executor, attemptObservationPolicy: grant.observationPolicy, attemptReceiptVerifier: grant.receiptVerifier }, [nkey]: { ...values[nkey], permanent: true } };
+        [okey]: { ...operation, status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: grant.executor, attemptObservationPolicy: grant.observationPolicy, attemptReceiptVerifier: grant.receiptVerifier }, [nkey]: { ...values[nkey], permanent: true } };
     });
-    // This is the sole send call. Any exception or lost response keeps the full
-    // durable reservation and permanent nonce claim; neither retry nor release.
-    let submitted;
-    try { submitted = await execution.send(immutable(structuredClone({ task: context.grant.task, child: context.child, executor: context.grant.executor,
-      grantPolicyVersion: context.grant.grantPolicyVersion }))); }
-    catch { return { ...view(result[gkey], result[ckey]), outcome: 'outcome-unknown' }; }
+    // Recheck at immediate dispatch in the SAME queue as grant/credential
+    // changes. A queued revoke/rotation/logout/expiry wins before send starts.
+    // This synchronous fence must not await or re-enter the store. Adapters
+    // which await before a later signing/broadcast side effect retain their
+    // own live boundary checks; this is not an unattended-signer claim.
+    let sending;
+    await store.withReadSnapshot([ckey, gkey, okey, nkey], values => {
+      const grant = checkOperation(values, context, { ...body, expectedBudgetRevision: result[gkey].budget.revision }, session);
+      requireActive(grant, values[ckey]);
+      requireThat(grant.grantPolicyVersion === context.grant.grantPolicyVersion &&
+        values[okey].status === 'outcome-unknown' && values[nkey].permanent &&
+        values[okey].attemptGrantPolicyVersion === grant.grantPolicyVersion &&
+        values[okey].attemptExecutor?.digest === grant.executor.digest, 'TASK_SEND_ATTEMPT_REFUSED');
+      requireThat(assessChildScope(grant.task, context.child, seconds()).state !== 'outside-declared-scope', 'TASK_CHILD_OUTSIDE_SCOPE');
+      assertOperationProof(values, values[ckey], grant, okey, nkey);
+      try { sending = Promise.resolve(execution.send(immutable(structuredClone({ task: grant.task, child: context.child,
+        executor: grant.executor, grantPolicyVersion: grant.grantPolicyVersion })))).then(value => ({ value }), () => ({ failed: true })); }
+      catch { sending = Promise.resolve({ failed: true }); }
+    });
+    // Once the durable send attempt exists, even a rejected dispatch fence or
+    // lost adapter response cannot free the nonce or make a retry safe.
+    const outcome = await sending;
+    if (outcome.failed) return { ...view(result[gkey], result[ckey]), outcome: 'outcome-unknown' };
+    const submitted = outcome.value;
     if (!verifiedBinding(submitted, context) || !/^0x[0-9a-f]{64}$/.test(submitted.transactionHash ?? '') || /^0x0+$/.test(submitted.transactionHash)) {
       return { ...view(result[gkey], result[ckey]), outcome: 'outcome-unknown' };
     }
@@ -562,8 +881,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const result = await transaction([ckey, gkey, okey, nkey], values => {
       const grant = checkOperation(values, context, body, session); requireActive(grant, values[ckey]); checkListingScope(grant, context.child);
       requireThat(grant.grantPolicyVersion === context.grant.grantPolicyVersion && values[okey].status === 'reserved' && !values[nkey].permanent, 'TASK_SEND_ATTEMPT_REFUSED');
+      const operation = consumeOperationProof(values, grant, okey, nkey);
       return { [ckey]: values[ckey], [gkey]: { ...grant, budget: markTaskSendAttempt(grant.budget, body.operationId, body.childDigest, body.expectedBudgetRevision) },
-        [okey]: { ...values[okey], status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: grant.executor },
+        [okey]: { ...operation, status: 'outcome-unknown', attemptGrantPolicyVersion: grant.grantPolicyVersion, attemptExecutor: grant.executor },
         [nkey]: { ...values[nkey], permanent: true } };
     });
     let sending;
@@ -575,6 +895,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       const grant = checkOperation(values, context, { ...body, expectedBudgetRevision: result[gkey].budget.revision }, session);
       requireActive(grant, values[ckey]); checkListingScope(grant, context.child);
       requireThat(values[okey].status === 'outcome-unknown' && values[nkey].permanent && grant.grantPolicyVersion === input.grantPolicyVersion, 'TASK_SEND_ATTEMPT_REFUSED');
+      assertOperationProof(values, values[ckey], grant, okey, nkey);
       try { sending = Promise.resolve(listingExecution.send(input)).then(value => ({ value }), () => ({ failed: true })); }
       catch { sending = Promise.resolve({ failed: true }); }
     });
@@ -629,8 +950,16 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const context = await operationContext(body, session);
     if (isListing(context.child)) return recoverListing(context, body, session);
     requireThat(execution, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503);
-    requireThat(context.operation.attemptExecutor && executorCopy(context.operation.attemptExecutor).digest === approvalContext(context.grant.task).executor.digest, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
-    const evidence = await execution.recover(immutable(structuredClone({ task: context.grant.task, child: context.child, executor: context.operation.attemptExecutor,
+    const attemptedExecutor = executorCopy(context.operation.attemptExecutor);
+    const currentExecutor = approvalContext(context.grant.task).executor;
+    // Read-only evidence must preserve the historical signed attempt, not demand
+    // a new owner grant solely because the implementation version changed.
+    const historical = attemptedExecutor.digest !== currentExecutor.digest;
+    requireThat(!historical || typeof execution.recoverHistorical === 'function' &&
+      attemptedExecutor.identity.agentId === currentExecutor.identity.agentId &&
+      attemptedExecutor.identity.adapterId === currentExecutor.identity.adapterId, 'TASK_RECOVERY_EXECUTOR_BINDING_REQUIRED', 503);
+    const recoverAttempt = historical ? execution.recoverHistorical : execution.recover;
+    const evidence = await recoverAttempt(immutable(structuredClone({ task: context.grant.task, child: context.child, executor: context.operation.attemptExecutor,
       grantPolicyVersion: context.operation.attemptGrantPolicyVersion })));
     requireThat(verifiedBinding(evidence, context) && evidence.state === 'submitted' &&
       /^0x[0-9a-f]{64}$/.test(evidence.transactionHash ?? '') && !/^0x0+$/.test(evidence.transactionHash), 'TASK_RECOVERY_NOT_ESTABLISHED');
@@ -638,14 +967,124 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     // proves finality or refunds any reserved quota, even on a reverted receipt.
     return recordSubmission(context, body, session, evidence.transactionHash, body.expectedBudgetRevision);
   }
-  async function observe(body, session, requestedReplacementHash = null) {
+  function observerAttemptSnapshot(values, context, body, session, expectedAttempt, expectedRevision) {
+    const grant = checkOperation(values, context, body, session), operation = values[context.okey];
+    requireThat(operation.status === 'submitted' && values[context.nkey]?.permanent === true &&
+      operation.observationRevision === expectedRevision, 'TASK_OBSERVATION_REVISION_CONFLICT');
+    const original = durableObserverAttempt(grant, operation, body.operationId);
+    requireThat(JSON.stringify(original) === JSON.stringify(expectedAttempt), 'TASK_OBSERVATION_ATTEMPT_CONFLICT');
+    return { grant, operation, original };
+  }
+  async function registerObserverSource(context, body, session, expectedSource = null) {
+    requireThat(capturedObservationSource !== null, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503);
+    const original = durableObserverAttempt(context.grant, context.operation, body.operationId);
+    let selected;
+    const keys = [context.ckey, context.gkey, context.okey, context.nkey];
+    const saved = await transaction(keys, values => {
+      const checked = observerAttemptSnapshot(values, context, body, session, original, context.operation.observationRevision);
+      // Only this trusted composition creates a source record, from actual
+      // captured receipt methods and a durable operation. Evidence is not input.
+      const registered = observationSources.register(checked.grant.observationSources,
+        observerSourceScope(checked.grant), original, capturedObservationSource);
+      selected = registered.source;
+      if (expectedSource !== null) requireThat(JSON.stringify(selected) === JSON.stringify(expectedSource),
+        'TASK_OBSERVATION_SOURCE_REVISION_CONFLICT');
+      return { ...values, [context.gkey]: { ...checked.grant, observationSources: registered.registry } };
+    });
+    return { source: selected, original, grant: saved[context.gkey] };
+  }
+  async function observationDetailsContext(body, session) {
+    fields(body, ['taskDigest','operationId','childDigest','mode']);
+    hash(body.taskDigest); hash(body.childDigest); identifier(body.operationId);
+    requireThat(['cache','refresh'].includes(body.mode), 'TASK_OBSERVATION_SOURCE_MODE_REFUSED', 400);
+    const gkey = grantKey(session, body.taskDigest), ckey = credentialKey(session);
+    const first = await store.readMany([ckey,gkey]);
+    assertSession(session,first[ckey]);
+    const grant = readGrant(first[gkey],session,body.taskDigest);
+    requireThat(grant.status !== 'pending' && grant.task.policy.intent.kind === 'exact-operation',
+      'TASK_OBSERVATION_SOURCE_UNSUPPORTED', 503);
+    const request = { taskDigest:body.taskDigest,operationId:body.operationId,childDigest:body.childDigest,
+      expectedBudgetRevision:grant.budget.revision };
+    const context = await operationContext(request,session);
+    const keys = [context.ckey,context.gkey,context.okey,context.nkey];
+    const values = await store.readMany(keys);
+    const original = durableObserverAttempt(context.grant,context.operation,body.operationId);
+    const checked = observerAttemptSnapshot(values,context,request,session,original,context.operation.observationRevision);
+    return { context:{...context,grant:checked.grant,operation:checked.operation},request,original,values };
+  }
+  // Authenticated service methods, not HTTP endpoint definitions. The existing
+  // transport must supply its real verified session/CSRF. No method accepts a
+  // caller identity, verifier, registry JSON, approval, endpoint or signing flag.
+  const observationDetails = Object.freeze({
+    async resolve(body,session) {
+      const found = await observationDetailsContext(body,session);
+      if(body.mode === 'refresh') {
+        const current = approvalContext(found.context.grant.task).executor;
+        const historical = found.original.executorDigest !== current.digest ||
+          !sameVerifier(found.original.receiptVerifier,receiptVerifier) ||
+          found.original.observationPolicy.digest !== approvedObservationPolicy?.digest;
+        requireThat(capturedObservationSource !== null && (!historical ||
+          typeof receipt.observeHistorical === 'function' &&
+          found.context.operation.attemptExecutor.identity.agentId === current.identity.agentId &&
+          found.context.operation.attemptExecutor.identity.adapterId === current.identity.adapterId &&
+          found.original.receiptVerifier.verifierId === receiptVerifier.verifierId),
+          'TASK_RECEIPT_HISTORICAL_CAPABILITY_REQUIRED',503);
+        return (await registerObserverSource(found.context,found.request,session)).source;
+      }
+      const entry = found.context.grant.observations.find(row=>row.operationId===body.operationId);
+      requireThat(entry?.schema === '8415-task-observation-record/3','TASK_OBSERVATION_SOURCE_UNSUPPORTED',503);
+      requireThat(entry.observationRevision === found.context.operation.observationRevision,
+        'TASK_OBSERVATION_REVISION_CONFLICT');
+      return observationSources.checkEntry(entry,found.context.grant.observationSources,
+        observerSourceScope(found.context.grant),found.original).source;
+    },
+    async read(body,session) {
+      fields(body,['taskDigest','operationId','childDigest','mode','sourceReference','sourceRevision',
+        'capabilityReference','capabilityRevision']);
+      const query = {taskDigest:body.taskDigest,operationId:body.operationId,childDigest:body.childDigest,mode:body.mode};
+      let found = await observationDetailsContext(query,session);
+      const references = {sourceReference:body.sourceReference,sourceRevision:body.sourceRevision,
+        capabilityReference:body.capabilityReference,capabilityRevision:body.capabilityRevision};
+      const source = observationSources.resolve(found.context.grant.observationSources,
+        observerSourceScope(found.context.grant),references,found.original);
+      if(body.mode === 'refresh') {
+        await observe(found.request,session,null,source);
+        found = await observationDetailsContext({...query,mode:'cache'},session);
+      }
+      const entry = found.context.grant.observations.find(row=>row.operationId===body.operationId);
+      requireThat(entry?.schema === '8415-task-observation-record/3' &&
+        entry.observationRevision === found.context.operation.observationRevision &&
+        JSON.stringify(observationSources.entryReferences(entry)) === JSON.stringify(references),
+        'TASK_OBSERVATION_SOURCE_REVISION_CONFLICT');
+      // Resolve again against the same durable read; O3 cannot relabel cached O2.
+      observationSources.assertCurrent(found.context.grant.observationSources,
+        observerSourceScope(found.context.grant),source,found.original);
+      return observationSources.boundView(entry,found.context.grant.observationSources,
+        observerSourceScope(found.context.grant),found.original);
+    },
+  });
+  async function observe(body, session, requestedReplacementHash = null, expectedSource = null) {
     const context = await operationContext(body, session), { ckey, gkey, okey, nkey, operation } = context;
     requireThat(!isListing(context.child), 'TASK_LISTING_OBSERVER_NOT_CONNECTED', 503);
     requireThat(receipt && operation.attemptReceiptVerifier !== null, 'TASK_RECEIPT_VERIFIER_NOT_CONNECTED', 503);
-    requireThat(operation.status === 'submitted' && operation.attemptExecutor?.digest === approvalContext(context.grant.task).executor.digest &&
-      sameVerifier(operation.attemptReceiptVerifier, receiptVerifier), 'TASK_RECEIPT_EXECUTOR_BINDING_REQUIRED', 503);
+    requireThat(operation.status === 'submitted', 'TASK_RECEIPT_EXECUTOR_BINDING_REQUIRED', 503);
+    const attemptedExecutor = executorCopy(operation.attemptExecutor), currentExecutor = approvalContext(context.grant.task).executor;
+    const attemptedVerifier = normalizeObservationVerifier(operation.attemptReceiptVerifier);
     const policy = observationPolicyCopy(operation.attemptObservationPolicy);
-    requireThat(policy !== null && policy.digest === approvedObservationPolicy?.digest, 'TASK_RECEIPT_POLICY_BINDING_REQUIRED', 503);
+    requireThat(policy !== null, 'TASK_RECEIPT_POLICY_BINDING_REQUIRED', 503);
+    const historical = attemptedExecutor.digest !== currentExecutor.digest ||
+      !sameVerifier(attemptedVerifier, receiptVerifier) || policy.digest !== approvedObservationPolicy?.digest;
+    // This is a captured server-owned read capability, never an HTTP flag or
+    // a new grant. Logical identity alone is insufficient: the new verifier
+    // must independently prove the original exact attempt and current chain.
+    requireThat(!historical || typeof receipt.observeHistorical === 'function' &&
+      attemptedExecutor.identity.agentId === currentExecutor.identity.agentId &&
+      attemptedExecutor.identity.adapterId === currentExecutor.identity.adapterId &&
+      attemptedVerifier.verifierId === receiptVerifier.verifierId,
+    'TASK_RECEIPT_HISTORICAL_CAPABILITY_REQUIRED', 503);
+    const observeAttempt = historical ? receipt.observeHistorical : receipt.observe;
+    const observeReplacement = historical ? receipt.observeReplacementHistorical : receipt.observeReplacement;
+    const observeMintResult = historical ? receipt.observeMintResultHistorical : receipt.observeMintResult;
     const reservation = context.grant.budget.reservations.find(r => r.operationId === body.operationId && r.childDigest === body.childDigest);
     requireThat(reservation?.status === 'submitted' && reservation.transactionHash !== null, 'TASK_SUBMISSION_STATE_REFUSED');
     const input = immutable(structuredClone({ task: context.grant.task, child: context.child, executor: operation.attemptExecutor,
@@ -655,40 +1094,101 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     if (replacementHash !== null) {
       hash(replacementHash); requireThat(!/^0x0+$/.test(replacementHash) && replacementHash !== reservation.transactionHash,
         'TASK_OBSERVATION_REPLACEMENT_REFUSED', 400);
-      requireThat(receipt.observeReplacement, 'TASK_REPLACEMENT_VERIFIER_NOT_CONNECTED', 503);
+      requireThat(typeof observeReplacement === 'function', 'TASK_REPLACEMENT_VERIFIER_NOT_CONNECTED', 503);
     }
-    const startedAt = seconds(); let observation = null, failure = null;
+    const mintOperation = ['artfi-test-series-mint','artfi-test-nft721-mint'].includes(context.child.child.operation.kind) ? context.child.child.operation : null;
+    const mintKey = mintOperation === null ? null : testMintInventoryKey(mintOperation.chainId, mintOperation.collection.contract, mintOperation.sourceHash ?? mintOperation.masterArtworkHash);
+    const capturedSource = await registerObserverSource(context,body,session,expectedSource);
+    const startedAt = seconds(); let observation = null, mintResult = null, failure = null;
     try {
-      const raw = await (replacementHash === null ? receipt.observe(input) : receipt.observeReplacement(input, replacementHash));
+      const selectedMethod = replacementHash === null ? (historical ? 'observeHistorical' : 'observe') :
+        (historical ? 'observeReplacementHistorical' : 'observeReplacement');
+      const raw = await observationSources.invoke(capturedObservationSource,selectedMethod,input,
+        ...(replacementHash === null ? [] : [replacementHash]));
       observation = bindTaskObservation(raw, { ...input, verifier: receiptVerifier });
+      requireThat(!historical || !['confirmed-at-depth', 'reverted-at-depth', 'superseded-at-depth'].includes(observation.state) ||
+        BigInt(observation.confirmations) >= BigInt(approvedObservationPolicy.policy.minimumConfirmations),
+      'TASK_HISTORICAL_OBSERVATION_DEPTH_REQUIRED', 503);
       requireThat(BigInt(observation.observedAt) >= startedAt && BigInt(observation.observedAt) <= seconds(), 'TASK_OBSERVATION_TIME_REFUSED', 503);
       requireThat(replacementHash === null ? observation.state !== 'superseded-at-depth' :
         observation.state === 'superseded-at-depth' ? observation.replacementHash === replacementHash :
           ['pending', 'confirming', 'reorged'].includes(observation.state), 'TASK_OBSERVATION_REPLACEMENT_REFUSED', 503);
+      if (mintOperation !== null && observation.state === 'confirmed-at-depth') {
+        requireThat(observation.effect === 'exact-operation-observed' && typeof observeMintResult === 'function', 'TASK_TEST_MINT_OBSERVER_NOT_CONNECTED', 503);
+        mintResult = await observeMintResult(input, observation);
+        if(mintOperation.kind==='artfi-test-nft721-mint') mintResult=normalizeTestNFT721OperationResult(mintResult,mintOperation,observation);
+        else {
+        fields(mintResult, ['schema','taskId','chainId','collection','runtimeCodeHash','issuer','transactionHash','blockHash','blockNumber',
+          'tokenId','standard','quantity','artworkId','masterArtworkHash','metadataHash','metadataURI','distributionWallet','testOnly','finality']);
+        requireThat(mintResult.schema === '8415-artfi-test-series-mint-result/1' && mintResult.taskId === context.grant.task.policy.taskId &&
+          mintResult.chainId === mintOperation.chainId && mintResult.collection === mintOperation.collection.contract &&
+          mintResult.runtimeCodeHash === mintOperation.collection.runtimeCodeHash && mintResult.issuer === mintOperation.actor &&
+          mintResult.transactionHash === reservation.transactionHash && mintResult.blockHash === observation.blockHash &&
+          /^0x(?:0|[1-9a-f][0-9a-f]*)$/.test(mintResult.blockNumber) && BigInt(mintResult.blockNumber) === BigInt(observation.blockNumber) &&
+          BigInt(version(mintResult.tokenId)) > 0n && mintResult.standard === 'ERC-1155' && mintResult.quantity === '100' &&
+          mintResult.artworkId === mintOperation.artworkId && mintResult.masterArtworkHash === mintOperation.masterArtworkHash &&
+          mintResult.metadataHash === mintOperation.metadataHash && mintResult.metadataURI === mintOperation.metadataURI &&
+          mintResult.distributionWallet === mintOperation.distributionWallet && mintResult.testOnly === true &&
+          mintResult.finality === 'canonical-at-observed-block-not-finality', 'TASK_TEST_MINT_RESULT_BINDING_REFUSED', 503);
+        }
+      }
     } catch (error) { failure = error; }
-    const result = await transaction([ckey, gkey, okey, nkey], values => {
+    const result = await transaction([ckey, gkey, okey, nkey, ...(mintKey === null ? [] : [mintKey])], values => {
       const grant = checkOperation(values, context, body, session), current = values[okey];
       requireThat(current.status === 'submitted' && values[nkey].permanent && current.observationRevision === operation.observationRevision &&
         current.attemptExecutor.digest === operation.attemptExecutor.digest && current.attemptObservationPolicy.digest === policy.digest &&
-        sameVerifier(current.attemptReceiptVerifier, receiptVerifier), 'TASK_OBSERVATION_REVISION_CONFLICT');
+        sameVerifier(current.attemptReceiptVerifier, attemptedVerifier) &&
+        current.attemptGrantPolicyVersion === operation.attemptGrantPolicyVersion &&
+        observationPolicyCopy(current.attemptObservationPolicy)?.digest === policy.digest, 'TASK_OBSERVATION_REVISION_CONFLICT');
+      const currentOriginal = durableObserverAttempt(grant,current,body.operationId);
+      requireThat(JSON.stringify(currentOriginal) === JSON.stringify(capturedSource.original),
+        'TASK_OBSERVATION_ATTEMPT_CONFLICT');
+      observationSources.assertCurrent(grant.observationSources,observerSourceScope(grant),
+        capturedSource.source,currentOriginal);
       requireThat(BigInt(grant.observationRevision) < (1n << 256n) - 1n && BigInt(current.observationRevision) < (1n << 256n) - 1n,
         'TASK_OBSERVATION_REVISION_EXHAUSTED');
       const revision = (BigInt(grant.observationRevision) + 1n).toString();
       const prior = grant.observations.find(entry => entry.operationId === body.operationId);
+      const operationObservationRevision = (BigInt(current.observationRevision) + 1n).toString();
+      const nextEntry = failure ? prior?.schema === '8415-task-observation-record/3' ?
+        {...prior,available:false,observationRevision:operationObservationRevision} : {
+        schema:'8415-task-observation-record/2',operationId:body.operationId,observation:prior?.observation??null,available:false,
+        observationRevision:operationObservationRevision,acceptedObserverContext:prior?.acceptedObserverContext??null,
+        ...(mintOperation===null?{}:{mintResult:prior?.mintResult??null}) } : observationSources.bindEntry({
+          value:grant.observationSources,scope:observerSourceScope(grant),source:capturedSource.source,
+          observation,revision:operationObservationRevision,...(mintOperation===null?{}:{mintResult}) });
       const observations = [...grant.observations.filter(entry => entry.operationId !== body.operationId),
-        { operationId: body.operationId, observation: failure ? prior?.observation ?? null : observation, available: failure === null }];
-      return { [ckey]: values[ckey], [gkey]: { ...grant, observations, observationRevision: revision },
+        nextEntry];
+      const inventory = mintKey === null ? {} : { [mintKey]: mintResult !== null && failure === null ? {
+        schema: '8415-task-test-mint-inventory/1', available: true, input, result: mintResult, observation,
+        sourceTaskDigest: context.grant.task.digest, sourceChildDigest: context.child.digest,
+      } : values[mintKey] === null ? null : values[mintKey].input?.attempt?.transactionHash === reservation.transactionHash ?
+        { ...values[mintKey], available: false } : values[mintKey] };
+      return { ...inventory, [ckey]: values[ckey], [gkey]: { ...grant, observations, observationRevision: revision },
         [okey]: { ...current, observationRevision: (BigInt(current.observationRevision) + 1n).toString(),
           // Only a verified supersession may install a replacement locator.
           // A later disappearance/reorg retains that locator for read-only retry.
           ...(failure === null && observation.state === 'superseded-at-depth' ? { replacementHash } : {}) }, [nkey]: values[nkey] };
     });
+    if (mintKey !== null) acceptCommittedMintRecord?.(result[mintKey]);
     // Persist unavailable before reporting an error: old evidence is historical,
     // never silently presented as a successful current observation.
     if (failure) throw new TaskAuthorizationError('TASK_OBSERVATION_UNAVAILABLE', 503);
     const snapshot = view(result[gkey], result[ckey]);
     const single = result[gkey].budget.reservations.filter(r => r.status !== 'cancelled').length === 1;
-    return { ...snapshot, observation, completion: { ...snapshot.completion, fresh: single }, outcome: observation.state };
+    const freshEntry = snapshot.observations.find(entry => entry.operationId === body.operationId);
+    const accepted = freshEntry?.acceptedObserverContext;
+    requireThat(accepted && freshEntry.available === true &&
+      accepted.acceptedObservationRevision === freshEntry.observationRevision &&
+      sameVerifier(accepted.verifier, receiptVerifier) &&
+      accepted.verificationPolicy.digest === capturedSource.source.verificationPolicy.digest,
+    'TASK_OBSERVER_CONTEXT_REFUSED', 503);
+    return { ...snapshot, observation, observationView: { ...snapshot.observationView,
+      currentReadOnlyObserver: {verifier:capturedSource.source.verifier,
+        verificationPolicy:capturedSource.source.verificationPolicy},
+      freshObservation: { operationId: body.operationId, observationRevision: freshEntry.observationRevision,
+        fullObservationDigest: accepted.fullObservationDigest } },
+      completion: { ...snapshot.completion, fresh: single }, outcome: observation.state };
   }
   async function revoke(body, session) {
     fields(body, ['taskDigest', 'expectedGrantPolicyVersion']); hash(body.taskDigest); version(body.expectedGrantPolicyVersion);
@@ -802,6 +1302,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       if (path === 'tasks/revoke') return await revoke(body, session);
       if (path === 'tasks/reserve') return await reserve(body, session);
       if (path === 'tasks/cancel-reservation') return await cancelReservation(body, session);
+      if (path === 'tasks/prepare-operation-verification') return await prepareOperationVerification(body, session);
+      if (path === 'tasks/confirm-operation-verification') return await confirmOperationVerification(body, session);
       if (path === 'tasks/execute') return await execute(body, session);
       if (path === 'tasks/recover') return await recover(body, session);
       if (path === 'tasks/observe') return await observe(body, session);
@@ -836,7 +1338,10 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       typeof owner[2] === 'string' && typeof owner[3] === 'string' && typeof owner[4] === 'string', 'TASK_BACKGROUND_PRINCIPAL_REFUSED', 503);
     const context = Object.freeze({ username: owner[2], account: owner[3], chainId: owner[4] });
     requireThat(grantKey(context, claimed.taskDigest) === gkey, 'TASK_BACKGROUND_GRANT_REFUSED', 403);
-    return { context, gkey, ckey: credentialKey(context), okey: operationKey(raw.task, claimed.operationId) };
+    const okey = operationKey(raw.task, claimed.operationId), operation = await store.read(okey);
+    const nkey = operation === null ? null :
+      nonceKey(freezeNftListingChild(operation.child?.child));
+    return { context, gkey, ckey: credentialKey(context), okey, nkey };
   }
   function listingCapability(values, found, claimed, purpose) {
     const { context, gkey, ckey, okey } = found;
@@ -859,6 +1364,10 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
           operation.attemptGrantPolicyVersion === claimed.grantPolicyVersion && operation.attemptExecutor?.digest === claimed.executorDigest,
           'TASK_SEND_ATTEMPT_REFUSED', 403);
         checkListingScope(grant, operation.child);
+        requireThat(found.nkey !== null && operation.child.digest === freezeNftListingChild(operation.child.child).digest &&
+          operation.orderKey === found.nkey && values[found.nkey]?.operationKey === okey &&
+          values[found.nkey]?.permanent === true, 'TASK_LISTING_NONCE_BINDING_REFUSED', 403);
+        assertOperationProof(values, credential, grant, okey, found.nkey);
       }
     }
     if (operation) requireThat(operation.grantKey === gkey && isListing(operation.child), 'TASK_LISTING_BINDING_REFUSED', 403);
@@ -871,13 +1380,13 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     async inspect(claimed, purpose = 'observe') {
       requireThat(['prepare', 'review', 'sign', 'publish', 'observe'].includes(purpose), 'TASK_LISTING_PURPOSE_REFUSED', 400);
       const binding = immutable(structuredClone(claimed)), found = await locateListing(binding);
-      const keys = [queueKey, found.ckey, found.gkey, found.okey];
+      const keys = [queueKey, found.ckey, found.gkey, found.okey, ...(found.nkey === null ? [] : [found.nkey])];
       const values = await store.readMany(keys); return listingCapability(values, found, binding, purpose);
     },
     async withAuthorization(claimed, purpose, action) {
       requireThat(['prepare', 'review', 'sign', 'publish', 'observe'].includes(purpose) && typeof action === 'function', 'TASK_LISTING_PURPOSE_REFUSED', 400);
       const binding = immutable(structuredClone(claimed)), found = await locateListing(binding);
-      return store.withReadGate([queueKey, found.ckey, found.gkey, found.okey], async values => {
+      return store.withReadGate([queueKey, found.ckey, found.gkey, found.okey, ...(found.nkey === null ? [] : [found.nkey])], async values => {
         const snapshot = listingCapability(values, found, binding, purpose);
         return await action(snapshot, () => listingCapability(values, found, binding, purpose));
       });
@@ -922,6 +1431,14 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       grant.executor.digest===claimed.executorDigest && grant.grantPolicyVersion===claimed.grantPolicyVersion,
       'TASK_RECEIPT_GRANT_BINDING_REFUSED',403);
     requireActive(grant,credential);
+    // Whole-receipt phases have a distinct native journal/plan binding. Never
+    // pretend an ordinary child proof authorizes that different operation type.
+    // The initial ON default, OFF and a current existing test grant are
+    // prompt-free. A saved ON owner lock still needs its phase-specific verifier.
+    // Historical reads/reconciliation do not enter this execution gate.
+    const verificationRequirement = taskOperationVerificationRequirement(credential, grant, operationTestExempt(grant));
+    if (verificationRequirement.required)
+      throw new TaskAuthorizationError('TASK_RECEIPT_OPERATION_VERIFICATION_NOT_CONNECTED', 503);
     const scope=validateReceiptWire(grant.task,claimed.phase,wire);
     requireThat(scope.planDigest===claimed.planDigest && scope.journalBindingHash===claimed.journalBindingHash,
       'TASK_RECEIPT_PLAN_BINDING_REFUSED',403);
@@ -940,7 +1457,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       identifier(r.operationId);phases.add(r.phase);nonces.add(r.nonce);spent+=BigInt(r.maximumFeeWei);
     }
     requireThat(spent<=BigInt(grant.task.policy.fees.totalWei),'TASK_TOTAL_FEE_LIMIT');
-    return {grant,scope,spent,phases,nonce:scope.nonce};
+    return {grant,scope,spent,phases,nonce:scope.nonce,
+      humanVerificationEvaluation:{state:'NOT_EVALUATED',reason:verificationRequirement.reason,
+        policyRevision:verificationRequirement.policyRevision}};
   }
   /** Read-only phase view for journal preparation. No wire, no attempt, no
    * nonce claim: it cannot consume the single permitted attempt for a phase. */
@@ -1032,14 +1551,14 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         // A stopped queued call must not consume a phase or occupy its nonce.
         const activeResult=assertActive();
         requireThat(!activeResult||typeof activeResult.then!=='function','TASK_RECEIPT_ACTION_REFUSED',400);
-        const {grant,scope,spent,phases}=receiptCapability(values,found,claimed,wire);
+        const {grant,scope,spent,phases,humanVerificationEvaluation}=receiptCapability(values,found,claimed,wire);
         requireThat(!phases.has(claimed.phase)&&values[okey]===null,'TASK_RECEIPT_ALREADY_ATTEMPTED');
         requireThat(values[nkey]===null,'TASK_NONCE_OCCUPIED');
         requireThat(spent+BigInt(scope.maximumFeeWei)<=BigInt(grant.task.policy.fees.totalWei),'TASK_TOTAL_FEE_LIMIT');
         const attempt={phase:claimed.phase,nonce:scope.nonce,operationId:claimed.operationId,
           maximumFeeWei:scope.maximumFeeWei,status:'outcome-unknown',transactionHash:null};
         return {...values,[gkey]:{...grant,receiptAttempts:[...(grant.receiptAttempts??[]),attempt]},
-          [okey]:{schema:'8415-task-receipt-operation/1',grantKey:gkey,binding:claimed,status:'outcome-unknown'},
+          [okey]:{schema:'8415-task-receipt-operation/1',grantKey:gkey,binding:claimed,status:'outcome-unknown',humanVerificationEvaluation},
           [nkey]:{operationKey:okey,taskDigest:claimed.taskDigest,nonce:scope.nonce,permanent:true}};
       });
       let transactionHash;
@@ -1099,5 +1618,5 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       return resume({ taskDigest: raw.task.digest }, context);
     },
   });
-  return { handler, cancel, background, listingAuthorization, receiptAuthorization };
+  return { handler, cancel, background, listingAuthorization, receiptAuthorization, observationDetails };
 }

@@ -1,3 +1,5 @@
+const { fixturePath, compositionEvidence } = require('../../tests/helpers/enabled-composition.cjs');
+const testComposition = 'privacy'; // Explicit retained-component fixture, not production foundation acceptance.
 const { installScreenNavigation } = require('./screen-navigation.cjs');
 // Rendered browser regression with public synthetic test keys only. No genuine
 // wallet, user signatures, network RPC, chain transaction or physical handset.
@@ -12,7 +14,7 @@ const out = path.resolve(process.env.LOGIN_UI_OUTPUT || '/tmp/8415-login-ui-evid
 const release = JSON.parse(fs.readFileSync(path.join(root, 'web/release-config.json'), 'utf8'));
 async function main() {
   fs.mkdirSync(out, { recursive: true });
-  const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], { env: { ...process.env, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], { env: { ...process.env, WALLET_BROWSER_TEST_COMPOSITION: testComposition, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   let browser;
   try {
     await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('error', reject); server.once('exit', code => reject(new Error(`Static server exited: ${code}`))); });
@@ -78,7 +80,7 @@ async function main() {
         await login(page); await page.click('#asset-connect'); await idle();
         assert.match(await page.textContent('#asset-result'), /balanceWei/);
       };
-      await page.goto(origin); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
+      await page.goto(origin + fixturePath(testComposition)); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
       assert.equal(await page.locator('#wallet-private').isVisible(), false);
       assert.deepEqual(await page.evaluate(() => __loginTest.calls), []);
       // Direct synthetic event dispatch must not bypass the hidden/inert UI.
@@ -139,7 +141,7 @@ async function main() {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.deepEqual(errors, []); assert.deepEqual(externalRequests, []);
       await page.screenshot({ path: path.join(out, `${profile}-${viewport.width}-locked.png`), fullPage: true });
-      evidence.push({ profile, viewport, result: 'passed', journeys: ['public-entry-zero-provider-reads', 'connection-is-not-login', 'reject-invalid-replay', 'cancel-late-signature', 'repeated-click', 'verified-login', 'logout-clear', 'storage-reload-denial', 'account-chain-disconnect', 'silent-account-change', 'late-ETH-and-ERC20-read', 'expiry', 'history-restoration'], userSignatures: 0, chainTransactions: 0 });
+      evidence.push({ composition: compositionEvidence(testComposition), profile, viewport, result: 'passed', journeys: ['public-entry-zero-provider-reads', 'connection-is-not-login', 'reject-invalid-replay', 'cancel-late-signature', 'repeated-click', 'verified-login', 'logout-clear', 'storage-reload-denial', 'account-chain-disconnect', 'silent-account-change', 'late-ETH-and-ERC20-read', 'expiry', 'history-restoration'], userSignatures: 0, chainTransactions: 0 });
       await context.close();
     }
     fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({ verdict: 'SYNTHETIC_LOGIN_BROWSER_PASSED_NOT_GENUINE_WALLET_ACCEPTANCE', evidence }, null, 2));

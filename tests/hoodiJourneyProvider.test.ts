@@ -32,6 +32,8 @@ test('opening a finalized snapshot never requests an account or transaction', as
   assert.equal(pinned.blockNumber, 16n);
   assert.equal(pinned.recordedAt, 256n);
   assert.equal(await pinned.readBlockHash(16n), hash);
+  assert.deepEqual(f.calls.slice(-3).map(c => c.method),
+    ['eth_chainId', 'eth_getBlockByNumber', 'eth_chainId']);
   assert.ok(f.calls.some(c => c.method === 'eth_getBlockByNumber' && c.params[0] === 'finalized'));
   assert.ok(f.calls.every(c => !/send|sign|requestAccounts/i.test(c.method)));
 });
@@ -60,4 +62,24 @@ test('structured execution revert remains a contract error, not empty success', 
     return f.provider.request(args);
   } }, manifest);
   await assert.rejects(pinned.reader.registerId(), ContractRevertError);
+});
+
+for (const otherChain of ['0x1', '0x2105']) test(`final header cannot publish after a late switch to ${otherChain}, even with the same hash`, async () => {
+  const f = fakeProvider();
+  const calls: { method: string; params: unknown[] }[] = [];
+  let switched = false;
+  const pinned = await openHoodiJourneyRead({ request: async args => {
+    calls.push(args);
+    if (args.method === 'eth_chainId' && switched) return otherChain;
+    const answer = await f.provider.request(args);
+    // Opening uses 'finalized'; only the subsequent numbered reread switches.
+    if (args.method === 'eth_getBlockByNumber' && args.params[0] === '0x10') switched = true;
+    return answer;
+  } }, manifest);
+  await assert.rejects(pinned.readBlockHash(16n), /Hoodi chain mismatch/);
+  assert.equal(switched, true);
+  assert.deepEqual(calls.slice(-3).map(c => c.method),
+    ['eth_chainId', 'eth_getBlockByNumber', 'eth_chainId']);
+  assert.equal(pinned.reader.source.chainId, 560048n);
+  assert.ok(calls.every(c => !/send|sign|requestAccounts|switchEthereumChain/i.test(c.method)));
 });

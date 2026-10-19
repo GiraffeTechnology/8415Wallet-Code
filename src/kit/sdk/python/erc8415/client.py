@@ -24,6 +24,13 @@ class NotCoveredError(ProjectionClientError):
         super().__init__(404, "INSTANT_NOT_COVERED", message)
 
 
+def _decode_finality(value: Any) -> bool:
+    """JSON finality is a boolean, never a truthiness conversion."""
+    if type(value) is not bool:
+        raise ProjectionClientError(502, "INVALID_RESPONSE", "projection finality must be a JSON boolean")
+    return value
+
+
 @dataclass(frozen=True)
 class Entry:
     version: int
@@ -150,7 +157,7 @@ class ProjectionClient:
 
     def is_final_as_of(self, token_id: int, instant: int) -> bool:
         """Whether a later admission can still change that answer."""
-        return bool(self._get(f"/projection/{token_id}/finality/as-of/{instant}")["final"])
+        return _decode_finality(self._get(f"/projection/{token_id}/finality/as-of/{instant}")["final"])
 
     def entry_as_of(self, token_id: int, instant: int) -> Entry:
         return Entry.from_wire(self._get(f"/projection/{token_id}/entry/as-of/{instant}")["entry"])
@@ -188,7 +195,7 @@ class ProjectionClient:
         body = self._get(f"/projection/{token_id}/resolve/as-of/{instant}")
         gap = body["openGap"]
         return Resolution(
-            holder=body["holder"], final=bool(body["final"]),
+            holder=body["holder"], final=_decode_finality(body["final"]),
             open_gap=None if gap is None else Settlement.from_wire(gap),
         )
 

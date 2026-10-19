@@ -139,12 +139,27 @@ export class ResponsibilityControlClient {
   }
 
   async snapshot(sequenceId: Bytes32): Promise<ControlSnapshot> {
+    return this.#snapshot(sequenceId, null);
+  }
+
+  /** Read a caller-named canonical historical block. No latest fallback, scan,
+   * account inference or transaction capability is supplied by this method. */
+  async snapshotAt(sequenceId: Bytes32, blockNumber: bigint, expectedBlockHash: Bytes32): Promise<ControlSnapshot> {
+    requireValue(typeof blockNumber === 'bigint' && blockNumber >= 0n && blockNumber < 1n << 256n &&
+      controlHex(expectedBlockHash, 32) && !/^0x0+$/i.test(expectedBlockHash), 'CONTROL_HISTORICAL_ANCHOR_REFUSED');
+    return this.#snapshot(sequenceId, { blockNumber, blockHash: expectedBlockHash.toLowerCase() });
+  }
+
+  async #snapshot(sequenceId: Bytes32, at: { readonly blockNumber: bigint; readonly blockHash: Bytes32 } | null): Promise<ControlSnapshot> {
     requireValue(controlHex(sequenceId, 32), 'CONTROL_SEQUENCE_ID_REFUSED');
     await verifyControlDeployment(this.#provider, this.deployment);
-    const header = object(await controlRpc(this.#provider, 'eth_getBlockByNumber', ['latest', false]));
+    const header = object(await controlRpc(this.#provider, 'eth_getBlockByNumber',
+      [at === null ? 'latest' : `0x${at.blockNumber.toString(16)}`, false]));
     requireValue(controlHex(header.hash, 32), 'CONTROL_BLOCK_HASH_REFUSED');
     const blockHash = header.hash.toLowerCase();
     const blockNumber = quantity(header.number); const timestamp = quantity(header.timestamp);
+    requireValue(at === null || blockNumber === at.blockNumber && blockHash === at.blockHash,
+      'CONTROL_HISTORICAL_ANCHOR_MISMATCH');
     const block = { blockHash, requireCanonical: true };
     const read = async (signature: string, types: readonly StaticType[], args: readonly AbiValue[], returns: readonly StaticType[]) =>
       strictDecode(returns, await controlRpc(this.#provider, 'eth_call', [
@@ -194,7 +209,13 @@ export class ResponsibilityControlClient {
       ? (firstOccurrence === 0n ? sequence.initialAccount : sequence.currentAccount)
       : legs[Number(sequence.cursor - firstOccurrence - 1n)]!.toAccount), 'CONTROL_CURSOR_ACCOUNT_REFUSED');
     const end = object(await controlRpc(this.#provider, 'eth_getBlockByNumber', [`0x${blockNumber.toString(16)}`, false]));
-    requireValue(typeof end.hash === 'string' && end.hash.toLowerCase() === blockHash, 'CONTROL_SNAPSHOT_REORGED');
+    requireValue(typeof end.hash === 'string' && end.hash.toLowerCase() === blockHash &&
+      (at === null || quantity(end.number) === blockNumber), 'CONTROL_SNAPSHOT_REORGED');
+    // Preserve the originally selected chain after every remote read, including
+    // the final canonical-header check. Latest and historical reads share this boundary.
+    const chain = await controlRpc(this.#provider, 'eth_chainId', []);
+    requireValue(typeof chain === 'string' && /^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(chain) &&
+      BigInt(chain) === this.deployment.chainId, 'CONTROL_CHAIN_MISMATCH');
     return { sequenceId, blockNumber, blockHash, timestamp, sequence, legs, firstOccurrence, inheritedHash };
   }
 

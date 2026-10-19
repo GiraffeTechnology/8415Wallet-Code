@@ -2,7 +2,7 @@ import { createServer, type Server, type IncomingMessage } from 'node:http';
 import { AccessDenied, type Directory } from '../engine/access/roles.ts';
 import { ProjectionError } from '../engine/projection/errors.ts';
 import { overview, timeline } from './view.ts';
-import { renderOverview, renderTimeline } from './render.ts';
+import { escapeHtml, renderOverview, renderTimeline } from './render.ts';
 import type { ProjectionStore } from '../engine/projection/store.ts';
 import type { SettlementEngine } from '../engine/settlement/engine.ts';
 import type { Address, Instant, TokenId } from '../engine/projection/types.ts';
@@ -76,7 +76,7 @@ export const handleConsole = (options: ConsoleOptions, request: ConsoleRequest):
     if (segments[0] === 'permissions' && segments.length === 1) {
       options.directory.require(request.user, 'permissions:manage');
       const rows = options.directory.users()
-        .map((item) => `<tr><td>${item.user}</td><td>${item.role}</td></tr>`)
+        .map((item) => `<tr><td>${escapeHtml(item.user)}</td><td>${escapeHtml(item.role)}</td></tr>`)
         .join('');
       return html(200, `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Permissions</title></head><body><h1>Permissions</h1><table>${rows}</table></body></html>`);
     }

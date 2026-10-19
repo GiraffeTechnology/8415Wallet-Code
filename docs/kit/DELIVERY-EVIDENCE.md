@@ -1,10 +1,24 @@
 # Delivery Evidence
 
+Historical imported Kit component ledger. The sole current complete product
+requirements are the [Wallet PRD](../ERC-8415-Wallet-PRD.md). The historical rows,
+paths, test names and counts below are not current, source-bound Wallet
+acceptance evidence. They must not be used to infer ALL ON, multichain, deployed
+UI or real transaction acceptance. Current acceptance needs the exact integrated
+source, actual runner, command and result, following [AGENTS.md](../../AGENTS.md).
+
+For the merged layout, legacy `engine/`, `api/`, `adapters/`, `sdk/` and `console/`
+paths are under `src/kit/`, Kit tests are under `tests/kit/`, and these retained
+documents are under `docs/kit/`. Historical requirements and test titles below
+are preserved as historical labels, not assertions about the current root layout.
+
 Evidence for implemented components is mapped below. A passing component test
 does not establish completion of a whole stage or the deployment acceptance
 gate. Documentation rows identify documentation only.
 
-Run `npm run verify` to reproduce.
+`npm run verify` is the current aggregate command, including EVM tests. It may
+only be run in an already authorized execution environment under the current
+execution restrictions; this historical ledger grants no execution permission.
 
 ## Stage 0 — Foundation
 
@@ -18,7 +32,8 @@ Run `npm run verify` to reproduce.
 
 ## Stage 1 — ERC-8415 Projection Core
 
-The twenty mandatory conformance tests, in the order `AGENTS.md` lists them.
+The twenty original Kit conformance cases, in their historical order. The current
+Wallet AGENTS.md and PRD define the complete current requirements separately.
 
 | # | Invariant | Implementation | Test (`conformance.test.ts`) | Status |
 | --- | --- | --- | --- | --- |
@@ -110,9 +125,10 @@ verify Ethereum MPT proofs.
 | Chain finality is not projection finality | `ethereumChain.ts`, `kernel.ts` | `adapter.test.ts` › chain finality is not projection finality | delivered |
 | Accepted height never rewinds | `ethereumChain.ts` `advanceHeight` | `adapter.test.ts` › an accepted height never goes backwards | delivered |
 
-`solc` and `ethereum-cryptography` are development dependencies only. The
-adapter ships selectors as constants so the runtime keeps no dependencies, and
-the suite recomputes each one from the compiled ABI.
+At import, `ethereum-cryptography` was replaced by the repository's own Keccak
+implementation; see [Kit provenance](../../src/kit/PROVENANCE.md). The adapter
+ships selectors as constants, and its tests recompute them from the compiled
+ABI. The containing Wallet's current dependencies are defined in `package.json`.
 
 ## Correction applied during Stage 3
 
@@ -125,8 +141,10 @@ settlement identifiers are `bytes32`.
 
 ## Stage 4 — Settlement Composition Engine
 
-Gap primitives over the projection's settlement records. The canonical gap
-decision is in `docs/GAP-SEMANTICS.md`.
+Gap primitives over the projection's settlement records. The retained explanation
+is in [Gap Semantics](GAP-SEMANTICS.md); Wallet PRD §§3.3 and 4.5 include
+supersession. These historical rows do not establish embedded Kit coverage of
+that transition or replace current protocol conformance review.
 
 | Requirement | Implementation | Test (`settlement.test.ts`) | Status |
 | --- | --- | --- | --- |
@@ -265,9 +283,12 @@ the failure mode these vectors close.
 
 ## Verification and outstanding acceptance
 
-`npm run verify`: typecheck and 151 passing Node tests, including the Python SDK
-suite, authenticated loopback integration, Solidity compilation and shared
-conformance vectors. This is local Node 24 validation; CI also targets Node 22.
+Historical report: `npm run verify` was recorded as typecheck and 151 passing
+Node tests, including the Python SDK suite, authenticated loopback integration,
+Solidity compilation and shared conformance vectors, using local Node 24 with
+CI targeting Node 22. This retained report does not identify the exact current
+source or an approved current runner/job. It is not a current pass; all new or
+changed source requires separately version-bound authorized evidence.
 
 The full stage plan remains incomplete. Missing evidence includes a deployed
 contract transaction/event run, measured coverage against the plan's 80% target,

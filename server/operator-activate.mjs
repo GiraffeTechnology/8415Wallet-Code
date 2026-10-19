@@ -8,13 +8,19 @@ import { pathToFileURL } from 'node:url';
 import { hashPassword } from './crypto.mjs';
 import { validateAuthConfig } from './config-validation.mjs';
 
-export function activationPaths(tenant = 'xiongan') {
-  if (typeof tenant !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(tenant)) throw Error('AUTH_OPERATOR_TENANT_REFUSED');
+export function activationPaths(tenant) {
+  const matched = typeof tenant === 'string' ? /^[a-z][a-z0-9-]{0,47}$/.exec(tenant) : null;
+  if (!matched || matched[0] !== tenant) throw Error('AUTH_OPERATOR_TENANT_REFUSED');
   const configDirectory = `/etc/8415wallet-auth-${tenant}`, stateDirectory = `/var/lib/8415wallet-auth-${tenant}`;
   return Object.freeze({ configDirectory, stateDirectory, config: `${configDirectory}/auth.json`,
     key: `${configDirectory}/store-key`, state: `${stateDirectory}/credentials.enc` });
 }
-export const ACTIVATION_PATHS = activationPaths();
+// Unresolved public documentation template, never an implicit live instance.
+export const ACTIVATION_PATHS = Object.freeze({
+  configDirectory: '/etc/8415wallet-auth-@TENANT@', stateDirectory: '/var/lib/8415wallet-auth-@TENANT@',
+  config: '/etc/8415wallet-auth-@TENANT@/auth.json', key: '/etc/8415wallet-auth-@TENANT@/store-key',
+  state: '/var/lib/8415wallet-auth-@TENANT@/credentials.enc',
+});
 const fail = code => { throw Error(code); };
 const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
 const privateFile = stat => stat.isFile() && stat.uid === 0 && stat.gid === 0 &&
@@ -90,14 +96,13 @@ export function createTrustedTerminal(input, output, signal) {
 
 /** Dependency injection is for synthetic tests only; the CLI accepts no path/secret overrides. */
 export async function runOperatorActivate(args, input = process.stdin, output = process.stdout, dependencies = {}) {
-  if (!Array.isArray(args) || !(args.length === 1 && ['--help', '--activate'].includes(args[0]) ||
+  if (!Array.isArray(args) || !(args.length === 1 && args[0] === '--help' ||
     args.length === 3 && args[0] === '--activate' && args[1] === '--tenant')) fail('AUTH_OPERATOR_ARGUMENT_REFUSED');
-  const tenant = args.length === 3 ? args[2] : 'xiongan';
-  const selectedPaths = activationPaths(tenant);
   if (args[0] === '--help') {
-    output.write('First activation only: --activate [--tenant TENANT] requires Linux root and a trusted interactive terminal. The default tenant is xiongan; tenant names contain only lowercase letters, digits and hyphens and start with a letter. Paths are derived under /etc/8415wallet-auth-TENANT and /var/lib/8415wallet-auth-TENANT; arbitrary path arguments are refused. It confirms creation of an independent 32-byte store key and optionally a hidden, confirmed password for an existing account without a password. Fixed root-owned 0700 config/state directories and a validated root-owned 0600 auth.json must already exist. Existing key, state, locks and unfinished staging are refused. No credential arguments or environment, service start, network access, account binding, password rotation or recovery. Run personally from a verified installation, with terminal recording disabled.\n');
+    output.write('First activation only: --activate --tenant TENANT requires Linux root and a trusted interactive terminal. No tenant is inferred; use the existing verified tenant. Tenant names contain only lowercase letters, digits and hyphens and start with a letter. Paths are derived under /etc/8415wallet-auth-TENANT and /var/lib/8415wallet-auth-TENANT; arbitrary path arguments are refused. It confirms creation of an independent 32-byte store key and optionally a hidden, confirmed password for an existing account without a password. Fixed root-owned 0700 config/state directories and a validated root-owned 0600 auth.json must already exist. Existing key, state, locks and unfinished staging are refused. No credential arguments or environment, service start, network access, account binding, password rotation or recovery. Run personally from a verified installation, with terminal recording disabled.\n');
     return;
   }
+  const tenant = args[2], selectedPaths = activationPaths(tenant);
   const {
     fs = filesystem, paths = selectedPaths, platform = process.platform,
     getuid = () => process.getuid?.(), geteuid = () => process.geteuid?.(),

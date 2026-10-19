@@ -40,7 +40,7 @@ function queriedTransaction(tx) {
 async function fixture(t, options = {}) {
   const wallet = Wallet.createRandom(), actor = wallet.address.toLowerCase();
   assert.equal(wallet.provider, null);
-  const store = new MemoryCredentialStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1, sentinel: 'preserve-existing-credential' } });
+  const store = new MemoryCredentialStore({ 'synthetic-tenant:tester': { secret, lastStep: -1, revision: 1, sentinel: 'preserve-existing-credential' } });
   const state = { now: epoch, chain: hex(chainId), nonce: '0x7', head: 100n, actorCode: '0x', recipientCode: '0x',
     visible: null, receipt: null, hideTransaction: false, signCalls: 0, broadcasts: 0, methods: [], readRequests: [],
     operationKey: null, plans: [], planInputs: [], signedHashes: [] };
@@ -48,6 +48,7 @@ async function fixture(t, options = {}) {
     state.methods.push(method);
     if (method !== 'eth_sendRawTransaction') state.readRequests.push(structuredClone({ method, params }));
     if (method === 'eth_chainId') return state.chain;
+    if (method === 'eth_getBalance') return state.balance ?? '0xffffffffffffffff';
     if (method === 'eth_getTransactionCount') { assert.equal(params[0], actor); assert.equal(params[1], 'pending'); return state.nonce; }
     if (method === 'eth_getCode') {
       const address = params[0].toLowerCase();
@@ -91,7 +92,7 @@ async function fixture(t, options = {}) {
     }
     throw Error(`Unexpected in-process provider method: ${method}`);
   } });
-  const externalSigner = Object.freeze({ async signExactTransaction(request) {
+  const externalSigner = Object.freeze({ async signExactTransaction(request, execution) {
     state.signCalls++;
     assert.deepEqual(Object.keys(request), ['requestId', 'unsignedSerialized', 'unsignedDigest', 'binding']);
     assert.ok(Object.isFrozen(request) && Object.isFrozen(request.binding));
@@ -100,7 +101,8 @@ async function fixture(t, options = {}) {
     assert.equal(request.binding.actor, actor); assert.equal(request.binding.chainId, chainId);
     assert.equal(request.binding.childDigest, freezeChildOperation(state.plans.at(-1)).digest);
     await options.onSign?.({ state, request, store });
-    const serialized = await wallet.signTransaction(tx);
+    assert.ok(Object.isFrozen(execution) && typeof execution.withSigningFence === 'function');
+    const serialized = await execution.withSigningFence(() => wallet.signTransaction(tx));
     state.signedHashes.push(Transaction.from(serialized).hash);
     return serialized;
   } });
@@ -135,7 +137,7 @@ async function fixture(t, options = {}) {
       async assessChild(input) { counted.assess++; return actualReceipt.assessChild(input); },
       async observe(input) { counted.observe++; return actualReceipt.observe(input); },
     });
-    handler = createAuthService({ origin, tenant: 'xiongan', accounts: [{ username: 'tester', passwordHash,
+    handler = createAuthService({ origin, tenant: 'synthetic-tenant', accounts: [{ username: 'tester', passwordHash,
       wallets: [{ account: actor, chainId }] }], store, now: () => state.now,
       taskExecution: execution, taskExecutorIdentity: exact.identity, taskObservationPolicy: observationPolicy, taskReceipt: receipt });
     return exact;
@@ -144,7 +146,7 @@ async function fixture(t, options = {}) {
   let csrf = ''; const cookies = new Map();
   async function call(path, body) {
     const response = await fetch(`${origin}/auth/${path}`, { method: body === undefined ? 'GET' : 'POST',
-      headers: { Origin: origin, 'X-Wallet-Tenant': 'xiongan', 'X-Wallet-CSRF': csrf,
+      headers: { Origin: origin, 'X-Wallet-Tenant': 'synthetic-tenant', 'X-Wallet-CSRF': csrf,
         Cookie: [...cookies].map(([key, value]) => `${key}=${value}`).join('; '),
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -159,14 +161,14 @@ async function fixture(t, options = {}) {
     accepted(await call('bootstrap'));
     return accepted(await call('password', { username: 'tester', password, account: actor, chainId }));
   }
-  const policy = taskId => ({ schema: '8415-agent-task/1', taskId: taskId ?? 'synthetic:planner-background', tenant: 'xiongan', origin,
+  const policy = taskId => ({ schema: '8415-agent-task/1', taskId: taskId ?? 'synthetic:planner-background', tenant: 'synthetic-tenant', origin,
     chainId, actor, expiresAt: String(epoch / 1000 + 7200), fees: { perOperationWei: '1000000', totalWei: '1000000' },
     intent: { kind: 'exact-operation', operation: { kind: 'native-transfer', chainId, actor, recipient, valueWei: '10' } } });
   async function prepare(taskId) { return accepted(await call('tasks/prepare', { policy: policy(taskId) })); }
   async function approve(prepared) {
     return accepted(await call('tasks/authorize', { challengeId: prepared.challengeId, taskDigest: prepared.task.digest,
       executorDigest: prepared.executor.digest, observationPolicyDigest: prepared.observationPolicy.digest,
-      code: hotp(secret, Math.floor(state.now / 30000)) }));
+      code: prepared.approvalFactor === 'totp' ? hotp(secret, Math.floor(state.now / 30000)) : '' }));
   }
   function runner() {
     const result = createTaskBackgroundRunner({ store, continuation: handler.taskBackground, now: () => state.now });
@@ -233,7 +235,7 @@ for (const end of ['logout', 'session expiry']) test(`HTTP task approval survive
   assert.equal(observation.verifierId, '8415wallet:task-receipt'); assert.equal(observation.confirmations, '2');
   assert.equal(observation.originalTransactionHash, f.state.visible.hash);
   assert.deepEqual(complete.budget, grant.budget, 'receipt completion never refunds the consumed one-operation budget');
-  assert.equal((await f.store.read('xiongan:tester')).sentinel, 'preserve-existing-credential');
+  assert.equal((await f.store.read('synthetic-tenant:tester')).sentinel, 'preserve-existing-credential');
   f.state.now += 600000;
   assert.deepEqual((await runner.tick()).results, []);
   assert.equal((await f.runner().tick()).results[0].state, 'completed-at-observation-depth', 'new runner reads terminal durable evidence');
@@ -275,12 +277,12 @@ test('changed planner fee rule suspends an old HTTP grant before planning and ne
   const status = accepted(await f.call('tasks/status', { taskDigest: old.task.digest }));
   assert.equal(status.effectiveStatus, 'suspended'); assert.equal(status.capabilities.executorRevalidationRequired, true);
   // Existing task versions are immutable. A fresh named task is separately
-  // reviewed and OTP-authorized; its approval does not renew the old grant.
+  // bound to its server-selected approval factor; it does not renew the old grant.
   const fresh = await f.prepare('synthetic:planner-background:rule-v2');
   assert.notEqual(fresh.executor.digest, old.executor.digest);
   assert.notEqual((await f.call('tasks/authorize', { challengeId: fresh.challengeId, taskDigest: fresh.task.digest,
     executorDigest: old.executor.digest, observationPolicyDigest: fresh.observationPolicy.digest,
-    code: hotp(secret, Math.floor(f.state.now / 30000)) })).status, 200);
+    code: fresh.approvalFactor === 'totp' ? hotp(secret, Math.floor(f.state.now / 30000)) : '' })).status, 200);
   await f.approve(fresh); accepted(await f.call('logout', {}));
   const changedRunner = f.runner(), resumed = await changedRunner.tick();
   assert.equal(resumed.results.filter(result => result.state === 'submitted').length, 1);

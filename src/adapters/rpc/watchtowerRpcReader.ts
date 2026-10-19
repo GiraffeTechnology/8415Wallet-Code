@@ -9,7 +9,7 @@ import {
   type WatchtowerPolicy,
   type WatchtowerReader,
 } from '../../sdk/watchtower.ts';
-import type { CallTransport } from './transport.ts';
+import { bindChainTransport, type CallTransport } from './transport.ts';
 
 /** Field order of `IWatchtowerFreshnessLayer.Head`. */
 const HEAD_TYPES: readonly StaticType[] = [
@@ -35,8 +35,9 @@ export class RpcWatchtowerReader implements WatchtowerReader {
   readonly #transport: CallTransport;
 
   constructor(transport: CallTransport, chainId: bigint, address: Address) {
-    this.#transport = transport;
-    this.source = { chainId, address };
+    this.#transport = bindChainTransport(transport, chainId);
+    this.source = Object.freeze({ chainId, address });
+    Object.defineProperty(this, 'source', { writable: false, configurable: false });
   }
 
   async #read(

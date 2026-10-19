@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { describeAcquisition } from '../src/wallet/acquisition.ts';
+import { describePosture } from '../src/wallet/posture.ts';
+import { describeFinality } from '../src/wallet/finality.ts';
 import { WalletSession } from '../src/wallet/session.ts';
 import { divergentToken, cancelledGapToken, projectionOnlyToken, TOKEN, T } from '../src/adapters/memory/scenarios.ts';
 import { renderAssetView } from '../src/wallet/renderAssetView.ts';
@@ -105,4 +108,69 @@ test('closed intervals and first-entry/missing-opening fragments do not leak Eng
   for (const { id } of LOCALES.filter(locale => locale.id !== 'en')) {
     for (const text of samples) assert.doesNotMatch(translateNative(text, id), /in force|zero — first entry|not read/);
   }
+});
+
+test('repaired native protocol catalogs preserve opaque captures and localize each fixed template', () => {
+  const keys = Object.keys(CATALOGS.en!).filter(key => /^protocol\.(acquisition\.|posture\.|present\.|finality\.|escrow\.holderUnavailable$)/.test(key)).concat(['protocol.011', 'protocol.012', 'protocol.028', 'protocol.086']);
+  const parameters = { v0: '1700000000', v1: '1700000001', v2: 'false', v3: '1700000002' };
+  for (const key of keys) {
+    const source = t(key, parameters, 'en');
+    for (const { id } of LOCALES) {
+      assert.ok(Object.prototype.hasOwnProperty.call(CATALOGS[id], key), `${id}:${key}`);
+      assert.equal(translateNative(source, id), t(key, parameters, id), `${id}:${key}`);
+      for (const name of CATALOGS.en![key]!.match(/\{v[0-9]+\}/g) ?? []) {
+        const value = parameters[name.slice(1, -1) as keyof typeof parameters];
+        assert.ok(translateNative(source, id).includes(value), `${id}:${key}:${name}`);
+      }
+    }
+  }
+});
+
+test('acquisition actual observed answers translate their first-party explanation but retain instants', async () => {
+  const original = await new WalletSession(divergentToken().reader).assetView(TOKEN);
+  for (const final of [true, false]) {
+    const explanationKey = final ? 'protocol.present.final' : 'protocol.012';
+    const values = final ? { v0: '1700000030', v1: '1700000020', v2: '1700000010' } : { v0: '1700000010' };
+    const view = { ...original, presentFinality: { ...original.presentFinality, instant: original.observedAt, final, explanation: t(explanationKey, values, 'en') } };
+    const before = structuredClone(view), result = describeAcquisition(view, view.observedAt);
+    const key = final ? 'protocol.acquisition.observedFinal' : 'protocol.acquisition.observedNotFinal';
+    assert.equal(result.points[1], t(key, { v0: String(view.observedAt), v1: view.presentFinality.explanation }, 'en'));
+    for (const { id } of LOCALES) assert.equal(translateNative(result.points[1]!, id), t(key, { v0: String(view.observedAt), v1: t(explanationKey, values, id) }, id));
+    const later = describeAcquisition(view, view.observedAt + 1n);
+    for (const { id } of LOCALES) assert.equal(translateNative(later.points[1]!, id), t('protocol.acquisition.unobserved', { v0: String(view.observedAt + 1n) }, id));
+    assert.deepEqual(view, before);
+  }
+});
+
+test('actual unavailable uncovered and inconsistent posture prose uses the new native mappings', () => {
+  const inputs = [
+    { reported: undefined, firstEffectiveAt: undefined, latestEffectiveAt: undefined },
+    { reported: false, firstEffectiveAt: 20n, latestEffectiveAt: 30n },
+    { reported: false, firstEffectiveAt: undefined, latestEffectiveAt: 30n },
+    { reported: true, firstEffectiveAt: undefined, latestEffectiveAt: 30n },
+    { reported: false, firstEffectiveAt: 30n, latestEffectiveAt: 20n },
+    { reported: true, firstEffectiveAt: 30n, latestEffectiveAt: 20n },
+    { reported: true, firstEffectiveAt: 20n, latestEffectiveAt: 30n },
+    { reported: false, firstEffectiveAt: 0n, latestEffectiveAt: 30n },
+    { reported: true, firstEffectiveAt: 0n, latestEffectiveAt: 10n },
+  ];
+  for (const input of inputs) {
+    const finality = describeFinality({ tokenId: TOKEN, instant: 10n, ...input });
+    const freshness: any = { display: 'current', label: 'Current', explanation: 'Known feed text' };
+    const posture = describePosture(finality, freshness), before = structuredClone(posture);
+    for (const { id } of LOCALES.filter(locale => locale.id !== 'en')) {
+      assert.notEqual(translateNative(posture.label, id), posture.label);
+      assert.notEqual(translateNative(posture.explanation, id), posture.explanation);
+      assert.notEqual(translateNative(posture.referencePattern, id), posture.referencePattern);
+      const projection = translateNative(posture.projection, id);
+      assert.equal(projection, `${translateNative(finality.label, id)} — ${translateNative(finality.explanation, id)}`);
+      assert.notEqual(translateNative(finality.explanation, id), finality.explanation);
+    }
+    assert.deepEqual(posture, before);
+  }
+});
+
+test('escrow zero-sentinel prose is localized without claiming a missing holder', () => {
+  const source = 'unavailable or no record — not distinguished by this observation';
+  for (const { id } of LOCALES) assert.equal(translateNative(source, id), t('protocol.escrow.holderUnavailable', {}, id));
 });

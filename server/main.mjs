@@ -13,15 +13,33 @@ import { createOtpSenderFromEnvironment } from './mail-otp.mjs';
 import { bootstrapTaskListingRuntime, ensureTaskListingServerCondition } from './task-listing-bootstrap.mjs';
 import { createTaskExactRuntime } from './task-exact-runtime.mjs';
 import { composeTaskAuthOptions } from './task-runtime-composition.mjs';
+import { createTaskTestAssetAuthorization } from './task-test-asset-authorization.mjs';
+import { bootstrapTaskExactConfiguration } from './task-exact-bootstrap.mjs';
+import { createTaskReceiptAdapter } from './task-receipt-adapter.mjs';
 
 /** Reusable process-level entry for an already reviewed server capability object.
  * HTTP request data is never passed as listingRuntime or auth options. */
-export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, now = Date.now }) {
+export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, now = Date.now }) {
   validateAuthConfig(config);
-  const exact = createTaskExactRuntime({ store, serverConfiguration: exactServerConfiguration, now });
+  if (exactServerConfiguration !== null && config.exact?.enabled) throw Error('TASK_EXACT_DUPLICATE_CONFIG_REFUSED');
+  const fixedExact = exactServerConfiguration ?? await bootstrapTaskExactConfiguration(config.exact);
+  let inventoryObserver=null;
+  const testAuthorization = config.taskTestAssets == null ? null : await createTaskTestAssetAuthorization({
+    inventory: config.taskTestAssets, authorizedWallets: config.accounts.flatMap(user => user.wallets),
+    verifyMintEvidence: testAssetEvidenceVerifier, store,
+    verifyInventoryRecord: async(record,scope)=>{
+      if(fixedExact===null)return false;
+      inventoryObserver??=createTaskReceiptAdapter({provider:fixedExact.provider,observationPolicy:fixedExact.observationPolicy,
+        testMint721Bindings:scope.mint721Bindings,testNFT721Metadata:scope.metadataVerifier,now});
+      return inventoryObserver.verifyMintInventoryRecord(record);
+    }, now });
+  const exact = createTaskExactRuntime({ store, serverConfiguration: fixedExact === null ? null : {
+    ...fixedExact, testAssetPins: testAuthorization?.executionPins ?? [], testMint721Bindings: testAuthorization?.mint721Bindings ?? [],
+    testNFT721Metadata: testAuthorization?.metadataVerifier ?? null }, now, testAuthorization });
   const listing = listingRuntime ?? await bootstrapTaskListingRuntime({ configuration: config.listing, store, authStatePath: config.statePath, now });
   try {
   const handler = createAuthService({ origin: config.origin, tenant: config.tenant, accounts: config.accounts, store, verifyCa, sendOtp, now,
+    taskTestAuthorization: testAuthorization, forwardProgressReader,
     ...composeTaskAuthOptions({ exact: exact.authOptions, listing: listing.runtime.authOptions }) });
   listing.runtime.connectAuthorization(handler.taskListingAuthorization);
   const background = createTaskBackgroundRunner({ store, continuation: handler.taskBackground, now });

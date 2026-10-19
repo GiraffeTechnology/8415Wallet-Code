@@ -3,13 +3,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
+import { freezeTaskObservationPolicy, normalizeTaskObservation } from '../src/agent/receiptObservation.ts';
 import { freezeTaskPolicy, emptyTaskBudget } from '../src/agent/taskContract.ts';
 import { AccountAuthClient } from '../web/account-auth.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-policy.mjs';
 import { CATALOGS, setLocale, renderUi } from '../web/i18n.mjs';
 // Import the actual browser controller with its immutable core source entry. Tests
 // do not depend on a previously generated dist directory or a fake success adapter.
 const moduleText = readFileSync(new URL('../web/task-authorization.mjs', import.meta.url), 'utf8')
+  .replace('./observation-source-contract.mjs', new URL('../web/observation-source-contract.mjs', import.meta.url).href)
+  .replace('./task-observer-context.mjs', new URL('../web/task-observer-context.mjs', import.meta.url).href)
   .replace('./task-listing-results.mjs', new URL('../web/task-listing-results.mjs', import.meta.url).href)
   .replace('../dist/browser/agent/taskContract.js', new URL('../src/agent/taskContract.ts', import.meta.url).href)
   .replace('../dist/browser/agent/receiptTask.js', new URL('../src/agent/receiptTask.ts', import.meta.url).href)
@@ -20,6 +23,16 @@ const { TaskAuthorizationClient, TaskAuthorizationFlow, normalizeExecutor, norma
 const uiText = readFileSync(new URL('../web/task-authorization-ui.mjs', import.meta.url), 'utf8')
   .replace('./task-authorization.mjs', moduleUrl).replace('./i18n.mjs', new URL('../web/i18n.mjs', import.meta.url).href);
 const { mountTaskAuthorization } = await import(`data:text/javascript;base64,${Buffer.from(uiText).toString('base64')}`);
+const detailsUiText = readFileSync(new URL('../web/observation-details-ui.mjs', import.meta.url), 'utf8')
+  .replace('./observation-details-flow.mjs', new URL('../web/observation-details-flow.mjs', import.meta.url).href)
+  .replace('./i18n.mjs', new URL('../web/i18n.mjs', import.meta.url).href);
+const detailsUiUrl = `data:text/javascript;base64,${Buffer.from(detailsUiText).toString('base64')}`;
+const activityUiText = readFileSync(new URL('../web/task-activity-ui.mjs', import.meta.url), 'utf8')
+  .replace('./observation-details-ui.mjs', detailsUiUrl)
+  .replace('./task-activity.mjs', new URL('../web/task-activity.mjs', import.meta.url).href)
+  .replace('./task-authorization.mjs', moduleUrl)
+  .replace('./i18n.mjs', new URL('../web/i18n.mjs', import.meta.url).href);
+const { mountTaskActivity } = await import(`data:text/javascript;base64,${Buffer.from(activityUiText).toString('base64')}`);
 const origin = 'https://wallet.example.invalid', account = `0x${'11'.repeat(20)}`, now = 1900000000000;
 const context = { origin, account, chainId: '1', tenant: 'xiongan' };
 const executorIdentity = { schema: '8415-task-executor/1', agentId: 'synthetic-agent', agentVersion: '1', adapterId: 'synthetic-test-adapter', adapterVersion: '1', implementationDigest: `0x${'9'.repeat(64)}` };
@@ -166,7 +179,7 @@ class Node {
   setAttribute() {} removeAttribute() {}
   addEventListener(name: string, fn: Function) { this.handlers.set(name, [...this.handlers.get(name) ?? [], fn]); }
   dispatchEvent(event: any) { for (const fn of this.handlers.get(event.type) ?? []) fn(event); }
-  click() { if (!this.disabled) this.dispatchEvent({ type: 'click' }); }
+  click() { if (!this.disabled) this.dispatchEvent({ type: 'click', preventDefault() {} }); }
 }
 const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(r => setImmediate(r)); };
 function fakeLocks() {
@@ -192,6 +205,66 @@ function uiFixture({ executable = false, fixtureOverride = null as any, nowFn = 
   const result = mountTaskAuthorization({ document, window: { history, navigator: { locks }, setTimeout(fn: Function, delay: number) { timers.set(++timerId, fn); delays.set(timerId, delay); return timerId; }, clearTimeout(id: number) { timers.delete(id); }, addEventListener: windowEvents.addEventListener.bind(windowEvents) }, walletLogin, getClient: () => ({ request }), Flow });
   return { ...f, result, el, document, events, history, windowEvents, timers, delays, subscriber: (s: any) => subscriber(s) };
 }
+// Insert after uiFixture in tests/task-authorization-ui.test.ts. NOT_RUN.
+// Also make Node.click() emit a browser-shaped cancelable event:
+// click() { if (!this.disabled) this.dispatchEvent({ type: 'click', preventDefault() {} }); }
+test('type=button authorization click dispatches exactly one grant and same-task continuation', async () => {
+  const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  f.el('task-authorize').type = 'button'; f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click();
+  assert.equal(f.result.snapshot().phase, 'authorizing', 'phase changes synchronously before transport awaits');
+  assert.equal(f.el('task-code').value, ''); assert.equal(f.el('task-authorize').disabled, true);
+  await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 1);
+  assert.equal(f.result.snapshot().phase, 'authorized-blocked');
+});
+test('repeated click and synthetic form submission during authorization cannot duplicate a grant', async () => {
+  const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  let release!: () => void; f.setHold(new Promise<void>(resolve => { release = resolve; }));
+  f.el('task-authorize').type = 'button'; f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click(); f.el('task-authorize').click();
+  f.el('task-authorize').dispatchEvent({ type: 'click', preventDefault() {} });
+  f.el('task-authorize-form').dispatchEvent({ type: 'submit', preventDefault() {} }); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 0);
+  release(); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 1);
+});
+test('cancel after a button click suppresses late continuation and never claims cancellation of the server grant', async () => {
+  const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  let release!: () => void; f.setHold(new Promise<void>(resolve => { release = resolve; }));
+  f.el('task-authorize').type = 'button'; f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click(); await tick();
+  f.el('task-cancel').click(); assert.equal(f.result.snapshot().phase, 'paused');
+  release(); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 0);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/revoke').length, 0);
+  assert.equal(f.el('task-code').value, ''); assert.equal(f.el('task-ack').checked, false);
+});
+test('unopened task view and cancelled review cannot authorize through button or direct handler dispatch', async () => {
+  const f = uiFixture(); f.el('task-authorize').type = 'button';
+  f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click();
+  f.el('task-authorize').dispatchEvent({ type: 'click', preventDefault() {} }); await tick();
+  assert.equal(f.requests.length, 0);
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick(); f.el('task-cancel').click();
+  f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').dispatchEvent({ type: 'click', preventDefault() {} }); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 0);
+});
+test('a future submit-type button relies on form submission and does not authorize from both handlers', async () => {
+  const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  f.el('task-authorize').type = 'submit'; f.el('task-code').value = '123456'; f.el('task-ack').checked = true;
+  f.el('task-authorize').click(); assert.equal(f.result.snapshot().phase, 'review');
+  // The small DOM fixture does not implement the browser's automatic submit default.
+  f.el('task-authorize-form').dispatchEvent({ type: 'submit', preventDefault() {} }); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/resume').length, 1);
+});
+
 test('app switch clears OTP without losing task or regenerating its challenge; cancel and Back clear consent', async () => {
   const f = uiFixture(); f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
   assert.equal(f.result.snapshot().phase, 'review'); const before = f.requests.filter((r: any) => r.path === 'tasks/prepare').length;
@@ -241,11 +314,31 @@ test('unknown and submitted journal entries stay distinct from an authorization 
     assert.equal(checked.budget.reservations[0].transactionHash, raw.budget.reservations[0].transactionHash);
   }
 });
-test('actual service contract interoperates with browser client and same-task continuation without per-child TOTP', async () => {
+// Synthetic durable owner-choice fixture, not an HTTP policy-save bypass. The
+// no-per-child-OTP cases explicitly use an existing two-factor OFF revision.
+async function seedSavedVerificationPolicy(store: any, selected: any, mode: 'ON' | 'OFF') {
+  const scope = { origin: selected.origin, tenant: selected.tenant, username: 'synthetic',
+    account: selected.account.toLowerCase(), chainId: selected.chainId, agentId: selected.agentId };
+  await store.transaction(`${scope.tenant}:synthetic`, (credential: any) => {
+    assert.equal(credential.taskVerificationPolicies, undefined);
+    return { ...credential, taskVerificationPolicies: { [taskVerificationPolicyKey(scope)]: {
+      schema: '8415-task-human-verification/2', scope, mode, revision: '1', enforcedFromRevision: '1',
+      changes: [{ revision: '1', previousRevision: '0', mode, changeId: 'A'.repeat(43),
+        changeDigest: 'a'.repeat(64), scopeDigest: createHash('sha256').update(JSON.stringify(scope)).digest('hex'),
+        credentialRevision: credential.revision, verifiedFactors: ['password', 'verified-email'], changedAt: now - 1000 }],
+    } } };
+  });
+}
+function assertApprovalState(value: any, savedPolicy: boolean) {
+  assert.equal(value.approvalFactor, savedPolicy ? 'totp' : 'preoperational-default-on');
+  assert.deepEqual(value.approvalEvaluation, savedPolicy ? null :
+    { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' });
+}
+test('actual service and browser preserve default ON and saved OFF through same-task continuation without per-child TOTP', async () => {
   const { createTaskAuthorizationService } = await import('../server/task-authorization.mjs');
   const { MemoryCredentialStore } = await import('../server/store.mjs');
   const { base32, hotp, matchTotp } = await import('../server/crypto.mjs');
-  for (const configured of [false, true]) {
+  for (const savedPolicy of [false, true]) for (const configured of [false, true]) {
     const secret = base32(Buffer.alloc(20, 0x31)); // Local synthetic credential only.
     const store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
     const session = { ...context, username: 'synthetic', id: 'synthetic-session', revision: 0, issuedAt: now, expiresAt: now + 900000 };
@@ -277,16 +370,25 @@ test('actual service contract interoperates with browser client and same-task co
         const step = matchTotp(credential.secret, code, now, credential.lastStep); assert.notEqual(step, null); consumes++; return { ...credential, lastStep: step };
       },
     });
-    await service.handler('tasks/prepare', { policy: task.policy }, session);
-    const client = new TaskAuthorizationClient({ context, request: (path: string, body: any) => service.handler(path, body, session) });
+    const prepared = await service.handler('tasks/prepare', { policy: task.policy }, session);
+    if (savedPolicy) await seedSavedVerificationPolicy(store, { ...context, agentId: prepared.executor.identity.agentId }, 'OFF');
+    const before = await store.read('xiongan:synthetic'), expectedConsumes = savedPolicy ? 1 : 0;
+    const requests: any[] = [], client = new TaskAuthorizationClient({ context, request: (path: string, body: any) => {
+      requests.push({ path, body: { ...body } }); return service.handler(path, body, session);
+    } });
     const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
     assert.equal(flow.snapshot().phase, 'review');
-    await flow.authorize(hotp(secret, Math.floor(now / 30000)));
+    assertApprovalState(flow.snapshot(), savedPolicy);
+    const code = savedPolicy ? hotp(secret, Math.floor(now / 30000)) : '';
+    await flow.authorize(code); assert.equal(flow.snapshot().error, null);
+    assertApprovalState(flow.snapshot().selected, savedPolicy);
+    const approvals = requests.filter(request => request.path === 'tasks/authorize');
+    assert.equal(approvals.length, 1); assert.equal(approvals[0].body.code, code);
     assert.equal(flow.snapshot().phase, configured ? 'submitted' : 'authorized-blocked');
-    assert.equal(consumes, 1); assert.equal(sends, configured ? 1 : 0);
+    assert.equal(consumes, expectedConsumes); assert.equal(sends, configured ? 1 : 0);
     if (configured) {
       assert.equal(flow.snapshot().selected.executionState, 'submitted'); await flow.continue();
-      assert.equal(flow.snapshot().phase, 'awaiting-evidence'); assert.equal(sends, 1); assert.equal(plans, 1); assert.equal(consumes, 1);
+      assert.equal(flow.snapshot().phase, 'awaiting-evidence'); assert.equal(sends, 1); assert.equal(plans, 1); assert.equal(consumes, expectedConsumes);
       assert.equal(flow.snapshot().selected.task.digest, task.digest);
       receiptState = 'confirmed-at-depth'; await flow.recover(); assert.equal(flow.snapshot().phase, 'completed-at-observation-depth');
       const before = reads, cached = await client.resume(task.digest, flow.snapshot().selected.executor.digest, flow.snapshot().selected);
@@ -294,9 +396,11 @@ test('actual service contract interoperates with browser client and same-task co
       receiptState = 'reorged'; await flow.recover(); assert.equal(flow.snapshot().phase, 'awaiting-evidence');
       receiptState = 'confirmed-at-depth'; await flow.recover(); receiptFailure = true; await flow.recover();
       assert.equal(flow.snapshot().selected.observations[0].available, false); assert.equal(flow.snapshot().selected.completion.fresh, false);
-      assert.equal(flow.snapshot().phase, 'awaiting-evidence'); assert.equal(sends, 1); assert.equal(plans, 1); assert.equal(consumes, 1);
+      assert.equal(flow.snapshot().phase, 'awaiting-evidence'); assert.equal(sends, 1); assert.equal(plans, 1); assert.equal(consumes, expectedConsumes);
     }
     await flow.revoke(); assert.equal(flow.snapshot().phase, 'revoked');
+    assertApprovalState(flow.snapshot().selected, savedPolicy);
+    assert.deepEqual(await store.read('xiongan:synthetic'), { ...before, lastStep: savedPolicy ? Math.floor(now / 30000) : -1 });
   }
 });
 test('configured same-task continuation checks automatically without another OTP and stops on hidden page or navigation', async () => {
@@ -329,38 +433,46 @@ test('inactive grant can request recovery of its saved unknown without planning,
   await flow.recover(); assert.equal(flow.snapshot().phase, 'revoked'); assert.equal(flow.snapshot().selected.executionState, 'submitted');
   assert.deepEqual(requests, ['tasks/list', 'tasks/status', 'tasks/resume']);
 });
-test('real loopback HTTP account client preserves cookie/CSRF separation through pending task, OTP grant, resume and reload', async t => {
+test('real loopback HTTP account client preserves cookie/CSRF separation through default-ON and saved-ON grants, resume and reload', async t => {
   const { createServer } = await import('node:http');
   const { createAuthService } = await import('../server/auth-service.mjs');
   const { MemoryCredentialStore } = await import('../server/store.mjs');
   const { base32, hashPassword, hotp } = await import('../server/crypto.mjs');
-  const password = 'SYNTHETIC_PASSWORD_ONLY', secret = base32(Buffer.alloc(20, 0x39));
-  const passwordHash = await hashPassword(password), store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
-  let handler: any; const server = createServer((req, res) => handler(req, res)); server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
-  const origin = `http://127.0.0.1:${(server.address() as any).port}`, sessionContext = { ...context, origin };
-  handler = createAuthService({ origin, tenant: 'xiongan', store, now: () => now,
-    accounts: [{ username: 'synthetic', passwordHash, wallets: [{ account, chainId: '1' }] }] });
-  const jar = new Map<string, string>(), requests: string[] = [];
-  const fetcher = async (url: URL, options: any) => {
-    requests.push(url.pathname);
-    const response = await fetch(url, { ...options, headers: { ...options.headers, Origin: origin,
-      Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; ') } });
-    for (const cookie of response.headers.getSetCookie()) { const [k, v] = cookie.split(';')[0]!.split('='); if (v) jar.set(k!, v); else jar.delete(k!); }
-    return response;
-  };
-  const auth = new AccountAuthClient({ tenant: 'xiongan', origin, fetcher });
-  const task = freezeTaskPolicy({ ...makeTask('http-task').policy, origin });
-  await assert.rejects(auth.request('tasks/list', {}), /AUTH_/);
-  await auth.adapter('password', { username: 'synthetic', password }).authenticate({ account, chainId: '1' });
-  const client = new TaskAuthorizationClient({ context: sessionContext, request: auth.request.bind(auth) });
-  await client.prepare(task);
-  const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
-  assert.equal(flow.snapshot().phase, 'review'); await flow.authorize(hotp(secret, Math.floor(now / 30000)));
-  assert.equal(flow.snapshot().phase, 'authorized-blocked');
-  const restored = new TaskAuthorizationFlow({ client, now: () => now }); await restored.load(task.digest);
-  assert.equal(restored.snapshot().phase, 'authorized-blocked'); assert.equal(requests.filter(path => path === '/auth/tasks/authorize').length, 1);
-  await auth.logout(); await assert.rejects(client.status(task.digest), /AUTH_/);
+  for (const savedPolicy of [false, true]) {
+    const password = 'SYNTHETIC_PASSWORD_ONLY', secret = base32(Buffer.alloc(20, 0x39));
+    const passwordHash = await hashPassword(password), store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
+    let handler: any; const server = createServer((req, res) => handler(req, res)); server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+    const origin = `http://127.0.0.1:${(server.address() as any).port}`, sessionContext = { ...context, origin };
+    handler = createAuthService({ origin, tenant: 'xiongan', store, now: () => now,
+      accounts: [{ username: 'synthetic', passwordHash, wallets: [{ account, chainId: '1' }] }] });
+    const jar = new Map<string, string>(), requests: string[] = [];
+    const fetcher = async (url: URL, options: any) => {
+      requests.push(url.pathname);
+      const response = await fetch(url, { ...options, headers: { ...options.headers, Origin: origin,
+        Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; ') } });
+      for (const cookie of response.headers.getSetCookie()) { const [k, v] = cookie.split(';')[0]!.split('='); if (v) jar.set(k!, v); else jar.delete(k!); }
+      return response;
+    };
+    const auth = new AccountAuthClient({ tenant: 'xiongan', origin, fetcher });
+    const task = freezeTaskPolicy({ ...makeTask('http-task').policy, origin });
+    await assert.rejects(auth.request('tasks/list', {}), /AUTH_/);
+    await auth.adapter('password', { username: 'synthetic', password }).authenticate({ account, chainId: '1' });
+    const client = new TaskAuthorizationClient({ context: sessionContext, request: auth.request.bind(auth) });
+    const prepared = await client.prepare(task);
+    if (savedPolicy) await seedSavedVerificationPolicy(store, { ...sessionContext, agentId: prepared.executor.identity.agentId }, 'ON');
+    const before = await store.read('xiongan:synthetic');
+    const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
+    assert.equal(flow.snapshot().phase, 'review'); assertApprovalState(flow.snapshot(), savedPolicy);
+    await flow.authorize(savedPolicy ? hotp(secret, Math.floor(now / 30000)) : '');
+    assert.equal(flow.snapshot().error, null); assertApprovalState(flow.snapshot().selected, savedPolicy);
+    assert.equal(flow.snapshot().phase, 'authorized-blocked');
+    const restored = new TaskAuthorizationFlow({ client, now: () => now }); await restored.load(task.digest);
+    assert.equal(restored.snapshot().phase, 'authorized-blocked');
+    assertApprovalState(restored.snapshot(), savedPolicy); assert.equal(requests.filter(path => path === '/auth/tasks/authorize').length, 1);
+    assert.deepEqual(await store.read('xiongan:synthetic'), { ...before, lastStep: savedPolicy ? Math.floor(now / 30000) : -1 });
+    await auth.logout(); await assert.rejects(client.status(task.digest), /AUTH_/);
+  }
 });
 test('executor identity uses independent canonical SHA256 and rejects missing, extra or tampered identity fields', () => {
   assert.deepEqual(normalizeExecutor(executor), executor);
@@ -401,9 +513,18 @@ function receiptFixture() {
     operation: { kind: 'native-transfer', chainId: '1', actor: account, recipient: `0x${'33'.repeat(20)}`, valueWei: '10' } } });
   f.tasks.clear(); f.tasks.set(task.digest, task); f.statuses.set(task.digest, 'authorized');
   const operation = { operationId: 'op:receipt', childDigest: `0x${'a'.repeat(64)}`, feeWei: '1', units: '1', status: 'submitted', transactionHash: `0x${'b'.repeat(64)}` };
-  let observation: any = null, available = false, state = 'confirmed-at-depth', failure = false, hold: Promise<void> | null = null;
+  let observation: any = null, accepted: any = null, observationRevision = '0';
+  let currentVerifier = verifier, currentPolicy = receiptPolicy;
+  let available = false, state = 'confirmed-at-depth', failure = false, hold: Promise<void> | null = null;
   const view = (fresh = false): any => ({ ...f.view(task.digest), observationPolicy: receiptPolicy, receiptVerifier: verifier,
-    observations: observation || available ? [{ operationId: operation.operationId, observation, available }] : [], observationRevision: '1',
+    observations: observation || available ? [{ schema: '8415-task-observation-entry/2',
+      operationId: operation.operationId, observation, available, observationRevision,
+      provenance: accepted ? 'accepted-observer-context' : 'unverified', acceptedObserverContext: accepted }] : [],
+    observationRevision,
+    observationView: { schema: '8415-task-observation-view/2',
+      currentReadOnlyObserver: { verifier: { ...currentVerifier }, verificationPolicy: currentPolicy },
+      freshObservation: fresh ? { operationId: operation.operationId, observationRevision,
+        fullObservationDigest: accepted.fullObservationDigest } : null, canExecute: false },
     completion: { state: available && observation?.state === 'confirmed-at-depth' ? 'completed-at-observation-depth' :
       available && ['reverted-at-depth', 'superseded-at-depth'].includes(observation?.state) ? 'failed-at-observation-depth' : 'awaiting-evidence', fresh },
     budget: { schema: '8415-task-budget/1', taskDigest: task.digest, revision: '3', reservations: [operation] },
@@ -415,15 +536,267 @@ function receiptFixture() {
     assert.equal(path, 'tasks/observe', 'receipt refresh must never send or resume');
     assert.deepEqual(body, { taskDigest: task.digest, operationId: operation.operationId, childDigest: operation.childDigest, expectedBudgetRevision: '3' });
     if (hold) await hold;
+    observationRevision = (BigInt(observationRevision) + 1n).toString();
     if (failure) { available = false; throw Object.assign(Error('unavailable'), { code: 'TASK_OBSERVATION_UNAVAILABLE' }); }
-    observation = observationFor({ task, childDigest: operation.childDigest, executorDigest: executor.digest, transactionHash: operation.transactionHash }, state);
+    observation = normalizeTaskObservation({ ...observationFor({ task, childDigest: operation.childDigest,
+      executorDigest: executor.digest, transactionHash: operation.transactionHash }, state), ...currentVerifier });
+    // Explicit synthetic accepted server envelope. Its digest binds the full
+    // normalized observation; it is not a signature or real chain proof.
+    accepted = { schema: '8415-accepted-observer-context/1', acceptedObservationRevision: observationRevision,
+      verifier: { ...currentVerifier }, verificationPolicy: currentPolicy,
+      attempt: { taskDigest: task.digest, operationId: operation.operationId, childDigest: operation.childDigest,
+        chainId: task.policy.chainId, actor: task.policy.actor, nonce: observation.nonce,
+        transactionHash: operation.transactionHash, executorDigest: executor.digest, grantPolicyVersion: '1',
+        observationPolicy: receiptPolicy, receiptVerifier: { ...verifier } },
+      fullObservationDigest: `0x${createHash('sha256').update(JSON.stringify(observation)).digest('hex')}`, canExecute: false };
     available = true; return { ...view(true), observation, outcome: state };
   };
   const client = new TaskAuthorizationClient({ context, request }), snapshots: any[] = [];
   const flow = new TaskAuthorizationFlow({ client, now: () => now, onChange: (s: any) => snapshots.push(s) });
   return { ...f, task, client, flow, request, view, snapshots, operation,
+    setObserver(value: typeof verifier, minimum = '2') { currentVerifier = value; currentPolicy = freezeTaskObservationPolicy({ minimumConfirmations: minimum }); },
     state(value: string) { state = value; }, fail(value = true) { failure = value; }, setHold(value: Promise<void> | null) { hold = value; } };
 }
+
+async function detailsTransportFixture() {
+  const f = receiptFixture();
+  f.setObserver({ ...verifier, verifierVersion: '2' });
+  await f.client.observe(await f.client.status(f.task.digest));
+  const entry = f.view().observations[0], calls: any[] = [];
+  const scope = { ...context, taskDigest: f.task.digest, operationId: f.operation.operationId,
+    childDigest: f.operation.childDigest };
+  const source = { schema: '8415-observation-source/1', sourceReference: 'fixture:source:2', sourceRevision: '1',
+    principal: context, attempt: entry.acceptedObserverContext.attempt, verifier: entry.acceptedObserverContext.verifier,
+    verificationPolicy: entry.acceptedObserverContext.verificationPolicy,
+    capabilityReference: 'fixture:capability:2', capabilityRevision: '1', canExecute: false };
+  const bound = { schema: '8415-bound-observation-entry/1', operationId: scope.operationId,
+    sourceReference: source.sourceReference, sourceRevision: source.sourceRevision,
+    capabilityReference: source.capabilityReference, capabilityRevision: source.capabilityRevision,
+    observationRevision: entry.observationRevision, acceptedObserverContext: entry.acceptedObserverContext,
+    observation: entry.observation, available: true };
+  const client = new TaskAuthorizationClient({ context, request: async (path: string, body: any, options: any) => {
+    calls.push({ path, body, options });
+    if (path === 'tasks/status') return f.view();
+    if (path === 'tasks/observation-source') return source;
+    if (path === 'tasks/observation-details') return bound;
+    assert.fail('observation details cannot authorize, resume, sign or send');
+  } });
+  return { scope, source, bound, calls, client, adapter: client.observationDetailsClient() };
+}
+
+test('actual details client independently resolves then binds evidence through the two registered read routes', async () => {
+  const f = await detailsTransportFixture(), signal = new AbortController().signal;
+  const source = await f.adapter.resolveSource(f.scope, { mode: 'cache', signal });
+  const raw = await f.adapter.readEvidence(f.scope, { source, refresh: false, signal });
+  const result = f.adapter.decodeEvidence(raw, { expectedSource: source, context: f.scope });
+  assert.equal(result.observedBy.verifierVersion, '2'); assert.equal(result.approvedVerifier.verifierVersion, '1');
+  assert.deepEqual(f.calls.map(c => c.path), ['tasks/status','tasks/observation-source','tasks/observation-details']);
+  assert.deepEqual(Object.keys(f.calls[1].body).sort(), ['childDigest','mode','operationId','taskDigest']);
+  assert.deepEqual(Object.keys(f.calls[2].body).sort(), ['capabilityReference','capabilityRevision','childDigest',
+    'mode','operationId','sourceReference','sourceRevision','taskDigest']);
+  assert.ok(f.calls.every(c => c.options.signal === signal)); assert.equal(result.canExecute, false);
+});
+
+test('details client cannot read a copied descriptor or use cache source in refresh mode', async () => {
+  const f = await detailsTransportFixture(); const source = await f.adapter.resolveSource(f.scope, { mode: 'cache' });
+  await assert.rejects(f.adapter.readEvidence(f.scope, { source: { ...source }, refresh: false }), /OBSERVATION_BINDING_REFUSED/);
+  await assert.rejects(f.adapter.readEvidence(f.scope, { source, refresh: true }), /OBSERVATION_BINDING_REFUSED/);
+  assert.equal(f.calls.length, 2);
+});
+
+test('details decoder rejects changed source reference rather than trusting the evidence response', async () => {
+  const f = await detailsTransportFixture(); const source = await f.adapter.resolveSource(f.scope, { mode: 'refresh' });
+  assert.throws(() => f.adapter.decodeEvidence({ ...f.bound, sourceReference: 'fixture:other' },
+    { expectedSource: source, context: f.scope }), /OBSERVATION_BINDING_REFUSED/);
+});
+
+test('same-origin account transport forwards cancellation without changing cookie or CSRF policy', async () => {
+  const signal = new AbortController().signal; let captured: any;
+  const client = new AccountAuthClient({ tenant: context.tenant, origin: context.origin,
+    fetcher: async (_url: any, options: any) => { captured = options;
+      return { ok: true, text: async () => '{}' } as any; } });
+  await client.request('tasks/observation-source', { mode: 'cache' }, { signal });
+  assert.equal(captured.signal, signal); assert.equal(captured.credentials, 'same-origin');
+  assert.equal(captured.cache, 'no-store'); assert.equal(captured.headers['X-Wallet-Tenant'], context.tenant);
+});
+
+test('client accepts fresh O2 evidence without rewriting original approval or execution authority', async () => {
+  const f = receiptFixture(), o2 = { ...verifier, verifierVersion: '2', verifierImplementationDigest: `0x${'6'.repeat(64)}` };
+  f.setObserver(o2); await f.flow.load(f.task.digest);
+  const view = f.flow.snapshot().selected;
+  assert.deepEqual(view.receiptVerifier, verifier);
+  assert.deepEqual(view.observations[0].acceptedObserverContext.verifier, o2);
+  assert.equal(view.completion.fresh, true);
+  assert.equal(view.capabilities.executable, false);
+  assert.equal(f.requests.some((r: any) => /authorize|execute|reserve|resume/.test(r.path)), false);
+});
+
+test('client keeps accepted O2 cached while current reader becomes O3', async () => {
+  const f = receiptFixture(), o2 = { ...verifier, verifierVersion: '2' }, o3 = { ...verifier, verifierVersion: '3' };
+  f.setObserver(o2); await f.flow.load(f.task.digest); f.setObserver(o3);
+  const cached = await f.client.status(f.task.digest);
+  assert.deepEqual(cached.observations[0].acceptedObserverContext.verifier, o2);
+  assert.deepEqual(cached.observationView.currentReadOnlyObserver.verifier, o3);
+  assert.deepEqual(cached.receiptVerifier, verifier);
+  assert.equal(cached.observationView.freshObservation, null);
+  assert.equal(cached.completion.fresh, false);
+});
+
+test('client rejects tampered accepted tuple, observer, digest or revision', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest);
+  for (const mutate of [
+    (v: any) => { v.observations[0].acceptedObserverContext.fullObservationDigest = `0x${'f'.repeat(64)}`; },
+    (v: any) => { v.observations[0].acceptedObserverContext.attempt.nonce = '999'; },
+    (v: any) => { v.observations[0].acceptedObserverContext.attempt.receiptVerifier.verifierVersion = '2'; },
+    (v: any) => { v.observations[0].acceptedObserverContext.verifier.verifierVersion = '2'; },
+    (v: any) => { v.observations[0].acceptedObserverContext.acceptedObservationRevision = '999'; },
+  ]) {
+    const raw = structuredClone(f.view()); mutate(raw);
+    assert.throws(() => f.client.view(raw), /TASK_OBSERVER_CONTEXT_REFUSED/);
+  }
+});
+
+test('no current reader does not relabel or erase a previously accepted cached observation', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest); const raw = structuredClone(f.view());
+  raw.observationView.currentReadOnlyObserver = null; raw.capabilities.receiptVerifierConfigured = false;
+  const cached = f.client.view(raw);
+  assert.equal(cached.completion.fresh, false);
+  assert.deepEqual(cached.observations[0].acceptedObserverContext, raw.observations[0].acceptedObserverContext);
+});
+
+test('fresh marker must match accepted revision and current observer even with completion fresh false', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest);
+  for (const mutate of [
+    (v: any) => { v.observationView.currentReadOnlyObserver.verifier.verifierVersion = '9'; },
+    (v: any) => { v.observationView.freshObservation.observationRevision = '999'; },
+    (v: any) => { v.observationView.freshObservation.fullObservationDigest = `0x${'f'.repeat(64)}`; },
+  ]) {
+    const raw = structuredClone(f.view(true)); raw.completion.fresh = false; mutate(raw);
+    assert.throws(() => f.client.view(raw, { allowFresh: true }), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
+  }
+});
+
+test('failed refresh preserves accepted context only as unavailable cached evidence', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest);
+  const before = f.flow.snapshot().selected.observations[0].acceptedObserverContext;
+  f.fail(); await f.flow.recover(); const selected = f.flow.snapshot().selected;
+  assert.equal(selected.observations[0].available, false);
+  assert.deepEqual(selected.observations[0].acceptedObserverContext, before);
+  assert.ok(BigInt(selected.observations[0].observationRevision) > BigInt(before.acceptedObservationRevision));
+  assert.equal(selected.completion.fresh, false);
+});
+
+test('duplicate accepted operation entries cannot supply two evidence versions', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest); const raw = structuredClone(f.view());
+  raw.observations.push(structuredClone(raw.observations[0]));
+  assert.throws(() => f.client.view(raw), /TASK_OBSERVATION_RESPONSE_REFUSED/);
+});
+
+test('observer envelope accessor is refused without evaluating its value', async () => {
+  const f = receiptFixture(); await f.flow.load(f.task.digest); const raw = structuredClone(f.view()); let reads = 0;
+  Object.defineProperty(raw.observationView, 'canExecute', { enumerable: true, get() { reads++; return false; } });
+  assert.throws(() => f.client.view(raw), /TASK_OBSERVER_CONTEXT_REFUSED/);
+  assert.equal(reads, 0);
+});
+
+test('mounted receipt UI labels original approval, current observer and accepted evidence separately', async () => {
+  setLocale('en', { document: null, persist: false });
+  const fixture = receiptFixture(); fixture.setObserver({ ...verifier, verifierVersion: '2' });
+  const f = uiFixture({ fixtureOverride: fixture });
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  const texts = (node: Node): string[] => [node.textContent, ...node.children.flatMap(texts)];
+  const summary = texts(f.el('task-summary')).join('\n');
+  const evidence = texts(f.el('task-observation-states')).join('\n');
+  assert.match(summary, /Original approval verifier/);
+  assert.match(summary, /Current read-only observer/);
+  assert.match(summary, /does not renew approval or authorize execution/);
+  assert.match(evidence, /Observer that verified this saved evidence/);
+  assert.match(evidence, /Accepted observation revision/);
+  assert.deepEqual(f.result.snapshot().selected.receiptVerifier, verifier);
+  assert.equal(f.result.snapshot().selected.observations[0].acceptedObserverContext.verifier.verifierVersion, '2');
+  assert.equal(f.result.snapshot().selected.capabilities.executable, false);
+});
+
+test('mounted cached evidence remains labelled when current observer is disconnected', async () => {
+  setLocale('en', { document: null, persist: false });
+  const fixture = receiptFixture(); await fixture.flow.load(fixture.task.digest);
+  const request = async (path: string, body: any) => {
+    const raw: any = await fixture.request(path, body);
+    const disconnect = (value: any) => ({ ...value,
+      observationView: { ...value.observationView, currentReadOnlyObserver: null },
+      capabilities: { ...value.capabilities, receiptVerifierConfigured: false } });
+    return path === 'tasks/list' ? { ...raw, tasks: raw.tasks.map(disconnect) } : disconnect(raw);
+  };
+  const f = uiFixture({ fixtureOverride: { ...fixture, request } });
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  const texts = (node: Node): string[] => [node.textContent, ...node.children.flatMap(texts)];
+  assert.match(texts(f.el('task-summary')).join('\n'), /Current read-only observer unavailable/);
+  assert.match(texts(f.el('task-observation-states')).join('\n'), /Observer that verified this saved evidence/);
+  assert.equal(f.result.snapshot().selected.completion.fresh, false);
+});
+
+function mountedActivityFixture(connected = true) {
+  const f = receiptFixture(), nodes = new Map<string, Node>(), events = new Node(), windowEvents = new Node();
+  let subscriber: Function = () => {}; let sourceReads = 0, evidenceReads = 0;
+  const el = (id: string) => { if (!nodes.has(id)) nodes.set(id, new Node()); return nodes.get(id)!; };
+  const document = { getElementById: el, createElement: () => new Node(), visibilityState: 'visible', addEventListener: events.addEventListener.bind(events) };
+  const session = { ...context, serverId: 's'.repeat(43) }, captured = Object.freeze({});
+  const login = { check: async () => session, assert: () => session, capture: () => captured,
+    subscribe(fn: Function) { subscriber = fn; } };
+  const source = Object.freeze({ reference: 'independent-fixture-source', revision: '2' });
+  const port = { async resolveSource() { sourceReads++; return source; },
+    async readEvidence(c: any) { evidenceReads++; return { ...c }; },
+    decodeEvidence(raw: any, expected: any) {
+      assert.equal(expected.expectedSource, source);
+      return Object.freeze({ ...raw, availability: 'available', fresh: false, savedRevision: '2',
+        observedAt: '100', sourceRevision: '2', observedBy: { ...verifier, verifierVersion: '2' },
+        outcome: 'confirmed-at-depth' });
+    } };
+  const controller = mountTaskActivity({ document, window: { addEventListener: windowEvents.addEventListener.bind(windowEvents) },
+    walletLogin: login, getClient: () => ({ request: f.request }), observationDetailsClientFor: () => connected ? port : null });
+  events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' });
+  return { ...f, controller, el, events, windowEvents, document, logout: () => subscriber(null),
+    counts: () => ({ sourceReads, evidenceReads }) };
+}
+
+test('Activity mounts scoped operation details using independent read-only client with no business write', async () => {
+  const f = mountedActivityFixture(); await f.flow.load(f.task.digest);
+  await f.controller.readDetail(f.task.digest);
+  const activity = f.el('task-page').children[0]!, operations = activity.children[8]!;
+  assert.equal(operations.children.length, 1); operations.children[0]!.click(); await tick();
+  assert.equal(f.controller.observations.panel.hidden, false);
+  assert.deepEqual(f.counts(), { sourceReads: 1, evidenceReads: 1 });
+  assert.equal(f.controller.observations.snapshot().evidence.observedBy.verifierVersion, '2');
+  assert.equal(f.requests.some((r: any) => /execute|authorize|reserve|revoke/.test(r.path)), false);
+});
+
+test('missing independent observation client shows unsupported without substituting approved verifier', async () => {
+  setLocale('en', { document: null, persist: false });
+  const f = mountedActivityFixture(false); await f.flow.load(f.task.digest); await f.controller.readDetail(f.task.digest);
+  f.el('task-page').children[0]!.children[8]!.children[0]!.click(); await tick();
+  const panel = f.controller.observations.panel;
+  assert.match(panel.children[2]!.textContent, /unsupported or not connected/);
+  assert.equal(panel.children[4]!.children.length, 0);
+  assert.deepEqual(f.counts(), { sourceReads: 0, evidenceReads: 0 });
+});
+
+test('logout clears mounted observation details and its cached scoped view', async () => {
+  const f = mountedActivityFixture(); await f.flow.load(f.task.digest); await f.controller.readDetail(f.task.digest);
+  f.el('task-page').children[0]!.children[8]!.children[0]!.click(); await tick(); f.logout();
+  assert.equal(f.controller.observations.panel.hidden, true);
+  assert.equal(f.controller.observations.snapshot(), null);
+  assert.equal(f.controller.observations.panel.children[3]!.children.length, 0);
+  assert.equal(f.controller.observations.panel.children[4]!.children.length, 0);
+});
+
+test('removed Activity operation selection cannot reopen stale details after another page read', async () => {
+  const f = mountedActivityFixture(); await f.flow.load(f.task.digest); await f.controller.readDetail(f.task.digest);
+  const old = f.el('task-page').children[0]!.children[8]!.children[0]!;
+  await f.controller.readPage(true); old.click(); await tick();
+  assert.equal(f.controller.observations.panel.hidden, true);
+  assert.deepEqual(f.counts(), { sourceReads: 0, evidenceReads: 0 });
+});
+
 test('observation policy has no implicit default and independently verifies canonical policy digest', async () => {
   assert.equal(receiptPolicy.digest, '0xe834daeddaea8e8bc8d1aad561998012fd6f5a1b5a0803492441c0a9061c6beb');
   assert.deepEqual(normalizeObservationContext({ observationPolicy: null, receiptVerifier: null }), { observationPolicy: null, receiptVerifier: null });
@@ -471,10 +844,21 @@ test('cached terminal evidence never claims freshness and observation bindings o
   assert.throws(() => f.client.view({ ...raw, completion: { ...raw.completion, fresh: true } }), /TASK_OBSERVATION_FRESHNESS_REFUSED/);
   for (const key of ['taskDigest', 'childDigest', 'chainId', 'actor', 'attemptExecutorDigest', 'originalTransactionHash', 'verifierVersion', 'protocolFinality']) {
     const bad = structuredClone(raw); bad.observations[0].observation[key] = key === 'actor' ? `0x${'33'.repeat(20)}` : key === 'chainId' || key === 'verifierVersion' ? '2' : key === 'protocolFinality' ? 'final' : `0x${'f'.repeat(64)}`;
-    assert.throws(() => f.client.view(bad), /TASK_OBSERVATION_/);
+    // Accepted provenance binds the original tuple and every observation byte.
+    // Invalid finality is rejected earlier by the strict observation decoder.
+    assert.throws(() => f.client.view(bad), { code: key === 'protocolFinality' ?
+      'TASK_OBSERVATION_SCHEMA_REFUSED' : 'TASK_OBSERVER_CONTEXT_REFUSED' });
   }
   const bad = structuredClone(raw); bad.observations[0].observation.effect = 'atomic-sale-observed';
-  assert.throws(() => f.client.view(bad), /TASK_OBSERVATION_EFFECT_REFUSED/);
+  assert.throws(() => f.client.view(bad), { code: 'TASK_OBSERVER_CONTEXT_REFUSED' });
+  // A genuine legacy cache has no accepted-observer digest. Its separate
+  // operation/effect guard must still reject an NFT-sale effect on this task.
+  const legacy = structuredClone(raw);
+  legacy.observations[0].acceptedObserverContext = null;
+  legacy.observations[0].provenance = 'legacy-approved-cache';
+  assert.equal(f.client.view(legacy).completion.fresh, false);
+  legacy.observations[0].observation.effect = 'atomic-sale-observed';
+  assert.throws(() => f.client.view(legacy), { code: 'TASK_OBSERVATION_EFFECT_REFUSED' });
 });
 test('late receipt refresh cannot restore current evidence after cancel or logout', async () => {
   for (const action of ['cancel', 'logout']) {
@@ -810,11 +1194,11 @@ test('listing approval with configured policy does not pretend a missing executi
   assert.equal(f.flow.snapshot().phase, 'authorized-blocked'); assert.equal(f.flow.snapshot().selected.capabilities.executable, false);
   assert.equal(f.flow.snapshot().selected.continuation.code, 'TASK_LISTING_ADAPTER_NOT_CONNECTED'); assert.equal(f.flow.snapshot().selected.executionState, 'not-started');
 });
-test('frozen listing service and browser controller interoperate with one synthetic OTP through publish, revoke and unknown recovery', async () => {
+test('frozen listing service and browser controller preserve default ON and saved OFF through publish, revoke and unknown recovery', async () => {
   const { createTaskAuthorizationService } = await import('../server/task-authorization.mjs');
   const { MemoryCredentialStore } = await import('../server/store.mjs');
   const { base32, hotp, matchTotp } = await import('../server/crypto.mjs');
-  for (const losePublicationReply of [false, true]) {
+  for (const savedPolicy of [false, true]) for (const losePublicationReply of [false, true]) {
     const task = makeSaleTask(`service-listing:${losePublicationReply}`), secret = base32(Buffer.alloc(20, 0x42));
     const store = new MemoryCredentialStore({ 'xiongan:synthetic': { secret, lastStep: -1, revision: 0 } });
     const session = { ...context, username: 'synthetic', id: 'synthetic-listing-session', revision: 0, issuedAt: now, expiresAt: now + 900000 };
@@ -841,18 +1225,24 @@ test('frozen listing service and browser controller interoperate with one synthe
       consumeTotp(_s: any, credential: any, code: string) { const step = matchTotp(credential.secret, code, now, credential.lastStep);
         assert.notEqual(step, null); otp++; return { ...credential, lastStep: step }; },
     });
-    await service.handler('tasks/prepare', { policy: task.policy, valuationPolicy: valuationInput() }, session);
+    const prepared = await service.handler('tasks/prepare', { policy: task.policy, valuationPolicy: valuationInput() }, session);
+    if (savedPolicy) await seedSavedVerificationPolicy(store, { ...context, agentId: prepared.executor.identity.agentId }, 'OFF');
+    const before = await store.read('xiongan:synthetic'), expectedOtp = savedPolicy ? 1 : 0;
     const calls: string[] = [], client = new TaskAuthorizationClient({ context, request: (path: string, body: any) => { calls.push(path); return service.handler(path, body, session); } });
     const flow = new TaskAuthorizationFlow({ client, now: () => now }); await flow.load(task.digest);
-    assert.equal(flow.snapshot().phase, 'review'); await flow.authorize(hotp(secret, Math.floor(now / 30000)));
+    assert.equal(flow.snapshot().phase, 'review'); assertApprovalState(flow.snapshot(), savedPolicy);
+    await flow.authorize(savedPolicy ? hotp(secret, Math.floor(now / 30000)) : '');
+    assert.equal(flow.snapshot().error, null); assertApprovalState(flow.snapshot().selected, savedPolicy);
     assert.equal(flow.snapshot().phase, losePublicationReply ? 'outcome-unknown' : 'listed-awaiting-evidence');
     assert.equal(flow.snapshot().selected.executionState, losePublicationReply ? 'unknown' : 'listed');
-    assert.equal(otp, 1); assert.equal(plans, 1); assert.equal(sends, 1);
+    assert.equal(otp, expectedOtp); assert.equal(plans, 1); assert.equal(sends, 1);
     await flow.revoke(); await flow.recover(); await flow.open(task.digest);
     assert.equal(flow.snapshot().phase, 'revoked'); assert.equal(flow.snapshot().selected.completion.state, 'listed-awaiting-evidence');
     assert.equal(flow.snapshot().selected.listing.revocationCancelsPublishedOrder, false);
     assert.equal(flow.snapshot().selected.capabilities.executable, false);
-    assert.equal(otp, 1); assert.equal(plans, 1); assert.equal(sends, 1); assert.equal(recoveries, losePublicationReply ? 1 : 0);
+    assertApprovalState(flow.snapshot(), savedPolicy);
+    assert.deepEqual(await store.read('xiongan:synthetic'), { ...before, lastStep: savedPolicy ? Math.floor(now / 30000) : -1 });
+    assert.equal(otp, expectedOtp); assert.equal(plans, 1); assert.equal(sends, 1); assert.equal(recoveries, losePublicationReply ? 1 : 0);
     assert.equal(calls.some(path => /observe|cancel|execute|reserve/.test(path)), false);
   }
 });
@@ -970,4 +1360,125 @@ test('listing retry failure uses the fallback result and grant state instead of 
     assert.equal(flow.snapshot().phase, grantStatus === 'revoked' ? 'revoked' : 'listing-unknown');
     assert.equal(flow.snapshot().selected.completion.fresh, false); assert.equal(flow.snapshot().selected.listing.result.summary.aggregate, null);
   }
+});
+
+
+// Renderer-only regression: inject a validated-view boundary, not a synthetic
+// grant or successful transaction adapter. No request or signer may be called.
+function fixedReceiptReviewFixture(phases: string[]) {
+  const elements = new Map<string, Node>(), events = new Node(), windowEvents = new Node();
+  const el = (id: string) => { if (!elements.has(id)) elements.set(id, new Node()); return elements.get(id)!; };
+  const policy = { ...makeTask('synthetic-fixed-receipt-review').policy,
+    intent: { kind: 'artfi-receipt', escrow: `0x${'44'.repeat(20)}`,
+      sale: { tokenId: '9007199254740993123' }, phases: phases.map(phase => ({ phase })) } };
+  const selected = { task: { policy, digest: `0x${'5'.repeat(64)}` }, executor,
+    observationPolicy: null, receiptVerifier: null, observations: [],
+    completion: { state: 'not-attempted', fresh: false }, executionState: 'not-started',
+    capabilities: { adapterConfigured: false, receiptVerifierConfigured: false, missing: [] },
+    authorization: null, budget: null, receiptAttempts: [] };
+  let snapshot: any = null, requests = 0;
+  class RenderFlow {
+    onChange: Function;
+    constructor({ onChange }: any) { this.onChange = onChange; }
+    async load() { snapshot = { phase: 'review', tasks: [], selected, busy: false, error: null }; this.onChange(snapshot); }
+    snapshot() { return snapshot; }
+    lock() { snapshot = { phase: 'locked', tasks: [], selected: null, busy: false }; this.onChange(snapshot); }
+    suspend() {} markHistorical() {}
+  }
+  const document = { getElementById: el, createElement: () => new Node(), visibilityState: 'visible',
+    addEventListener: events.addEventListener.bind(events) };
+  const history = { state: { walletTaskDigest: selected.task.digest }, replaceState() {} };
+  const session = { ...context, id: 1, serverId: 's'.repeat(43) };
+  const result = mountTaskAuthorization({ document, window: { history,
+    addEventListener: windowEvents.addEventListener.bind(windowEvents), clearTimeout() {},
+    setTimeout() { throw Error('Receipt review must not schedule execution'); } },
+    walletLogin: { async check() { return session; }, capture() { return {}; }, assert() {}, subscribe() {} },
+    getClient: () => ({ request() { requests++; throw Error('Renderer must not request authority'); } }),
+    Client: class {}, Flow: RenderFlow });
+  return { el, events, result, requestCount: () => requests, policy };
+}
+test('mounted fixed receipt review uses catalog keys in every locale and keeps phase identifiers exact', async () => {
+  try {
+    for (const locale of Object.keys(CATALOGS)) {
+      setLocale(locale, { document: null, persist: false });
+      const phases = ['0', '2', '9007199254740991'], ui = fixedReceiptReviewFixture(phases);
+      ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+      assert.equal(ui.result.snapshot().phase, 'review', locale);
+      const notes = ui.el('task-summary').children.filter((node: Node) => node.children.length === 0);
+      assert.ok(notes.some((node: Node) => node.textContent === CATALOGS[locale]!['task.receiptPhases']!.replace('{phases}', phases.join(', '))), locale);
+      assert.ok(ui.el('task-summary').children.some((node: Node) => node.children.some(child => child.textContent === ui.policy.intent.sale.tokenId)), locale);
+      assert.equal(ui.el('task-detail').hidden, false);
+      assert.equal(ui.el('task-authorize-fields').hidden, false);
+      assert.equal(ui.requestCount(), 0);
+    }
+  } finally { setLocale('en', { document: null, persist: false }); }
+});
+test('receipt phase parameter is literal text and does not become markup or another message key', async () => {
+  setLocale('en', { document: null, persist: false });
+  const phase = '{phases}<svg onload=alert(1)>', ui = fixedReceiptReviewFixture([phase]);
+  ui.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(ui.result.snapshot().phase, 'review');
+  const note = ui.el('task-summary').children.find((node: Node) => node.textContent === 'Fixed receipt phases: ' + phase);
+  assert.ok(note); assert.equal(note.children.length, 0); assert.equal(ui.requestCount(), 0);
+});
+
+
+function preoperationalFixture(evaluation: any = { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' }) {
+  const f = fixture();
+  const request = async (path: string, body: any) => {
+    const raw: any = await f.request(path, body);
+    const add = (value: any) => value.authorization ? { ...value, approvalFactor: 'preoperational-default-on', approvalEvaluation: evaluation } : value;
+    if (path === 'tasks/prepare') return { ...raw, approvalFactor: 'preoperational-default-on', approvalEvaluation: evaluation };
+    if (path === 'tasks/list') return { ...raw, tasks: raw.tasks.map(add) };
+    return add(raw);
+  };
+  return { ...f, request };
+}
+test('pre-operational default ON renders NOT_EVALUATED in all locales, sends an empty code, and retains the label on reload', async () => {
+  const f = uiFixture({ fixtureOverride: preoperationalFixture() });
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(f.result.snapshot().approvalFactor, 'preoperational-default-on');
+  assert.equal(f.result.snapshot().approvalEvaluation.state, 'NOT_EVALUATED');
+  for (const id of ['task-code', 'task-code-label', 'task-authenticator-help']) assert.equal(f.el(id).hidden, true);
+  assert.equal(f.el('task-code').disabled, true); assert.equal((f.el('task-code') as any).required, false);
+  const prose = () => f.el('task-summary').children.map((node: Node) => node.textContent).join('\n');
+  for (const locale of Object.keys(CATALOGS)) {
+    setLocale(locale, { persist: false }); assert.ok(prose().includes(CATALOGS[locale]!['task.approvalNotEvaluated']!));
+  }
+  setLocale('en', { persist: false });
+  f.el('task-code').value = '654321'; f.el('task-ack').checked = true; f.el('task-authorize').type = 'button';
+  f.el('task-authorize').click(); f.el('task-authorize').click(); await tick();
+  const sent = f.requests.filter((r: any) => r.path === 'tasks/authorize');
+  assert.equal(sent.length, 1); assert.equal(sent[0].body.code, '');
+  assert.equal(f.result.snapshot().phase, 'authorized-blocked'); assert.ok(prose().includes('NOT_EVALUATED'));
+  assert.equal(f.el('task-code').value, '');
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'overview' });
+  f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(f.requests.filter((r: any) => r.path === 'tasks/authorize').length, 1);
+  assert.ok(prose().includes('NOT_EVALUATED'));
+  f.subscriber(null); assert.equal(f.el('task-summary').children.length, 0);
+  assert.equal(f.result.snapshot(), null);
+});
+
+test('pre-operational evaluation rejects missing, forged, extra and nonzero-revision metadata before showing authorization controls', async () => {
+  for (const bad of [null, {}, { state: 'VERIFIED', reason: 'pre-operational-default-on', policyRevision: '0' },
+    { state: 'NOT_EVALUATED', reason: 'other', policyRevision: '0' },
+    { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '1' },
+    { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0', verified: true }]) {
+    const f = uiFixture({ fixtureOverride: preoperationalFixture(bad) });
+    f.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+    assert.equal(f.result.snapshot().phase, 'error'); assert.equal(f.el('task-authorize').disabled, true);
+    assert.equal(f.requests.some((r: any) => r.path === 'tasks/authorize'), false);
+  }
+});
+
+test('saved-factor tasks still require OTP and cannot borrow pre-operational NOT_EVALUATED metadata', async () => {
+  const ordinary = uiFixture(); ordinary.events.dispatchEvent({ type: 'wallet:page', detail: 'tasks' }); await tick();
+  assert.equal(ordinary.el('task-code').hidden, false); assert.equal(ordinary.el('task-code-label').hidden, false);
+  assert.equal(ordinary.el('task-authenticator-help').hidden, false); assert.equal((ordinary.el('task-code') as any).required, true);
+  assert.equal(ordinary.result.snapshot().approvalEvaluation, null);
+  const f = fixture(), client = new TaskAuthorizationClient({ context, request: async (path: string, body: any) => {
+    const raw = await f.request(path, body); return path === 'tasks/prepare' ? { ...raw, approvalFactor: 'totp', approvalEvaluation: { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' } } : raw;
+  } });
+  await assert.rejects(client.prepare(f.task), /TASK_APPROVAL_EVALUATION_REFUSED/);
 });

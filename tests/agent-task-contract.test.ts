@@ -312,3 +312,15 @@ test('custom collection iterators and sparse/getter collections cannot execute t
   assert.throws(() => freezeTaskPolicy({ ...saleInput(), intent: { ...saleInput().intent, marketAdapters: Array(1) } }), /TASK_ARRAY_REFUSED/);
   assert.throws(() => freezeTaskPolicy({ ...saleInput(), tenant: 'Xiongan:admin' }), /TASK_TENANT_REFUSED/);
 });
+
+const scopedTestMint = (chainId: string) => ({ kind: 'artfi-test-series-mint', chainId, actor, taskId: 'mint-1',
+  collection: { contract, runtimeCodeHash: h('6') }, artworkId: h('7'), masterArtworkHash: h('8'),
+  metadataHash: h('9'), distributionWallet: buyer, metadataURI: 'https://example.com/meta.json' });
+test('test-series mint retains its narrower Hoodi-only policy', () => {
+  const controller = { contract: a('4'), runtimeCodeHash: h('5') };
+  for (const chainId of ['1', '8453', '84532'])
+    assert.throws(() => normalizeExistingOperation({ kind: 'create-account', chainId, actor, controller }), /TASK_CHAIN_REFUSED/);
+  assert.equal(normalizeExistingOperation(scopedTestMint('560048')).chainId, '560048');
+  for (const chainId of ['1', '8453', '11155111', '84532', '137'])
+    assert.throws(() => normalizeExistingOperation(scopedTestMint(chainId)), /TASK_CHAIN_REFUSED/);
+});

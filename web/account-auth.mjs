@@ -1,16 +1,48 @@
 /** Same-origin account login client. Passwords/codes are never persisted. */
 import { WalletLoginError } from './login-core.mjs';
+import { forwardProgressRequest, validateForwardProgress } from './forward-progress-client.mjs';
+const policyActions = new Set(['status', 'prepare', 'verify', 'confirm', 'cancel']);
+const policyRoute = path => /^account\/task-verification\/(?:status|prepare|verify|confirm|cancel)$/.test(path);
+function policyRequestBody(action, input) {
+  const refuse = () => { throw new WalletLoginError('TASK_VERIFICATION_INPUT_REFUSED'); };
+  if (!input || typeof input !== 'object' || Array.isArray(input) ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(input))) refuse();
+  const properties = Object.getOwnPropertyDescriptors(input), keys = Reflect.ownKeys(properties);
+  if (keys.some(key => typeof key !== 'string' || !Object.hasOwn(properties[key], 'value') || !properties[key].enumerable)) refuse();
+  const exact = expected => keys.length === expected.length && expected.every(key => Object.hasOwn(properties, key));
+  const value = key => properties[key]?.value;
+  const string = key => typeof value(key) === 'string' && value(key).length > 0;
+  if (action === 'status' || action === 'cancel') { if (!exact([])) refuse(); }
+  else if (action === 'prepare') {
+    if (!exact(['expectedRevision', 'identityMethod', 'mode']) ||
+      typeof value('expectedRevision') !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(value('expectedRevision')) ||
+      BigInt(value('expectedRevision')) >= (1n << 256n) || !['password', 'wallet'].includes(value('identityMethod')) ||
+      !['ON', 'OFF'].includes(value('mode'))) refuse();
+  } else if (action === 'verify') {
+    if ((!exact(['changeId', 'changeDigest', 'password']) && !exact(['changeId', 'changeDigest', 'signature'])) ||
+      !string('changeId') || !string('changeDigest') || !(string('password') || string('signature'))) refuse();
+  } else if (action === 'confirm') {
+    if (!exact(['changeId', 'changeDigest', 'code']) || !string('changeId') || !string('changeDigest') ||
+      typeof value('code') !== 'string' || !/^\d{8}$/.test(value('code'))) refuse();
+  }
+  return Object.fromEntries(keys.map(key => [key, properties[key].value]));
+}
 export class AccountAuthClient {
-  #tenant; #fetch; #csrf = null; #session = null; #origin; #registrationEpoch = 0; #capabilities = null;
+  #tenant; #fetch; #csrf = null; #session = null; #origin; #registrationEpoch = 0; #capabilities = null; #taskPolicyChange = null; #policyEpoch = 0;
   constructor({ tenant, origin = globalThis.location.origin, fetcher = globalThis.fetch.bind(globalThis) }) { this.#tenant = tenant; this.#fetch = fetcher; this.#origin = origin; }
-  async request(path, body, { keepalive = false } = {}) {
-    const response = await this.#fetch(new URL(`/auth/${path}`, this.#origin), { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', keepalive,
+  async request(path, body, { keepalive = false, signal } = {}) {
+    const response = await this.#fetch(new URL(`/auth/${path}`, this.#origin), { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', keepalive, ...(signal === undefined ? {} : { signal }),
       headers: { 'X-Wallet-Tenant': this.#tenant, ...(this.#csrf ? { 'X-Wallet-CSRF': this.#csrf } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const text = await response.text(); if (text.length > (path.startsWith('tasks/') ? 4194304 : 16384)) throw new WalletLoginError('LOGIN_SERVER_RESPONSE_REFUSED');
     let result; try { result = JSON.parse(text); } catch { throw new WalletLoginError('LOGIN_SERVICE_UNAVAILABLE'); }
     if (!response.ok) {
-      const error = new WalletLoginError(typeof result.error === 'string' && (path.startsWith('tasks/') ? /^(AUTH|TASK)_[A-Z_]+$/ : /^AUTH_[A-Z_]+$/).test(result.error) ? result.error : 'LOGIN_SERVICE_UNAVAILABLE');
+      const errorPattern = path.startsWith('tasks/') ? /^(AUTH|TASK)_[A-Z_]+$/ :
+        path === 'assets/forward-progress' ? /^(AUTH|FORWARD_PROGRESS)_[A-Z_]+$/ :
+        policyRoute(path) ? /^(?:AUTH_[A-Z_]+|TASK_VERIFICATION_[A-Z_]+)$/ : /^AUTH_[A-Z_]+$/;
+      const error = new WalletLoginError(typeof result?.error === 'string' && errorPattern.test(result.error) ? result.error : 'LOGIN_SERVICE_UNAVAILABLE');
+      // Account-policy routes expose failure status, never task retry metadata.
+      if (policyRoute(path) && Number.isInteger(response.status)) error.status = response.status;
       // Scheduling metadata is never authority. Only the authenticated task-route
       // limiter's explicit 429 response may delay automatic continuation.
       if (path.startsWith('tasks/') && response.status === 429 && error.code === 'AUTH_RATE_LIMITED') {
@@ -53,6 +85,7 @@ export class AccountAuthClient {
   registrationAdapter(registrationId, credentials = {}) {
     return {
       authenticate: async (identity, provider) => {
+        this.#policyEpoch++; this.#taskPolicyChange = null;
         const epoch = this.#registrationEpoch;
         const current = () => { if (epoch !== this.#registrationEpoch) throw new WalletLoginError('LOGIN_CANCELLED'); };
         try {
@@ -77,6 +110,7 @@ export class AccountAuthClient {
   adapter(method, credentials = {}, caBridge = globalThis.walletCaBridge) {
     return {
       authenticate: async (identity, provider) => {
+        this.#policyEpoch++; this.#taskPolicyChange = null;
         const available = await this.capabilities();
         if (!available.methods.includes(method)) throw new WalletLoginError('LOGIN_METHOD_UNAVAILABLE');
         const bootstrap = await this.request('bootstrap'); this.#csrf = bootstrap.csrf;
@@ -110,7 +144,7 @@ export class AccountAuthClient {
     };
   }
   async logout() {
-    this.#registrationEpoch++;
+    this.#registrationEpoch++; this.#policyEpoch++; this.#taskPolicyChange = null;
     if (!this.#csrf) return;
     try { await this.request('logout', {}, { keepalive: true }); } finally { this.#csrf = null; this.#session = null; }
   }
@@ -133,10 +167,93 @@ export class AccountAuthClient {
       throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
     return value;
   }
+  async readForwardProgress(input) {
+    const session = this.#session;
+    if (!session || !this.#csrf) throw new WalletLoginError('LOGIN_REQUIRED');
+    let body;
+    try { body = forwardProgressRequest(input, session.chainId); }
+    catch { throw new WalletLoginError('FORWARD_PROGRESS_REQUEST_REFUSED'); }
+    const result = await this.request('assets/forward-progress', body);
+    if (this.#session !== session) throw new WalletLoginError('LOGIN_CANCELLED');
+    try { return validateForwardProgress(result, body); }
+    catch { throw new WalletLoginError('FORWARD_PROGRESS_RESPONSE_REFUSED'); }
+  }
   async change(action, body = {}) {
     if (!this.#session) throw new WalletLoginError('LOGIN_REQUIRED');
     if (!['start', 'verify', 'confirm', 'commit', 'cancel'].includes(action)) throw new WalletLoginError('AUTH_ROUTE_REFUSED');
     return this.request(`account/change/${action}`, body);
+  }
+  /** Source-bound owner-policy transport. Retains the selected candidate's
+   * scope, revision, factor and prepare/confirm binding checks. The UI bridge
+   * additionally validates exact response keys and canonical challenge bytes.
+   * No default mode, retired /on action, activation switch or automatic retry. */
+  async taskVerification(action, body = {}, { signal } = {}) {
+    if (!policyActions.has(action)) throw new WalletLoginError('AUTH_ROUTE_REFUSED');
+    const session = this.#session, epoch = this.#policyEpoch;
+    const current = () => {
+      if (!session || !this.#csrf) throw new WalletLoginError('LOGIN_REQUIRED');
+      if (session !== this.#session || epoch !== this.#policyEpoch) throw new WalletLoginError('LOGIN_SESSION_CHANGED');
+      if (signal?.aborted) throw new WalletLoginError('LOGIN_CANCELLED');
+      if (session.origin !== this.#origin || session.tenant !== this.#tenant) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+    };
+    current(); body = policyRequestBody(action, body);
+    try {
+      if (['verify', 'confirm'].includes(action) && (this.#taskPolicyChange?.session !== session ||
+        this.#taskPolicyChange.request.changeId !== body.changeId || this.#taskPolicyChange.changeDigest !== body.changeDigest))
+        throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+      const result = await this.request(`account/task-verification/${action}`, body, { signal });
+      current();
+      if (!result || typeof result !== 'object' || Array.isArray(result)) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+      const boundScope = value => value && value.origin === this.#origin && value.tenant === this.#tenant &&
+        value.username === session.username && value.account === session.account.toLowerCase() && value.chainId === session.chainId &&
+        typeof value.agentId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,159}$/.test(value.agentId);
+      const version = value => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value) && BigInt(value) < (1n << 256n);
+      const token = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+      const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+      let valid;
+      if (action === 'cancel') valid = result.cancelled === true;
+      else if (['status', 'confirm'].includes(action)) {
+        valid = ['8415-task-human-verification/1', '8415-task-human-verification/2'].includes(result.schema) && boundScope(result.scope) &&
+          ['ON', 'OFF'].includes(result.mode) && version(result.revision) && Number.isSafeInteger(result.changeCount) && result.changeCount >= 0 &&
+          result.label === 'Per-operation human verification' && result.appliesTo === 'still-valid-in-scope-authorizations' && result.grantsAuthority === false &&
+          (result.changeCount === 0 ? result.revision === '0' && result.mode === 'ON' && result.lastChange === null :
+            result.lastChange?.revision === result.revision && result.lastChange?.mode === result.mode && hash(result.lastChange?.changeDigest));
+      } else if (action === 'prepare') {
+        const request = result.request;
+        valid = request?.schema === '8415-task-human-verification-change/2' && boundScope(request.scope) && ['ON', 'OFF'].includes(body.mode) && request.mode === body.mode &&
+          request.expectedRevision === body.expectedRevision && version(request.expectedRevision) && Number.isSafeInteger(request.credentialRevision) &&
+          request.credentialRevision >= 0 && token(request.changeId) && token(request.nonce) && hash(result.changeDigest) &&
+          Number.isSafeInteger(request.issuedAt) && Number.isSafeInteger(request.expiresAt) && request.expiresAt > request.issuedAt &&
+          request.expiresAt - request.issuedAt <= 5 * 60000 && result.identityMethod === body.identityMethod &&
+          typeof result.emailMasked === 'string' && (result.identityMethod !== 'wallet' || typeof result.message === 'string' &&
+            result.message.includes(`Per-operation human verification ${request.mode}`) && result.message.includes(`Digest: ${result.changeDigest}`) && result.message.includes(`Scope: ${JSON.stringify(request.scope)}`) &&
+            result.message.includes(`Change: ${request.changeId}`) && result.message.includes(`Nonce: ${request.nonce}`) &&
+            result.message.includes('Purpose: policy change only; no login, recovery, or transaction signature.'));
+      } else {
+        valid = result.changeId === body.changeId && result.changeDigest === body.changeDigest && result.digits === 8 &&
+          typeof result.emailMasked === 'string' && Number.isSafeInteger(result.expiresAt);
+      }
+      if (valid && ['status', 'confirm'].includes(action) && result.schema === '8415-task-human-verification/2') {
+        valid = version(result.enforcedFromRevision) && BigInt(result.enforcedFromRevision) > 0n &&
+          BigInt(result.enforcedFromRevision) <= BigInt(result.revision) &&
+          result.lastChange?.verifiedFactors?.length === 2 &&
+          ['password', 'wallet'].includes(result.lastChange.verifiedFactors[0]) &&
+          result.lastChange.verifiedFactors[1] === 'verified-email';
+      }
+      if (valid && action === 'prepare') this.#taskPolicyChange = { session, request: result.request, changeDigest: result.changeDigest };
+      if (valid && action === 'confirm') {
+        const pending = this.#taskPolicyChange;
+        valid = pending?.session === session && body.changeId === pending.request.changeId &&
+          body.changeDigest === pending.changeDigest && JSON.stringify(result.scope) === JSON.stringify(pending.request.scope) && result.mode === pending.request.mode &&
+          result.revision === (BigInt(pending.request.expectedRevision) + 1n).toString();
+      }
+      if (action === 'cancel' || valid && action === 'confirm') this.#taskPolicyChange = null;
+      if (!valid) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+      return result;
+    } catch (error) { current(); throw error; }
+    finally {
+      for (const key of ['password', 'signature', 'code']) if (Object.hasOwn(body, key)) body[key] = '';
+    }
   }
   async recovery(action, body = {}) {
     if (!['enroll/start', 'enroll/confirm', 'reset/start', 'reset/confirm', 'cancel'].includes(action)) throw new WalletLoginError('AUTH_ROUTE_REFUSED');

@@ -105,7 +105,10 @@ export async function openHoodiJourneyRead(
     async readBlockHash(number: bigint) {
       if (number !== anchor.number) throw new TransportError('block', 'snapshot number mismatch');
       await checkChain();
-      return block(await request('eth_getBlockByNumber', ['0x' + number.toString(16), false])).hash;
+      const current = block(await request('eth_getBlockByNumber', ['0x' + number.toString(16), false]));
+      // The provider may switch while the final header request is pending.
+      await checkChain();
+      return current.hash;
     },
   });
 }

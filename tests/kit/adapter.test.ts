@@ -116,7 +116,7 @@ test('reads are pinned to the finalized head by default', async () => {
 
   const pinned = new EthereumProjectionReader({ transport, contract: CONTRACT, block: '0x10' });
   await pinned.holderAsOf(1n, 120n);
-  assert.equal(transport.calls.at(-1)?.params[1], '0x10');
+  assert.equal(transport.calls.filter((call) => call.method === 'eth_call').at(-1)?.params[1], '0x10');
 });
 
 test('calldata encodes as the interface expects', () => {
@@ -140,7 +140,7 @@ test('the chain adapter reads an application root at the finalized block hash', 
   assert.equal(chain.isFinalized(0x1234n), true);
   assert.equal(chain.isFinalized(0x1235n), false);
   assert.equal(chain.stateRootAt(0x1234n), commitment(0x777));
-  assert.deepEqual(transport.calls.at(-1)?.params, [
+  assert.deepEqual(transport.calls.filter((call) => call.method === 'eth_call').at(-1)?.params, [
     { to: applicationRoot.contract, data: applicationRoot.callData },
     { blockHash: commitment(0x1234), requireCanonical: true },
   ]);

@@ -220,7 +220,7 @@ served from an index:
 |---|---|
 | `ownerOf` | The tradeable position. An index serving both it and the confirmed holder from one store would assert exactly the equivalence ERC-8415 exists to deny. |
 | `supportsInterface` | How a deployment advertises conformance. An indexer vouching for the contract it indexes is circular. |
-| `block.timestamp` | Dates a gap against its deadline, and is why the present instant is never final. |
+| `block.timestamp` | Dates a gap against its deadline and supplies the queried present instant. Read finality independently from `isFinalAsOf`; an admitted future-effective entry can make a covered present instant final. |
 
 Settlement records are on chain for a narrower reason: the Kit's API serves
 only the gap currently open, and a wallet's settlement history is mostly
@@ -336,9 +336,12 @@ For a token, display as separate, adjacent facts:
 - **Settlement authority** — whether the user's own account may open a gap on
   this token, from `isSettlementAuthority`.
 
-The current instant is at or after the latest entry's `effectiveAt` and is
-therefore never final. The asset view says so plainly rather than leaving the
-absence of a "final" badge to be read as an error.
+Preserve the contract's finality answer at the observed instant. The protocol
+rule is `firstEffectiveAt <= t < latestEffectiveAt`. In the ordinary case
+`t >= latestEffectiveAt`, the present is provisional; an already admitted
+future-effective entry can make a covered present instant final. Show consistency,
+disagreement and unavailable boundaries separately without substituting a
+recomputed answer for the contract's response.
 
 ## 4.2 Temporal Query
 
@@ -504,8 +507,10 @@ that application authorization is not a registrar-imposed protocol lock.
 A holder deciding whether to acquire a token needs the same facts as one who
 already holds it, framed for a decision that has not been made yet: whether a
 gap is open, whose registration it is waiting on, whether further hops sit
-behind it, and that the instant of their own purchase will never be final at
-the moment it happens — the present never is.
+behind it, and the actual finality answer for the exact observed instant with
+its evidence boundaries. Do not predict finality at a future purchase instant
+or reuse an answer obtained for a different instant. A purchase itself neither
+admits an entry nor supplies a finality answer.
 
 The wallet presents those facts. It does not score the token, does not say
 whether acquiring is wise. Whether that risk is acceptable is the acquirer's
@@ -1304,7 +1309,7 @@ The UI must enforce §6.5.1's explicit versioned envelope and independently auth
 
 Use the existing multilingual entry and authored localized labels/errors for all actually supported locales; identifiers and hashes remain untranslated. Never expose adjacent wallet names/addresses, real server labels, internal endpoints, private paths, secrets or reference-brand names. Example verifier labels are synthetic. Authorized per-operation details do not permit tenant enumeration. Layout reflows on mobile without horizontal overflow or truncated identity/status labels.
 
-Design references are the Beta 2.0 Activity entry and Historical observation / Observation unavailable / Mobile historical observation frames in the existing Figma file. Figma examples are illustrative and contain no live transaction result. Acceptance requires the actual approved V2/V3 runtime/API builds on authorized CTyun or Aliyun non-Windows servers, with account isolation, strict rejection cases, freshness/cancellation, responsive layout and locale evidence. Design completion is distinct from runtime, online and on-chain acceptance.
+Design references are the Beta 2.0 Activity entry and Historical observation / Observation unavailable / Mobile historical observation frames in the existing Figma file. Figma examples are illustrative and contain no live transaction result. Acceptance requires the actual approved V2/V3 runtime/API builds on authorized non-Windows execution environments, with account isolation, strict rejection cases, freshness/cancellation, responsive layout and locale evidence. GitHub Actions may run CI and applicable automated checks; that permission does not itself authorize deployment or live-chain execution. Design completion is distinct from runtime, online and on-chain acceptance.
 
 ### About 8415wallet content
 
@@ -1316,7 +1321,7 @@ The About page uses **separately authored, hardcoded content for each supported 
 
 Services are enabled through controlled gradual rollout. The authoritative backend determines which services are enabled for the current tenant/account scope; frontend presentation cannot grant access. Keep normal entries for unopened features, without special unopened-function labels or pop-ups. A click on an unopened feature is a no-op and must not trigger a business request or change state. Enabled features operate normally with truthful processing, validation and error states; silent unopened-feature behavior must not turn a failed enabled action into success. Enforce disabled service access at the API boundary as well, without a successful operation response. Actual enabled scope and acceptance evidence are recorded privately; this design requirement does not itself enable services or change production settings.
 
-Public repository files, design exports intended for publication, build output and download packages must not contain real server names, tenant names, IP addresses, private operational paths, credentials or private third-party design-reference names. Use generic mainstream-wallet wording for design references. Necessary software copyright and license notices are not design references. Use synthetic examples in design/testing and retain private deployment mappings only in their authorized private location.
+Public repository files, design exports intended for publication, build output and download packages must not contain real usernames, account identities, wallet addresses, server names, tenant names, IP addresses, private operational paths, credentials or private third-party design-reference names. The same prohibition applies to public source, commit messages, issues, comments, logs and artifacts. Use generic mainstream-wallet wording for design references. Necessary software copyright and license notices are not design references. Use synthetic examples in design/testing and retain private deployment mappings only in their authorized private location.
 
 Release sequence: complete the Beta 2.0 UI and this complete PRD for **both V2 and V3**; integrate each profile with its latest approved wallet runtime instance; deploy the new UI to replace the old served UI; perform actual online UI acceptance and real on-chain tests for each profile; fix issues found by those tests and retest the affected paths. **Only after both profiles have completed their applicable UI and on-chain acceptance, including test-driven fixes and successful retests, update the corresponding downloadable installation packages**, built from their exact accepted versions. Beta 2.0 is the shared UI release label, not a replacement for the V2/V3 runtime profile identifiers. Withdrawn legacy archives must not be nested inside the replacement package. A design, simulation or local build is not an online or on-chain test result.
 

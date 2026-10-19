@@ -273,8 +273,15 @@ test('an open gap changes no projection answer', () => {
   assert.equal(h.store.entryCount(TOKEN), before.count);
   assert.deepEqual(h.store.currentEntry(TOKEN), before.current);
 
-  // And at most one gap is open at a time.
-  assert.throws(() => h.store.openGap(TOKEN, gap({ openedAt: 141n, settlementId: commitment(0x54) })));
+  // Replacement keeps exactly one gap open without admitting an entry.
+  const replacement = h.store.openGap(TOKEN, gap({ openedAt: 141n, settlementId: commitment(0x54) }));
+  assert.equal(h.store.openGapOf(TOKEN), replacement.settlementId);
+  assert.equal(h.store.settlement(commitment(0x53)).status, 'SUPERSEDED');
+  assert.equal(h.store.settlementsFor(TOKEN).filter(record => record.status === 'OPEN').length, 1);
+  assert.equal(h.store.holderAsOf(TOKEN, 120n), before.holder);
+  assert.equal(h.store.isFinalAsOf(TOKEN, 120n), before.final);
+  assert.equal(h.store.entryCount(TOKEN), before.count);
+  assert.deepEqual(h.store.currentEntry(TOKEN), before.current);
 });
 
 // 18
@@ -453,6 +460,12 @@ test('a settlement record keeps its outcome after the gap closes', () => {
   assert.equal(h.store.settlement(admittedGap.settlementId).status, 'ADMITTED');
   assert.equal(h.store.openGapOf(TOKEN), ZERO_BYTES32);
 
-  // An unknown settlement reads as NONE rather than reverting.
-  assert.equal(h.store.settlement(commitment(0xff)).status, 'NONE');
+  // NONE is only an internal zero value, never a successful public record.
+  for (const unknown of [ZERO_BYTES32, commitment(0xff)]) {
+    assert.equal(h.store.hasSettlement(unknown), false);
+    rejects('NO_OPEN_GAP', () => h.store.settlement(unknown));
+  }
+  assert.equal(h.store.hasSettlement(cancelled.settlementId), true);
+  assert.equal(h.store.hasSettlement(admittedGap.settlementId), true);
+  assert.equal(h.store.openGapOf(TOKEN), ZERO_BYTES32);
 });

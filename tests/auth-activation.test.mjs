@@ -5,7 +5,7 @@ import * as fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
-import { runOperatorActivate, createTrustedTerminal } from '../server/operator-activate.mjs';
+import { runOperatorActivate, createTrustedTerminal, activationPaths } from '../server/operator-activate.mjs';
 
 const syntheticPassword = 'synthetic fixture password';
 const syntheticHash = `scrypt-v1$${'1'.repeat(32)}$${'2'.repeat(64)}`;
@@ -17,7 +17,7 @@ async function fixture(t, answers = ['NONE', 'CREATE']) {
   const configDirectory = `${root}/config`, stateDirectory = `${root}/state`;
   await fs.mkdir(configDirectory, { mode: 0o700 }); await fs.mkdir(stateDirectory, { mode: 0o700 });
   const paths = { configDirectory, stateDirectory, config: `${configDirectory}/auth.json`, key: `${configDirectory}/store-key`, state: `${stateDirectory}/credentials.enc` };
-  const config = { origin: 'https://synthetic.example:9446', tenant: 'xiongan', port: 21001,
+  const config = { origin: 'https://synthetic.example:9446', tenant: 'synthetic-tenant', port: 21001,
     statePath: paths.state, accounts: [{ username: 'synthetic-user', wallets: [{ account: `0x${'1'.repeat(40)}`, chainId: '8453' }] }] };
   const original = JSON.stringify(config) + '\n';
   await fs.writeFile(paths.config, original, { mode: 0o600 });
@@ -45,7 +45,7 @@ async function fixture(t, answers = ['NONE', 'CREATE']) {
       const next = answers.shift(); if (next instanceof Error) throw next; return next;
     }, close() { calls.closed = true; } }; },
   };
-  const run = (overrides = {}, args = ['--activate']) => runOperatorActivate(args, input, output, { ...dependencies, ...overrides });
+  const run = (overrides = {}, args = ['--activate', '--tenant', 'synthetic-tenant']) => runOperatorActivate(args, input, output, { ...dependencies, ...overrides });
   return { root, paths, config, original, calls, dependencies, input, output, run, syntheticFs };
 }
 async function cleanTransaction(value, expectedConfig = value.original) {
@@ -59,8 +59,15 @@ test('help is side-effect free and rejects all credential or override arguments'
   let text = '';
   await runOperatorActivate(['--help'], {}, { write(value) { text += value; } }, { fs: null });
   assert.match(text, /First activation only/); assert.match(text, /trusted interactive terminal/);
-  for (const args of [[], ['--activate', '--password=fixture'], ['--key', 'fixture'], ['--config', '/tmp/fixture']]) {
+  for (const args of [[], ['--activate'], ['--activate', '--password=fixture'], ['--key', 'fixture'], ['--config', '/tmp/fixture']]) {
     await assert.rejects(runOperatorActivate(args, {}, {}), /AUTH_OPERATOR_ARGUMENT_REFUSED/);
+  }
+});
+
+test('activation paths require an explicit canonical tenant without coercion or trailing data', () => {
+  assert.equal(activationPaths('synthetic-tenant').configDirectory, '/etc/8415wallet-auth-synthetic-tenant');
+  for (const value of [undefined, null, '', 'synthetic-tenant\n', '../synthetic-tenant', { toString: () => 'synthetic-tenant' }]) {
+    assert.throws(() => activationPaths(value), /AUTH_OPERATOR_TENANT_REFUSED/);
   }
 });
 
@@ -76,6 +83,15 @@ test('key-only first activation publishes exactly one private synthetic key and 
   assert.ok(value.calls.buffers[0].every(byte => byte === 0));
   assert.doesNotMatch(value.calls.output, /4242424242/);
   assert.match(value.calls.output, /AUTH_CREDENTIALS_PREPARED_NOT_STARTED/);
+});
+
+test('key-only activation accepts an empty registration directory without adding accounts', async t => {
+  const value = await fixture(t); value.config.accounts = [];
+  const before = JSON.stringify(value.config) + '\n'; await fs.writeFile(value.paths.config, before);
+  await value.run();
+  assert.equal(await fs.readFile(value.paths.config, 'utf8'), before);
+  assert.equal(value.calls.keys, 1); assert.equal(value.calls.hashes, 0);
+  assert.deepEqual(JSON.parse(await fs.readFile(value.paths.config, 'utf8')).accounts, []);
 });
 
 test('initial password is entered twice with hidden prompts; only its hash changes config', async t => {
@@ -152,7 +168,7 @@ for (const kind of ['mode', 'owner', 'symlink']) {
     await assert.rejects(value.run(overrides), /AUTH_OPERATOR_DIRECTORY_REFUSED/); assert.equal(value.calls.keys, 0);
   });
 }
-for (const delta of [{ tenant: 'platform' }, { statePath: '/tmp/wrong-state' }, { accounts: [] }, { credential: 'not-an-input' }]) {
+for (const delta of [{ tenant: 'platform' }, { statePath: '/tmp/wrong-state' }, { accounts: null }, { credential: 'not-an-input' }]) {
   test(`refuses config scope or validation error ${Object.keys(delta)[0]}`, async t => {
     const value = await fixture(t); await fs.writeFile(value.paths.config, JSON.stringify({ ...value.config, ...delta }));
     await assert.rejects(value.run()); assert.equal(value.calls.keys, 0);
@@ -282,7 +298,7 @@ test('tenant-scoped activation supports a reusable installation without arbitrar
   assert.match(value.calls.output, /tenant synthetic-tenant/);
   assert.equal(value.calls.keys, 1);
 });
-for (const tenant of ['../xiongan', 'UPPER', '', '-bad', 'a/b', 'a'.repeat(49), 'xiongan\0ignored']) {
+for (const tenant of ['../synthetic-tenant', 'UPPER', '', '-bad', 'a/b', 'a'.repeat(49), 'synthetic-tenant\0ignored']) {
   test(`refuses unsafe tenant parameter ${JSON.stringify(tenant)}`, async () => {
     await assert.rejects(runOperatorActivate(['--activate', '--tenant', tenant], {}, {}), /AUTH_OPERATOR_TENANT_REFUSED/);
   });

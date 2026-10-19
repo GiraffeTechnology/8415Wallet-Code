@@ -1,3 +1,5 @@
+const { fixturePath, compositionEvidence, serveEnabledComposition } = require('../../tests/helpers/enabled-composition.cjs');
+const testComposition = 'assets'; // Explicit retained-component fixture, not production foundation acceptance.
 const change = require('./method-change-test-ui.cjs');
 const { installScreenNavigation } = require('./screen-navigation.cjs');
 // Actual UI + actual HTTP auth service; ephemeral synthetic accounts only.
@@ -22,6 +24,7 @@ async function main() {
   fs.mkdirSync(out, { recursive: true });
   let auth, profile = 'v2', time = Date.now();
   const server = http.createServer((req, res) => {
+    if (serveEnabledComposition(req, res, { root, composition: testComposition })) return;
     if (req.url.startsWith('/auth/')) return auth(req, res);
     res.setHeader('Cache-Control', 'no-store');
     if (req.url === '/web/release-config.json') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ ...config, profile })); return; }
@@ -66,7 +69,7 @@ async function main() {
       const idle = () => page.waitForFunction(() => !document.getElementById('wallet-login').disabled);
       const unlocked = () => page.waitForFunction(() => !document.getElementById('wallet-private').hidden);
       change.checkpoint('page-load');
-      await page.goto(`${origin}/web/index.html`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
+      await page.goto(`${origin}${fixturePath(testComposition)}`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
       assert.deepEqual(await page.evaluate(() => globalThis.__authTest.calls), []);
       change.checkpoint('password-refusal');
       await page.selectOption('#wallet-login-method', 'password'); await page.fill('#auth-username', 'tester'); await page.fill('#auth-password', 'wrong');
@@ -165,7 +168,7 @@ async function main() {
       await page.selectOption('#wallet-login-method', 'ca'); await page.click('#wallet-login'); await idle();
       assert.equal(await page.locator('#wallet-private').isVisible(), false); assert.match(await page.textContent('#wallet-login-status'), /UNAVAILABLE/);
       assert.deepEqual(errors, []); assert.deepEqual(offOrigin, []);
-      evidence.push({ profile, width, password: true, totpEnrollment: true, localQrPixelRoundtrip: true, qrClearedAfterConfirm: true, qrCancelExpiryPagehideIdentityCleared: true, lateEnrollmentRefused: true, noOffOriginRequests: true, localePreservesEnrollment: true, totpLogin: true, totpReplayRefused: true, recovery: true, registeredWallet: true, accountChangeLocks: true, reloadLocks: true, unavailableCaRefused: true });
+      evidence.push({ composition: compositionEvidence(testComposition), profile, width, password: true, totpEnrollment: true, localQrPixelRoundtrip: true, qrClearedAfterConfirm: true, qrCancelExpiryPagehideIdentityCleared: true, lateEnrollmentRefused: true, noOffOriginRequests: true, localePreservesEnrollment: true, totpLogin: true, totpReplayRefused: true, recovery: true, registeredWallet: true, accountChangeLocks: true, reloadLocks: true, unavailableCaRefused: true });
       await context.close();
     }
     change.checkpoint('evidence');

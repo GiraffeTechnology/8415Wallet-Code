@@ -77,25 +77,37 @@ test('actual checked-in source inspection resolves the installed runtime import 
     expectedToolingSha256: computeToolingPin(root), requireClean: false });
   assert.equal(plan.upstreamIdentity.snapshotTree, source.tree);
   const graph = closure([probeEntry]);
-  assert.deepEqual(graph.files, [...new Set([...TASK_RUNTIME_SOURCE_PATHS, ...TASK_RECEIPT_RUNTIME_FILES,
+  // Source packages retain this type contract, but native type stripping does
+  // not load it. Keep an exact, independently checked distinction from imports.
+  const typeOnlyInputs = ['src/sdk/linked.ts'];
+  for (const path of typeOnlyInputs) {
+    assert.equal(TASK_RUNTIME_SOURCE_PATHS.includes(path), false, 'type-only input is not executable runtime closure');
+    assert.ok(sourcePathAllowed(path), 'type contract stays eligible for source packaging');
+    assert.ok(plan.blobs.has(path), 'type contract must remain packaged');
+    const file = ts.createSourceFile(path, readFileSync(join(root, path), 'utf8'), ts.ScriptTarget.Latest, true);
+    assert.ok(file.statements.every(node => ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node) ||
+      (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly)), 'excluded input must contain types only');
+    assert.equal(graph.files.includes(path), false);
+  }
+  assert.deepEqual(graph.files, [...new Set([...TASK_RUNTIME_SOURCE_PATHS.filter(path => !typeOnlyInputs.includes(path)), ...TASK_RECEIPT_RUNTIME_FILES,
     ...['account-directory', 'auth-service', 'ca-verifier', 'config-validation', 'crypto', 'mail-config', 'mail-otp', 'main',
       'method-change-service', 'recovery-service', 'registration-service', 'socket-path', 'store',
-      'task-authorization', 'task-background-runner'].map(name => `server/${name}.mjs`), 'web/login-core.mjs'])].sort());
+      'task-authorization', 'task-background-runner', 'task-verification-policy'].map(name => `server/${name}.mjs`), 'web/login-core.mjs'])].sort());
   assert.deepEqual(graph.dependencies, ['@artfi/task-listing-runtime/server', 'ethers']);
 });
 
-test('planner runtime declaration exactly matches the closed executable graph without an external dependency', () => {
+test('planner runtime declaration exactly matches executable imports and the existing pinned ethers dependency', () => {
   const actual = closure([plannerEntry]);
   assert.deepEqual([...TASK_EXACT_PLANNER_RUNTIME_FILES].sort(), actual.files);
   assert.equal(TASK_EXACT_PLANNER_RUNTIME_FILES.length, new Set(TASK_EXACT_PLANNER_RUNTIME_FILES).size);
-  assert.deepEqual(actual.dependencies, []);
+  assert.deepEqual(actual.dependencies, ['ethers']);
   assert.ok(TASK_EXACT_PLANNER_RUNTIME_FILES.includes(encoderEntry));
   assert.equal(TASK_EXACT_PLANNER_RUNTIME_FILES.includes(signerEntry), false);
 });
 
 test('signer composition includes the complete planner graph and receipt keeps only the shared encoder', () => {
   const actual = closure([signerEntry]);
-  assert.deepEqual([...TASK_EXACT_SIGNER_RUNTIME_FILES].sort(), [...new Set([...actual.files, 'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs'])].sort());
+  assert.deepEqual([...TASK_EXACT_SIGNER_RUNTIME_FILES].sort(), [...new Set([...actual.files, ...['server/task-authorization.mjs', 'server/task-observation-sources.mjs', 'web/task-observer-context.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs', 'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs', 'server/task-listing-transport.mjs']])].sort());
   assert.deepEqual(actual.dependencies, ['ethers']);
   for (const path of TASK_EXACT_PLANNER_RUNTIME_FILES) assert.ok(TASK_EXACT_SIGNER_RUNTIME_FILES.includes(path), path);
   assert.equal(TASK_RECEIPT_RUNTIME_FILES.includes(plannerEntry), false);
@@ -140,6 +152,17 @@ test('V2 and V3 SDK graphs remain independent of server planning, signing and et
   }
 });
 
+function installRuntimeDependencies(directory) {
+  const tarball = 'vendor/artfi-task-listing-runtime-1.0.0.tgz';
+  mkdirSync(dirname(join(directory, tarball)), { recursive: true }); cpSync(join(root, tarball), join(directory, tarball));
+  const { manifest, lock } = runtimePackage(readJson('package.json'), readJson('package-lock.json'));
+  writeFileSync(join(directory, 'package.json'), JSON.stringify(manifest));
+  writeFileSync(join(directory, 'package-lock.json'), JSON.stringify(lock));
+  const result = spawnSync('npm', ['ci', '--offline', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--bin-links=false'],
+    { cwd: directory, encoding: 'utf8', timeout: 90000, env: { ...process.env, npm_config_offline: 'true' } });
+  assert.equal(result.status, 0, result.stdout + '\\n' + result.stderr);
+}
+
 function copyRuntime(directory, paths) {
   for (const path of paths) {
     const destination = join(directory, path);
@@ -183,11 +206,11 @@ assert.notEqual(createTaskExactSignerAdapter({ ...config, plannerFeeRule: change
 console.log(JSON.stringify({ planner: planner.identity, enabled: enabled.identity, disabled: disabled.identity }));
 `;
 
-test('isolated planner imports with native Node type stripping and no external dependencies', () => {
+test('isolated planner imports with native Node type stripping and pinned offline runtime dependencies', () => {
   const directory = mkdtempSync(join(tmpdir(), 'wallet-exact-planner-runtime-'));
   try {
     copyRuntime(directory, TASK_EXACT_PLANNER_RUNTIME_FILES);
-    writeFileSync(join(directory, 'package.json'), JSON.stringify({ type: 'module' }));
+    installRuntimeDependencies(directory);
     const imported = run(directory, importProbe);
     assert.equal(imported.status, 0, imported.stderr);
     assert.equal(JSON.parse(imported.stdout).plannerRuntimeFiles, TASK_EXACT_PLANNER_RUNTIME_FILES.length);

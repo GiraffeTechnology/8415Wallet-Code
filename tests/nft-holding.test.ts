@@ -17,14 +17,14 @@ const balanceCall = (tokenId: string) => encodeCall('balanceOf(address,uint256)'
 type RpcArgs = { method: string; params?: readonly unknown[] };
 
 function fixture(chainId = '1') {
-  let journalReads = 0, journalWrites = 0, actorReads = 0;
+  let journalReads = 0, journalWrites = 0, actorReads = 0, accountReads = 0;
   const calls: RpcArgs[] = [];
   const flags = {
     chain: `0x${BigInt(chainId).toString(16)}` as unknown, accounts: [actor] as unknown, actorCode: '0x' as unknown,
     code: '0x6000' as unknown, owner: addressWord(actor) as unknown, balance: word(9_007_199_254_740_993n) as unknown,
     header: { number: '0x64', hash: blockHash } as unknown, recheck: { number: '0x64', hash: blockHash } as unknown,
     interfaces: new Map<string, unknown>(), failMethod: '', failData: '', connected: true,
-    afterHolding: () => {}, afterLastIdentity: () => {},
+    afterHolding: () => {}, afterLastAccount: () => {}, afterLastIdentity: () => {},
   };
   const store: AssetStore = {
     async read() { journalReads++; throw new Error('holding must never open the journal'); },
@@ -34,7 +34,10 @@ function fixture(chainId = '1') {
     calls.push({ method, params: structuredClone(params) });
     if (method === flags.failMethod) throw new Error('private provider failure');
     if (method === 'eth_chainId') return flags.chain;
-    if (method === 'eth_accounts') return flags.accounts;
+    if (method === 'eth_accounts') {
+      if (++accountReads === 2) flags.afterLastAccount();
+      return flags.accounts;
+    }
     if (method === 'eth_getCode') {
       if (params[0] === actor) {
         if (++actorReads === 2) flags.afterLastIdentity();
@@ -79,7 +82,8 @@ for (const chain of ['1', '8453', '11155111', '84532']) for (const standard of s
       [[actor, 'latest'], [contract, '0x64'], [actor, 'latest']]);
     assert.deepEqual(f.calls.filter(call => call.method === 'eth_getBlockByNumber').map(call => call.params),
       [['latest', false], ['0x64', false]]);
-    assert.equal(f.calls.filter(call => call.method === 'eth_chainId').length, 2);
+    // Both identity checks bind their accounts/code reads before and after.
+    assert.equal(f.calls.filter(call => call.method === 'eth_chainId').length, 4);
     assert.equal(f.calls.filter(call => call.method === 'eth_accounts').length, 2);
     f.assertReadOnly();
   });
@@ -173,6 +177,18 @@ for (const standard of standards) for (const change of ['chain', 'account', 'act
       change === 'chain' ? /ASSET_CHAIN_CHANGED/ : change === 'account' ? /ASSET_ACCOUNT_CHANGED/ : /ASSET_EOA_REQUIRED/);
     f.assertReadOnly();
   });
+for (const chain of ['1', '8453']) for (const standard of standards)
+  for (const stage of ['afterLastAccount', 'afterLastIdentity'] as const)
+    test(`${standard} on ${chain} refuses a late chain switch during ${stage}`, async () => {
+      const f = fixture(chain);
+      f.flags[stage] = () => { f.flags.chain = chain === '1' ? '0x2105' : '0x1'; };
+      await assert.rejects(f.session.nftHolding(standard, contract, '7'), /ASSET_CHAIN_CHANGED/);
+      assert.equal(f.session.chainId, chain);
+      assert.equal(f.calls.filter(call => call.method === 'eth_chainId').length, 4);
+      assert.deepEqual(f.calls.slice(-4).map(call => call.method),
+        ['eth_chainId', 'eth_accounts', 'eth_getCode', 'eth_chainId']);
+      f.assertReadOnly();
+    });
 for (const standard of standards) test(`${standard} rejects initial identity mismatch and unconnected sessions`, async () => {
   for (const changes of [{ chain: '0x2105' }, { chain: '0x01' }, { accounts: [other] }, { accounts: [] }, { accounts: [null] }, { accounts: null }, { actorCode: '0x6000' }, { connected: false }]) {
     const f = fixture(); Object.assign(f.flags, changes);

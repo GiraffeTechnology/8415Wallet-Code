@@ -20,7 +20,15 @@ function installScreenNavigation(page) {
       connection: !!node.closest('#asset-connection'),
       visible: !!node.getClientRects().length,
     }));
-    if (context.locked) return; // Security tests must still encounter the genuine display lock.
+    if (context.locked) {
+      // Reach hidden authentication fields through the real public Login route.
+      // This never unlocks wallet-private or changes authentication state.
+      if (context.login && !context.visible) {
+        const entry = page.locator('[data-public-route="login"]:visible').first();
+        if (await entry.count()) await entry.click();
+      }
+      return; // Business controls still encounter the genuine display lock.
+    }
     if (!context.visible) {
       if (context.login) await navigate('settings');
       else if (context.page) await navigate(context.page);

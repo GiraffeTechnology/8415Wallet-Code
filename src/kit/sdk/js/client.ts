@@ -90,8 +90,8 @@ export class ProjectionClient {
 
   /** Whether a later admission can still change that answer. Never throws for an uncovered instant. */
   async isFinalAsOf(tokenId: TokenId, instant: Instant): Promise<boolean> {
-    const body = await this.#get<{ final: boolean }>(`/projection/${tokenId}/finality/as-of/${instant}`);
-    return body.final;
+    const body = await this.#get<{ final: unknown }>(`/projection/${tokenId}/finality/as-of/${instant}`);
+    return decodeFinality(body.final);
   }
 
   async entryAsOf(tokenId: TokenId, instant: Instant): Promise<ProjectionEntry> {
@@ -151,10 +151,10 @@ export class ProjectionClient {
     final: boolean;
     openGap: Settlement | null;
   }> {
-    const body = await this.#get<{ holder: Address; final: boolean; openGap: WireSettlement | null }>(
+    const body = await this.#get<{ holder: Address; final: unknown; openGap: WireSettlement | null }>(
       `/projection/${tokenId}/resolve/as-of/${instant}`,
     );
-    return { holder: body.holder, final: body.final,
+    return { holder: body.holder, final: decodeFinality(body.final),
       openGap: body.openGap === null ? null : decodeSettlement(body.openGap) };
   }
 
@@ -176,6 +176,14 @@ export class ProjectionClient {
     return body;
   }
 }
+
+/** JSON finality is a boolean, never a truthiness conversion. */
+const decodeFinality = (value: unknown): boolean => {
+  if (typeof value !== 'boolean') {
+    throw new ProjectionClientError(502, 'INVALID_RESPONSE', 'projection finality must be a JSON boolean');
+  }
+  return value;
+};
 
 interface WireEntry {
   version: string;

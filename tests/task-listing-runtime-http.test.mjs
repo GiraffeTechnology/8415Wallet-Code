@@ -54,14 +54,18 @@ async function fixture(t,options={}) {
  let csrf='';const cookies=new Map();
  async function call(path,body){const r=await fetch(`${origin}/auth/${path}`,{method:body===undefined?'GET':'POST',headers:{Origin:origin,'X-Wallet-Tenant':'xiongan','X-Wallet-CSRF':csrf,Cookie:[...cookies].map(([k,v])=>`${k}=${v}`).join('; '),...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});for(const c of r.headers.getSetCookie()){const[k,v]=c.split(';')[0].split('=');if(v)cookies.set(k,v);else cookies.delete(k);}const data=await r.json();if(data.csrf)csrf=data.csrf;return{status:r.status,data};}
  async function login(){accepted(await call('bootstrap'));return accepted(await call('password',{username:'tester',password,account:a('1'),chainId:'1'}));}
- async function grant(){await login();const p=accepted(await call('tasks/prepare',{policy,valuationPolicy:valuation}));return accepted(await call('tasks/authorize',{challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:p.observationPolicy.digest,valuationPolicyDigest:p.valuationPolicy.digest,priceAt:'order-review',code:hotp(secret,Math.floor(clock.now/30000))}));}
+ async function grant(){
+  await login();const p=accepted(await call('tasks/prepare',{policy,valuationPolicy:valuation}));
+  assert.equal(p.approvalFactor,'preoperational-default-on');assert.deepEqual(p.approvalEvaluation,{state:'NOT_EVALUATED',reason:'pre-operational-default-on',policyRevision:'0'});
+  return accepted(await call('tasks/authorize',{challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:p.observationPolicy.digest,valuationPolicyDigest:p.valuationPolicy.digest,priceAt:'order-review',code:p.approvalFactor==='totp'?hotp(secret,Math.floor(clock.now/30000)):''}));
+ }
  return{clock,stores,native,fill,get listing(){return listing;},get runtime(){return runtime;},call,login,grant,async restart(){
   await runtime.stop();for(const store of Object.values(stores))await store.close();for(const name of Object.keys(stores))stores[name]=await openEncryptedStore(paths[name],key);
   installDurableFixtureJournal(native,stores.native);fixtureJournal=native.deps.journal;installListing();await installRuntime();await runtime.start();await runtime.background.stop();
  }};
 }
-test('actual main/auth HTTP\u2192one TOTP/logout\u2192real installed port+journal adapter\u2192held capability\u2192SDK publication\u2192continuous results',async t=>{
- const f=await fixture(t),g=await f.grant();accepted(await f.call('logout',{}));
+test('actual main/auth HTTP\u2192initial ON/logout without TOTP\u2192real installed port+journal adapter\u2192held capability\u2192SDK publication\u2192continuous results',async t=>{
+ const f=await fixture(t),g=await f.grant();assert.equal((await f.stores.wallet.read('xiongan:tester')).lastStep,-1);accepted(await f.call('logout',{}));
  const result=await f.runtime.background.tick();assert.equal(result.results[0].state,'submitted',JSON.stringify(result));assert.equal(f.clock.sign,1);assert.equal(f.native.state.posts,1);assert.ok(f.clock.consumes>=6);assert.equal(f.clock.journal,f.clock.consumes);
  const caps=accepted(await f.call('capabilities'));assert.equal(caps.taskAuthorization.listing.adapterConfigured,true);assert.equal(caps.taskAuthorization.listing.resultsConfigured,true);
  const binding={taskId:g.task.policy.taskId,taskDigest:g.task.digest,executorDigest:g.executor.digest,grantReference:g.authorization.reference,grantPolicyVersion:g.authorization.grantPolicyVersion,operationId:`listing:${g.task.digest.slice(2)}`};
@@ -72,7 +76,7 @@ test('actual main/auth HTTP\u2192one TOTP/logout\u2192real installed port+journa
  f.fill.state.reorg=true;const stale=accepted(await f.call('tasks/status',{taskDigest:g.task.digest}));assert.equal(stale.listing.result.summary.freshness,'STALE');assert.equal(stale.listing.result.summary.aggregate,null);assert.equal(f.clock.sign,1);assert.equal(f.native.state.posts,1);
 });
 test('lost signer response survives encrypted-store reopen and runtime recreation without signing or publishing again',async t=>{
- const f=await fixture(t,{loseSigner:true,durable:true});await f.grant();accepted(await f.call('logout',{}));
+ const f=await fixture(t,{loseSigner:true,durable:true});await f.grant();assert.equal((await f.stores.wallet.read('xiongan:tester')).lastStep,-1);accepted(await f.call('logout',{}));
  assert.equal((await f.runtime.background.tick()).results[0].state,'outcome-unknown');await f.restart();f.clock.now+=5000;await f.runtime.background.tick();
- assert.equal(f.clock.sign,1);assert.equal(f.native.state.posts,0);
+ assert.equal(f.clock.sign,1);assert.equal(f.native.state.posts,0);assert.equal((await f.stores.wallet.read('xiongan:tester')).lastStep,-1);
 });

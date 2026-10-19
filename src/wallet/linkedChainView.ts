@@ -169,8 +169,9 @@ export function buildLinkedChainView(
   }
 
   const completionPrefix: Bytes32[] = [];
-  // A committed callback selects a competing outcome: no completion-execution preview.
-  let prefixOpen = !snapshot.legs.some(leg => leg.outcome === 'returning' || leg.outcome === 'returned');
+  // An active callback selects a competing outcome. Once its suffix has returned,
+  // unaffected active prefixes may complete; returned legs remain inapplicable.
+  let prefixOpen = !snapshot.legs.some(leg => leg.outcome === 'returning');
   const legs = snapshot.legs.map((leg, index) => {
     const completionPredicate = leg.outcome !== 'active' ? 'not-applicable' as const :
       ownerPosition === undefined || holderPosition === undefined ? 'unavailable' as const :

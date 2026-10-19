@@ -1,5 +1,10 @@
 # ERC-8415 Semantic Model
 
+This retained Kit semantic note is subordinate to the frozen ERC interfaces for
+protocol semantics. The sole current complete product requirements are the
+[Wallet PRD](../ERC-8415-Wallet-PRD.md). This note is not a separate active Wallet
+PRD or implementation acceptance record.
+
 ## Execution State vs Projection State
 
 ERC-8415 separates blockchain execution from institutional projection.
@@ -139,8 +144,11 @@ the projection is unchanged and prior provisional history stays provisional.
 
 There is no rejection event. A proof that fails verification never becomes an
 admitted entry, and nothing retroactively invalidates an admitted entry. A gap
-either closes by admission, closes by cancellation, or stays open — an
-indefinitely open gap is a liveness concern, not a veto.
+either closes by admission, cancellation or supersession, or stays open — an
+indefinitely open gap is a liveness concern, not a veto. Supersession replaces
+the open settlement with a new one, leaves the projection unchanged and makes
+proofs for the superseded settlement unusable. Gap state alone never establishes
+temporal finality; admission affects finality through the appended entry.
 
 ## Uniqueness Scoping
 

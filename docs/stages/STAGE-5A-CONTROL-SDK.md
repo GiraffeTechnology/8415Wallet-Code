@@ -20,7 +20,9 @@ Runtime pins need a trustworthy intended-chain provider and do not prove proxy
 implementation stability or legal identity. The authority-backed association
 must remain visible to users.
 
-All development first; unified CI/local/EVM/public-testnet validation afterwards.
-Each development HEAD uses `[skip ci]`; workflows and required checks remain
-unchanged. Remove the skip instruction on a fresh validation commit only when
-all development is ready. Do not equate draft publication or reports with completion.
+Current P0 supersedes the former deferred-CI mechanism: all new commits must
+remain CI-eligible. Never add CI-skip directives to commit messages or PR metadata.
+Continue the next independent stage without waiting for CI; workflows and required
+checks remain unchanged, with CI and merge handled by their assigned owner.
+Validation must bind the exact candidate and use the currently authorized execution
+environment. Do not equate draft publication or reports with completion.

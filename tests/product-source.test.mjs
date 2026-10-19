@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import {
-  DAPP_DOCUMENTS, LEGAL_FILES, MANDATORY_PATHS, NONPRODUCT_GENERATED_CACHE, NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS, ORIGIN_FILE, POLICY_SCHEMA, TOOLING_FILES,
+  DAPP_DOCUMENTS, LEGAL_FILES, MANDATORY_PATHS, NONPRODUCT_GENERATED_CACHE, NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT, NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS, ORIGIN_FILE, POLICY_SCHEMA, TOOLING_FILES,
   cleanEnvironment, computeToolingPin, contentTree, git, gitHash, inspectSource,
   jsonBytes, loadPolicy, planSummary, sha256, verifyDappBoundary, verifyProductDirectory,
   verifyProductEntries,
@@ -78,6 +78,20 @@ test('checked-in reviewed Wallet boundary has all exact entries mandatory', () =
   assert.equal(Object.hasOwn(currentPolicy, 'upstream'), false);
 });
 
+test('only the exact public requirement pin is admitted from general configuration', t => {
+  const f = fixture(t);
+  assert.ok(MANDATORY_PATHS.includes('config/current-prd.json'));
+  assert.ok(loadPolicy(f.policyPath, f.options.expectedAllowlistSha256).policy.entries.some(entry => entry.path === 'config/current-prd.json'));
+  const original = structuredClone(f.policy);
+  for (const path of ['config/private.json', 'config/current-prd.private.json', 'config/current-prd.json/secret.json', 'config/other/current-prd.json']) {
+    f.policy = structuredClone(original);
+    f.policy.entries.push({ path, mode: '100644', git_blob_sha1: '1'.repeat(40), sha256: '2'.repeat(64) });
+    f.policy.entries.sort((a, b) => a.path < b.path ? -1 : 1);
+    f.policy.mandatory.documentation.push(path); writePolicy(f);
+    assert.throws(() => loadPolicy(f.policyPath, f.options.expectedAllowlistSha256), /PATH_ALLOWLIST_REFUSED/);
+  }
+});
+
 test('reviewed policy legal notice and companion guide preserve distribution boundaries', () => {
   const notice = currentPolicy.entries.find(entry => entry.path === 'THIRD_PARTY_NOTICES.md');
   assert.equal(notice.git_blob_sha1, '5e1aa6fb3fb450da4c957a9398ebb9f962cd9625');
@@ -89,7 +103,7 @@ test('reviewed policy legal notice and companion guide preserve distribution bou
   assert.ok(guide.includes('No source-availability promise is made for components absent from this curated kit.'));
   assert.ok(guide.includes('export-tooling workspace'));
   for (const operation of ['prepare', 'check', 'enable-proxy'])
-    assert.ok(guide.includes(`node "$PACKAGE_DIRECTORY/deploy/auth-xiongan/install.mjs" ${operation}`));
+    assert.ok(guide.includes(`node "$PACKAGE_DIRECTORY/deploy/auth-runtime/install.mjs" ${operation}`));
   if (process.env.PRODUCT_POLICY_ASSERTION_SOURCE) {
     const bytes = readFileSync(join(process.env.PRODUCT_POLICY_ASSERTION_SOURCE, notice.path));
     assert.equal(gitHash('blob', bytes), notice.git_blob_sha1); assert.equal(sha256(bytes), notice.sha256);
@@ -124,9 +138,9 @@ test('deterministic fresh exports have one truthful root commit and identical or
 });
 
 test('excluded tracked private configuration and historical archive are never selected', t => {
-  const f = fixture(t, { extras: { 'docs/deployment/PRIVATE.md': 'SYNTHETIC_PRIVATE_ONLY', 'releases/old.zip': 'SYNTHETIC_HISTORY_ONLY', 'config/auth.xiongan.preparation.json': '{}' } });
+  const f = fixture(t, { extras: { 'docs/deployment/PRIVATE.md': 'SYNTHETIC_PRIVATE_ONLY', 'releases/old.zip': 'SYNTHETIC_HISTORY_ONLY', 'config/auth.tenant.preparation.json': '{}' } });
   const result = materialize(f);
-  for (const path of ['docs/deployment/PRIVATE.md', 'releases/old.zip', 'config/auth.xiongan.preparation.json']) assert.equal(existsSync(join(result.productRoot, path)), false);
+  for (const path of ['docs/deployment/PRIVATE.md', 'releases/old.zip', 'config/auth.tenant.preparation.json']) assert.equal(existsSync(join(result.productRoot, path)), false);
   assert.equal(JSON.stringify(result.plan.origin).includes('SYNTHETIC_PRIVATE_ONLY'), false);
 });
 
@@ -136,6 +150,49 @@ test('exact excluded generated Python caches stay outside the product', t => {
   for (const path of NONPRODUCT_GENERATED_CACHE) assert.equal(existsSync(join(result.productRoot, path)), false);
   const other = join(f.source, 'src/kit/sdk/python/erc8415/__pycache__/unreviewed.pyc'); writeFileSync(other, 'extra');
   assert.throws(() => inspectSource(f.options), /EXTRA_OR_MISSING_INPUT/);
+});
+
+test('only four exact historical auth deployment inputs stay outside the product; upstream history is preserved', t => {
+  assert.deepEqual([...NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT], [
+    'deploy/auth-xiongan/8415wallet-auth-xiongan.service',
+    'deploy/auth-xiongan/auth-location.nginx.conf',
+    'deploy/auth-xiongan/install.mjs',
+    'deploy/auth-xiongan/migrate-legacy.mjs',
+  ]);
+  const canary = 'SYNTHETIC_HISTORICAL_AUTH_ONLY';
+  const f = fixture(t, { extras: Object.fromEntries(NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT.map(path => [path, canary])) });
+  const result = materialize(f);
+  for (const path of NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT) {
+    assert.equal(readFileSync(join(f.source, path), 'utf8'), canary);
+    assert.equal(existsSync(join(result.productRoot, path)), false);
+    assert.equal(result.plan.blobs.has(path), false);
+    assert.equal(JSON.stringify(result.plan.origin).includes(path), false);
+  }
+  assert.equal(JSON.stringify(result.plan.origin).includes(canary), false);
+  for (const path of ['deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf',
+    'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/migrate-legacy.mjs', 'deploy/dapp/install.mjs']) {
+    assert.ok(MANDATORY_PATHS.includes(path), path);
+    assert.ok(result.plan.blobs.has(path), path);
+    assert.ok(existsSync(join(result.productRoot, path)), path);
+  }
+  // Exclusion from export never hides a changed tracked historical source file.
+  writeFileSync(join(f.source, NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT[0]), 'synthetic modified history');
+  assert.throws(() => inspectSource(f.options), /CLEAN_UPSTREAM_REQUIRED/);
+});
+
+test('historical auth exclusions do not exempt unknown deployment siblings or runtime imports', t => {
+  for (const path of ['deploy/auth-xiongan/unreviewed.mjs', 'deploy/auth-runtime/unreviewed.mjs', 'deploy/other/install.mjs']) {
+    const f = fixture(t, { extras: { [path]: '// Synthetic unknown tracked deployment source.\n' } });
+    assert.throws(() => inspectSource(f.options), /REQUIRED_SOURCE_FAMILY_INPUT_MISSING/);
+  }
+  const f = fixture(t, { extras: { 'deploy/auth-xiongan/install.mjs': '// Synthetic historical input.\n' } });
+  writeFileSync(join(f.source, 'deploy/auth-xiongan/untracked.mjs'), '// Synthetic unknown untracked input.\n');
+  assert.throws(() => inspectSource({ ...f.options, requireClean: false }), /EXTRA_OR_MISSING_INPUT/);
+  const dependency = fixture(t, {
+    extras: { 'deploy/auth-xiongan/install.mjs': '// Synthetic historical input.\n' },
+    extraEntries: { 'server/requires-historical.mjs': "import '../deploy/auth-xiongan/install.mjs';\n" },
+  });
+  assert.throws(() => inspectSource(dependency.options), /PRODUCT_IMPORT_MISSING/);
 });
 
 test('nested archive magic disguised as an approved source extension refuses', t => {
@@ -170,7 +227,9 @@ test('policy and tooling pins are required and substitution is refused', t => {
 });
 
 test('even a freshly rehashed policy cannot omit mandatory input contracts', t => {
-  for (const missing of ['package-lock.json', 'docs/DAPP-INSTALL.md', 'deploy/auth-xiongan/install.mjs', 'LICENSE']) {
+  for (const missing of ['package-lock.json', 'docs/DAPP-INSTALL.md', 'deploy/dapp/install.mjs',
+    'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/migrate-legacy.mjs',
+    'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'LICENSE']) {
     const f = fixture(t); f.policy.entries = f.policy.entries.filter(entry => entry.path !== missing);
     for (const key of Object.keys(f.policy.mandatory)) f.policy.mandatory[key] = f.policy.mandatory[key].filter(path => path !== missing);
     writePolicy(f); assert.throws(() => inspectSource(f.options), /MANDATORY_INPUT_MISSING/);
@@ -358,7 +417,8 @@ test('committed in-repository policy and tooling need no self-referential source
   assert.equal(plan.origin.upstream.snapshotRelation, 'upstream-commit-tree');
   assert.equal(plan.origin.upstream.dirty, false);
   assert.deepEqual(readFileSync(join(f.source, '.git/index')), indexBefore);
-  assert.deepEqual(NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS.slice(2), TOOLING_FILES.filter(path => path.startsWith('scripts/package/')));
+  assert.deepEqual([...NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS], [...NONPRODUCT_GENERATED_CACHE,
+    ...NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT, ...TOOLING_FILES.filter(path => path.startsWith('scripts/package/'))]);
   for (const path of TOOLING_FILES) assert.equal(plan.productEntries.some(entry => entry.path === path), false);
   assert.equal(plan.policy.entries.length, currentPolicy.entries.length);
 });
@@ -394,7 +454,7 @@ test('clean CI directly checks hidden tracked bytes and cannot be fooled by inde
   }
 });
 
-test('the exact tooling exclusions cannot be turned into approved product inputs', t => {
+test('the exact nonproduct exclusions cannot be turned into approved product inputs', t => {
   for (const path of NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS) {
     const f = fixture(t); f.policy.entries.push({ path, mode: '100644', git_blob_sha1: '1'.repeat(40), sha256: '2'.repeat(64) });
     f.policy.entries.sort((a, b) => a.path < b.path ? -1 : 1); f.policy.mandatory.packaging.push(path); writePolicy(f);
@@ -566,14 +626,14 @@ function assertCiContract(text) {
     assert.ok(producer.includes(command), 'CI_PUBLIC_BUILD_CONTRACT_REQUIRED');
   assert.equal(producer.includes('if: always()'), false, 'CI_PUBLIC_BUILD_ALWAYS_REFUSED');
   const upload = steps.get('Verified public product artifacts');
-  assert.ok(upload?.includes('if: success()') && upload.includes('uses: actions/upload-artifact@v4') && upload.includes('if-no-files-found: error'), 'CI_PUBLIC_UPLOAD_SUCCESS_REQUIRED');
+  assert.ok(upload?.includes('if: ${{ false }}') && upload.includes('uses: actions/upload-artifact@v4') && upload.includes('if-no-files-found: error'), 'CI_WITHDRAWN_PUBLIC_UPLOAD_HOLD_REQUIRED');
   assert.equal(upload.includes('if: always()'), false, 'CI_PUBLIC_UPLOAD_ALWAYS_REFUSED');
   const paths = upload.match(/^          path: \|\n((?: {12}[^\n]+\n)+)/m)?.[1].trim().split('\n').map(line => line.trim());
   assert.deepEqual(paths, ['archive_path', 'guide_path', 'checksums_path', 'report_path'].map(name => '${{ steps.public_product.outputs.' + name + ' }}'), 'CI_EXACT_PUBLIC_OUTPUTS_REQUIRED');
   assert.equal(steps.has('Reusable DApp artifacts'), false, 'CI_OLD_FULL_REPOSITORY_UPLOAD_REFUSED');
 }
 
-test('CI retains the complete validation pipeline and publishes only success-gated exact public outputs', () => {
+test('CI retains the complete validation pipeline and holds withdrawn public uploads', () => {
   assertCiContract(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8'));
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json')));
   const testFiles = packageJson.scripts.test.split(' ');
@@ -589,7 +649,8 @@ test('CI contract rejects always-upload, missing output, private dist fallback a
     text.replace('run: node scripts/controls/task-auth-runtime-smoke.mjs --runtime dist/package-auth', 'run: echo skipped'),
     text.replace('node scripts/controls/method-change-ui-smoke.cjs', 'echo skipped'),
     text.replace('node --test tests/task-static-module-closure.test.mjs', 'echo skipped'),
-    text.replace('      - name: Verified public product artifacts\n        if: success()', '      - name: Verified public product artifacts\n        if: always()'),
+    text.replace('      - name: Verified public product artifacts\n        if: ${{ false }}', '      - name: Verified public product artifacts\n        if: always()'),
+    text.replace('      - name: Verified public product artifacts\n        if: ${{ false }}', '      - name: Verified public product artifacts\n        if: success()'),
     text.replace('            ${{ steps.public_product.outputs.report_path }}\n', ''),
     text.replace('            ${{ steps.public_product.outputs.report_path }}\n', '            ${{ steps.public_product.outputs.report_path }}\n            dist/8415wallet-dapp-delivery-*.tar.gz\n'),
     text.replace('            ${{ steps.public_product.outputs.report_path }}\n', '            dist/delivery-package-manifest.json\n'),
@@ -601,3 +662,4 @@ test('CI contract rejects always-upload, missing output, private dist fallback a
   ];
   for (const mutated of mutations) { assert.notEqual(mutated, text); assert.throws(() => assertCiContract(mutated), /CI_/); }
 });
+

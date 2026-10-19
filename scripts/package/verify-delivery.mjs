@@ -98,7 +98,7 @@ export function verifyDappEntries(entries, manifest, source, profileId) {
   for (const path of ['web/tenant-password-routing.mjs', 'web/tenant-password-ui.mjs', 'web/tenant-password-routing.json'])
     fail(runtime.has(path), 'PASSWORD_ROUTING_RUNTIME_MISSING');
   const passwordRoutes = validatePasswordRoutes(parsed(get(entries, 'web/tenant-password-routing.json')));
-  fail(passwordRoutes.every(entry => entry.passwordManagementReady === false), 'PASSWORD_ROUTING_DEFAULT_NOT_READY_REQUIRED');
+  fail(passwordRoutes.length === 0, 'PASSWORD_ROUTING_EMPTY_TOMBSTONE_REQUIRED');
   assert.deepEqual(release.source.files, source.files, 'DAPP_DELIVERY_SOURCE_INVENTORY_MISMATCH');
   return { release, runtime };
 }

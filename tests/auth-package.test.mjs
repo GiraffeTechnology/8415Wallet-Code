@@ -1,15 +1,59 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { captureAuthSource, deterministicAuthArchive } from '../scripts/package/build-auth.mjs';
+import { captureAuthSource, createAuthBuildDiagnostics, deterministicAuthArchive } from '../scripts/package/build-auth.mjs';
 import { LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, TASK_RUNTIME_SOURCE_PATHS, REGISTRATION_AUTH_STATE_SEMANTICS, LEGACY_AUTH_STATE_SEMANTICS, authStateSemantics, validateAuthStateTransition, jsonBytes, packagePathAllowed, readAuthArchive, runtimePackage, sha256, sourcePathAllowed, sourceTree, unpackAuthArchive, verifyAuthArchive, verifyAuthDirectory, walkAuth } from '../scripts/package/verify-auth.mjs';
-import { paths, nginxLocation, upgrade, rollbackCode } from '../deploy/auth-xiongan/install.mjs';
+import { paths, nginxLocation, upgrade, rollbackCode } from '../deploy/auth-runtime/install.mjs';
 
 function temporary(t) { const path = mkdtempSync(join(tmpdir(), 'wallet-auth-package-test-')); t.after(() => rmSync(path, { recursive: true, force: true })); return path; }
+// These cases use synthetic synchronous callbacks only. They do not install,
+// build, probe imports, start a child process, or establish timeout termination.
+test('build diagnostics pair repeated phases and report only observed child exit fields', t => {
+  const root = temporary(t), lines = [];
+  const diagnostics = createAuthBuildDiagnostics(root, { emit: line => lines.push(line) });
+  const result = { synthetic: true };
+  assert.equal(diagnostics.phase('synthetic', () => result), result);
+  diagnostics.phase('synthetic', () => undefined, { child: true });
+  const records = readFileSync(diagnostics.file, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(records.map(record => [record.event, record.phaseId, record.exitCode ?? null]), [
+    ['phase-start', 1, null], ['phase-end', 1, null], ['phase-start', 2, null], ['phase-end', 2, 0],
+  ]);
+  for (const record of records.filter(record => record.event === 'phase-end')) {
+    assert.equal(record.outcome, 'succeeded'); assert.equal(record.signal, null); assert.equal(record.timeoutReported, false);
+    assert.ok(record.elapsedMs >= 0); assert.ok(Number.isFinite(record.elapsedMs));
+  }
+  assert.equal(lines.length, records.length);
+  assert.equal(lstatSync(diagnostics.file).mode & 0o777, 0o600);
+  assert.equal(packagePathAllowed('build-events.jsonl'), false);
+  assert.equal(packagePathAllowed('npm-logs/debug.log'), false);
+});
+for (const fields of [{ status: 17, signal: null }, { code: 'ETIMEDOUT', status: null, signal: 'SIGTERM', pid: 12345 }, { code: 'ENOENT' }]) {
+  test(`build diagnostics preserve failure identity without exposing raw error data: ${fields.code ?? fields.status}`, t => {
+    const root = temporary(t), lines = [];
+    const diagnostics = createAuthBuildDiagnostics(root, { emit: line => lines.push(line) });
+    const error = Object.assign(new Error('SYNTHETIC_PRIVATE_ERROR_SENTINEL'), fields,
+      { stdout: 'SYNTHETIC_PRIVATE_OUTPUT_SENTINEL', spawnargs: ['SYNTHETIC_PRIVATE_ARG_SENTINEL'] });
+    assert.throws(() => diagnostics.phase('synthetic-failure', () => { throw error; }, { child: true }), actual => actual === error);
+    const raw = readFileSync(diagnostics.file, 'utf8'), end = JSON.parse(raw.trim().split('\n').at(-1));
+    assert.equal(end.outcome, 'failed'); assert.equal(end.exitCode, fields.status ?? null); assert.equal(end.signal, fields.signal ?? null);
+    assert.equal(end.errorCode, fields.code ?? null); assert.equal(end.timeoutReported, fields.code === 'ETIMEDOUT');
+    assert.equal(end.childPid, fields.pid ?? null);
+    assert.equal(raw.includes('SYNTHETIC_PRIVATE_'), false); assert.equal(lines.join('').includes('SYNTHETIC_PRIVATE_'), false);
+  });
+}
+test('diagnostic output failures cannot replace an original child failure', t => {
+  const root = temporary(t), diagnostics = createAuthBuildDiagnostics(root, { emit: () => { throw new Error('SYNTHETIC_STDERR_CLOSED'); } });
+  const error = new Error('AUTH_PACKAGE_SYNTHETIC_FAILURE: private synthetic context');
+  assert.throws(() => diagnostics.phase('synthetic', () => { throw error; }), actual => actual === error);
+  assert.equal(JSON.parse(readFileSync(diagnostics.file, 'utf8').trim().split('\n').at(-1)).errorCode, 'AUTH_PACKAGE_SYNTHETIC_FAILURE');
+  assert.throws(() => diagnostics.phase('synthetic-io-failure', () => {
+    rmSync(diagnostics.file); mkdirSync(diagnostics.file); throw error;
+  }), actual => actual === error);
+});
 function put(root, path, value) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), value); chmodSync(join(root, path), 0o644); }
 const sourcePackage = { name: '8415wallet', version: '0.1.0', license: 'SEE LICENSE IN LICENSE', dependencies: { ethers: '^6.17.0' }, devDependencies: { typescript: '^5.9.0' } };
 const sourceLock = { name: '8415wallet', lockfileVersion: 3, packages: {
@@ -17,7 +61,7 @@ const sourceLock = { name: '8415wallet', lockfileVersion: 3, packages: {
   'node_modules/ethers': { version: '6.17.0', resolved: 'https://registry.npmjs.org/ethers/-/ethers-6.17.0.tgz', integrity: 'sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' },
   'node_modules/typescript': { version: '5.9.3', dev: true },
 } };
-const sourcePaths = ['server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS, 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-xiongan/install.mjs', 'deploy/auth-xiongan/8415wallet-auth-xiongan.service', 'deploy/auth-xiongan/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
+const sourcePaths = ['server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS, 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
 function git(root, args) { return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
 function fixture(t, { semantics, label = '' } = {}) {
   const root = temporary(t); const sourceRoot = join(root, 'source'); const runtimeRoot = join(root, 'runtime'); mkdirSync(sourceRoot); mkdirSync(runtimeRoot);
@@ -281,12 +325,29 @@ test('independently licensed existing auth packages remain verifiable with their
 
 test('task runtime source closure has the exact planner, signer, encoding, contract and receipt modules', t => {
   const f = fixture(t, { semantics: AUTH_STATE_SEMANTICS });
-  assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, ['server/task-runtime-import-probe.mjs',
+  // Change detector for the installed runtime surface: an addition has to be
+  // acknowledged here. The exact-runtime, chain-state, bootstrap/config,
+  // sign-only and test-asset/mint/nft721 modules joined it with the scoped
+  // test-asset, exact-funding, forward-progress and observation-source work. These are reachable from
+  // server/task-runtime-import-probe.mjs, which task-exact-planner-package-closure
+  // checks against the computed import graph.
+  assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, [
+    'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
+    'server/forward-progress-reader.mjs', 'src/controls/detachedHistoryLocator.ts', 'src/controls/historyView.ts',
+    'src/controls/historyEntitlement.ts', 'src/controls/historyMilestone.ts', 'src/controls/historyDiscovery.ts', 'src/sdk/conformance.ts',
+    'server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts', 'src/wallet/linkedChainView.ts', 'src/sdk/types.ts',
+    'server/task-runtime-import-probe.mjs',
     'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
+    'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
+    'server/task-exact-chain-state.mjs', 'server/task-exact-bootstrap.mjs',
+    'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
+    'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs',
+    'server/task-test-nft721-contract.mjs',
     'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
     'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
     'server/task-journal-capabilities.mjs', 'server/task-receipt-runtime.mjs',
-    'server/task-listing-results.mjs', 'web/task-listing-results.mjs',
+    'server/task-listing-results.mjs', 'web/task-listing-results.mjs', 'web/task-observer-context.mjs',
+    'server/task-observation-sources.mjs',
     'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
     'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
     'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
@@ -317,3 +378,4 @@ test('password generation /3 can upgrade to /4 without changing user, key or cre
   assert.deepEqual(readFileSync(keyPath), keyBytes); assert.deepEqual(readFileSync(f.config.statePath), stateBytes);
   assert.deepEqual(readFileSync(join(f.target.config, 'auth.json')), configBytes);
 });
+

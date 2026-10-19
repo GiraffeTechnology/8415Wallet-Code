@@ -1,6 +1,6 @@
-/** Synthetic handler and bounded real loopback-HTTP tests. No browser,
- * production endpoint, real wallet/RPC, credential files or transaction
- * submission. Execute on approved Linux only. */
+/** Synthetic handler and bounded loopback HTTP tests; no browser, production
+ * endpoint, real wallet/RPC, credential files or transaction submission.
+ * Execute on approved Linux only. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
@@ -12,19 +12,16 @@ import { createAuthService } from '../server/auth-service.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
 import { freezeChildOperation } from '../src/agent/taskContract.ts';
 import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
-import { digest, base32, hotp } from '../server/crypto.mjs';
+import { digest } from '../server/crypto.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-state.mjs';
 
 const origin = 'https://wallet.example.invalid', tenant = 'example', chainId = '560048';
 const epoch = 1_800_000_000_000, hash = c => '0x' + c.repeat(64), recipient = '0x' + '2'.repeat(40);
 async function fixture(options = {}) {
   const origin = options.origin ?? 'https://wallet.example.invalid';
   const wallet = Wallet.createRandom(), actor = wallet.address.toLowerCase();
-  const state = { now: epoch, loginSigns: 0, sends: 0, recoveries: 0, requests: [], ownerTaskApprovals: 0 };
-  // Model one original human-authorized parent grant in fixture setup, NOT an
-  // Agent prompt or a new production authority. Public main's older task API
-  // has no test-scope issuer or durable verification-policy implementation.
-  const secret = base32(Buffer.alloc(20, 0x35));
-  const store = new MemoryCredentialStore({ 'example:alice': { revision: 7, secret, lastStep: -1 } });
+  const state = { now: epoch, loginSigns: 0, sends: 0, recoveries: 0, requests: [], cancelled: false };
+  const store = new MemoryCredentialStore(options.noCredential ? {} : { 'example:alice': { revision: 7 } });
   const executor = { schema: '8415-task-executor/1', agentId: 'synthetic:agent', agentVersion: '1',
     adapterId: 'synthetic:adapter', adapterVersion: '1', implementationDigest: hash('9') };
   const observation = freezeTaskObservationPolicy({ minimumConfirmations: '2' });
@@ -33,7 +30,8 @@ async function fixture(options = {}) {
     nonce: input.child.child.nonce, executorDigest: input.executor.digest, grantPolicyVersion: input.grantPolicyVersion });
   const handler = createAuthService({ origin, tenant, accounts: [{ username: 'alice', wallets: [
     { account: actor, chainId }, { account: actor, chainId: '8453' }] }], store, now: () => state.now,
-    taskExecutorIdentity: executor, taskObservationPolicy: observation.policy,
+    taskExecutorIdentity: executor, taskObservationPolicy: observation.policy, taskVerificationPolicyEnabled: true,
+    taskTestAuthorization: { allows: () => options.testScope !== false },
     taskReceipt: { identity: verifier, observationPolicy: observation,
       async assessChild(input) { return { ...verifier, taskDigest: input.task.digest, childDigest: input.child.digest,
         executorDigest: input.executor.digest, observationPolicyDigest: observation.digest, capability: 'exact-operation-observable' }; },
@@ -44,9 +42,7 @@ async function fixture(options = {}) {
         return { ...binding(input), transactionHash: hash('a') }; },
       async recover(input) { state.recoveries++; return { ...binding(input), state: 'submitted', transactionHash: hash('a') }; },
     } });
-  let lastSessionRequest;
   const transport = { async request(input) {
-    if (input.path.startsWith('/auth/tasks/')) lastSessionRequest = input;
     state.requests.push({ path: input.path, method: input.method, fields: Object.keys(input.body ?? {}) });
     const req = Readable.from(input.body === undefined ? [] : [Buffer.from(JSON.stringify(input.body))]);
     Object.assign(req, { method: input.method, url: input.path, socket: { remoteAddress: '127.0.0.1' },
@@ -70,15 +66,9 @@ async function fixture(options = {}) {
     intent: { kind: 'exact-operation', operation: { kind: 'native-transfer', chainId, actor, recipient, valueWei: '10' } } };
   async function authorize() {
     const p = await client.task('prepare', { policy });
-    const body = { challengeId: p.challengeId, taskDigest: p.task.digest,
-      executorDigest: p.executor.digest, observationPolicyDigest: p.observationPolicy.digest, code: '' };
-    if (options.testScope === false) return client.task('authorize', body);
-    // The fixture owner establishes authority once through the existing real
-    // handler. The Agent client cannot obtain or submit this human factor.
-    const approved = await transport.request({ ...lastSessionRequest, path: '/auth/tasks/authorize',
-      body: { ...body, code: hotp(secret, Math.floor(state.now / 30_000)) } });
-    assert.equal(approved.status, 200); state.ownerTaskApprovals++;
-    return approved.data;
+    assert.equal(p.approvalFactor, options.testScope === false ? 'preoperational-default-on' : 'server-test-scope');
+    return client.task('authorize', { challengeId: p.challengeId, taskDigest: p.task.digest,
+      executorDigest: p.executor.digest, observationPolicyDigest: p.observationPolicy.digest, code: '' });
   }
   const child = task => ({ schema: '8415-agent-child/1', operationId: 'synthetic:api-operation', taskDigest: task.digest,
     operation: task.policy.intent.operation, nonce: '7', expiresAt: String(epoch / 1000 + 600),
@@ -87,7 +77,7 @@ async function fixture(options = {}) {
   const reserve = g => client.task('reserve', { taskDigest: g.task.digest, child: child(g.task), expectedBudgetRevision: g.budget.revision });
   const operation = g => ({ taskDigest: g.task.digest, operationId: child(g.task).operationId,
     childDigest: freezeChildOperation(child(g.task)).digest, expectedBudgetRevision: g.budget.revision });
-  return { client, state, store, wallet, actor, policy, authorize, reserve, operation, transport, signer, handler };
+  return { client, state, store, wallet, actor, policy, authorize, reserve, operation, transport, signer, handler, background: handler.taskBackground };
 }
 
 test('address and chain authenticate through APIs with no username, UI, browser or provider session', async () => {
@@ -99,11 +89,11 @@ test('address and chain authenticate through APIs with no username, UI, browser 
   assert.deepEqual(f.state.requests.slice(0, 3).map(x => x.path), ['/auth/bootstrap', '/auth/challenge', '/auth/proof']);
   assert.ok(f.state.requests.every(x => !x.fields.includes('username')));
 });
-test('the client continues an existing owner-authorized task without an OFF or UI prerequisite', async () => {
+test('default ON executes a server-authorized task without settings writes or extra human proof', async () => {
   const f = await fixture(); await f.client.authenticate(); const g = await f.reserve(await f.authorize());
+  assert.equal(g.humanVerification.mode, 'ON'); assert.equal(g.humanVerification.revision, '0');
   const result = await f.client.task('execute', f.operation(g));
   assert.equal(result.outcome, 'submitted'); assert.equal(f.state.sends, 1); assert.equal(f.state.loginSigns, 1);
-  assert.equal(f.state.ownerTaskApprovals, 1, 'one fixture parent approval, never a repeated Agent prompt');
   assert.equal((await f.store.read('example:alice')).taskVerificationPolicies, undefined);
   assert.ok(f.state.requests.every(x => !x.path.startsWith('/auth/account/') && !x.path.includes('operation-verification')));
 });
@@ -142,11 +132,13 @@ test('logout and expiry remove API state without UI login or automatic reauthent
   await f.client.authenticate(); f.state.now += 900_000;
   await assert.rejects(f.client.task('list', {}), /SESSION_REFUSED/); assert.equal(f.state.loginSigns, 2);
 });
-test('API client cannot save owner settings, solicit TOTP or turn ON into new task authority', async () => {
+test('API client cannot save owner settings or solicit TOTP while native default ON remains unlocked', async () => {
   const f = await fixture({ testScope: false }); await f.client.authenticate();
   await assert.rejects(f.client.task('account/task-verification/on', {}), /ROUTE_REFUSED/);
   await assert.rejects(f.client.task('authorize', { code: '123456' }), /HUMAN_FACTOR_REFUSED/);
-  await assert.rejects(f.authorize(), /AUTH_REFUSED/); assert.equal(f.state.sends, 0);
+  const g = await f.authorize(); assert.equal(g.effectiveStatus, 'authorized');
+  assert.equal(g.humanVerification.revision, '0'); assert.equal(f.state.sends, 0);
+  assert.equal((await f.store.read('example:alice')).taskVerificationPolicies, undefined);
 });
 test('UNKNOWN reconciles once without execute replay, human prompt or duplicate send', async () => {
   const f = await fixture({ unknown: true }); await f.client.authenticate(); const g = await f.reserve(await f.authorize());
@@ -166,37 +158,76 @@ test('transport loss during execute is unknown, never retried, and does not leak
   await assert.rejects(c.task('execute', body), /OUTCOME_UNKNOWN_RECONCILE_ONLY/);
   await assert.rejects(c.task('execute', body), /OUTCOME_UNKNOWN_RECONCILE_ONLY/);
 });
-test('the client preserves saved owner policy bytes rather than replacing them with defaults', async () => {
+test('a saved effective ON is retained; no client-side default disables the owner lock', async () => {
   const f = await fixture(); await f.client.authenticate(); const g = await f.reserve(await f.authorize());
   const scope = { origin, tenant, username: 'alice', account: f.actor, chainId, agentId: 'synthetic:agent' };
   const record = { schema: '8415-task-human-verification/2', scope, mode: 'ON', revision: '1', enforcedFromRevision: '1',
     changes: [{ revision: '1', previousRevision: '0', mode: 'ON', changeId: 'A'.repeat(43), changeDigest: 'a'.repeat(64),
       scopeDigest: digest(JSON.stringify(scope)), credentialRevision: 7,
       verifiedFactors: ['wallet', 'verified-email'], changedAt: epoch - 1 }] };
-  const key = `@task-human-verification:${digest(JSON.stringify(scope))}`;
-  await f.store.transaction('example:alice', value => ({ ...value, taskVerificationPolicies: { [key]: record } }));
-  // Client immutability only: this test does not claim public main implements
-  // the separately coordinated saved-policy backend. Integration with that
-  // backend has its own exact-source tests and remains a delivery requirement.
+  await f.store.transaction('example:alice', value => ({ ...value, taskVerificationPolicies: { [taskVerificationPolicyKey(scope)]: record } }));
+  // The explicit existing test grant remains exempt; that is server authority,
+  // not the client rewriting the saved ON setting or claiming human verification.
   await f.client.task('execute', f.operation(g));
-  assert.deepEqual((await f.store.read('example:alice')).taskVerificationPolicies[key], record);
-});
-test('an ON API policy view never causes the client to request OFF, UI or extra human proof', async () => {
-  const f = await fixture({ tamper(input, response) {
-    if (input.path === '/auth/tasks/status' && response.status === 200)
-      response.data.humanVerification = { mode: 'ON', revision: '0' }; // Explicit synthetic API view, not a backend implementation claim.
-  } });
-  await f.client.authenticate(); const g = await f.reserve(await f.authorize());
-  assert.deepEqual((await f.client.task('status', { taskDigest: g.task.digest })).humanVerification, { mode: 'ON', revision: '0' });
-  assert.equal((await f.client.task('execute', f.operation(g))).outcome, 'submitted');
-  assert.equal(f.state.ownerTaskApprovals, 1); assert.equal(f.state.loginSigns, 1);
-  assert.ok(f.state.requests.every(x => !x.path.startsWith('/auth/account/') && !x.path.includes('operation-verification')));
+  assert.deepEqual((await f.store.read('example:alice')).taskVerificationPolicies[taskVerificationPolicyKey(scope)], record);
 });
 test('Node transport refuses nonloopback HTTP, redirects-as-routes and TLS bypass configuration', () => {
   assert.throws(() => createAgentHttpTransport({ origin: 'http://example.invalid' }));
   assert.throws(() => createAgentHttpTransport({ origin, timeoutMs: 0 }));
   const t = createAgentHttpTransport({ origin });
   assert.throws(() => t.request({ method: 'GET', path: '//evil.invalid/auth/session', headers: {} }), /ROUTE_REFUSED/);
+});
+
+for (const [method, path] of [['checkSession', '/auth/session'], ['logout', '/auth/logout']]) {
+  test(`${method} sanitizes injected transport failures without leaking private details`, async () => {
+    const f = await fixture();
+    const transport = { async request(input) {
+      if (input.path === path) throw Error('synthetic private transport credential detail');
+      return f.transport.request(input);
+    } };
+    const client = createAgentApiSession({ origin, tenant, account: f.actor, chainId,
+      loginSigner: f.signer, transport, now: () => f.state.now });
+    await client.authenticate();
+    await assert.rejects(client[method](), error => {
+      assert.equal(error.code, 'AGENT_API_TRANSPORT_UNAVAILABLE');
+      assert.equal(error.message, 'AGENT_API_TRANSPORT_UNAVAILABLE');
+      assert.doesNotMatch(error.message, /private|credential|synthetic/);
+      return true;
+    });
+    if (method === 'logout') await assert.rejects(client.task('list', {}), /AUTHENTICATION_REQUIRED/);
+  });
+}
+
+test('a real saved ON before ordinary task preparation does not inherit the unlocked revision-zero path', async () => {
+  const f = await fixture({ testScope: false }); await f.client.authenticate();
+  const scope = { origin, tenant, username: 'alice', account: f.actor, chainId, agentId: 'synthetic:agent' };
+  const record = { schema: '8415-task-human-verification/2', scope, mode: 'ON', revision: '1', enforcedFromRevision: '1',
+    changes: [{ revision: '1', previousRevision: '0', mode: 'ON', changeId: 'A'.repeat(43), changeDigest: 'a'.repeat(64),
+      scopeDigest: digest(JSON.stringify(scope)), credentialRevision: 7,
+      verifiedFactors: ['wallet', 'verified-email'], changedAt: epoch - 1 }] };
+  await f.store.transaction('example:alice', value => ({ ...value,
+    taskVerificationPolicies: { [taskVerificationPolicyKey(scope)]: record } }));
+  const prepared = await f.client.task('prepare', { policy: f.policy });
+  assert.equal(prepared.approvalFactor, 'totp');
+  await assert.rejects(f.client.task('authorize', { challengeId: prepared.challengeId, taskDigest: prepared.task.digest,
+    executorDigest: prepared.executor.digest, observationPolicyDigest: prepared.observationPolicy.digest, code: '' }),
+    /TASK_AUTHENTICATOR_REQUIRED/);
+  assert.deepEqual((await f.store.read('example:alice')).taskVerificationPolicies[taskVerificationPolicyKey(scope)], record);
+  assert.equal(f.state.sends, 0);
+});
+
+test('wallet-only revision-zero account continues its bounded task after logout without a new credential', async () => {
+  const f = await fixture({ testScope: false, noCredential: true });
+  await f.client.authenticate();
+  const reserved = await f.reserve(await f.authorize());
+  assert.equal(reserved.authorization.credentialRevisionAtApproval, '0');
+  assert.equal(await f.store.read('example:alice'), null);
+  await f.client.logout();
+  const queue = await f.background.list(); assert.equal(queue.entries.length, 1);
+  const result = await f.background.resume(queue.entries[0]);
+  assert.equal(result.continuation.state, 'submitted');
+  assert.equal(f.state.sends, 1); assert.equal(f.state.loginSigns, 1);
+  assert.equal(await f.store.read('example:alice'), null);
 });
 
 /** Actual OS-selected loopback HTTP, still synthetic and approved-Linux-only.
@@ -273,7 +304,7 @@ test('client cancellation propagates to the actual pending Node HTTP request', a
   const client = createAgentApiSession({ origin: n.origin, tenant, account: '0x' + '1'.repeat(40), chainId,
     loginSigner: { signLoginMessage() { assert.fail('must not sign before bootstrap'); } },
     transport: createAgentHttpTransport({ origin: n.origin }) });
-  const pending = client.authenticate(), rejected = assert.rejects(pending, /AGENT_API_TRANSPORT_UNAVAILABLE/);
+  const pending = client.authenticate(), rejected = assert.rejects(pending, /AGENT_API_CONTEXT_CANCELLED/);
   await ready; client.cancel(); await rejected; assert.equal(calls, 1);
   await assert.rejects(client.task('list', {}), /AUTHENTICATION_REQUIRED/);
 });

@@ -9,6 +9,8 @@ import {
   confirmingEntryToken,
   divergentToken,
 } from '../src/adapters/memory/scenarios.ts';
+import { MemoryRegisterContract } from '../src/adapters/memory/register.ts';
+import { MemoryErc8415Reader } from '../src/adapters/memory/memoryReader.ts';
 import { ContractRevertError } from '../src/sdk/errors.ts';
 
 /**
@@ -101,14 +103,17 @@ describe('the finality rule', () => {
   });
 
   test('nothing is final while a token has only one entry', async () => {
-    const { contract, reader } = confirmingEntryToken();
-    assert.equal(await reader.entryCount(TOKEN), 2n);
+    const contract = new MemoryRegisterContract({ now: T.asOf });
+    contract.mint(TOKEN, ALICE);
+    contract.seedEntries(TOKEN, [{ holder: ALICE, effectiveAt: T.v1, seed: 'a' }]);
+    const reader = new MemoryErc8415Reader(contract);
+    assert.equal(await reader.entryCount(TOKEN), 1n);
 
-    // With one entry the first and the latest coincide, so the interval the
-    // rule describes is empty until a later entry closes it.
-    const single = contract.entryAt(TOKEN, 1n);
-    assert.equal(single.effectiveAt, T.v1);
-    assert.equal(await reader.isFinalAsOf(TOKEN, T.v1 - 1n), false);
+    // With one entry the first and the latest coincide. Test the uncovered
+    // instant, the exact boundary, and covered present/future instants.
+    for (const instant of [T.v1 - 1n, T.v1, contract.now, T.later]) {
+      assert.equal(await reader.isFinalAsOf(TOKEN, instant), false);
+    }
   });
 
   test('a confirming entry makes the preceding instants final', async () => {
@@ -121,8 +126,23 @@ describe('the finality rule', () => {
     assert.equal(await reader.isFinalAsOf(TOKEN, T.v3), false);
   });
 
-  test('the present is never final', async () => {
+  test('the observed present at or after the latest effective time is not final', async () => {
     const { contract, reader } = divergentToken();
     assert.equal(await reader.isFinalAsOf(TOKEN, contract.now), false);
+  });
+
+  test('a future admitted entry can make the covered present final without advancing the clock', async () => {
+    const { contract, reader } = divergentToken();
+    const observedAt = contract.now;
+    assert.equal(await reader.isFinalAsOf(TOKEN, observedAt), false);
+    contract.finalizeSettlement(await reader.openGapOf(TOKEN), {
+      recordCommitment: `0x${'d'.repeat(64)}`,
+      registryReference: `0x${'fd'.repeat(32)}`,
+      effectiveAt: observedAt + 1n,
+      proofData: '0x',
+    });
+    assert.equal(contract.now, observedAt);
+    assert.equal(await reader.isFinalAsOf(TOKEN, observedAt), true);
+    assert.equal(await reader.isFinalAsOf(TOKEN, observedAt + 1n), false);
   });
 });

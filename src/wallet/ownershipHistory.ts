@@ -192,6 +192,9 @@ async function readEntries(
   tokenId: TokenId,
 ): Promise<{ records: EntryRecord[]; timeline: Extract<TimelineEvent, { kind: 'entry' }>[] }> {
   const count = await reader.entryCount(tokenId);
+  if (typeof count !== 'bigint' || count < 0n || count >= (1n << 64n)) {
+    throw new InvariantViolationError('entryCount', 'must be a uint64 bigint');
+  }
   const records: EntryRecord[] = [];
   const timeline: Extract<TimelineEvent, { kind: 'entry' }>[] = [];
 

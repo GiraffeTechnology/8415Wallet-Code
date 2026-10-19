@@ -10,6 +10,8 @@ import type { Address } from '../../sdk/types.ts';
  * but `eth_call` executes contract code.
  */
 export type CallTransport = {
+  /** Actual network identity, when the transport can independently obtain it. */
+  getChainId?(): Promise<bigint>;
   call(to: Address, data: string): Promise<string>;
   /** `block.timestamp` of the latest block. */
   blockTimestamp(): Promise<bigint>;
@@ -22,6 +24,62 @@ export type CallTransport = {
   /** Deployed code at an address, at one block. `0x` where there is none. */
   codeAt(address: Address, blockNumber: bigint): Promise<string>;
 };
+
+/**
+ * Bind every read to one network when chain discovery is available.
+ *
+ * Legacy custom/in-memory transports without getChainId remain compatible;
+ * their supplied source is not independently verified by this wrapper.
+ * Pre/post checks detect observed network changes, not a malicious node or an
+ * atomic snapshot: a provider that changes away and back can still evade them.
+ */
+export function bindChainTransport(transport: CallTransport, expectedChainId: bigint): CallTransport {
+  const getChainId = transport.getChainId?.bind(transport);
+  if (getChainId === undefined) return transport;
+
+  const checkChainId = async (): Promise<bigint> => {
+    let actual: bigint;
+    try {
+      actual = await getChainId();
+    } catch (error) {
+      if (error instanceof TransportError) throw error;
+      throw new TransportError('eth_chainId', 'could not verify chain identity');
+    }
+    if (typeof actual !== 'bigint' || actual <= 0n) {
+      throw new TransportError('eth_chainId', 'returned an invalid chain id');
+    }
+    if (actual !== expectedChainId) {
+      throw new TransportError('eth_chainId', `chain mismatch: expected ${expectedChainId}, received ${actual}`);
+    }
+    return actual;
+  };
+  const checked = async <T>(read: () => Promise<T>): Promise<T> => {
+    await checkChainId();
+    try {
+      return await read();
+    } finally {
+      // A wrong-chain revert is not evidence of contract non-conformance.
+      // Check even when the business request failed, before that error escapes.
+      await checkChainId();
+    }
+  };
+
+  const call = transport.call.bind(transport);
+  const blockTimestamp = transport.blockTimestamp.bind(transport);
+  const blockTimestampAt = transport.blockTimestampAt.bind(transport);
+  const blockNumber = transport.blockNumber.bind(transport);
+  const getLogs = transport.getLogs.bind(transport);
+  const codeAt = transport.codeAt.bind(transport);
+  return Object.freeze({
+    getChainId: checkChainId,
+    call: (to: Address, data: string) => checked(() => call(to, data)),
+    blockTimestamp: () => checked(blockTimestamp),
+    blockTimestampAt: (block: bigint) => checked(() => blockTimestampAt(block)),
+    blockNumber: () => checked(blockNumber),
+    getLogs: (filter: Record<string, unknown>) => checked(() => getLogs(filter)),
+    codeAt: (address: Address, block: bigint) => checked(() => codeAt(address, block)),
+  });
+}
 
 /**
  * JSON-RPC transport over HTTP.
@@ -37,6 +95,14 @@ export class HttpCallTransport implements CallTransport {
 
   constructor(endpoint: string) {
     this.#endpoint = endpoint;
+  }
+
+  async getChainId(): Promise<bigint> {
+    const result = await this.#request('eth_chainId', []);
+    if (typeof result !== 'string' || !/^0x[1-9a-fA-F][0-9a-fA-F]*$/.test(result)) {
+      throw new TransportError('eth_chainId', 'returned an invalid positive chain id quantity');
+    }
+    return BigInt(result);
   }
 
   async call(to: Address, data: string): Promise<string> {
@@ -78,8 +144,8 @@ export class HttpCallTransport implements CallTransport {
 
   async blockNumber(): Promise<bigint> {
     const result = await this.#request('eth_blockNumber', []);
-    if (typeof result !== 'string') {
-      throw new TransportError('eth_blockNumber', 'returned no block number');
+    if (typeof result !== 'string' || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(result)) {
+      throw new TransportError('eth_blockNumber', 'returned an invalid nonnegative block number quantity');
     }
     return BigInt(result);
   }
@@ -152,7 +218,7 @@ export class HttpCallTransport implements CallTransport {
       // answer — a rate limit, an over-wide range, an outage — and reporting
       // one as a revert states something about the contract that the contract
       // never said.
-      if (method === 'eth_call' && isExecutionRevert(code, message, data)) {
+      if (method === 'eth_call' && isExecutionRevert(code, message)) {
         throw new ContractRevertError(message, data);
       }
       throw new TransportError(method, message, code);
@@ -177,9 +243,9 @@ export class HttpCallTransport implements CallTransport {
 function isExecutionRevert(
   code: number | undefined,
   message: string | undefined,
-  data: string | undefined,
 ): boolean {
   if (code === 3) return true;
-  if (typeof data === 'string' && data.startsWith('0x') && data.length > 2) return true;
-  return /execution reverted|revert/i.test(message ?? '');
+  // Hex diagnostic data and incidental revert wording are not EVM evidence.
+  // Retain the explicit legacy execution-revert spelling only for its server code.
+  return code === -32000 && /^execution reverted(?::|\s|$)/i.test(message ?? '');
 }

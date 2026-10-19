@@ -138,9 +138,10 @@ describe('agreement is not verified identity', () => {
 });
 
 describe('before acquiring', () => {
-  test('states that the instant of purchase is never final', async () => {
+  test('preserves the contract finality answer at the observed acquisition instant', async () => {
     const view = await new WalletSession(divergentToken().reader).acquisitionDisclosure(TOKEN);
-    assert.ok(view.points.some((point) => /will not be final at the moment it happens/.test(point)));
+    assert.ok(view.points.some((point) => /isFinalAsOf reports not final/.test(point)));
+    assert.ok(view.points.every((point) => !/present instant never|purchase.*never.*final/.test(point)));
   });
 
   test('says when the acquirer is joining a queue', async () => {

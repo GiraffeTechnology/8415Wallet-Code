@@ -85,11 +85,18 @@ export function createAgentApiSession({ origin, tenant, account, chainId, loginS
     try { validSession(session); } catch (error) { clear(); throw error; }
   }
   async function call(method, path, body, version) {
-    const response = await request({ method, path: `/auth/${path}`, signal: abort.signal, headers: {
+    let response;
+    try { response = await request({ method, path: `/auth/${path}`, signal: abort.signal, headers: {
       Origin: origin, 'X-Wallet-Tenant': tenant, Accept: 'application/json',
       ...(csrf ? { 'X-Wallet-CSRF': csrf } : {}),
       ...(cookies.size ? { Cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join('; ') } : {}),
     }, ...(body === undefined ? {} : { body: structuredClone(body) }) });
+    } catch {
+      current(version);
+      // Every route, including session checks and logout, uses this boundary.
+      // An injected transport exception may contain private connection details.
+      throw new AgentApiError('AGENT_API_TRANSPORT_UNAVAILABLE');
+    }
     current(version);
     check(response && Number.isInteger(response.status), 'AGENT_API_RESPONSE_REFUSED');
     if (response.status !== 200) {

@@ -477,7 +477,28 @@ new email ownership is verified before the identity and recovery recipient chang
 atomically. Email/wallet uniqueness and ordinary account creation are persisted
 in the existing encrypted store, with no key regeneration.
 
-## Platform password navigation deployment
+## Historical platform password navigation deployment — superseded
+
+The public tenant/action directory and subdomain deployment procedure retained
+below are **historical and must not be enabled as the current wallet entry**.
+The complete canonical [Wallet PRD §10.1](ERC-8415-Wallet-PRD.md#101-release-boundary-and-wallet-entry)
+requires a human Login identifier (tenant name, email or wallet address),
+server-side resolution/authorization and the canonical
+`https://8415wallet.com/<wallet-name>` route. No public tenant dropdown,
+directory, suggested roster or enumerable autocomplete is permitted. Unknown or
+inaccessible identifiers must not reveal membership or another wallet's identity;
+multiple permitted wallets may be offered only after authentication. Deep links
+and reloads must re-establish the correct wallet-bound authenticated session.
+
+The old disabled platform buttons below are an implementation-era description,
+not authority to disable the required current Login flow. Do not expose a roster
+or use a subdomain requirement as a workaround for an unimplemented resolver.
+[§10.8](ERC-8415-Wallet-PRD.md#108-confidentiality-and-release-acceptance) requires
+actual exact-version entry/isolation evidence; this note does not claim that
+integration has already passed. Follow the [directory-retirement guidance](DAPP-INSTALL.md#retire-public-tenant-directories-when-upgrading)
+for old published directories without deleting credentials, journals or evidence.
+
+### Retained historical deployment procedure
 
 The verified apex/default platform profile offers a public tenant/action selector.
 The packaged `web/tenant-password-routing.json` contains no endpoint and marks all

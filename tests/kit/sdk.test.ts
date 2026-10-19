@@ -31,7 +31,7 @@ const withServer = async (run: (client: ProjectionClient, h: ReturnType<typeof h
 
   const auth = gateway(h.store);
   const server = createApi(auth.options);
-  server.listen(0);
+  server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address() as AddressInfo;
   try {

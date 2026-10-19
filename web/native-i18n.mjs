@@ -31,14 +31,17 @@ const nested = {
   'protocol.164': ['v0'], 'protocol.206': ['v0'], 'protocol.207': ['v0'],
   'protocol.212': ['v0'], 'protocol.218': ['v0'], 'protocol.224': ['v0'], 'protocol.214': ['v1'], 'protocol.231': ['v0'],
   'protocol.234': ['v0'], 'protocol.244': ['v0'],
+  'protocol.acquisition.observedFinal': ['v1'], 'protocol.acquisition.observedNotFinal': ['v1'],
 };
 export function translateNative(text, language = getLocale(), depth = 0) {
   if (language === 'en' || typeof text !== 'string' || depth > 5) return text;
   const match = text.match(/^(\s*(?:[•·] )?)([\s\S]*?)(\s*)$/), [, prefix, body, suffix] = match;
   if (!body) return text;
   // Posture composes a first-party state label with its first-party explanation.
-  for (const key of ['protocol.025', 'protocol.026', 'protocol.023', 'protocol.024', 'protocol.040', 'protocol.041', 'protocol.042', 'protocol.043', 'protocol.044']) {
+  for (const key of ['protocol.finality.reversedFinal', 'protocol.finality.reversedNotFinal', 'protocol.finality.inconsistentFinal', 'protocol.finality.unverifiedFinal', 'protocol.finality.unverifiedNotFinal', 'protocol.finality.inconsistentNotFinal', 'protocol.025', 'protocol.026', 'protocol.023', 'protocol.024', 'protocol.040', 'protocol.041', 'protocol.042', 'protocol.043', 'protocol.044']) {
     const label = source[key];
+    // Match the whole long label before its shorter 'Final'/'Not final' prefix.
+    if (body === label) return prefix + t(key, {}, language) + suffix;
     if (body.startsWith(`${label} — `)) return prefix + t(key, {}, language) + ' — ' + translateNative(body.slice(label.length + 3), language, depth + 1) + suffix;
   }
   for (const { key, names, pattern } of templates) {

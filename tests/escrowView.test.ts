@@ -124,11 +124,12 @@ describe('rendering', () => {
     assert.match(text, /1\.234500000000000001 ETH/);
   });
 
-  test('an empty register reads as no record, never as an address', () => {
+  test('a zero register sentinel preserves unavailable-or-absent ambiguity', () => {
     const text = renderEscrow(
       buildEscrowView(trade('FUNDED'), observation({ confirmedHolder: ZERO_ADDRESS }), NOW),
     );
-    assert.match(text, /Register confirms\s+nobody — no record/);
+    assert.match(text, /Register confirms\s+unavailable or no record — not distinguished by this observation/);
+    assert.doesNotMatch(text, /nobody|no holder/);
     assert.ok(!text.includes(ZERO_ADDRESS));
   });
 });
@@ -175,5 +176,34 @@ describe('late admissions after release', () => {
     assert.equal(view.state, 'released');
     assert.match(renderEscrow(view), /Confirming entry\s+v2/);
     assert.match(renderEscrow(view), /Release commitment/);
+  });
+});
+
+// P11 synthetic sentinel cases only; no EVM execution or deployment claim.
+describe('escrow read-failure sentinels never invent holder absence', () => {
+  test('a zero position remains unavailable while the nonzero register answer is retained', () => {
+    const view = buildEscrowView(trade('FUNDED'), observation({ positionHolder: ZERO_ADDRESS }), NOW);
+    const text = renderEscrow(view);
+    assert.match(text, /Position sits with\s+unavailable or no record/);
+    assert.ok(text.includes('Register confirms      ' + SELLER));
+    assert.equal(view.positionHolder, ZERO_ADDRESS);
+    assert.equal(view.confirmedHolder, SELLER);
+    assert.doesNotMatch(text, /nobody|no holder/);
+  });
+  test('both zero sentinels retain two distinct unavailable observations', () => {
+    const view = buildEscrowView(trade('FUNDED'), observation({
+      positionHolder: ZERO_ADDRESS, confirmedHolder: ZERO_ADDRESS }), NOW);
+    const before = structuredClone(view), text = renderEscrow(view);
+    assert.match(text, /Position sits with\s+unavailable or no record/);
+    assert.match(text, /Register confirms\s+unavailable or no record/);
+    assert.ok(!text.includes(ZERO_ADDRESS));
+    assert.doesNotMatch(text, /nobody|no holder/);
+    assert.deepEqual(view, before);
+  });
+  test('nonzero owner and holder remain separate exact observations', () => {
+    const text = renderEscrow(buildEscrowView(trade('FUNDED'), observation(), NOW));
+    assert.ok(text.includes('Position sits with     ' + ESCROW));
+    assert.ok(text.includes('Register confirms      ' + SELLER));
+    assert.doesNotMatch(text, /unavailable or no record/);
   });
 });

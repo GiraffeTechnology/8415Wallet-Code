@@ -21,6 +21,8 @@ Required later: adversarial EVM and integrated W-01–W-21 tests, independent
 security review, actual public-testnet deployment/transactions and UI evidence.
 Existing tests/earlier Sepolia receipts do not validate this stage.
 
-Development commits use `[skip ci]` solely to implement the user's deferred-CI
-order. Do not merge with skipped/pending checks; publish a fresh no-skip commit
-after all stages are developed, then validate the exact candidate.
+Current P0: all new commits must remain CI-eligible. Never add CI-skip directives
+to commit messages or PR metadata. Continue the next independent stage without
+waiting for CI; retain workflows, required checks and exact-candidate validation.
+CI and merge remain with their assigned owner. Skipped, absent or pending checks
+are not passing checks and cannot satisfy the existing merge requirements.

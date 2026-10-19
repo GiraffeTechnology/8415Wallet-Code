@@ -1,3 +1,5 @@
+const { fixturePath, compositionEvidence } = require('../../tests/helpers/enabled-composition.cjs');
+const testComposition = 'presentation'; // Explicit retained-component fixture, not production foundation acceptance.
 // Real Chromium, synthetic EIP-1193 reads/signatures only. No real transaction or device acceptance.
 const assert = require('node:assert/strict');
 const fs = require('node:fs'); const path = require('node:path');
@@ -10,7 +12,7 @@ const config = JSON.parse(fs.readFileSync(path.join(root, 'web/release-config.js
 const origin = 'http://127.0.0.1:18428';
 async function main() {
   fs.mkdirSync(out, { recursive: true });
-  const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], { env: { ...process.env, WALLET_BROWSER_PORT: '18428' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], { env: { ...process.env, WALLET_BROWSER_TEST_COMPOSITION: testComposition, WALLET_BROWSER_PORT: '18428' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let browser;
   try {
     await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('error', reject); server.once('exit', code => reject(new Error(`Static server exited: ${code}`))); });
@@ -49,7 +51,7 @@ async function main() {
         } };
       });
       const page = installScreenNavigation(await context.newPage()); page.on('pageerror', error => errors.push(error.message));
-      await page.goto(origin); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
+      await page.goto(origin + fixturePath(testComposition)); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
       await page.waitForFunction(() => document.querySelector('.brand-logo').complete && document.querySelector('.brand-logo').naturalWidth === 931);
       const privatePanel = page.locator('#wallet-private'); assert.equal(await privatePanel.isVisible(), false);
       assert.deepEqual(await page.evaluate(() => __approvedUi.calls), []);
@@ -84,11 +86,11 @@ async function main() {
       assert.equal(await page.textContent('#transfer-review-summary'), ''); assert.equal((await page.textContent('#nft-result')).includes('blockHash'), false);
       assert.equal(await page.evaluate(() => __approvedUi.calls.includes('eth_sendTransaction')), false);
       assert.deepEqual(errors, []); assert.equal(network.every(url => url.startsWith(origin)), true);
-      evidence.push({ ...delivery, width, noOverflow: true, originalRaster: true, routes: true, nftReadOnly: true, reviewCancel: true, localeInvariant: true, avatarSaveRemove: true, logoutPrivacy: true, synthetic: true });
+      evidence.push({ composition: compositionEvidence(testComposition), ...delivery, width, noOverflow: true, originalRaster: true, routes: true, nftReadOnly: true, reviewCancel: true, localeInvariant: true, avatarSaveRemove: true, logoutPrivacy: true, synthetic: true });
       await context.close();
     }
     fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ synthetic: true, evidence }, null, 2));
-    console.log(`Passed ${evidence.length} approved-UI delivery/viewport journeys`);
+    console.log(`Passed ${evidence.length} explicit synthetic retained-UI profile/viewport journeys`);
   } finally { await browser?.close(); server.kill(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

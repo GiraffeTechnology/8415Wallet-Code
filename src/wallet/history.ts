@@ -1,5 +1,5 @@
 import { detectConformance, requireProjectionConformance } from '../sdk/conformance.ts';
-import { ProjectionNotInitialized } from '../sdk/errors.ts';
+import { InvariantViolationError, ProjectionNotInitialized } from '../sdk/errors.ts';
 import { ContractIdentityPin, type ContractIdentity } from '../sdk/identity.ts';
 import type { Erc8415Reader } from '../sdk/port.ts';
 import {
@@ -77,6 +77,9 @@ export async function buildHistoryView(
   const identity = await pin.read(conformance);
 
   const count = await reader.entryCount(tokenId);
+  if (typeof count !== 'bigint' || count < 0n || count >= (1n << 64n)) {
+    throw new InvariantViolationError('entryCount', 'must be a uint64 bigint');
+  }
   if (count === 0n) {
     throw new ProjectionNotInitialized(tokenId);
   }

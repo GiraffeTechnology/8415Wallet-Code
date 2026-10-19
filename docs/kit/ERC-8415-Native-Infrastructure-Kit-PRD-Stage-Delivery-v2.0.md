@@ -1,6 +1,12 @@
 # ERC-8415 Native Infrastructure Kit (NIK)
 # Stage Delivery PRD v2.2
 
+Retained embedded Kit scope and historical stage plan only. The sole current
+complete product requirements are the [Wallet PRD](../ERC-8415-Wallet-PRD.md),
+including its standalone and linked stages and current multichain and agent
+authority requirements. This document is not a parallel active Wallet PRD or
+evidence that a current acceptance gate has passed.
+
 ## Product Definition
 
 ERC-8415 Native Infrastructure Kit is ERC-8415-aligned projection infrastructure
@@ -26,7 +32,7 @@ and the queries over it.
 
 The Kit is NOT the wallet and NOT the application layer.
 
-Product relationship:
+One ecosystem integration relationship (not a mandatory Wallet dependency):
 
 ```text
 Wallet / Application
@@ -43,6 +49,9 @@ Institutional Registry
 
 Oracle is responsible for connecting ERC-8415 infrastructure with vertical
 applications such as ArtFi.
+
+The Wallet must also operate independently; standalone use does not require
+Oracle, ArtFi or another wallet (Wallet PRD §9.1).
 
 ---
 
@@ -120,12 +129,17 @@ leaves the economic workflow to the consumer.
 Projection lifecycle:
 
 ```text
-gap opened          openGapOf == true from openedAt
+gap opened          openGapOf != ZERO_BYTES32; contested from openedAt
   |
   |-- entry admitted  -> gap closed by admission; history extended
   |
-  `-- gap cancelled   -> gap closed without admission; projection unchanged
+  |-- gap cancelled   -> gap closed without admission; projection unchanged
+  |
+  `-- gap superseded  -> old gap closed, new gap open; projection unchanged
 ```
+
+Supersession makes proofs for the superseded settlement unusable. These are
+required semantics, not evidence of embedded Kit implementation coverage.
 
 Admission is atomic: proof consumption, remote-height advancement, entry
 admission and gap closure succeed or fail together.
@@ -213,7 +227,8 @@ ERC-8415 Native Infrastructure Kit
 
 # Delivery Stages
 
-This is the only stage scheme in the repository.
+This is the retained Kit stage scheme. Current Wallet stages and acceptance are
+defined separately in Wallet PRD §§7–10; the Kit stage labels do not replace them.
 
 ## Stage 0
 Foundation.
@@ -289,7 +304,8 @@ No freeze, revoke, override or rollback function exists.
 ## Stage 4
 Settlement Composition Engine MVP.
 
-Gap primitives: open a gap, close it by admission, close it by cancellation.
+Gap primitives: open a gap, close it by admission, close it by cancellation, or
+supersede it with a new settlement without altering projection history.
 Prove that cancellation, gap closure, proof verification and timeout expiry each
 fail to produce finality.
 

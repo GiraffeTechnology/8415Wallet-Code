@@ -137,7 +137,7 @@ test('the server serves the route table over a socket', async () => {
   const h = seeded();
   const auth = gateway(h.store);
   const server = createApi(auth.options);
-  server.listen(0);
+  server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address() as AddressInfo;
 
@@ -170,7 +170,7 @@ test('an oversized body is refused before it is buffered', async () => {
   const h = seeded();
   const auth = gateway(h.store);
   const server = createApi(auth.options, 1024);
-  server.listen(0);
+  server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address() as AddressInfo;
 

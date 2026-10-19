@@ -1,5 +1,48 @@
 # V3 agent path — public testnet test requirements
 
+## Current requirement and historical scope
+
+The plan retained below describes the legacy human-imported JSON request flow.
+Its browser, file-upload, acknowledgement and manual wallet-dialog prerequisites
+are **historical, not current agent execution or acceptance requirements**. Its
+old suite counts, testnet-only restrictions and completion claims describe that
+flow only. They do not establish current implementation or acceptance.
+
+Use the complete canonical [Wallet PRD §6.2](../ERC-8415-Wallet-PRD.md#62-task-authority-and-agent-execution),
+[§6.3.1](../ERC-8415-Wallet-PRD.md#631-owner-controlled-per-operation-verification-switch),
+[§10.3](../ERC-8415-Wallet-PRD.md#103-agent-api-and-authorization-controls) and
+[§10.8](../ERC-8415-Wallet-PRD.md#108-confidentiality-and-release-acceptance):
+
+- Agents authenticate and execute through the authorized API only. Neither a
+  human Web login, browser automation, imported file nor Web provider session is
+  their execution channel. Human initialization and policy management are separate.
+- ALL controls initially default to ON. A not-yet-operational authorization or
+  per-operation approval control is unlocked as specified in the PRD; do not add
+  manual acknowledgement or approval-signature checks as a substitute prerequisite.
+  Record missing verification as NOT_IMPLEMENTED or NOT_EVALUATED, never PASS.
+  Existing effective owner choices, revocations and task scope remain binding.
+- Once operational, enforce the effective owner policy. Owner-verified
+  per-operation verification OFF permits covered API preparation, signing,
+  submission, continuation and receipt checks without further human prompts.
+  A signer that still requires a human dialog is not an implemented unattended
+  path; report the capability gap rather than demand new consent or claim success.
+- A genuine transaction still needs its actual authorized signature and valid
+  chain execution. Preserve machine-enforced scopes, actual payload/chain/nonce,
+  funds and fee reservations, expiry/revocation and UNKNOWN reconciliation.
+  Human-only settings saves retain their exact-change secondary authentication;
+  removing recurring operation prompts does not remove that separate requirement.
+- Bind actual acceptance to the exact API/backend/UI source and served versions,
+  chain and applicable V2/V3 profile. Demonstrate applicable default-ON and saved
+  policy behavior, continuation without duplicate submission, and genuine
+  resulting state. Human browser/device acceptance is separate and cannot be an
+  agent browser prerequisite. Earlier legacy journeys are not current API PASS.
+
+This document authorizes no execution, funding, signing or deployment. The
+current [AGENTS.md](../../AGENTS.md) execution restrictions and explicit owner
+authorization control any future run; historical commands do not override them.
+
+## Retained historical human-imported-request plan
+
 For the operator driving the deployed build with real wallets and testnet
 assets.
 

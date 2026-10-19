@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { createAuthService } from '../server/auth-service.mjs';
 import { createTaskAuthorizationService, freezeTaskExecutorIdentity } from '../server/task-authorization.mjs';
 import { MemoryCredentialStore, openEncryptedStore } from '../server/store.mjs';
-import { base32, hashPassword, hotp, matchTotp } from '../server/crypto.mjs';
+import { base32, digest, hashPassword, hotp, matchTotp } from '../server/crypto.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-policy.mjs';
 import { freezeChildOperation } from '../src/agent/taskContract.ts';
 import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
 import { createTaskReceiptAdapter } from '../server/task-receipt-adapter.mjs';
@@ -34,6 +35,8 @@ function fixture(options: any = {}) {
   sessions.add(session);
   function assertSession(s: any, c?: any) { if (!sessions.has(s) || state.now < s.issuedAt || state.now >= s.expiresAt || c !== undefined && c?.revision !== s.revision) throw Error('AUTH_REFUSED'); }
   const service = createTaskAuthorizationService({ origin, tenant, store, now: () => state.now, execution: options.execution ?? null, executorIdentity: options.execution ? (options.executorIdentity ?? executorIdentity) : null,
+    operationVerificationEnabled: options.operationVerificationEnabled ?? false,
+    assertPrincipal: options.assertPrincipal ?? null,
     observationPolicy: options.execution ? (options.observationPolicy ?? { minimumConfirmations: '2' }) : null, receipt: options.receipt === null ? null : (options.receipt ?? (options.execution ? syntheticReceipt({ state: () => 'pending' }).receipt : null)), assertSession,
     async credentialFor(s: any) { const c = await store.read(`${tenant}:${s.username}`); assertSession(s, c); return c; },
     consumeTotp(s: any, c: any, code: string) { assertSession(s, c); const step = matchTotp(c.secret, code, state.now, c.lastStep);
@@ -42,7 +45,7 @@ function fixture(options: any = {}) {
   const call = (path: string, body: any, who = session) => service.handler(`tasks/${path}`, body, who);
   const code = () => hotp(secret, Math.floor(state.now / 30000));
   const prepare = (input = policy({ tenant, origin })) => call('prepare', { policy: input });
-  const authorize = (p: any) => call('authorize', { challengeId: p.challengeId, taskDigest: p.task.digest, executorDigest: p.executor.digest, observationPolicyDigest: p.observationPolicy?.digest ?? null, code: code() });
+  const authorize = (p: any) => call('authorize', { challengeId: p.challengeId, taskDigest: p.task.digest, executorDigest: p.executor.digest, observationPolicyDigest: p.observationPolicy?.digest ?? null, code: p.approvalFactor === 'totp' ? code() : '' });
   const grant = async (input = policy({ tenant, origin })) => authorize(await prepare(input));
   const reserve = (g: any, c = child(g.task)) => call('reserve', { taskDigest: g.task.digest, child: c, expectedBudgetRevision: g.budget.revision });
   const operationBody = (g: any, c = child(g.task)) => ({ taskDigest: g.task.digest, operationId: c.operationId, childDigest: freezeChildOperation(c).digest, expectedBudgetRevision: g.budget.revision });
@@ -58,6 +61,106 @@ function syntheticAdapter({ failSend = false, onVerify = async () => {} } = {}) 
     async recover(input: any) { calls.recover++; return { ...binding(input), state: 'submitted', transactionHash: txHash }; },
   }; return { calls, execution };
 }
+
+// Exact ON operation proof tests extend the real task service without changing
+// previous assertions or treating synthetic adapter sends as genuine chain tests.
+async function saveOperationPolicy(f: any, mode: string) {
+  const selected = { origin: 'https://wallet.example.invalid', tenant: 'xiongan', username: 'tester',
+    account: actor, chainId: '11155111', agentId: executorIdentity.agentId };
+  await f.store.transaction('xiongan:tester', (credential: any) => {
+    const k = taskVerificationPolicyKey(selected), prior = credential.taskVerificationPolicies?.[k];
+    const revision = String(BigInt(prior?.revision ?? '0') + 1n);
+    return { ...credential, taskVerificationPolicies: { ...(credential.taskVerificationPolicies ?? {}), [k]: {
+      schema: '8415-task-human-verification/2', scope: selected, mode, revision, enforcedFromRevision: '1',
+      changes: [...(prior?.changes ?? []), { revision, previousRevision: prior?.revision ?? '0', mode,
+        changeId: 'A'.repeat(43), changeDigest: 'a'.repeat(64), scopeDigest: digest(JSON.stringify(selected)),
+        credentialRevision: 1, verifiedFactors: ['password', 'verified-email'], changedAt: f.state.now }] } } };
+  });
+}
+async function operationProof(f: any, reserved: any) {
+  const p = await f.call('prepare-operation-verification', f.operationBody(reserved));
+  assert.equal(p.required, true); assert.equal(p.request.purpose, 'execute-exact-child');
+  const confirmed = await f.call('confirm-operation-verification', { challengeId: p.request.challengeId, requestDigest: p.requestDigest, code: f.code() });
+  return { p, confirmed };
+}
+test('ON needs exact operation proof; grant approval or supplied approved flag is not enough', async () => {
+  const a = syntheticAdapter(), f = fixture({ ...a, operationVerificationEnabled: true });
+  await saveOperationPolicy(f, 'ON');
+  const reserved = await f.reserve(await f.grant()); f.state.now += 30000;
+  await assert.rejects(f.call('execute', f.operationBody(reserved)), /TASK_OPERATION_VERIFICATION_REQUIRED/);
+  assert.equal(a.calls.send, 0);
+  await assert.rejects(f.call('prepare-operation-verification', { ...f.operationBody(reserved), approved: true }), /TASK_REQUEST_REFUSED/);
+  const { p, confirmed } = await operationProof(f, reserved);
+  assert.equal(confirmed.childDigest, f.operationBody(reserved).childDigest);
+  await assert.rejects(f.call('confirm-operation-verification', { challengeId: p.request.challengeId, requestDigest: p.requestDigest, code: f.code() }), /CHALLENGE_REFUSED/);
+  const result = await f.call('execute', f.operationBody(reserved));
+  assert.equal(result.budget.reservations[0].status, 'submitted'); assert.equal(a.calls.send, 1);
+});
+test('operation proof cannot reuse the grant TOTP step or a different challenge digest', async () => {
+  const f = fixture({ ...syntheticAdapter(), operationVerificationEnabled: true });
+  await saveOperationPolicy(f, 'ON'); const reserved = await f.reserve(await f.grant());
+  const p = await f.call('prepare-operation-verification', f.operationBody(reserved));
+  await assert.rejects(f.call('confirm-operation-verification', { challengeId: p.request.challengeId, requestDigest: p.requestDigest, code: f.code() }), /AUTH_REFUSED/);
+  f.state.now += 30000;
+  await assert.rejects(f.call('confirm-operation-verification', { challengeId: p.request.challengeId, requestDigest: '0'.repeat(64), code: f.code() }), /CHALLENGE_REFUSED/);
+  assert.equal((await f.store.read('xiongan:tester')).lastStep, epoch / 30000);
+});
+test('cancelled session challenge cannot commit a proof or consume the fresh factor', async () => {
+  const f = fixture({ ...syntheticAdapter(), operationVerificationEnabled: true });
+  await saveOperationPolicy(f, 'ON'); const reserved = await f.reserve(await f.grant());
+  f.state.now += 30000; const p = await f.call('prepare-operation-verification', f.operationBody(reserved));
+  f.service.cancel(f.session);
+  await assert.rejects(f.call('confirm-operation-verification', { challengeId: p.request.challengeId, requestDigest: p.requestDigest, code: f.code() }), /CHALLENGE_REFUSED/);
+  assert.equal((await f.store.read('xiongan:tester')).lastStep, epoch / 30000);
+});
+test('saved ON revision change after challenge refuses before consuming OTP', async () => {
+  const f = fixture({ ...syntheticAdapter(), operationVerificationEnabled: true });
+  await saveOperationPolicy(f, 'ON'); const reserved = await f.reserve(await f.grant());
+  f.state.now += 30000; const p = await f.call('prepare-operation-verification', f.operationBody(reserved));
+  await saveOperationPolicy(f, 'ON');
+  await assert.rejects(f.call('confirm-operation-verification', { challengeId: p.request.challengeId, requestDigest: p.requestDigest, code: f.code() }), /BINDING_CHANGED/);
+  assert.equal((await f.store.read('xiongan:tester')).lastStep, epoch / 30000);
+});
+test('OFF never creates an operation challenge or consumes another TOTP across restart', async () => {
+  const a = syntheticAdapter(), f = fixture({ ...a, operationVerificationEnabled: true }); await saveOperationPolicy(f, 'OFF');
+  const reserved = await f.reserve(await f.grant()), before = (await f.store.read('xiongan:tester')).lastStep;
+  const restarted = fixture({ ...a, store: f.store, operationVerificationEnabled: true });
+  assert.deepEqual(await restarted.call('prepare-operation-verification', restarted.operationBody(reserved)), { required: false, policyRevision: '1', reason: 'policy-off' });
+  const result = await restarted.call('execute', restarted.operationBody(reserved));
+  assert.equal(result.budget.reservations[0].status, 'submitted'); assert.equal(a.calls.send, 1);
+  assert.equal((await f.store.read('xiongan:tester')).lastStep, before);
+});
+test('expired verified child proof leaves reservation unattempted and nonce releasable', async () => {
+  const a = syntheticAdapter(), f = fixture({ ...a, operationVerificationEnabled: true });
+  await saveOperationPolicy(f, 'ON'); const reserved = await f.reserve(await f.grant());
+  f.state.now += 30000; await operationProof(f, reserved); f.state.now += 120000;
+  await assert.rejects(f.call('execute', f.operationBody(reserved)), /VERIFICATION_EXPIRED/);
+  assert.equal(a.calls.send, 0);
+  const cancelled = await f.call('cancel-reservation', f.operationBody(reserved));
+  assert.equal(cancelled.budget.reservations[0].status, 'cancelled');
+});
+test('concurrent execute consumes exact proof and durable send only once', async () => {
+  const a = syntheticAdapter(), f = fixture({ ...a, operationVerificationEnabled: true });
+  await saveOperationPolicy(f, 'ON'); const reserved = await f.reserve(await f.grant());
+  f.state.now += 30000; await operationProof(f, reserved);
+  const result = await Promise.allSettled([f.call('execute', f.operationBody(reserved)), f.call('execute', f.operationBody(reserved))]);
+  assert.equal(result.filter(value => value.status === 'fulfilled').length, 1); assert.equal(a.calls.send, 1);
+});
+test('UNKNOWN recovery after proof expiry and ON change never creates a proof or sends again', async () => {
+  const a = syntheticAdapter({ failSend: true }), f = fixture({ ...a, operationVerificationEnabled: true });
+  await saveOperationPolicy(f, 'ON'); const reserved = await f.reserve(await f.grant());
+  f.state.now += 30000; await operationProof(f, reserved);
+  const unknown = await f.call('execute', f.operationBody(reserved)); assert.equal(unknown.outcome, 'outcome-unknown');
+  f.state.now += 120000; await saveOperationPolicy(f, 'ON');
+  const result = await f.call('resume', { taskDigest: reserved.task.digest });
+  assert.equal(result.budget.reservations[0].status, 'submitted'); assert.equal(a.calls.send, 1); assert.equal(a.calls.recover, 1);
+});
+test('runtime flag rollback cannot bypass a persisted ON owner revision', async () => {
+  const a = syntheticAdapter(), f = fixture({ ...a, operationVerificationEnabled: false });
+  await saveOperationPolicy(f, 'ON'); const reserved = await f.reserve(await f.grant());
+  await assert.rejects(f.call('execute', f.operationBody(reserved)), /VERIFICATION_REQUIRED/);
+  assert.equal(a.calls.send, 0);
+});
 test('pending task is durable and fresh challenge can be minted after restart without granting authority', async () => {
   const f = fixture(), p = await f.prepare(), list = await f.call('list', {});
   assert.equal(list.tasks.length, 1); assert.equal(list.tasks[0].effectiveStatus, 'pending'); assert.equal(list.tasks[0].authorization, null); assert.equal(list.tasks[0].budget, null);
@@ -66,7 +169,8 @@ test('pending task is durable and fresh challenge can be minted after restart wi
   assert.equal((await restarted.authorize(p2)).effectiveStatus, 'authorized');
 });
 test('authorization atomically consumes TOTP only for the exact task, independently of login', async () => {
-  const f = fixture(), p = await f.prepare();
+  const f = fixture(syntheticAdapter()); await saveOperationPolicy(f, 'ON');
+  const p = await f.prepare(); assert.equal(p.approvalFactor, 'totp');
   await assert.rejects(f.call('authorize', { challengeId: p.challengeId, taskDigest: p.task.digest, approved: true }), /TASK_REQUEST_REFUSED/);
   await assert.rejects(f.call('authorize', { challengeId: p.challengeId, taskDigest: `0x${'3'.repeat(64)}`, executorDigest: p.executor.digest, observationPolicyDigest: p.observationPolicy?.digest ?? null, code: f.code() }), /TASK_APPROVAL_CHALLENGE_REFUSED/);
   const g = await f.authorize(p); assert.equal(g.authorization.credentialRevisionAtApproval, '1'); assert.equal(g.authorization.grantPolicyVersion, '1'); assert.equal(g.capabilities.executable, false);
@@ -75,7 +179,9 @@ test('authorization atomically consumes TOTP only for the exact task, independen
   await assert.rejects(f.authorize(await f.prepare(policy({ taskId: 'task:other' }))), /AUTH_REFUSED/);
 });
 test('concurrent grants cannot reuse an OTP and a task ID cannot bind new contents', async () => {
-  const f = fixture(), a = await f.prepare(), b = await f.prepare(policy({ taskId: 'task:second' }));
+  const f = fixture(syntheticAdapter()); await saveOperationPolicy(f, 'ON');
+  const a = await f.prepare(), b = await f.prepare(policy({ taskId: 'task:second' }));
+  assert.equal(a.approvalFactor, 'totp'); assert.equal(b.approvalFactor, 'totp');
   assert.equal((await Promise.allSettled([f.authorize(a), f.authorize(b)])).filter(r => r.status === 'fulfilled').length, 1);
   const changed = policy(); changed.intent.operation.valueWei = '11'; await assert.rejects(f.prepare(changed), /TASK_ID_ALREADY_BOUND/);
 });
@@ -145,21 +251,24 @@ test('trusted adapter must return the exact operation binding', async () => {
 test('failed durable approval preserves OTP and pending grant; uncertain store fails closed', async () => {
   class FailingStore extends MemoryCredentialStore { fail = false; snapshots: any[] = []; constructor(data: any) { super(data); }
     async persist(value: any) { if (this.fail) throw Error('Synthetic disk failure'); this.snapshots.push(structuredClone(value)); } }
-  const store = new FailingStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } }), f = fixture({ store }), p = await f.prepare(); store.fail = true;
+  const store = new FailingStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } }), f = fixture({ store, ...syntheticAdapter() });
+  await saveOperationPolicy(f, 'ON'); const p = await f.prepare(); assert.equal(p.approvalFactor, 'totp'); store.fail = true;
   await assert.rejects(f.authorize(p), /Synthetic disk failure/); await assert.rejects(f.call('status', { taskDigest: p.task.digest }), /AUTH_STORE_UNHEALTHY/);
   const durable = store.snapshots.at(-1); assert.equal(durable['xiongan:tester'].lastStep, -1);
-  const restarted = fixture({ store: new MemoryCredentialStore(durable) }); assert.equal((await restarted.call('status', { taskDigest: p.task.digest })).effectiveStatus, 'pending');
+  const restarted = fixture({ store: new MemoryCredentialStore(durable), ...syntheticAdapter() }); assert.equal((await restarted.call('status', { taskDigest: p.task.digest })).effectiveStatus, 'pending');
   assert.equal((await restarted.authorize(await restarted.prepare())).effectiveStatus, 'authorized');
 });
 test('capacity refusal is explicit and does not consume an OTP or evict the journal', async () => {
   class CapacityStore extends MemoryCredentialStore { full = false; constructor(data: any) { super(data); }
     async transactionMany(keys: any, update: any) { if (!this.full) return super.transactionMany(keys, update);
       return super.transactionMany(keys, async (values: any) => { await update(values); throw Error('AUTH_STORE_CAPACITY'); }); } }
-  const store = new CapacityStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } }), f = fixture({ store }), p = await f.prepare(); store.full = true;
+  const store = new CapacityStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } }), f = fixture({ store, ...syntheticAdapter() });
+  await saveOperationPolicy(f, 'ON'); const p = await f.prepare(); assert.equal(p.approvalFactor, 'totp'); store.full = true;
   await assert.rejects(f.authorize(p), (e: any) => e.message === 'TASK_STORE_CAPACITY' && e.status === 507); assert.equal((await store.read('xiongan:tester')).lastStep, -1);
 });
 test('queued approval rechecks logout at the serialized boundary', async () => {
-  const f = fixture(), p = await f.prepare(); let release!: () => void;
+  const f = fixture(syntheticAdapter()); await saveOperationPolicy(f, 'ON');
+  const p = await f.prepare(); assert.equal(p.approvalFactor, 'totp'); let release!: () => void;
   const held = f.store.transaction('other:key', async () => { await new Promise<void>(resolve => { release = resolve; }); return {}; });
   await new Promise(resolve => setImmediate(resolve)); const approval = f.authorize(p); f.sessions.delete(f.session); release(); await held;
   await assert.rejects(approval, /AUTH_REFUSED/); assert.equal((await f.store.read('xiongan:tester')).lastStep, -1);
@@ -168,11 +277,14 @@ test('encrypted restart preserves prior credentials, OTP use, grant, unknown out
   const directory = await mkdtemp(join(tmpdir(), 'wallet-task-synthetic-')); let cleanupStore: any; t.after(async () => { await cleanupStore?.close(); await rm(directory, { recursive: true, force: true }); });
   const path = join(directory, 'credentials.enc'), encryptionKey = Buffer.alloc(32, 0x42), store = await openEncryptedStore(path, encryptionKey);
   await store.transaction('xiongan:tester', () => ({ secret, lastStep: -1, revision: 1, sentinel: 'old-user' }));
-  const before = await readFile(path), a = syntheticAdapter({ failSend: true }), f = fixture({ store, ...a }), g = await f.reserve(await f.grant());
+  const before = await readFile(path), a = syntheticAdapter({ failSend: true }), f = fixture({ store, ...a, operationVerificationEnabled: true });
+  await saveOperationPolicy(f, 'ON'); const g = await f.reserve(await f.grant());
+  f.state.now += 30000; await operationProof(f, g);
   await f.call('execute', f.operationBody(g)); await store.close(); const ciphertext = await readFile(path, 'utf8'); assert.ok(!ciphertext.includes(secret)); assert.ok(!ciphertext.includes(g.task.digest));
-  const restartStore = await openEncryptedStore(path, encryptionKey); cleanupStore = restartStore; const restarted = fixture({ store: restartStore, ...a });
+  const restartStore = await openEncryptedStore(path, encryptionKey); cleanupStore = restartStore; const restarted = fixture({ store: restartStore, ...a, operationVerificationEnabled: true });
   const persisted = await restarted.call('status', { taskDigest: g.task.digest }); assert.equal(persisted.budget.reservations[0].status, 'outcome-unknown');
-  assert.equal((await restartStore.read('xiongan:tester')).sentinel, 'old-user'); await assert.rejects(restarted.call('execute', restarted.operationBody(persisted)), /TASK_SEND_ATTEMPT_REFUSED/);
+  assert.equal((await restartStore.read('xiongan:tester')).sentinel, 'old-user');
+  assert.equal((await restartStore.read('xiongan:tester')).lastStep, epoch / 30000 + 1); await assert.rejects(restarted.call('execute', restarted.operationBody(persisted)), /TASK_SEND_ATTEMPT_REFUSED/);
   assert.notDeepEqual(await readFile(path), before); assert.equal(a.calls.send, 1);
 });
 test('pending list uses fixed-revision pages without silently dropping tasks', async () => {
@@ -197,7 +309,7 @@ test('HTTP tasks preserve origin, tenant, CSRF and session binding without discl
   assert.equal((await call('password', { username: 'tester', password, account: actor, chainId: '11155111' })).status, 200);
   for (const headers of [{ Origin: 'https://evil.invalid' }, { 'X-Wallet-Tenant': 'other' }, { 'X-Wallet-CSRF': 'forged' }]) assert.ok((await call('tasks/list', {}, headers)).status >= 400);
   const prepared = await call('tasks/prepare', { policy: policy({ origin }) }); assert.equal(prepared.status, 200);
-  const g = await call('tasks/authorize', { challengeId: prepared.data.challengeId, taskDigest: prepared.data.task.digest, executorDigest: prepared.data.executor.digest, observationPolicyDigest: prepared.data.observationPolicy?.digest ?? null, code: hotp(secret, epoch / 30000) });
+  const g = await call('tasks/authorize', { challengeId: prepared.data.challengeId, taskDigest: prepared.data.task.digest, executorDigest: prepared.data.executor.digest, observationPolicyDigest: prepared.data.observationPolicy?.digest ?? null, code: prepared.data.approvalFactor === 'totp' ? hotp(secret, epoch / 30000) : '' });
   assert.equal(g.status, 200); assert.equal(g.data.effectiveStatus, 'authorized'); const output = JSON.stringify(g.data); assert.ok(!output.includes(secret)); assert.ok(!output.includes(passwordHash)); assert.ok(!output.includes('lastStep'));
   let throttled: any;
   for (let i = 0; i < 121; i++) { const response = await call('tasks/status', { taskDigest: prepared.data.task.digest });
@@ -249,7 +361,8 @@ test('cancelled history beyond 128 preserves every tombstone without limiting a 
 test('real 4 MiB store capacity refuses approval atomically without trimming any persisted proposal', async () => {
   class CapturedStore extends MemoryCredentialStore { snapshot: any; constructor(data: any) { super(data); }
     async persist(data: any) { this.snapshot = structuredClone(data); } }
-  const store = new CapturedStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } }), f = fixture({ store }), p = await f.prepare();
+  const store = new CapturedStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } }), f = fixture({ store, ...syntheticAdapter() });
+  await saveOperationPolicy(f, 'ON'); const p = await f.prepare(); assert.equal(p.approvalFactor, 'totp');
   const overhead = Buffer.byteLength(JSON.stringify({ version: 1, iv: 'A'.repeat(16), tag: 'A'.repeat(24), data: '' }));
   const limit = 3 * Math.floor((4 * 1024 * 1024 - overhead) / 4);
   const free = limit - Buffer.byteLength(JSON.stringify(store.snapshot));
@@ -335,7 +448,8 @@ function syntheticReceipt(options: any = {}) {
   return { receipt, receiptCalls: calls };
 }
 test('observation policy is explicit and bound to the same approval without consuming a mismatched OTP', async () => {
-  const f = fixture(syntheticAdapter()), p = await f.prepare();
+  const f = fixture(syntheticAdapter()); await saveOperationPolicy(f, 'ON');
+  const p = await f.prepare(); assert.equal(p.approvalFactor, 'totp');
   assert.equal(p.observationPolicy.digest, '0xe834daeddaea8e8bc8d1aad561998012fd6f5a1b5a0803492441c0a9061c6beb');
   await assert.rejects(f.call('authorize', { challengeId: p.challengeId, taskDigest: p.task.digest, executorDigest: p.executor.digest,
     observationPolicyDigest: freezeTaskObservationPolicy({ minimumConfirmations: '3' }).digest, code: f.code() }), /TASK_APPROVAL_CHALLENGE_REFUSED/);
@@ -377,14 +491,27 @@ test('read-only observation works after revocation and factor revalidation using
   assert.equal(progress.effectiveStatus, 'revoked'); assert.equal(progress.observation.attemptGrantPolicyVersion, '1');
   assert.equal(progress.authorization.grantPolicyVersion, '2'); assert.deepEqual(progress.budget, submitted.budget); assert.equal(a.calls.send, 1);
 });
-test('receipt identity changes cannot reinterpret prior grants or attempts', async () => {
+test('receipt identity upgrade without historical capability refuses before observing or rewriting the prior attempt', async () => {
   const a = syntheticAdapter(), r = syntheticReceipt(), f = fixture({ ...a, ...r }), g = await f.reserve(await f.grant());
   await f.call('execute', f.operationBody(g));
   const replacement = syntheticReceipt(); replacement.receipt.identity.verifierVersion = '2';
-  const changed = fixture({ store: f.store, ...syntheticAdapter(), ...replacement });
-  assert.equal((await changed.call('status', { taskDigest: g.task.digest })).effectiveStatus, 'suspended');
-  await assert.rejects(changed.call('resume', { taskDigest: g.task.digest }), /TASK_RECEIPT_EXECUTOR_BINDING_REQUIRED/);
+  const nextAdapter = syntheticAdapter(), changed = fixture({ store: f.store, ...nextAdapter, ...replacement });
+  const before = await changed.call('status', { taskDigest: g.task.digest });
+  assert.equal(before.effectiveStatus, 'suspended');
+  // The new identity is not authority for the recorded attempt. The original
+  // submitted attempt exists, but this fixture provides NO captured historical
+  // observation capability. Refuse that exact missing port, not the old
+  // pre-attempt binding error, and never fall back to current observation.
+  await assert.rejects(changed.call('resume', { taskDigest: g.task.digest }),
+    (error: any) => error.message === 'TASK_RECEIPT_HISTORICAL_CAPABILITY_REQUIRED' && error.status === 503);
+  const after = await changed.call('status', { taskDigest: g.task.digest });
+  assert.deepEqual(after.budget, before.budget);
+  assert.deepEqual(after.observations, before.observations);
+  assert.equal(after.observationRevision, before.observationRevision);
+  assert.equal(after.authorization.grantPolicyVersion, before.authorization.grantPolicyVersion);
+  assert.equal(after.executor.digest, g.executor.digest);
   assert.equal(replacement.receiptCalls.observe, 0);
+  assert.deepEqual(nextAdapter.calls, { verify: 0, send: 0, recover: 0 });
 });
 test('concurrent observations use a separate CAS and never modify the spending ledger', async () => {
   let arrivals = 0, release!: () => void; const both = new Promise<void>(resolve => { release = resolve; });
@@ -478,4 +605,57 @@ test('default receipt capability rejects contract-coded native participants befo
     await assert.rejects(f.call('execute', f.operationBody(g)), /TASK_RECEIPT_NATIVE_EOA_REQUIRED/);
     assert.equal(a.calls.verify, 0); assert.equal(a.calls.send, 0); assert.equal((await f.call('status', { taskDigest: g.task.digest })).budget.reservations[0].status, 'reserved');
   }
+});
+
+test('exact immediate-dispatch fence lets queued revoke, rotation, logout and child expiry win', async () => {
+  class DispatchStore extends MemoryCredentialStore {
+    beforeDispatch: null | (() => Promise<void>) = null;
+    constructor(data: any) { super(data); }
+    async withReadSnapshot(keys: any, inspect: any) {
+      const action = this.beforeDispatch; this.beforeDispatch = null;
+      if (action) await action();
+      return super.withReadSnapshot(keys, inspect);
+    }
+  }
+  for (const change of ['revoke', 'factor', 'logout', 'child-expiry']) {
+    const store = new DispatchStore({ 'xiongan:tester': { secret, lastStep: -1, revision: 1 } });
+    const a = syntheticAdapter(), f = fixture({ ...a, store }), g = await f.reserve(await f.grant());
+    store.beforeDispatch = async () => {
+      if (change === 'revoke') await f.call('revoke', { taskDigest: g.task.digest, expectedGrantPolicyVersion: '1' });
+      if (change === 'factor') {
+        await store.transaction('xiongan:tester', (c: any) => ({ ...c, revision: 2 }));
+        f.session.revision = 2;
+      }
+      if (change === 'logout') f.sessions.delete(f.session);
+      if (change === 'child-expiry') f.state.now += 601000;
+    };
+    const expectedMessage: Record<string, string> = { revoke: 'TASK_GRANT_REVOKED',
+      factor: 'TASK_FACTOR_REVALIDATION_REQUIRED', logout: 'AUTH_REFUSED', 'child-expiry': 'TASK_CHILD_OUTSIDE_SCOPE' };
+    await assert.rejects(f.call('execute', f.operationBody(g)),
+      (error: any) => error.message === expectedMessage[change], change);
+    assert.equal(a.calls.verify, 1, change); assert.equal(a.calls.send, 0, change);
+    f.sessions.add(f.session);
+    const status = await f.call('status', { taskDigest: g.task.digest });
+    assert.equal(status.budget.reservations[0].status, 'outcome-unknown', change);
+    assert.equal(status.budget.reservations[0].feeWei, g.budget.reservations[0].feeWei, change);
+    await assert.rejects(f.call('cancel-reservation', f.operationBody(status)), /TASK_UNCERTAIN_RESERVATION_CANNOT_RELEASE/);
+    await assert.rejects(f.call('execute', f.operationBody(status)));
+    assert.equal(a.calls.send, 0, change);
+  }
+});
+test('exact synchronous adapter failure retains UNKNOWN and can only reconcile without resend', async () => {
+  const a = syntheticAdapter();
+  a.execution.send = (input: any): any => { a.calls.send++; assert.ok(Object.isFrozen(input.child)); throw Error('synthetic synchronous send failure'); };
+  const f = fixture(a), g = await f.reserve(await f.grant());
+  const result = await f.call('execute', f.operationBody(g));
+  assert.equal(result.outcome, 'outcome-unknown'); assert.equal(a.calls.send, 1);
+  await assert.rejects(f.call('execute', f.operationBody(result)), /TASK_SEND_ATTEMPT_REFUSED/);
+  const recovered = await f.call('recover', f.operationBody(result));
+  assert.equal(recovered.budget.reservations[0].status, 'submitted');
+  assert.equal(a.calls.recover, 1); assert.equal(a.calls.send, 1);
+});
+test('exact adapter requires the real serialized immediate-dispatch capability', () => {
+  const store = new MemoryCredentialStore();
+  const incomplete = { transactionMany: store.transactionMany.bind(store) };
+  assert.throws(() => fixture({ ...syntheticAdapter(), store: incomplete }), /TASK_EXECUTION_GATE_NOT_CONFIGURED/);
 });

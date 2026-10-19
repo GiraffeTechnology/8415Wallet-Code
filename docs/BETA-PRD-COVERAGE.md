@@ -2,11 +2,14 @@
 
 ## Version and evidence contract
 
-V2 means the retained wallet PRD v2.2 foundation in sections 1–8 of
-`ERC-8415-Wallet-PRD.md`. V3 means that foundation plus the additive v3.0 linked
-requirements in section 9. These are product/PRD scopes, not SDK package
-versions. Each generated DApp manifest records the exact PRD file hash and
-source tree; shared runtime code does not erase this distinction.
+The sole current requirements are the complete `ERC-8415-Wallet-PRD.md`.
+V2 retains the standalone v2.2 foundation in sections 1–8; V3 adds the linked
+requirements in section 9. Shared Beta 2.0 UI/API/security requirements in
+sections 6 and 10 apply to both profiles, including §§6.5.1 and 10.7.1.
+Beta 2.0 is the UI release label, not a replacement runtime or SDK package
+version. Release metadata retains the foundational PRD version and lists all
+applicable sections; the exact complete PRD file hash and source tree identify
+the current requirements. V2 chain composition is N/A, not failed acceptance.
 
 The matrices identify the actual DApp entry points and relevant executable
 regressions. A listed test is a coverage reference, not a statement that it ran
@@ -14,6 +17,23 @@ for a particular artifact. Use the source-bound CI and delivered test report for
 actual results. Local EVM execution is real contract execution on a local chain;
 deterministic provider/DOM tests are synthetic. Neither is a genuine deployed
 wallet, physical-device or W-20 result.
+
+## Current Beta 2.0 acceptance scope
+
+The complete PRD remains mandatory: human-only UI settings, API-only agent
+execution, exact-change secondary verification, persistent in-scope OFF behavior,
+recursive asset/operation authorization, per-currency balances and escrow,
+privacy-safe full-chain Pending/rollback progress, the actual served locales,
+and independently bound read-only observation provenance. These requirements
+are not accepted by the historical implementation rows below. Record final
+UI/backend/API/source identities and actual results separately for V2 and V3;
+prioritize the forum checklist alongside all applicable mainline tests.
+
+Installation/product packages remain withdrawn under §10.8 and the current
+publication policy. Preserve CI tests/builds/checks while suppressing only the
+installer/product-kit upload. Privacy review and required online/on-chain
+acceptance, fixes and successful retests precede downloadable package release.
+This document synchronization runs no validation and claims no new acceptance.
 
 ## AI-native task and authentication coverage
 
@@ -23,14 +43,14 @@ and its limits while the agent completes all in-scope work. It retains the same
 permission/review threshold and validates every child transaction; it does not
 require the human to operate each business-action button after a separate login.
 
-### 2026-10-10 bounded implementation update
+### 2026-10-10 bounded implementation evidence (historical)
 
 The earlier `da7e5478e1de1407e566149813108f8afa4c9342` planned baseline is
 superseded for the implemented paths below. Exact candidate identity and observed
 results belong to the accompanying delivery manifest; this document is not a
 new test run or production acceptance record.
 
-| Requirement | Current implementation evidence | Evidence limit / remaining acceptance |
+| Requirement | Recorded implementation evidence | Evidence limit / remaining acceptance |
 | --- | --- | --- |
 | Bound parent-task intent, grant, budget and child constraints | `server/task-authorization.mjs` and `src/agent/taskContract.ts` implement verified grants, durable reservations, revocation and per-child checks | Local service evidence exists; complete PS acceptance and production execution remain NOT_RUN |
 | TOTP task confirmation and automatic resumption | `web/task-authorization-ui.mjs`, `server/task-authorization.mjs` and `server/task-background-runner.mjs` bind exact task approval and continue within the grant after logout | Local HTTP/TOTP/logout and background continuation exercised; genuine mobile authenticator app-switch/resume NOT_RUN |
@@ -67,7 +87,7 @@ parent task, not a general transfer permission or actual transaction authorizati
 | Begin, finalize and cancel settlement | Standalone protocol transaction review, explicit wallet confirmation and recovery | Existing `WalletSession.transactions`, `sdk/transactions.ts`, `Eip1193Signer`; DApp wrapper revalidates the reviewed request and preserves uncertain sends |
 | Legacy single-trade clearing | Separate legacy-clearing panel | `ProjectionEscrow.sol`, `escrowRpcReader.ts`, `escrowView.test.ts`, `test-evm/escrow.cjs`; escrow terms never become linked authority |
 | Independent use | Token-only manifest, controller/payment absent | No ArtFi, Oracle, linked control or payment adapter required for standalone protocol use |
-| Existing-standards ETH/ERC-20/NFT companion | External wallet asset panel | `xiongan-assets.test.ts`, `xiongan-address-ui.test.ts`, `xiongan-erc20.test.ts`, `external-erc20.cjs`; separate EOA custody, not ERC register semantics |
+| Existing-standards ETH/ERC-20/NFT companion | External wallet asset panel | External-asset, address-validation and ERC-20 regression suites; separate EOA custody, not ERC register semantics |
 
 The optional Kit and watchtower integrations retain their SDK/CLI configuration
 surfaces. The DApp's direct-chain standalone path does not silently require

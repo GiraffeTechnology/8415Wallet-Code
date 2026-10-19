@@ -1,3 +1,5 @@
+const { fixturePath, compositionEvidence } = require('../../tests/helpers/enabled-composition.cjs');
+const testComposition = 'settlement'; // Explicit retained-component fixture, not production foundation acceptance.
 const { installScreenNavigation } = require('./screen-navigation.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -19,7 +21,7 @@ async function main() {
   const chainId = (await ethers.provider.getNetwork()).chainId;
   assert.ok([11155111n, 560048n].includes(chainId), 'Use hardhat.rehearsal.config.cjs for the local UI chain');
   const port = 18417, origin = `http://127.0.0.1:${port}`;
-  const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], { env: { ...process.env, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], { env: { ...process.env, WALLET_BROWSER_TEST_COMPOSITION: testComposition, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   let browser;
   try {
     await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('error', reject); });
@@ -62,7 +64,7 @@ async function main() {
         await idle(); await page.click('#connect'); await page.waitForFunction(() => document.getElementById('identity').textContent.startsWith('Chain ')); await idle();
       };
       const prepare = async () => { await page.click('#settlement-prepare'); await idle(); await page.waitForFunction(() => document.getElementById('settlement-terms').textContent.includes('digest')); };
-      await page.goto(origin); await connect();
+      await page.goto(origin + fixturePath(testComposition)); await connect();
       await page.selectOption('#settlement-kind', 'beginSettlement');
       await page.fill('#settlement-id', hash(`browser-gap-${viewport.width}`)); await page.fill('#settlement-holder', buyer.address);
       await page.fill('#settlement-snapshot', hash('snapshot')); await page.fill('#settlement-deadline', deadline.toString());
@@ -93,7 +95,7 @@ async function main() {
       await page.click('.nav-item[data-route="native"]');
       await page.locator('#standalone').screenshot({path:path.join(out,`standalone-${viewport.width}.png`)});
       assert.deepEqual(errors,[]); assert.deepEqual(externalRequests,[]);
-      report.push({viewport,checks:'begin, checksum refusal, edit invalidation, no-ack, dismiss, numeric-4001, fresh review, submit, reload, reconcile, acknowledge, expired cancel, canonical receipt, no false finality, no horizontal overflow',sends,errors,externalRequests});
+      report.push({composition:compositionEvidence(testComposition),viewport,checks:'begin, checksum refusal, edit invalidation, no-ack, dismiss, numeric-4001, fresh review, submit, reload, reconcile, acknowledge, expired cancel, canonical receipt, no false finality, no horizontal overflow',sends,errors,externalRequests});
       await context.close();
     }
     fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({method:'Local EVM and Chromium with deterministic selected-account provider; genuine browser IndexedDB; no public network or real wallet',report},null,2));

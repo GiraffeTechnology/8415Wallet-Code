@@ -8,6 +8,7 @@ import { Interface, AbiCoder, TypedDataEncoder, keccak256 } from 'ethers';
 import { createTaskAuthorizationService } from '../server/task-authorization.mjs';
 import { createTaskReceiptRuntime, disabledTaskReceiptRuntime } from '../server/task-receipt-runtime.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
+import { taskVerificationPolicyKey } from '../server/task-verification-state.mjs';
 const a = n => '0x' + n.repeat(40), h = n => '0x' + n.repeat(64), epoch = 1800000000000;
 const sha = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const PEER = 'spiffe://wallet.example.invalid/journal', CONSUMER = 'spiffe://artfi.example.invalid/journal-consumer';
@@ -19,7 +20,7 @@ const saleFields = [['seller', 'address'], ['collection', 'address'], ['tokenId'
   ['price', 'uint256'], ['buyer', 'address'], ['salt', 'uint256'], ['startsAt', 'uint48'], ['endsAt', 'uint48'],
   ['epoch', 'uint256']].map(([name, type]) => ({ name, type }));
 
-function fixture() {
+function fixture({ connected = false, ownerMode = null } = {}) {
   const state = { now: epoch };
   const store = new MemoryCredentialStore({ 'xiongan:tester': { revision: 1, synthetic: true } });
   const journalStore = new MemoryCredentialStore({});
@@ -41,6 +42,7 @@ function fixture() {
       recovery: { funding: 'once', payout: 'once', unknownOutcome: 'reconcile-only' } } };
   const assertSession = (s, c) => { if (s !== session || state.now >= session.expiresAt || c !== undefined && c?.revision !== 1) throw Error('AUTH_REFUSED'); };
   const service = createTaskAuthorizationService({ origin: policy.origin, tenant: 'xiongan', store, now: () => state.now, assertSession,
+    operationVerificationEnabled: connected,
     credentialFor: async s => { const c = await store.read('xiongan:tester'); assertSession(s, c); return c; },
     consumeTotp: (s, c, code) => { assertSession(s, c); assert.equal(code, '123456'); return c; },
     assertPrincipal: (p, c) => { if (p.username !== 'tester' || p.account !== a('1') || p.chainId !== '560048' || c?.revision !== 1) throw Error('AUTH_PRINCIPAL_REFUSED'); },
@@ -51,8 +53,19 @@ function fixture() {
   const authority = runtime.connectAuthorization(service.receiptAuthorization);
   const call = (path, body) => service.handler('tasks/' + path, body, session);
   async function grant() {
+    if (ownerMode !== null) {
+      const scope = { origin: policy.origin, tenant: policy.tenant, username: session.username,
+        account: session.account, chainId: session.chainId, agentId: 'synthetic-receipt' };
+      await store.transaction('xiongan:tester', credential => ({ ...credential, taskVerificationPolicies: {
+        [taskVerificationPolicyKey(scope)]: { schema: '8415-task-human-verification/2', scope,
+          mode: ownerMode, revision: '1', enforcedFromRevision: '1', changes: [{ revision: '1', previousRevision: '0',
+            mode: ownerMode, changeId: 'A'.repeat(43), changeDigest: 'a'.repeat(64), scopeDigest: sha(scope),
+            credentialRevision: 1, verifiedFactors: ['password', 'verified-email'], changedAt: epoch - 1 }] } } }));
+    }
     const c = await call('prepare', { policy });
-    return call('authorize', { challengeId: c.challengeId, taskDigest: c.task.digest, executorDigest: c.executor.digest, observationPolicyDigest: null, code: '123456' });
+    assert.equal(c.approvalFactor, ownerMode === null ? 'preoperational-default-on' : 'totp');
+    return call('authorize', { challengeId: c.challengeId, taskDigest: c.task.digest, executorDigest: c.executor.digest, observationPolicyDigest: null,
+      code: c.approvalFactor === 'totp' ? '123456' : '' });
   }
   function operation(g, phase) {
     const p = g.task.policy.intent.phases.find(p => p.phase === phase);
@@ -80,6 +93,34 @@ function fixture() {
   };
   return { state, store, journalStore, session, policy, service, runtime, authority, call, grant, operation, journalScope, send };
 }
+
+for (const connected of [false, true]) test(`receipt initial ON stays unlocked with management connected=${connected}`, async () => {
+  const f = fixture({ connected }), g = await f.grant();
+  assert.equal(g.humanVerification.mode, 'ON'); assert.equal(g.humanVerification.revision, '0');
+  let sends = 0;
+  await f.send(g, 'funded', async () => { sends++; return h('a'); });
+  assert.equal(sends, 1);
+  const key = 'task-operation:' + sha([g.task.policy.chainId, g.task.policy.actor, 'receipt-funded']);
+  const op = await f.store.read(key);
+  assert.equal(op.status, 'submitted'); assert.equal(op.humanVerification, undefined);
+  assert.deepEqual(op.humanVerificationEvaluation,
+    { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' });
+  await assert.rejects(f.send(g, 'funded'), /ALREADY_ATTEMPTED/);
+  await f.store.close();
+});
+test('receipt saved ON still requires the missing phase verifier while saved OFF remains prompt-free', async () => {
+  for (const ownerMode of ['ON', 'OFF']) {
+    const f = fixture({ connected: true, ownerMode }), g = await f.grant(); let sends = 0;
+    const send = () => f.send(g, 'funded', async () => { sends++; return h('a'); });
+    if (ownerMode === 'ON') {
+      await assert.rejects(send(), /TASK_RECEIPT_OPERATION_VERIFICATION_NOT_CONNECTED/); assert.equal(sends, 0);
+      assert.deepEqual((await f.call('status', { taskDigest: g.task.digest })).receiptAttempts, []);
+    } else { await send(); assert.equal(sends, 1); }
+    const status = await f.call('status', { taskDigest: g.task.digest });
+    assert.equal(status.humanVerification.mode, ownerMode); assert.equal(status.humanVerification.revision, '1');
+    await f.store.close();
+  }
+});
 
 test('a receipt send runs inside the journal held gate and issues a one-use capability', async () => {
   const f = fixture(), g = await f.grant();

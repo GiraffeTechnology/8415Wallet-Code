@@ -1,6 +1,7 @@
-import { nativeUi, settlementDisplay, checkDisplay } from './native-i18n.mjs';
+import { settlementDisplay, checkDisplay } from './native-i18n.mjs';
+import { privateNativeSummary, privateNativeUi, privateReadDisplay } from './wallet-identity-display.mjs';
 import { msg, paint, jsonUi, trustedMessage } from './i18n.mjs';
-import { walletLogin, WalletLoginError } from './wallet-auth.mjs';
+import { walletLogin, WalletLoginError, currentAccountClient, currentAccountFeatures } from './wallet-auth.mjs';
 import { getReleaseProfile } from './release-profile.mjs';
 import { BrowserSettlementStore } from './settlement-store.mjs';
 import { StandaloneSettlementSession, isAddressInput, TransactionWouldRevertError } from '../dist/browser/browser.js';
@@ -13,7 +14,12 @@ import { BrowserPublicOperationStore } from './public-store.mjs';
 
 const el = id => document.getElementById(id);
 const renderResult = value => { paint(el('result'), jsonUi(value)); paint(el('native-read-result'), jsonUi(value)); };
-const nativeView = (state, view = null) => document.dispatchEvent?.(new CustomEvent('wallet:native-view', { detail: { state, view } }));
+const nativeView = (state, view = null) => document.dispatchEvent?.(new CustomEvent('wallet:native-view', { detail: { state,
+  view: state === 'ready' ? privateNativeSummary(view, walletLogin.assert()?.account) : null } }));
+const privateNative = (renderer, view) => privateNativeUi(renderer, view, walletLogin.assert()?.account);
+const privateDisplay = (value, disclosure = null) => {
+  display(privateReadDisplay(value, walletLogin.assert()?.account, disclosure));
+};
 const display = value => { requireCurrentConnection(); renderResult(value); };
 const value = id => el(id).value.trim();
 const fail = code => { throw new ControlAdapterError(code); };
@@ -182,7 +188,7 @@ document.querySelectorAll('[data-read]').forEach(button => button.addEventListen
       }
       const ids = parts.map(part => integer(part.trim()));
       if (new Set(ids).size !== ids.length) fail('COLLISION_DUPLICATE_TOKEN_REFUSED');
-      try { output = nativeUi(renderCollisions, await wallet.collisions(ids)); }
+      try { output = privateNative(renderCollisions, await wallet.collisions(ids)); }
       catch (error) {
         // The scan's refusal carries the limit it enforced. Showing the bare
         // code loses it, which is the invisible bound this replaces.
@@ -191,15 +197,15 @@ document.querySelectorAll('[data-read]').forEach(button => button.addEventListen
       }
       break;
     }
-    case 'asset': assetObservation = await wallet.assetView(tokenId); output = nativeUi(renderAssetView, assetObservation); break;
-    case 'temporal': output = nativeUi(renderTemporalQuery, await wallet.temporalQuery(tokenId, number('instant'))); break;
-    case 'history': output = nativeUi(renderHistory, await wallet.history(tokenId)); break;
-    case 'registration': output = nativeUi(renderRegistration, await wallet.registration(tokenId)); break;
-    case 'acquisition': output = nativeUi(renderAcquisitionDisclosure, await wallet.acquisitionDisclosure(tokenId)); break;
-    case 'risk': output = nativeUi(renderRiskSurfaces, await wallet.riskSurfaces(tokenId)); break;
-    case 'posture': output = nativeUi(renderPosture, await wallet.posture(tokenId, number('instant'))); break;
-    case 'settlements': output = nativeUi(renderSettlementLog, await wallet.settlementLog(tokenId)); break;
-    case 'ownership': output = nativeUi(renderOwnershipHistory, await wallet.ownershipHistory(tokenId)); break;
+    case 'asset': assetObservation = await wallet.assetView(tokenId); output = privateNative(renderAssetView, assetObservation); break;
+    case 'temporal': output = privateNative(renderTemporalQuery, await wallet.temporalQuery(tokenId, number('instant'))); break;
+    case 'history': output = privateNative(renderHistory, await wallet.history(tokenId)); break;
+    case 'registration': output = privateNative(renderRegistration, await wallet.registration(tokenId)); break;
+    case 'acquisition': output = privateNative(renderAcquisitionDisclosure, await wallet.acquisitionDisclosure(tokenId)); break;
+    case 'risk': output = privateNative(renderRiskSurfaces, await wallet.riskSurfaces(tokenId)); break;
+    case 'posture': output = privateNative(renderPosture, await wallet.posture(tokenId, number('instant'))); break;
+    case 'settlements': output = privateNative(renderSettlementLog, await wallet.settlementLog(tokenId)); break;
+    case 'ownership': output = privateNative(renderOwnershipHistory, await wallet.ownershipHistory(tokenId)); break;
     default: fail('CONTROL_ACTION_REFUSED');
   }
   if (wallet !== plainWallet) fail('CONTROL_CONNECTION_CHANGED'); requireCurrentConnection();
@@ -218,13 +224,13 @@ document.querySelectorAll('[data-action]').forEach(button => button.addEventList
     requireCurrentConnection();
     const observation = await archive.observe(sequenceId, document);
     if (s !== session) fail('CONTROL_CONNECTION_CHANGED');
-    display({ ...observation, disclosure: msg('message.012') }); return;
+    privateDisplay(observation, msg('message.012')); return;
   }
   if (kind === 'read-payment') {
     if (!s.payments) fail('CONTROL_PAYMENT_NOT_CONFIGURED');
     const observation = await s.payments.observe(bytes(value('sequenceId'), 32), bytes(value('legId'), 32));
     if (s !== session) fail('CONTROL_CONNECTION_CHANGED');
-    display(observation); return;
+    privateDisplay(observation); return;
   }
   if (kind === 'read') {
     const observed = await s.reader.observe(bytes(value('sequenceId'), 32));
@@ -232,8 +238,8 @@ document.querySelectorAll('[data-action]').forEach(button => button.addEventList
     if (s.payments) for (const leg of observed.snapshot.legs) payments.push(await s.payments.readAt(observed.snapshot.sequenceId, leg.id, observed.snapshot.blockHash));
     const header = await controlRpc(provider, 'eth_getBlockByNumber', [`0x${observed.snapshot.blockNumber.toString(16)}`, false]);
     if (header?.hash?.toLowerCase() !== observed.snapshot.blockHash) fail('CONTROL_SNAPSHOT_REORGED');
-    display({ responsibility: observed.snapshot, projection: observed.projection, occurrenceEvidence: observed.evidence,
-      payments: s.payments ? payments : msg('message.013'), readOnly: true }); return;
+    privateDisplay({ responsibility: observed.snapshot, projection: observed.projection, occurrenceEvidence: observed.evidence,
+      payments: s.payments ? payments : null, readOnly: true }, s.payments ? null : msg('message.013')); return;
   }
   let operation;
   if (kind === 'deposit' || kind === 'standalone-withdraw') operation = { kind, token: deployment.token, tokenId: number('tokenId'), ...(kind === 'standalone-withdraw' ? { destination: addressInput(value('destination')) } : {}) };
@@ -441,3 +447,14 @@ mountKitRead({
   },
 });
 
+import { mountForwardProgress } from './forward-progress-panel.mjs';
+mountForwardProgress({
+  root: el('linked'), login: walletLogin, clientFor: currentAccountClient,
+  available: () => currentAccountFeatures()?.forwardProgressAvailable === true,
+  selection: () => {
+    requireCurrentConnection();
+    if (!plainWallet || !deployment || !releaseProfile?.features.linkedResponsibilities) fail('CONTROL_CONNECTION_REQUIRED');
+    return { asset: { chainId: deployment.chainId.toString(), contract: deployment.token.controller,
+      tokenId: number('tokenId').toString() }, sequenceId: bytes(value('sequenceId'), 32) };
+  },
+});

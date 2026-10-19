@@ -217,10 +217,13 @@ export class ExternalAssetSession {
   }
   async #rpc(method: string, params: readonly unknown[]) { this.#connectionGuard(); return controlRpc(this.#provider, method, params); }
   async #identity() {
-    check(quantity(await this.#rpc('eth_chainId', [])).toString() === this.chainId, 'ASSET_CHAIN_CHANGED');
+    const expectedChain = this.chainId;
+    check(quantity(await this.#rpc('eth_chainId', [])).toString() === expectedChain, 'ASSET_CHAIN_CHANGED');
     const accounts = await this.#rpc('eth_accounts', []);
     check(Array.isArray(accounts) && addr(accounts[0]) === this.actor, 'ASSET_ACCOUNT_CHANGED');
     check(await this.#rpc('eth_getCode', [this.actor, 'latest']) === '0x', 'ASSET_EOA_REQUIRED');
+    // Account and code reads are asynchronous; retain the original expected chain.
+    check(quantity(await this.#rpc('eth_chainId', [])).toString() === expectedChain, 'ASSET_CHAIN_CHANGED');
   }
   async status(): Promise<AssetState> {
     let s = await this.#store.read();

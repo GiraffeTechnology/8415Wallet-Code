@@ -95,11 +95,13 @@ export class TokenProjection {
       reject('COMMITMENT_REUSED', 'this record commitment is already in the token history');
     }
 
-    const entry: ProjectionEntry = { ...candidate, supersededAt: 0n };
+    // Every protocol field is a primitive. Freeze the copied record so no
+    // admission result or read accessor can mutate the stored history.
+    const entry: ProjectionEntry = Object.freeze({ ...candidate, supersededAt: 0n });
 
     if (previous !== undefined) {
       const index = this.#entries.length - 1;
-      this.#entries[index] = { ...previous, supersededAt: candidate.effectiveAt };
+      this.#entries[index] = Object.freeze({ ...previous, supersededAt: candidate.effectiveAt });
     }
     this.#entries.push(entry);
     this.#commitments.add(entry.recordCommitment);

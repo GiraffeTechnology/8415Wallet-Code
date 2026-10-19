@@ -21,8 +21,8 @@ export type Erc165Reader = {
  * The chain's own clock.
  *
  * Needed because two things the wallet must say are relative to now: how long
- * an open gap has left against its deadline, and that the present instant is
- * at or after the latest entry's effective time and so is never final.
+ * an open gap has left against its deadline and the exact queried present
+ * instant. Finality is read independently; future-effective entries may cover it.
  */
 export type ChainClockReader = {
   /** `block.timestamp` of the latest block, on the same scale as an instant. */

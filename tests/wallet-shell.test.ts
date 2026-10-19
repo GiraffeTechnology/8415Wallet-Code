@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as i18n from '../web/i18n.mjs';
+import { walletIdentityStateDisplay, privateNativeSummary } from '../web/wallet-identity-display.mjs';
 const source = readFileSync(new URL('../web/wallet-shell.mjs', import.meta.url), 'utf8').replace(/^import[^\n]*\n/gm, '');
 const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 class Node {
@@ -40,7 +41,7 @@ function fixture(linked = false) {
     state = { status: 'empty', savedUrl: null, previewUrl: null, errorCode: null, hasDraft: false, hasSaved: false };
     snapshot() { return this.state; } cancel() { this.state.hasDraft = false; return this.state; } setContext() {} async load() {} async select() {} async save() { avatarSaves++; } async remove() {} dispose() {}
   }
-  const sdk = { ...i18n, walletLogin: { subscribe(fn: Function) { subscriber = fn; } }, getReleaseProfile: async () => profile, walletUiBusy: () => busy, TenantAvatarController: Avatar };
+  const sdk = { ...i18n, walletIdentityStateDisplay, walletLogin: { subscribe(fn: Function) { subscriber = fn; } }, getReleaseProfile: async () => profile, walletUiBusy: () => busy, TenantAvatarController: Avatar };
   const window = { location: { origin: 'http://localhost:18428', href: 'http://localhost:18428/web/index.html' }, history: { replaceState(s: any) { history.push(['replace', s]); }, pushState(s: any) { history.push(['push', s]); } }, addEventListener: windowEvents.addEventListener.bind(windowEvents) };
   new Function('document', 'globalThis', ...Object.keys(sdk), source)(document, window, ...Object.values(sdk));
   const el = (id: string) => ids.get(id)!;
@@ -59,10 +60,13 @@ test('logged-out navigation cannot authenticate or display account facts; linked
   f.login({ account: '0xowner', chainId: '1' }); assert.equal(f.page('overview').hidden, false); assert.equal(f.el('shell-account').textContent, '0xowner');
   f.route('linked'); assert.equal(f.page('linked').hidden, true); f.login(null); assert.equal(f.el('shell-account').textContent, 'Signed out');
 });
-test('native summary preserves owner/holder, contract finality and gap independence; errors clear cached facts', () => {
-  const f = fixture(); f.login({ account: '0xaccount', chainId: '1' });
-  f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'ready', view: { tokenId: 8415n, tradeablePosition: { owner: 'OWNER' }, confirmedHolder: { holder: 'HOLDER', version: 3n }, presentFinality: { final: false, agreement: 'consistent' }, gap: { kind: 'none' }, observedAt: 99n } } });
-  assert.equal(f.el('native-owner').textContent, 'OWNER'); assert.equal(f.el('native-holder').textContent, 'HOLDER'); assert.equal(f.el('native-finality').textContent, 'Provisional'); assert.equal(f.el('native-gap').textContent, 'No open gap'); assert.equal(f.el('native-freshness').textContent, 'Freshness not read');
+test('native summary keeps distinct owner/holder facts private without changing finality or gap semantics', () => {
+  const own = '0x' + 'a1'.repeat(20), adjacent = '0x' + 'b2'.repeat(20);
+  const f = fixture(); f.login({ account: own, chainId: '1' });
+  f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'ready', view: privateNativeSummary({ tokenId: 8415n, tradeablePosition: { owner: adjacent }, confirmedHolder: { holder: own, version: 3n }, presentFinality: { final: false, agreement: 'consistent' }, gap: { kind: 'none' }, observedAt: 99n }, own) } });
+  assert.equal(f.el('native-owner').textContent, 'Identity hidden; sequence position unavailable'); assert.equal(f.el('native-holder').textContent, 'Your wallet'); assert.equal(f.el('shell-account').textContent, own); assert.equal(f.el('native-finality').textContent, 'Provisional'); assert.equal(f.el('native-gap').textContent, 'No open gap'); assert.equal(f.el('native-freshness').textContent, 'Freshness not read');
+  assert.ok(!f.nodes.some(node => node.textContent.includes(adjacent) || [...node.attributes.values()].some(value => value.includes(adjacent))));
+  f.login({ account: adjacent, chainId: '1' }); assert.equal(f.el('native-owner').textContent, '—'); assert.equal(f.el('native-holder').textContent, '—');
   f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'error' } }); assert.equal(f.el('native-owner').textContent, '—'); assert.equal(f.el('native-holder').textContent, '—');
   f.login(null); f.events.dispatchEvent({ type: 'wallet:native-view', detail: { state: 'ready', view: {} } }); assert.equal(f.el('native-owner').textContent, '—');
 });
@@ -85,9 +89,9 @@ test('Back dismisses review without overwriting the target history entry', () =>
 });
 /** The rule's own comparison decides the badge, not the boolean alone. */
 const nativeView = (presentFinality: Record<string, unknown>) => ({
-  type: 'wallet:native-view', detail: { state: 'ready', view: { tokenId: 1n,
+  type: 'wallet:native-view', detail: { state: 'ready', view: privateNativeSummary({ tokenId: 1n,
     tradeablePosition: { owner: 'SAME' }, confirmedHolder: { holder: 'SAME', version: 3n },
-    presentFinality, gap: { kind: 'none' }, observedAt: 99n } },
+    presentFinality, gap: { kind: 'none' }, observedAt: 99n }, null) },
 });
 test('anomalous present-finality true never paints a green settled badge', () => {
   const f = fixture(); f.login({ account: 'ACCOUNT', chainId: '1' });

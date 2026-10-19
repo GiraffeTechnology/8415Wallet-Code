@@ -110,6 +110,24 @@ def main() -> int:
     check("resolve uses one snapshot request", len(calls) == 1 and "/resolve/as-of/" in calls[0])
     check("resolve labels each fact separately", resolution.holder == ALICE and resolution.final is True)
     check("resolve reports no open gap as None", resolution.open_gap is None)
+
+    for value in (False, True):
+        exact = ProjectionClient("http://kit.invalid", opener=lambda url, value=value: (
+            200, {"holder": ALICE, "final": value, "openGap": None},
+        ))
+        check("genuine finality booleans remain exact", exact.is_final_as_of(1, 100) is value)
+        check("combined genuine finality booleans remain exact", exact.resolve(1, 100).final is value)
+
+    for value in ("false", "true", 0, 1, None, {}, []):
+        malformed = ProjectionClient("http://kit.invalid", opener=lambda url, value=value: (
+            200, {"holder": ALICE, "final": value, "openGap": None},
+        ))
+        for operation in (malformed.is_final_as_of, malformed.resolve):
+            try:
+                operation(1, 100)
+                check("non-boolean finality must be refused", False)
+            except ProjectionClientError as error:
+                check("non-boolean finality is an invalid response", error.status == 502 and error.code == "INVALID_RESPONSE")
     check(
         "resolve is three facts, never one status",
         sorted(resolution.__dataclass_fields__) == ["final", "holder", "open_gap"],

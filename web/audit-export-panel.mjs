@@ -1,6 +1,7 @@
 import { paint, presentation } from './i18n.mjs';
 import { readOnlyPaint, readOnlyText } from './readonly-i18n.mjs';
 import { readAuditDownload } from './audit-export.mjs';
+import { privateAuditDownload, walletIdentityText, identityText } from './wallet-identity-display.mjs';
 /** Explicit authenticated reads and local download; no storage, upload or registry resolution. */
 export function mountAuditExport({ root, login, getContext, document = globalThis.document, window = globalThis }) {
   const host = root?.querySelector('[data-page="native"]');
@@ -17,7 +18,7 @@ export function mountAuditExport({ root, login, getContext, document = globalThi
   let epoch = 0, busy = false, result = null, selected = null, binding = null;
   function clear() {
     epoch++; busy = false; result = null; selected = null; binding = null;
-    preview.textContent = ''; paint(status, ''); read.disabled = false; save.disabled = true;
+    paint(preview, ''); paint(status, ''); read.disabled = false; save.disabled = true;
   }
   function current(ticket) {
     if (ticket !== epoch || document.visibilityState === 'hidden' || host.hidden) throw new Error('AUDIT_VIEW_CHANGED');
@@ -33,11 +34,17 @@ export function mountAuditExport({ root, login, getContext, document = globalThi
       binding = login.capture(); selected = getContext(); current(ticket);
       const value = await readAuditDownload({ ...selected, guard: () => current(ticket) });
       await login.check(); current(ticket);
-      result = value; preview.textContent = value.json;
-      paint(status, presentation(language => readOnlyText('audit.ok', language) + (value.gapsAvailable ? '' : ' ' + readOnlyText('audit.gaps', language))));
+      result = privateAuditDownload(value, login.assert(binding).account);
+      const json = result.json, gapsAvailable = value.gapsAvailable;
+      // Only the already-redacted copy is retained by the locale binding.
+      // The file keeps its explicit versioned display schema; this human
+      // preview localizes its disclosure and identity labels on every repaint.
+      paint(preview, presentation(language => identityText(JSON.stringify({ ...JSON.parse(json),
+        disclosure: walletIdentityText('audit', language) }, null, 2) + '\n', language)));
+      paint(status, presentation(language => readOnlyText('audit.ok', language) + (gapsAvailable ? '' : ' ' + readOnlyText('audit.gaps', language)) + ' ' + walletIdentityText('audit', language)));
       save.disabled = false;
     } catch {
-      if (ticket === epoch) { result = null; preview.textContent = ''; save.disabled = true;
+      if (ticket === epoch) { result = null; paint(preview, ''); save.disabled = true;
         readOnlyPaint(status, 'audit.error'); }
     } finally { if (ticket === epoch) { busy = false; read.disabled = false; } }
   });
@@ -51,7 +58,7 @@ export function mountAuditExport({ root, login, getContext, document = globalThi
       try {
         const anchor = document.createElement('a'); anchor.href = url; anchor.download = result.filename;
         panel.append(anchor); anchor.click(); anchor.remove();
-        readOnlyPaint(status, 'audit.download');
+        paint(status, presentation(language => readOnlyText('audit.download', language) + ' ' + walletIdentityText('audit', language)));
       } finally { window.setTimeout(() => window.URL.revokeObjectURL(url), 1000); }
     } catch { if (ticket === epoch) clear(); }
     finally { if (ticket === epoch) { busy = false; save.disabled = !result; } }

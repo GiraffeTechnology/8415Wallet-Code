@@ -73,7 +73,7 @@ const release = {
     localMock: 'record separately; not genuine-wallet or deployed acceptance', localEvm: 'record separately; not public-testnet acceptance',
     publicTestnet: 'not established by packaging', deviceJourneys: 'not established by packaging',
     W20: id === 'v3' ? 'requires deployed same-token multi-wallet UI journey, with funded and unfunded variants' : 'not part of V2 foundation',
-    independentReview: 'not independently audited; functional Beta publication is permitted, general release acceptance is not established' },
+    independentReview: 'candidate package integrity only; independent audit and applicable deployed acceptance are not established; packaging grants no public publication permission' },
   scope: { login: 'Verified origin/account/chain-bound in-memory wallet login is required for asset/history display. Public entry and blockchain records remain public; private APIs require separate server authorization.', controlKernel: 'The normal DApp control deployment-manifest path and agent-request path enforce testnet chain guards. Direct SDK consumers must enforce their own chain policy; the SDK is not a universal mainnet barrier.',
     externalAssets: 'ETH, ERC-20, ERC-721 and ERC-1155 on Ethereum, Base, Sepolia and Base Sepolia; no private-key custody; each transfer requires the user wallet confirmation',
     recommendation: 'Use authorized test assets and testnets for Beta testing. Mainnet testing requires separate authorization.' },

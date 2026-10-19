@@ -5,7 +5,8 @@ import { buildTemporalView, type TemporalView } from './temporalQuery.ts';
 export const HOODI_JOURNEY_CHAIN = 560048n;
 export const HOODI_JOURNEY_GENESIS =
   '0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b';
-export type JourneyTenant = 'xiongan' | 'giraffe' | 'lala';
+/** Opaque private binding supplied by the authenticated deployment, never a public roster. */
+export type JourneyTenant = string;
 export type JourneyManifest = {
   readonly chainId: bigint;
   readonly genesisHash: string;
@@ -119,8 +120,8 @@ function copyManifest(value: JourneyManifest): JourneyManifest {
   requireEvidence(Array.isArray(value.wallets) && value.wallets.length === 3, 'THREE_WALLETS_REQUIRED');
   const tenants = new Set(value.wallets.map(w => w.tenant));
   const accounts = new Set(value.wallets.map(w => w.account));
-  requireEvidence(tenants.size === 3 && tenants.has('xiongan') && tenants.has('giraffe') &&
-    tenants.has('lala') && accounts.size === 3 && value.wallets.every(w => address(w.account)),
+  requireEvidence(tenants.size === 3 && accounts.size === 3 && value.wallets.every(w =>
+    typeof w.tenant === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(w.tenant) && address(w.account)),
     'WALLET_BINDING_INVALID');
   return Object.freeze({
     chainId: value.chainId, genesisHash: value.genesisHash, contract: value.contract,
@@ -242,11 +243,10 @@ export function serialiseHoodiJourney(value: OriginalReleaseRecord | ReleaseHist
 export function renderHoodiReleaseHistory(value: ReleaseHistoryComparison): string {
   const original = value.original.observation;
   return [
-    'Hoodi — Xiongan / Giraffe / Lala — same-asset evidence, not execution authority',
+    'Hoodi — same-asset evidence, not execution authority',
     'Asset: ' + value.original.manifest.contract + ':' + value.query.tokenId,
     'Original release time: ' + original.release.recordedAt,
     'Then-known v2 commitment: ' + original.v2.entry.recordCommitment,
-    'Then-known v2 holder: ' + original.v2.entry.holder,
     'Later v3 commitment: ' + value.laterV3.entry.recordCommitment,
     'v3 effectiveAt: ' + value.laterV3.entry.effectiveAt,
     'v3 actually admitted at: ' + value.laterV3.admission.recordedAt,

@@ -10,7 +10,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createRequire } from 'node:module';
 import { Wallet } from 'ethers';
-import { prepare, inspect, paths, probe } from '../deploy/auth-xiongan/install.mjs';
+import { prepare, inspect, paths, probe } from '../deploy/auth-runtime/install.mjs';
 import { runOperatorActivate } from '../server/operator-activate.mjs';
 import { hotp } from '../server/crypto.mjs';
 import { verifyAuthArchive, unpackAuthArchive } from '../scripts/package/verify-auth.mjs';

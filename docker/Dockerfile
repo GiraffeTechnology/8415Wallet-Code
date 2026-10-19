@@ -4,8 +4,8 @@ FROM node:22-slim
 
 WORKDIR /srv/8415wallet
 
-COPY package.json package-lock.json* ./
-RUN npm ci || npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
 

@@ -23,6 +23,9 @@ jobs:
         run: |
           npm run pack:auth
           npm run pack:auth:verify
+      - name: Synthetic Linux build-supervisor lifecycle
+        timeout-minutes: 5
+        run: python3 tests/auth-build-supervisor.test.py
       - name: Import canonical task core and smoke installed service
         run: node scripts/controls/task-auth-runtime-smoke.mjs --runtime dist/package-auth
 
@@ -281,8 +284,9 @@ jobs:
             --output "$RUNNER_TEMP/8415wallet-public-product-node-${{ matrix.node-version }}" \
             --github-output "$GITHUB_OUTPUT"
 
+      # Product downloads remain withdrawn; retain all build/verification steps.
       - name: Verified public product artifacts
-        if: success()
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: public-product-kit-node-${{ matrix.node-version }}

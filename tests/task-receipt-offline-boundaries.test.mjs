@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Interface, AbiCoder, TypedDataEncoder, keccak256 } from 'ethers';
 import { createTaskAuthorizationService } from '../server/task-authorization.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
+import { createHash } from 'node:crypto';
+import { taskVerificationPolicyKey } from '../server/task-verification-state.mjs';
 import { freezeReceiptTask } from '../src/agent/receiptTask.ts';
 const a=n=>'0x'+n.repeat(40),h=n=>'0x'+n.repeat(64),epoch=1800000000000;
 const saleType='(address seller,address collection,uint256 tokenId,address paymentToken,uint256 price,address buyer,uint256 salt,uint48 startsAt,uint48 endsAt,uint256 epoch)';
@@ -27,7 +29,15 @@ function fixture({handler='artfi:whole-receipt:v1',store:configuredStore=null}={
  const call=(path,body)=>service.handler('tasks/'+path,body,session);
  async function grant(){
   const c=await call('prepare',{policy});
-  return call('authorize',{challengeId:c.challengeId,taskDigest:c.task.digest,executorDigest:c.executor.digest,observationPolicyDigest:null,code:'123456'});
+  return call('authorize',{challengeId:c.challengeId,taskDigest:c.task.digest,executorDigest:c.executor.digest,observationPolicyDigest:null,code:c.approvalFactor==='totp'?'123456':''});
+ }
+ // Synthetic persisted owner decision for the operational approval safety cases.
+ async function saveOwnerVerificationOn(){
+  const scope={origin:policy.origin,tenant:policy.tenant,username:session.username,account:session.account,chainId:session.chainId,agentId:'synthetic-receipt'};
+  await store.transaction('xiongan:tester',credential=>({...credential,taskVerificationPolicies:{...credential.taskVerificationPolicies,
+   [taskVerificationPolicyKey(scope)]:{schema:'8415-task-human-verification/2',scope,mode:'ON',revision:'1',enforcedFromRevision:'1',changes:[{
+    revision:'1',previousRevision:'0',mode:'ON',changeId:'A'.repeat(43),changeDigest:'a'.repeat(64),scopeDigest:createHash('sha256').update(JSON.stringify(scope)).digest('hex'),
+    credentialRevision:session.revision,verifiedFactors:['password','verified-email'],changedAt:epoch-1}]}}}));
  }
  function operation(g,phase){
   const p=g.task.policy.intent.phases.find(p=>p.phase===phase);
@@ -35,7 +45,7 @@ function fixture({handler='artfi:whole-receipt:v1',store:configuredStore=null}={
    wire:{account:a('1'),chainId:'560048',to:a('5'),data:data[phase],value:'0',nonce:p.nonce,gasLimit:p.gasLimit,maxFeePerGasWei:p.maxFeePerGasWei,maxPriorityFeePerGasWei:p.maxPriorityFeePerGasWei}};
  }
  const send=async(g,phase,callback=async()=>h('a'))=>{const x=operation(g,phase);return service.receiptAuthorization.withAuthorization(x.claimed,x.wire,async(snapshot,revalidate)=>{sends++;revalidate();assert.equal(snapshot.scope.phase,phase);return callback(snapshot,revalidate);});};
- return {state,store,session,policy,service,call,grant,operation,send,count:()=>({approvals,sends})};
+ return {state,store,session,policy,service,call,grant,saveOwnerVerificationOn,operation,send,count:()=>({approvals,sends})};
 }
 
 test('review: two concurrent identical receipt phases dispatch only once',async()=>{
@@ -74,29 +84,38 @@ for(const boundary of ['expiry','clock-reversal','credential-revision']){
  });
 }
 
-for(const field of ['id','revision','account','chainId','username']){
- test('review: task approval challenge rejects switched session '+field,async()=>{
-  const f=fixture(),p=await f.call('prepare',{policy:f.policy});
-  const body={challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,code:'123456'};
-  const old=f.session[field];f.session[field]=field==='revision'?2:field==='account'?a('7'):field==='chainId'?'1':'different-session';
-  await assert.rejects(f.call('authorize',body));assert.equal(f.count().approvals,0);
-  f.session[field]=old;await f.call('authorize',body);assert.equal(f.count().approvals,1);await f.store.close();
+for(const ownerPolicy of ['initial','saved-on']){
+ for(const field of ['id','revision','account','chainId','username']){
+  test('review: '+ownerPolicy+' task approval challenge rejects switched session '+field,async()=>{
+   const f=fixture();if(ownerPolicy==='saved-on')await f.saveOwnerVerificationOn();
+   const p=await f.call('prepare',{policy:f.policy});
+   assert.equal(p.approvalFactor,ownerPolicy==='saved-on'?'totp':'preoperational-default-on');
+   const body={challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,code:p.approvalFactor==='totp'?'123456':''};
+   const old=f.session[field];f.session[field]=field==='revision'?2:field==='account'?a('7'):field==='chainId'?'1':'different-session';
+   await assert.rejects(f.call('authorize',body));assert.equal(f.count().approvals,0);
+   f.session[field]=old;await f.call('authorize',body);
+   assert.equal(f.count().approvals,ownerPolicy==='saved-on'?1:0);await f.store.close();
+  });
+ }
+ test('review: '+ownerPolicy+' concurrent approval challenge replay authorizes only once',async()=>{
+  const f=fixture();if(ownerPolicy==='saved-on')await f.saveOwnerVerificationOn();
+  const p=await f.call('prepare',{policy:f.policy});
+  assert.equal(p.approvalFactor,ownerPolicy==='saved-on'?'totp':'preoperational-default-on');
+  const body={challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,code:p.approvalFactor==='totp'?'123456':''};
+  const results=await Promise.allSettled([f.call('authorize',body),f.call('authorize',body)]);
+  assert.equal(results.filter(x=>x.status==='fulfilled').length,1);assert.equal(results.filter(x=>x.status==='rejected').length,1);
+  assert.equal(f.count().approvals,ownerPolicy==='saved-on'?1:0);
+  await f.store.close();
+ });
+ test('review: '+ownerPolicy+' cancellation invalidates an outstanding session approval challenge',async()=>{
+  const f=fixture();if(ownerPolicy==='saved-on')await f.saveOwnerVerificationOn();
+  const p=await f.call('prepare',{policy:f.policy});
+  assert.equal(p.approvalFactor,ownerPolicy==='saved-on'?'totp':'preoperational-default-on');
+  f.service.cancel(f.session);
+  await assert.rejects(f.call('authorize',{challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,code:p.approvalFactor==='totp'?'123456':''}));
+  assert.equal(f.count().approvals,0);await f.store.close();
  });
 }
-
-test('review: concurrent approval challenge replay consumes one approval only',async()=>{
- const f=fixture(),p=await f.call('prepare',{policy:f.policy});
- const body={challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,code:'123456'};
- const results=await Promise.allSettled([f.call('authorize',body),f.call('authorize',body)]);
- assert.equal(results.filter(x=>x.status==='fulfilled').length,1);assert.equal(f.count().approvals,1);
- await f.store.close();
-});
-
-test('review: cancellation invalidates an outstanding session approval challenge',async()=>{
- const f=fixture(),p=await f.call('prepare',{policy:f.policy});f.service.cancel(f.session);
- await assert.rejects(f.call('authorize',{challengeId:p.challengeId,taskDigest:p.task.digest,executorDigest:p.executor.digest,observationPolicyDigest:null,code:'123456'}));
- assert.equal(f.count().approvals,0);await f.store.close();
-});
 
 test('review: concurrent unknown-outcome reads never dispatch or reclaim nonce',async()=>{
  const f=fixture(),g=await f.grant(),x=f.operation(g,'funded');

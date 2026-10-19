@@ -1,6 +1,7 @@
 /** Deployment bootstrap from a strict server configuration and private provisioned
  * files. No custody choice, credential creation, module discovery or deployment. */
 import { createServer } from 'node:https';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { validateTaskListingConfig } from './task-listing-config.mjs';
 import { createTaskListingRuntime, disabledTaskListingRuntime } from './task-listing-runtime.mjs';
@@ -39,6 +40,85 @@ export function createTaskJournalCapabilityListener(configuration, tls, runtime)
   server.requestTimeout = 5000; server.headersTimeout = 5000; server.timeout = 5000; server.maxHeadersCount = 20;
   return server;
 }
+/** The pinned ArtFi factory owns one provider shared by all of its readers.
+ * Its native engine instead destroys every provider it obtains. Keep the first
+ * factory instance exclusively for observation; give every engine acquisition
+ * a fresh instance with the same validated configuration and read-only class.
+ * Neither the engine's destroy nor any signing/authorization boundary changes. */
+export function createTaskListingDependencyOwner({ modules, configuration, now = Date.now }) {
+  check(typeof modules?.validateServerListingConfig === 'function' &&
+    typeof modules?.createServerListingDependencies === 'function' &&
+    typeof modules?.createNativeNftTaskPort === 'function' && typeof now === 'function',
+    'TASK_LISTING_DEPENDENCY_FACTORY_REQUIRED');
+  const config = modules.validateServerListingConfig(configuration);
+  const create = modules.createServerListingDependencies.bind(modules);
+  const createPort = modules.createNativeNftTaskPort.bind(modules), acquisitions = new AsyncLocalStorage();
+  const journal = () => { throw Error('TASK_LISTING_JOURNAL_NOT_CONNECTED'); };
+  const make = () => create(config, { journal, now });
+  const base = make(), native = base.nativeDependencies;
+  const validateScope = native.provider.bind(native);
+  // The public factory exposes its owned provider through a validated scope;
+  // this is a construction-only lookup and does not make an RPC request.
+  const observerProvider = validateScope(native.scope(config.collections[0].slug));
+  const request = base.observationDependencies.readOnlyProvider.request.bind(base.observationDependencies.readOnlyProvider);
+  let closed = false;
+  const active = () => check(!closed, 'TASK_LISTING_DEPENDENCIES_CLOSED');
+  const readOnlyProvider = Object.freeze({ sourceId: base.observationDependencies.readOnlyProvider.sourceId,
+    async request(input) { active(); return request(input); } });
+  return Object.freeze({
+    nativeDependencies: Object.freeze({ ...native,
+      provider(value) {
+        active();
+        const acquisition = acquisitions.getStore();
+        check(acquisition?.active === true, 'TASK_LISTING_PROVIDER_SCOPE_REQUIRED');
+        // Refuse an altered scope before allocating another provider. Pass the
+        // factory's immutable canonical scope to the fresh instance afterwards.
+        validateScope(value);
+        const scope = native.scope(value.slug);
+        const provider = make().nativeDependencies.provider(scope);
+        acquisition.providers.add(provider);
+        return provider;
+      },
+    }),
+    observationDependencies: Object.freeze({ ...base.observationDependencies, readOnlyProvider }),
+    canonicalReader: readOnlyProvider,
+    createNativeNftTaskPort(input) {
+      active();
+      const port = createPort(input);
+      return Object.freeze(Object.fromEntries(['prepareListing', 'reviewListing', 'publishListing', 'readPublication'].map(name => {
+        check(typeof port?.[name] === 'function', 'TASK_LISTING_NATIVE_PORT_REQUIRED');
+        const call = port[name].bind(port);
+        return [name, async (...args) => {
+          active();
+          const acquisition = { active: true, providers: new Set() };
+          return acquisitions.run(acquisition, async () => {
+            try { return await call(...args); }
+            finally {
+              // The pinned engine can throw while constructing its SDK before
+              // entering its own try/finally. Close that invocation's leftovers
+              // too, without re-destroying resources the engine already closed.
+              acquisition.active = false;
+              let cleanupFailed = false;
+              for (const provider of acquisition.providers) {
+                try { if (!provider.destroyed) provider.destroy(); }
+                catch { cleanupFailed = true; }
+              }
+              acquisition.providers.clear();
+              check(!cleanupFailed, 'TASK_LISTING_PROVIDER_CLEANUP_FAILED');
+            }
+          });
+        }];
+      })));
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      // Acquired native providers remain owned by the engine's existing finally.
+      // Closing observation must not tear down a concurrent native operation.
+      observerProvider.destroy();
+    },
+  });
+}
 export async function bootstrapTaskListingRuntime({ configuration = null, store, authStatePath, now = Date.now } = {}) {
   const owned = [], ownedKeys = [], disabled = code => ({ runtime: disabledTaskListingRuntime(code), async start() {}, async stop() {} });
   if (configuration === null || configuration === undefined || configuration.enabled === false) {
@@ -71,8 +151,10 @@ export async function bootstrapTaskListingRuntime({ configuration = null, store,
       return async (body, options = {}) => { const response = await transport(config.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: options.signal }); check(response.status === 200, 'TASK_LISTING_GATEWAY_REFUSED'); return response.json(); };
     };
     const sign = gateway('signer', signerTLS), quote = gateway('quote', quoteTLS), request = gateway('request', requestTLS);
-    const native = m.createServerListingDependencies(c.artfi, { journal() { throw Error('TASK_LISTING_JOURNAL_NOT_CONNECTED'); }, now });
-    runtime = createTaskListingRuntime({ store, now, serverConfiguration: { modules: m, bridgeStore: stores.bridge, observationStore: stores.observation,
+    const native = createTaskListingDependencyOwner({ modules: m, configuration: c.artfi, now });
+    owned.push(native);
+    runtime = createTaskListingRuntime({ store, now, serverConfiguration: {
+      modules: { ...m, createNativeNftTaskPort: native.createNativeNftTaskPort }, bridgeStore: stores.bridge, observationStore: stores.observation,
       ...native, executor: c.executor, observationPolicy: c.observationPolicy,
       configurationDigest: m.nftTaskJournalDigest({ artfi: c.artfi, observationPolicy: c.observationPolicy,
         peers: [c.peer.tls.serverFingerprint256, c.peer.capabilityListener.clientFingerprint256],

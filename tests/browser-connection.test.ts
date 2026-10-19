@@ -1,3 +1,4 @@
+import * as privateIdentity from '../web/wallet-identity-display.mjs';
 import * as nativeI18n from '../web/native-i18n.mjs';
 import * as uiI18n from '../web/i18n.mjs';
 import test from 'node:test';
@@ -68,7 +69,9 @@ function fixture(profile = 'v3') {
     mounts.set(name, options);
   };
   let authenticationChanged: ((session: any, reason: string) => void) | null = null;
-  const sdk = { ...uiI18n, ...nativeI18n,
+  let progressEnabled = false, forwardMount: any = null;
+  const progressClient = Object.freeze({});
+  const sdk = { ...uiI18n, ...nativeI18n, ...privateIdentity,
     // Authentication is isolated in wallet-login.test.ts and the full browser suite.
     walletLogin: { assert() {}, check: async () => {}, provider: () => provider, subscribe(listener: (session: any, reason: string) => void) { authenticationChanged = listener; } }, WalletLoginError: class extends Error {},
     ResponsibilityWalletSession: Session, ControlAdapterError, isAddressInput, TransactionWouldRevertError: class extends Error {},
@@ -93,6 +96,14 @@ function fixture(profile = 'v3') {
     mountFeedContinuity: mount('feed-continuity'),
     mountWatchtowerRead: mount('watchtower-read'),
     mountKitRead: mount('kit-read'),
+    currentAccountClient: () => progressClient,
+    currentAccountFeatures: () => ({ forwardProgressAvailable: progressEnabled }),
+    mountForwardProgress: (options: any) => {
+      assert.equal(forwardMount, null, 'duplicate forward-progress mount');
+      assert.equal(options.root, element('linked'));
+      for (const key of ['clientFor', 'available', 'selection']) assert.equal(typeof options[key], 'function');
+      forwardMount = options;
+    },
     COLLISION_SCAN_MAX_TOKENS: 32,
     // The page reads code and limit off this, so the stub carries both.
     CollisionScanError: CollisionScanErrorStub,
@@ -108,7 +119,7 @@ function fixture(profile = 'v3') {
     token: { address, runtimeCodeHash: digest }, controller: { address, runtimeCodeHash: digest }, payment: null });
   file('consent-file', { consent: { expectedRevision: '0', tokenId: '1', deadline: '1', recipientNonce: '0', paymentAmount: '0' },
     documents: { incoming: { terms: { scheme: 'utf8-keccak256' } }, inherited: [] } });
-  return { mounts, login: sdk.walletLogin, authChange: (reason: string) => authenticationChanged!(null, reason), hooks, element, click, state, collisionIds: () => collisionIds, emit: (event: string, value?: unknown) => events.get(event)!(value),
+  return { mounts, forward: () => forwardMount, progressClient, enableProgress: (enabled: boolean) => { progressEnabled = enabled; }, login: sdk.walletLogin, authChange: (reason: string) => authenticationChanged!(null, reason), hooks, element, click, state, collisionIds: () => collisionIds, emit: (event: string, value?: unknown) => events.get(event)!(value),
     counts: () => ({ executions, prepares, accepts, settlementSends }),
     load: () => click('deployment', 'change'),
     async connect() { await click('deployment', 'change'); await click('connect'); },
@@ -132,6 +143,25 @@ test('failed reconnect cannot retain the prior connected session', async () => {
   f.hooks.request = async () => { throw new Error('private provider diagnostic'); };
   await f.click('connect'); assert.equal(f.state().connected, false);
   assert.equal(f.element('result').textContent, 'CONTROL_UI_OPERATION_REFUSED');
+});
+
+test('forward-progress mount preserves server availability and live selection beside collision limits', async () => {
+  const f = fixture(), panel = f.forward();
+  assert.equal(panel.login, f.login); assert.equal(panel.available(), false);
+  assert.equal(panel.clientFor(), f.progressClient);
+  assert.throws(() => panel.selection(), /CONTROL_CONNECTION_REQUIRED/);
+  f.enableProgress(true); assert.equal(panel.available(), true);
+  f.element('sequenceId').value = digest; f.element('tokenId').value = '7';
+  await f.connect();
+  assert.deepEqual(panel.selection(), { asset: { chainId: '560048', contract: address, tokenId: '7' }, sequenceId: digest });
+  f.emit('accountsChanged');
+  // The generation fence rejects the stale selection before checking absence.
+  assert.throws(() => panel.selection(), error => error instanceof Error && error.message === 'CONTROL_CONNECTION_CHANGED');
+});
+test('standalone V2 does not admit linked forward-progress selection', async () => {
+  const f = fixture('v2'); f.enableProgress(true);
+  f.element('sequenceId').value = digest; await f.connect();
+  assert.throws(() => f.forward().selection(), /CONTROL_CONNECTION_REQUIRED/);
 });
 
 test('collision review reads the explicit token set without any send', async () => {

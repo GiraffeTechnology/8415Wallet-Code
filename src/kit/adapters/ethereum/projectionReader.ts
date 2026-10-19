@@ -1,5 +1,6 @@
 import { SELECTOR, decodeEntry, encodeCall, toAddress, toBigInt, toBool, toBytes32, words } from './abi.ts';
 import type { JsonRpcTransport } from './transport.ts';
+import { EvmChainIdentity } from './chainIdentity.ts';
 import type { Address, Bytes32, Instant, ProjectionEntry, TokenId } from '../../engine/projection/types.ts';
 
 export class ConformanceError extends Error {
@@ -12,6 +13,8 @@ export class ConformanceError extends Error {
 export interface ReaderOptions {
   readonly transport: JsonRpcTransport;
   readonly contract: Address;
+  /** Explicit expected EVM chain. Defaults to Ethereum, never the RPC's chain. */
+  readonly chainId?: bigint;
   /** Block tag reads are pinned to. Defaults to the finalized head. */
   readonly block?: string;
 }
@@ -31,61 +34,78 @@ export interface ReaderOptions {
  */
 export class EthereumProjectionReader {
   readonly #transport: JsonRpcTransport;
+  readonly #network: EvmChainIdentity;
   readonly #contract: Address;
   readonly #block: string;
 
   constructor(options: ReaderOptions) {
     this.#transport = options.transport;
+    this.#network = new EvmChainIdentity(options.transport, options.chainId ?? 1n);
     this.#contract = options.contract;
     this.#block = options.block ?? 'finalized';
   }
 
-  async supportsProjection(): Promise<boolean> {
-    return this.#supports('0x6309e170');
+  get chainId(): bigint {
+    return this.#network.chainId;
   }
 
-  async supportsSettlement(): Promise<boolean> {
-    return this.#supports('0xf4a7d71b');
+  supportsProjection(): Promise<boolean> {
+    return this.#publishCurrent(() => this.#supports('0x6309e170'));
   }
 
-  async registerId(): Promise<Bytes32> {
-    return toBytes32(await this.#slot(SELECTOR.registerId, []));
+  supportsSettlement(): Promise<boolean> {
+    return this.#publishCurrent(() => this.#supports('0xf4a7d71b'));
   }
 
-  async verificationProfile(): Promise<Bytes32> {
-    return toBytes32(await this.#slot(SELECTOR.verificationProfile, []));
+  registerId(): Promise<Bytes32> {
+    return this.#publishCurrent(async () => toBytes32(await this.#slot(SELECTOR.registerId, [])));
   }
 
-  async entryCount(tokenId: TokenId): Promise<bigint> {
-    return toBigInt(await this.#slot(SELECTOR.entryCount, [tokenId]));
+  verificationProfile(): Promise<Bytes32> {
+    return this.#publishCurrent(async () => toBytes32(await this.#slot(SELECTOR.verificationProfile, [])));
   }
 
-  async currentEntry(tokenId: TokenId): Promise<ProjectionEntry> {
-    return decodeEntry(await this.#call(SELECTOR.currentEntry, [tokenId]));
+  entryCount(tokenId: TokenId): Promise<bigint> {
+    return this.#publishCurrent(async () => toBigInt(await this.#slot(SELECTOR.entryCount, [tokenId])));
   }
 
-  async entryAt(tokenId: TokenId, version: bigint): Promise<ProjectionEntry> {
-    return decodeEntry(await this.#call(SELECTOR.entryAt, [tokenId, version]));
+  currentEntry(tokenId: TokenId): Promise<ProjectionEntry> {
+    return this.#publishCurrent(async () => decodeEntry(await this.#call(SELECTOR.currentEntry, [tokenId])));
   }
 
-  async entryAsOf(tokenId: TokenId, instant: Instant): Promise<ProjectionEntry> {
-    return decodeEntry(await this.#call(SELECTOR.entryAsOf, [tokenId, instant]));
+  entryAt(tokenId: TokenId, version: bigint): Promise<ProjectionEntry> {
+    return this.#publishCurrent(async () => decodeEntry(await this.#call(SELECTOR.entryAt, [tokenId, version])));
   }
 
-  async holderAsOf(tokenId: TokenId, instant: Instant): Promise<Address> {
-    return toAddress(await this.#slot(SELECTOR.holderAsOf, [tokenId, instant]));
+  entryAsOf(tokenId: TokenId, instant: Instant): Promise<ProjectionEntry> {
+    return this.#publishCurrent(async () => decodeEntry(await this.#call(SELECTOR.entryAsOf, [tokenId, instant])));
   }
 
-  async isFinalAsOf(tokenId: TokenId, instant: Instant): Promise<boolean> {
-    return toBool(await this.#slot(SELECTOR.isFinalAsOf, [tokenId, instant]));
+  holderAsOf(tokenId: TokenId, instant: Instant): Promise<Address> {
+    return this.#publishCurrent(async () => toAddress(await this.#slot(SELECTOR.holderAsOf, [tokenId, instant])));
   }
 
-  async openGapOf(tokenId: TokenId): Promise<Bytes32> {
-    return toBytes32(await this.#slot(SELECTOR.openGapOf, [tokenId]));
+  isFinalAsOf(tokenId: TokenId, instant: Instant): Promise<boolean> {
+    return this.#publishCurrent(async () => toBool(await this.#slot(SELECTOR.isFinalAsOf, [tokenId, instant])));
   }
 
-  async isSettlementAuthority(tokenId: TokenId, account: Address): Promise<boolean> {
-    return toBool(await this.#slot(SELECTOR.isSettlementAuthority, [tokenId, account]));
+  openGapOf(tokenId: TokenId): Promise<Bytes32> {
+    return this.#publishCurrent(async () => toBytes32(await this.#slot(SELECTOR.openGapOf, [tokenId])));
+  }
+
+  isSettlementAuthority(tokenId: TokenId, account: Address): Promise<boolean> {
+    return this.#publishCurrent(async () => toBool(await this.#slot(SELECTOR.isSettlementAuthority, [tokenId, account])));
+  }
+
+  /** Public methods return this exact promise, with no outer async adoption. */
+  async #publishCurrent<T>(read: () => Promise<T>): Promise<T> {
+    // Capture at public invocation, before any provider-bound work starts.
+    const revision = this.#network.revision;
+    const result = await read();
+    // Decoding and every private helper have finished. No await follows this
+    // check before the public operation's promise is fulfilled.
+    this.#network.assertCurrent(revision);
+    return result;
   }
 
   async #supports(interfaceId: string): Promise<boolean> {
@@ -101,10 +121,12 @@ export class EthereumProjectionReader {
   }
 
   async #call(selector: string, args: readonly (bigint | string)[]): Promise<string> {
-    const result = await this.#transport.send({
+    const revision = this.#network.revision;
+    const result = await this.#network.read(() => this.#transport.send({
       method: 'eth_call',
       params: [{ to: this.#contract, data: encodeCall(selector, args) }, this.#block],
-    });
+    }));
+    this.#network.assertCurrent(revision);
     if (typeof result !== 'string') throw new ConformanceError(`eth_call returned ${typeof result}`);
     return result;
   }

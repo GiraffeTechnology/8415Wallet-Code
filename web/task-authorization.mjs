@@ -1,4 +1,6 @@
 import { normalizeListingResult, listingCompletion, historicalListingResult } from './task-listing-results.mjs';
+import { createTaskObserverContextCodec } from './task-observer-context.mjs';
+import { createObservationSourceContract } from './observation-source-contract.mjs';
 /** Bounded task review. A sign-in session and a task grant are separate facts. */
 import { sha256, toUtf8Bytes } from '../dist/browser/vendor/ethers.js';
 import { freezeTaskObservationPolicy, normalizeObservationVerifier, normalizeTaskObservation } from '../dist/browser/agent/receiptObservation.js';
@@ -10,6 +12,45 @@ export class TaskUiError extends Error {
 const insist = (value, code = 'TASK_RESPONSE_REFUSED') => { if (!value) throw new TaskUiError(code); };
 const statuses = new Set(['pending', 'authorized', 'suspended', 'revoked', 'expired']);
 const freeze = value => { if (value && typeof value === 'object') { for (const item of Object.values(value)) freeze(item); Object.freeze(value); } return value; };
+const observerContextCodec = createTaskObserverContextCodec({
+  normalizeTaskObservation, normalizeObservationVerifier, freezeTaskObservationPolicy,
+  hashCanonical: value => sha256(toUtf8Bytes(JSON.stringify(value))),
+  fail: code => { throw new TaskUiError(code); },
+});
+function observerFields(value, names) {
+  insist(value && typeof value === 'object' && !Array.isArray(value) &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value)), 'TASK_OBSERVER_CONTEXT_REFUSED');
+  const d = Object.getOwnPropertyDescriptors(value);
+  insist(Reflect.ownKeys(d).length === names.length &&
+    names.every(name => d[name] && Object.hasOwn(d[name], 'value')), 'TASK_OBSERVER_CONTEXT_REFUSED');
+}
+function readOnlyObserverView(value, task) {
+  if (value === undefined) return null;
+  observerFields(value, ['schema','currentReadOnlyObserver','freshObservation','canExecute']);
+  insist(value.schema === '8415-task-observation-view/2' && value.canExecute === false &&
+    task.policy.intent.kind === 'exact-operation', 'TASK_OBSERVER_CONTEXT_REFUSED');
+  let currentReadOnlyObserver = null;
+  if (value.currentReadOnlyObserver !== null) {
+    observerFields(value.currentReadOnlyObserver, ['verifier','verificationPolicy']);
+    currentReadOnlyObserver = {
+      verifier: normalizeObservationVerifier(value.currentReadOnlyObserver.verifier),
+      verificationPolicy: observerContextCodec.normalizePolicy(value.currentReadOnlyObserver.verificationPolicy),
+    };
+  }
+  let freshObservation = null;
+  if (value.freshObservation !== null) {
+    observerFields(value.freshObservation, ['operationId','observationRevision','fullObservationDigest']);
+    const f = value.freshObservation;
+    insist(typeof f.operationId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(f.operationId) &&
+      typeof f.observationRevision === 'string' && /^[1-9][0-9]{0,77}$/.test(f.observationRevision) &&
+      BigInt(f.observationRevision) < (1n << 256n) &&
+      typeof f.fullObservationDigest === 'string' && /^0x[0-9a-f]{64}$/.test(f.fullObservationDigest),
+    'TASK_OBSERVER_CONTEXT_REFUSED');
+    freshObservation = { operationId: f.operationId, observationRevision: f.observationRevision,
+      fullObservationDigest: f.fullObservationDigest };
+  }
+  return freeze({ schema: value.schema, currentReadOnlyObserver, freshObservation, canExecute: false });
+}
 /** Public executor identity, not a signing credential or proof of adapter safety. */
 export function normalizeExecutor(value) {
   const names = ['schema', 'agentId', 'agentVersion', 'adapterId', 'adapterVersion', 'implementationDigest'];
@@ -70,6 +111,24 @@ export function normalizeValuationContext(value) {
 function sameValuationContext(value, expected) {
   insist((value.valuationPolicy?.digest ?? null) === (expected.valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_CHANGED');
 }
+/** This describes a server evaluation; it neither verifies nor grants authority. */
+function approvalMetadata(value) {
+  const approvalFactor = value.approvalFactor === undefined ? 'totp' : value.approvalFactor;
+  insist(['totp', 'server-test-scope', 'preoperational-default-on'].includes(approvalFactor), 'TASK_APPROVAL_FACTOR_REFUSED');
+  if (approvalFactor !== 'preoperational-default-on') {
+    insist(value.approvalEvaluation === undefined, 'TASK_APPROVAL_EVALUATION_REFUSED');
+    return Object.freeze({ approvalFactor, approvalEvaluation: null });
+  }
+  const evaluation = value.approvalEvaluation;
+  insist(evaluation && [Object.prototype, null].includes(Object.getPrototypeOf(evaluation)), 'TASK_APPROVAL_EVALUATION_REFUSED');
+  const descriptors = Object.getOwnPropertyDescriptors(evaluation), names = ['state', 'reason', 'policyRevision'];
+  insist(Reflect.ownKeys(descriptors).length === names.length && names.every(key =>
+    descriptors[key] && Object.hasOwn(descriptors[key], 'value')), 'TASK_APPROVAL_EVALUATION_REFUSED');
+  insist(evaluation.state === 'NOT_EVALUATED' && evaluation.reason === 'pre-operational-default-on' &&
+    evaluation.policyRevision === '0', 'TASK_APPROVAL_EVALUATION_REFUSED');
+  return Object.freeze({ approvalFactor, approvalEvaluation: Object.freeze({
+    state: evaluation.state, reason: evaluation.reason, policyRevision: evaluation.policyRevision }) });
+}
 function approvalBlocker(view) {
   if (view.task.policy.intent.kind !== 'nft-sale') return null;
   return !view.valuationPolicy ? 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED' :
@@ -81,19 +140,87 @@ function sameObservationContext(value, expected) {
   insist(JSON.stringify(value.receiptVerifier) === JSON.stringify(expected.receiptVerifier), 'TASK_RECEIPT_VERIFIER_CHANGED');
 }
 const completionStates = new Set(['not-attempted', 'outcome-unknown', 'awaiting-evidence', 'completed-at-observation-depth', 'failed-at-observation-depth', 'listed-awaiting-evidence', 'listing-partial', 'listing-observed-at-depth', 'listing-unknown', 'listing-reorg']);
+/** A display projection of verified mint evidence, never an approval or inventory
+ * registration. Historical/unavailable evidence stays labelled by its envelope. */
+function normalizeTestNFT721Result(raw,op,observation) {
+ const names=['schema','taskId','sourceTaskId','taskIdBytes32','artifactDigest','chainId','collection','runtimeCodeHash','issuer',
+   'sourceHash','assetKind','metadataHash','metadataURI','transactionHash','blockHash','blockNumber','tokenId','standard','quantity','testOnly','finality'];
+ insist(raw&&[Object.prototype,null].includes(Object.getPrototypeOf(raw)),'TASK_TEST_MINT_RESULT_REFUSED');
+ const d=Object.getOwnPropertyDescriptors(raw);
+ insist(Reflect.ownKeys(d).length===names.length&&names.every(k=>Object.hasOwn(d,k)&&Object.hasOwn(d[k],'value')),'TASK_TEST_MINT_RESULT_REFUSED');
+ insist(observation&&observation.state==='confirmed-at-depth'&&observation.effect==='exact-operation-observed'&&
+   raw.schema==='8415-wallet-test-nft721-result/1'&&raw.taskId===op.taskId&&raw.sourceTaskId===op.sourceTaskId&&
+   raw.taskIdBytes32===op.taskIdBytes32&&raw.artifactDigest===op.artifactDigest&&raw.chainId===op.chainId&&
+   raw.collection===op.collection.contract&&raw.runtimeCodeHash===op.collection.runtimeCodeHash&&raw.issuer===op.actor&&
+   raw.sourceHash===op.sourceHash&&raw.assetKind===op.assetKind&&raw.metadataHash===op.metadataHash&&raw.metadataURI===op.metadataURI&&
+   raw.transactionHash===observation.originalTransactionHash&&raw.blockHash===observation.blockHash&&
+   typeof raw.blockNumber==='string'&&/^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/.test(raw.blockNumber)&&BigInt(raw.blockNumber)===BigInt(observation.blockNumber)&&
+   typeof raw.tokenId==='string'&&/^[1-9][0-9]{0,77}$/.test(raw.tokenId)&&BigInt(raw.tokenId)<(1n<<256n)&&
+   raw.standard==='ERC-721'&&raw.quantity==='1'&&raw.testOnly===true&&raw.finality==='canonical-at-observed-block-not-finality',
+   'TASK_TEST_MINT_RESULT_BINDING_REFUSED');
+ return freeze(Object.fromEntries(names.map(k=>[k,raw[k]])));
+}
+
+export function normalizeTestMintResult(raw, task, observation) {
+  if (raw === null) return null;
+  if(task.policy.intent.kind==='exact-operation'&&task.policy.intent.operation.kind==='artfi-test-nft721-mint')
+    return normalizeTestNFT721Result(raw,task.policy.intent.operation,observation);
+  const names = ['schema','taskId','chainId','collection','runtimeCodeHash','issuer','transactionHash','blockHash','blockNumber',
+    'tokenId','standard','quantity','artworkId','masterArtworkHash','metadataHash','metadataURI','distributionWallet','testOnly','finality'];
+  insist(raw && [Object.prototype, null].includes(Object.getPrototypeOf(raw)), 'TASK_TEST_MINT_RESULT_REFUSED');
+  const d = Object.getOwnPropertyDescriptors(raw);
+  insist(Reflect.ownKeys(d).length === names.length && names.every(k => Object.hasOwn(d,k) && Object.hasOwn(d[k],'value')),
+    'TASK_TEST_MINT_RESULT_REFUSED');
+  const op = task.policy.intent.operation;
+  insist(task.policy.intent.kind === 'exact-operation' && op?.kind === 'artfi-test-series-mint' && observation &&
+    observation.state === 'confirmed-at-depth' && observation.effect === 'exact-operation-observed' &&
+    raw.schema === '8415-artfi-test-series-mint-result/1' && raw.taskId === task.policy.taskId && raw.chainId === op.chainId &&
+    raw.collection === op.collection.contract && raw.runtimeCodeHash === op.collection.runtimeCodeHash && raw.issuer === op.actor &&
+    raw.transactionHash === observation.originalTransactionHash && raw.blockHash === observation.blockHash &&
+    typeof raw.blockNumber === 'string' && /^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/.test(raw.blockNumber) &&
+    BigInt(raw.blockNumber) === BigInt(observation.blockNumber) && typeof raw.tokenId === 'string' &&
+    /^[1-9][0-9]{0,77}$/.test(raw.tokenId) && BigInt(raw.tokenId) < (1n << 256n) &&
+    raw.standard === 'ERC-1155' && raw.quantity === '100' && raw.artworkId === op.artworkId &&
+    raw.masterArtworkHash === op.masterArtworkHash && raw.metadataHash === op.metadataHash && raw.metadataURI === op.metadataURI &&
+    raw.distributionWallet === op.distributionWallet && raw.testOnly === true &&
+    raw.finality === 'canonical-at-observed-block-not-finality', 'TASK_TEST_MINT_RESULT_BINDING_REFUSED');
+  return freeze(Object.fromEntries(names.map(k => [k,raw[k]])));
+}
 function observationView(value, task, executor, budget, authorization, allowFresh) {
-  const context = normalizeObservationContext(value);
+  const context = normalizeObservationContext(value), observerView = readOnlyObserverView(value.observationView, task);
   insist(Array.isArray(value.observations) && value.observations.length <= (budget?.reservations.length ?? 0) &&
     typeof value.observationRevision === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value.observationRevision) &&
     BigInt(value.observationRevision) < (1n << 256n), 'TASK_OBSERVATION_RESPONSE_REFUSED');
   const listing = budget?.schema === '8415-task-budget/2' || value.valuationPolicy !== undefined;
   if (listing) insist(value.observations.length === 0, 'TASK_LISTING_OBSERVATION_REFUSED');
   const observations = value.observations.map(entry => {
-    insist(entry && Object.keys(entry).sort().join(',') === 'available,observation,operationId' && typeof entry.available === 'boolean' &&
-      typeof entry.operationId === 'string' && (!entry.available || entry.observation !== null), 'TASK_OBSERVATION_RESPONSE_REFUSED');
+    const mint = task.policy.intent.kind === 'exact-operation' && ['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation.kind);
+    observerFields(entry, ['operationId','observation','available', ...(mint ? ['mintResult'] : []),
+      ...(observerView ? ['schema','provenance','observationRevision','acceptedObserverContext'] : [])]);
+    insist(typeof entry.available === 'boolean' && typeof entry.operationId === 'string' &&
+      (!entry.available || entry.observation !== null), 'TASK_OBSERVATION_RESPONSE_REFUSED');
+    if (observerView) insist(entry.schema === '8415-task-observation-entry/2' &&
+      ['accepted-observer-context','legacy-approved-cache','unverified'].includes(entry.provenance) &&
+      typeof entry.observationRevision === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(entry.observationRevision) &&
+      BigInt(entry.observationRevision) < (1n << 256n), 'TASK_OBSERVER_CONTEXT_REFUSED');
     const reservation = budget?.reservations.find(item => item.operationId === entry.operationId);
     insist(reservation?.status === 'submitted', 'TASK_OBSERVATION_BINDING_REFUSED');
     const observation = entry.observation === null ? null : normalizeTaskObservation(entry.observation);
+    let acceptedObserverContext = null;
+    if (observerView) {
+      if (entry.acceptedObserverContext !== null) {
+        insist(observation && entry.provenance === 'accepted-observer-context', 'TASK_OBSERVER_CONTEXT_REFUSED');
+        acceptedObserverContext = observerContextCodec.normalize(entry.acceptedObserverContext, {
+          observation, currentObservationRevision: entry.observationRevision,
+          attempt: { taskDigest: task.digest, operationId: entry.operationId, childDigest: reservation.childDigest,
+            chainId: task.policy.chainId, actor: task.policy.actor, nonce: observation.nonce,
+            transactionHash: reservation.transactionHash, executorDigest: executor.digest,
+            grantPolicyVersion: observation.attemptGrantPolicyVersion,
+            observationPolicy: context.observationPolicy, receiptVerifier: context.receiptVerifier },
+        });
+      } else insist(entry.provenance === 'unverified' ? observation === null && entry.available === false :
+        entry.provenance === 'legacy-approved-cache' && observation !== null, 'TASK_OBSERVER_CONTEXT_REFUSED');
+    }
     if (observation) {
       insist(context.observationPolicy && context.receiptVerifier && authorization &&
         observation.taskDigest === task.digest && observation.childDigest === reservation.childDigest &&
@@ -101,13 +228,18 @@ function observationView(value, task, executor, budget, authorization, allowFres
         observation.attemptExecutorDigest === executor.digest && observation.originalTransactionHash === reservation.transactionHash &&
         BigInt(observation.attemptGrantPolicyVersion) <= BigInt(authorization.grantPolicyVersion) &&
         observation.observationPolicyDigest === context.observationPolicy.digest &&
-        observation.verifierId === context.receiptVerifier.verifierId && observation.verifierVersion === context.receiptVerifier.verifierVersion &&
-        observation.verifierImplementationDigest === context.receiptVerifier.verifierImplementationDigest,
+        observation.verifierId === (acceptedObserverContext?.verifier ?? context.receiptVerifier).verifierId &&
+        observation.verifierVersion === (acceptedObserverContext?.verifier ?? context.receiptVerifier).verifierVersion &&
+        observation.verifierImplementationDigest === (acceptedObserverContext?.verifier ?? context.receiptVerifier).verifierImplementationDigest,
       'TASK_OBSERVATION_BINDING_REFUSED');
       insist(task.policy.intent.kind === 'exact-operation' ? observation.effect !== 'atomic-sale-observed' :
         observation.effect !== 'exact-operation-observed', 'TASK_OBSERVATION_EFFECT_REFUSED');
     }
-    return { operationId: entry.operationId, observation, available: entry.available };
+    const mintResult = mint ? normalizeTestMintResult(entry.mintResult, task, observation) : null;
+    insist(!mint || !entry.available || observation?.state !== 'confirmed-at-depth' || mintResult !== null, 'TASK_TEST_MINT_RESULT_REQUIRED');
+    return { operationId: entry.operationId, observation, available: entry.available, ...(mint ? { mintResult } : {}),
+      ...(observerView ? { schema: entry.schema, provenance: entry.provenance,
+        observationRevision: entry.observationRevision, acceptedObserverContext } : {}) };
   });
   insist(new Set(observations.map(entry => entry.operationId)).size === observations.length, 'TASK_OBSERVATION_RESPONSE_REFUSED');
   const spent = budget?.reservations.filter(item => item.status !== 'cancelled') ?? [];
@@ -120,6 +252,17 @@ function observationView(value, task, executor, budget, authorization, allowFres
       minimumConfirmations: context.observationPolicy.policy.minimumConfirmations });
     insist(listingResult.state === value.listing.result.state, 'TASK_LISTING_OBSERVATION_REFUSED');
   }
+  if (observerView?.freshObservation !== null && observerView !== null) {
+    const fresh = observerView.freshObservation, currentObserver = observerView.currentReadOnlyObserver;
+    const entry = observations.find(item => item.operationId === fresh.operationId), accepted = entry?.acceptedObserverContext;
+    insist(allowFresh && currentObserver && entry?.available === true && accepted &&
+      fresh.observationRevision === entry.observationRevision &&
+      accepted.acceptedObservationRevision === fresh.observationRevision &&
+      accepted.fullObservationDigest === fresh.fullObservationDigest &&
+      JSON.stringify(accepted.verifier) === JSON.stringify(currentObserver.verifier) &&
+      accepted.verificationPolicy.digest === currentObserver.verificationPolicy.digest,
+    'TASK_OBSERVATION_FRESHNESS_REFUSED');
+  }
   const current = spent.map(item => observations.find(entry => entry.operationId === item.operationId && entry.available)?.observation);
   const state = !spent.length ? 'not-attempted' : spent.some(item => item.status === 'outcome-unknown') ? 'outcome-unknown' :
     listing ? (spent.some(item => item.status === 'submitted') ? listingResult ? listingCompletion(listingResult.state) :
@@ -129,14 +272,17 @@ function observationView(value, task, executor, budget, authorization, allowFres
   insist(value.completion && completionStates.has(value.completion.state) && value.completion.state === state &&
     typeof value.completion.fresh === 'boolean', 'TASK_COMPLETION_RESPONSE_REFUSED');
   insist(!value.completion.fresh || (allowFresh && spent.length === 1 && (listing ? listingResult?.summary.freshness === 'FRESH' : current[0])), 'TASK_OBSERVATION_FRESHNESS_REFUSED');
+  if (!listing && value.completion.fresh) insist(observerView?.freshObservation !== null &&
+    observerView !== null, 'TASK_OBSERVATION_FRESHNESS_REFUSED');
   if (listingResult) insist(value.completion.fresh === (listingResult.summary.freshness === 'FRESH') &&
     (listingResult.summary.freshness !== 'FRESH' || allowFresh), 'TASK_OBSERVATION_FRESHNESS_REFUSED');
-  return freeze({ ...context, ...(listing ? { listing: { ...value.listing, ...(Object.hasOwn(value.listing, 'result') ? { result: listingResult } : {}) } } : {}), observations, observationRevision: value.observationRevision, completion: { state, fresh: value.completion.fresh } });
+  return freeze({ ...context, ...(observerView ? { observationView: observerView } : {}), ...(listing ? { listing: { ...value.listing, ...(Object.hasOwn(value.listing, 'result') ? { result: listingResult } : {}) } } : {}), observations, observationRevision: value.observationRevision, completion: { state, fresh: value.completion.fresh } });
 }
 const historical = view => {
   if (!view) return null;
   const result = historicalListingResult(view.listing?.result);
   return freeze({ ...view, ...(result ? { listing: { ...view.listing, result } } : {}),
+    ...(view.observationView ? { observationView: { ...view.observationView, freshObservation: null } } : {}),
     completion: { state: result ? listingCompletion(result.state) : view.completion.state, fresh: false } });
 };
 /** Validate server facts before they enter any UI, including complete parent digest. */
@@ -154,6 +300,8 @@ export class TaskAuthorizationClient {
   view(value, { allowFresh = false } = {}) {
     insist(value && typeof value === 'object' && statuses.has(value.effectiveStatus));
     const task = this.task(value.task), executor = normalizeExecutor(value.executor), valuationPolicy = normalizeValuationContext(value);
+    const approval = approvalMetadata(value);
+    insist(approval.approvalFactor !== 'preoperational-default-on' || value.authorization !== null, 'TASK_APPROVAL_EVALUATION_REFUSED');
     const authorization = value.authorization === null ? null : valuationPolicy ?
       normalizeNftListingAuthorizationReference(value.authorization) : normalizeAuthorizationReference(value.authorization);
     if (valuationPolicy) {
@@ -179,7 +327,7 @@ export class TaskAuthorizationClient {
       budget?.reservations.some(item => item.status === 'reserved') ? 'reserved' : 'not-started';
     // Readiness is not authority or success. Only the authenticated service can
     // continue this task; quotes, provider events and references cannot execute it.
-    return freeze({ task, executor, ...(receiptAttempts ? { receiptAttempts } : {}), ...(valuationPolicy ? { valuationPolicy, listing: { ...value.listing } } : {}), ...observationView(value, task, executor, budget, authorization, allowFresh), authorization: authorization ? { ...authorization } : null, effectiveStatus: value.effectiveStatus, budget, executionState,
+    return freeze({ task, executor, ...approval, ...(receiptAttempts ? { receiptAttempts } : {}), ...(valuationPolicy ? { valuationPolicy, listing: { ...value.listing } } : {}), ...observationView(value, task, executor, budget, authorization, allowFresh), authorization: authorization ? { ...authorization } : null, effectiveStatus: value.effectiveStatus, budget, executionState,
       capabilities: { executable: false, adapterConfigured: value.capabilities.adapterConfigured, receiptVerifierConfigured: value.capabilities.receiptVerifierConfigured, missing: [...value.capabilities.missing] } });
   }
   async list() {
@@ -241,6 +389,61 @@ export class TaskAuthorizationClient {
   }
   async status(taskDigest) { const raw = await this.#request('tasks/status', { taskDigest });
     const value = this.view(raw, { allowFresh: raw?.valuationPolicy !== undefined }); insist(value.task.digest === taskDigest); return value; }
+  observationDetailsClient() {
+    const resolved = new WeakMap();
+    const contract = createObservationSourceContract({ observerContextCodec, normalizeObservationVerifier,
+      normalizeTaskObservation, fail: code => { throw new TaskUiError(code); } });
+    const contextMatches = context => {
+      insist(['tenant','origin','chainId'].every(key => context[key] === this.#context[key]) &&
+        context.account === this.#context.account.toLowerCase(), 'TASK_PRINCIPAL_BINDING_REFUSED');
+    };
+    return Object.freeze({
+      resolveSource: async (context, { mode, signal }) => {
+        contextMatches(context); insist(['cache','refresh'].includes(mode), 'OBSERVATION_BINDING_REFUSED');
+        const rawView = await this.#request('tasks/status', { taskDigest: context.taskDigest }, { signal });
+        const view = this.view(rawView);
+        insist(view.task.digest === context.taskDigest && view.task.policy.intent.kind === 'exact-operation' &&
+          view.authorization && view.observationPolicy && view.receiptVerifier, 'OBSERVATION_BINDING_REFUSED');
+        const reservation = view.budget?.reservations.find(row => row.operationId === context.operationId);
+        insist(reservation?.status === 'submitted' && reservation.childDigest === context.childDigest &&
+          reservation.transactionHash, 'OBSERVATION_BINDING_REFUSED');
+        // This separate authenticated request resolves the original durable
+        // attempt/source. No field of the evidence response supplies trust.
+        const raw = await this.#request('tasks/observation-source', { taskDigest: context.taskDigest,
+          operationId: context.operationId, childDigest: context.childDigest, mode }, { signal });
+        observerFields(raw, ['schema','sourceReference','sourceRevision','principal','attempt','verifier',
+          'verificationPolicy','capabilityReference','capabilityRevision','canExecute']);
+        const originalAttempt = observerContextCodec.normalizeAttempt(raw.attempt);
+        insist(originalAttempt.transactionHash === reservation.transactionHash &&
+          originalAttempt.executorDigest === view.executor.digest &&
+          BigInt(originalAttempt.grantPolicyVersion) > 0n &&
+          BigInt(originalAttempt.grantPolicyVersion) <= BigInt(view.authorization.grantPolicyVersion) &&
+          JSON.stringify(originalAttempt.receiptVerifier) === JSON.stringify(view.receiptVerifier) &&
+          JSON.stringify(originalAttempt.observationPolicy) === JSON.stringify(view.observationPolicy),
+        'OBSERVATION_BINDING_REFUSED');
+        const prior = view.observations.find(row => row.operationId === context.operationId)?.observation;
+        if (prior) insist(prior.nonce === originalAttempt.nonce &&
+          prior.attemptGrantPolicyVersion === originalAttempt.grantPolicyVersion, 'OBSERVATION_BINDING_REFUSED');
+        const source = contract.normalizeExpectedSource(raw, { context, originalAttempt });
+        resolved.set(source, { context: JSON.stringify(context), originalAttempt, mode });
+        return source;
+      },
+      readEvidence: async (context, { source, refresh, signal }) => {
+        contextMatches(context); const saved = resolved.get(source);
+        insist(saved && saved.context === JSON.stringify(context) &&
+          saved.mode === (refresh ? 'refresh' : 'cache'), 'OBSERVATION_BINDING_REFUSED');
+        return this.#request('tasks/observation-details', { taskDigest: context.taskDigest,
+          operationId: context.operationId, childDigest: context.childDigest, mode: saved.mode,
+          sourceReference: source.sourceReference, sourceRevision: source.sourceRevision,
+          capabilityReference: source.capabilityReference, capabilityRevision: source.capabilityRevision }, { signal });
+      },
+      decodeEvidence: (raw, { expectedSource, context }) => {
+        contextMatches(context); const saved = resolved.get(expectedSource);
+        insist(saved && saved.context === JSON.stringify(context), 'OBSERVATION_BINDING_REFUSED');
+        return contract.decodeBoundEntry(raw, { expectedSource, context, originalAttempt: saved.originalAttempt });
+      },
+    });
+  }
   async prepare(task, expectedExecutorDigest = null, expectedObservationContext = null) {
     const expectedValuation = expectedObservationContext === null ? null : normalizeValuationContext(expectedObservationContext);
     insist(task.policy.intent.kind !== 'nft-sale' || expectedValuation, 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED');
@@ -253,14 +456,18 @@ export class TaskAuthorizationClient {
     sameValuationContext({ valuationPolicy }, { valuationPolicy: expectedValuation });
     const observation = { ...normalizeObservationContext(value), ...(valuationPolicy ? { valuationPolicy } : {}) };
     if (expectedObservationContext !== null) sameObservationContext(observation, expectedObservationContext);
-    return Object.freeze({ task: checked, executor, ...observation, challengeId: value.challengeId, expiresAt: value.expiresAt });
+    const approval = approvalMetadata(value);
+    return Object.freeze({ task: checked, executor, ...observation, ...approval, challengeId: value.challengeId, expiresAt: value.expiresAt });
   }
   async authorize(challenge, code) {
     insist(!approvalBlocker(challenge), approvalBlocker(challenge));
-    insist(typeof code === 'string' && /^\d{6}$/.test(code), 'TASK_CODE_REQUIRED');
+    insist(['server-test-scope', 'preoperational-default-on'].includes(challenge.approvalFactor) ? code === '' : typeof code === 'string' && /^\d{6}$/.test(code), 'TASK_CODE_REQUIRED');
     const value = this.view(await this.#request('tasks/authorize', { challengeId: challenge.challengeId, taskDigest: challenge.task.digest, executorDigest: challenge.executor.digest, observationPolicyDigest: challenge.observationPolicy?.digest ?? null,
       ...(challenge.valuationPolicy ? { valuationPolicyDigest: challenge.valuationPolicy.digest, priceAt: challenge.valuationPolicy.policy.priceAt } : {}), code }));
     insist(value.task.digest === challenge.task.digest && value.effectiveStatus === 'authorized');
+    if (challenge.approvalFactor === 'preoperational-default-on' || value.approvalFactor === 'preoperational-default-on')
+      insist(value.approvalFactor === challenge.approvalFactor &&
+        JSON.stringify(value.approvalEvaluation) === JSON.stringify(challenge.approvalEvaluation), 'TASK_APPROVAL_EVALUATION_CHANGED');
     insist(value.executor.digest === challenge.executor.digest, 'TASK_EXECUTOR_CHANGED'); sameObservationContext(value, challenge); return value;
   }
   async revoke(view) {
@@ -274,7 +481,7 @@ export class TaskAuthorizationFlow {
   #client; #now; #notify; #epoch = 0; #challenge = null; #busy = false; #retryAt = 0; #waiting = 0; #continuationDelay = 30000;
   #state = { phase: 'locked', tasks: [], selected: null, error: null };
   constructor({ client, now = Date.now, onChange = () => {} }) { this.#client = client; this.#now = now; this.#notify = onChange; }
-  snapshot() { return Object.freeze({ ...this.#state, challengeExpiresAt: this.#challenge?.expiresAt ?? null, busy: this.#busy, retryAfterMs: Math.max(0, this.#retryAt - this.#now()), continuationDelayMs: this.#continuationDelay }); }
+  snapshot() { return Object.freeze({ ...this.#state, challengeExpiresAt: this.#challenge?.expiresAt ?? null, approvalFactor: this.#challenge?.approvalFactor ?? this.#state.selected?.approvalFactor ?? 'totp', approvalEvaluation: this.#challenge?.approvalEvaluation ?? this.#state.selected?.approvalEvaluation ?? null, busy: this.#busy, retryAfterMs: Math.max(0, this.#retryAt - this.#now()), continuationDelayMs: this.#continuationDelay }); }
   #paint(update) { this.#state = { ...this.#state, ...update };
     if (update.selected) this.#state.tasks = this.#state.tasks.map(view => view.task.digest === update.selected.task.digest ? update.selected : view);
     this.#notify(this.snapshot()); }
@@ -392,3 +599,5 @@ export class TaskAuthorizationFlow {
     } catch (error) { if (this.#current(epoch)) { this.#busy = false; this.#paint({ phase: 'uncertain', error: this.#error(error) }); } }
   }
 }
+
+

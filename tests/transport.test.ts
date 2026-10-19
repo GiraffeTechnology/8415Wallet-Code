@@ -27,13 +27,13 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-/** Stub the global fetch with a single JSON-RPC reply, recording the calls. */
+/** Stub chain identity explicitly; use the supplied reply for business reads. */
 function replyWith(body: unknown, ok = true, status = 200) {
   const calls: { method: string; params: unknown[] }[] = [];
   globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
     const sent = JSON.parse(init?.body ?? '{}') as { id: number; method: string; params: unknown[] };
     calls.push({ method: sent.method, params: sent.params });
-    return { ok, status, json: async () => ({ jsonrpc: '2.0', id: sent.id, ...(body as object) }) } as unknown as Response;
+    return { ok, status, json: async () => ({ jsonrpc: '2.0', id: sent.id, ...(sent.method === 'eth_chainId' ? { result: '0x1' } : body as object) }) } as unknown as Response;
   }) as typeof fetch;
   return calls;
 }
@@ -117,6 +117,7 @@ describe('reading a whole history without asking for it all at once', () => {
       const sent = JSON.parse(init?.body ?? '{}') as { id: number; method: string; params: unknown[] };
       const reply = (result: unknown) => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: sent.id, result }) });
 
+      if (sent.method === 'eth_chainId') return reply('0x1') as unknown as Response;
       if (sent.method === 'eth_blockNumber') return reply(`0x${head.toString(16)}`) as unknown as Response;
       if (sent.method === 'eth_getCode') {
         const at = BigInt(sent.params[1] as string);
@@ -213,9 +214,9 @@ describe('an address with no contract on it', () => {
    */
   const emptyReturn = () => {
     globalThis.fetch = (async (_url, init) => {
-      const sent = JSON.parse(String(init?.body)) as { id: number };
+      const sent = JSON.parse(String(init?.body)) as { id: number; method: string };
       return { ok: true, status: 200,
-        json: async () => ({ jsonrpc: '2.0', id: sent.id, result: '0x' }),
+        json: async () => ({ jsonrpc: '2.0', id: sent.id, result: sent.method === 'eth_chainId' ? '0x1' : '0x' }),
       } as unknown as Response;
     }) as typeof fetch;
   };
@@ -247,9 +248,9 @@ describe('an address with no contract on it', () => {
 
   test('a real answer still decodes', async () => {
     globalThis.fetch = (async (_url, init) => {
-      const sent = JSON.parse(String(init?.body)) as { id: number };
+      const sent = JSON.parse(String(init?.body)) as { id: number; method: string };
       return { ok: true, status: 200,
-        json: async () => ({ jsonrpc: '2.0', id: sent.id, result: `0x${'00'.repeat(31)}01` }),
+        json: async () => ({ jsonrpc: '2.0', id: sent.id, result: sent.method === 'eth_chainId' ? '0x1' : `0x${'00'.repeat(31)}01` }),
       } as unknown as Response;
     }) as typeof fetch;
     const reader = new RpcErc8415Reader(new HttpCallTransport('https://node.example'), 1n, ADDRESS);

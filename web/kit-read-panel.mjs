@@ -1,4 +1,5 @@
-import { paint } from './i18n.mjs';
+import { paint, presentation, renderUi } from './i18n.mjs';
+import { privateNativeUi } from './wallet-identity-display.mjs';
 import { readOnlyPaint, readOnlyLabel } from './readonly-i18n.mjs';
 import { KitProjectionApi, KitErc8415Reader, WalletSession, renderAssetView, renderTemporalQuery } from '../dist/browser/browser.js';
 import { readKitDisplay } from './kit-read.mjs';
@@ -19,7 +20,7 @@ export function mountKitRead({ root, login, getContext, document = globalThis.do
   const output = document.createElement('pre'); output.style.whiteSpace = 'pre-wrap'; output.style.overflowWrap = 'anywhere';
   panel.append(heading, help, pathLabel, instantLabel, read, status, output); host.append(panel);
   let epoch = 0, busy = false, binding = null, selected = null;
-  function clear() { epoch++; busy = false; binding = null; selected = null; paint(status, ''); output.textContent = ''; read.disabled = false; }
+  function clear() { epoch++; busy = false; binding = null; selected = null; paint(status, ''); paint(output, ''); read.disabled = false; }
   function guard(ticket) {
     if (ticket !== epoch || host.hidden || document.visibilityState === 'hidden') throw new Error('KIT_SELECTION_CHANGED');
     login.assert(binding);
@@ -50,10 +51,15 @@ export function mountKitRead({ root, login, getContext, document = globalThis.do
           return new WalletSession(reader, account === undefined ? {} : { account });
         } });
       await login.check(); guard(ticket);
-      output.textContent = [renderAssetView(value.asset), renderTemporalQuery(value.temporal), ...value.notes].join('\n\n');
+      const account = login.assert(binding).account;
+      const parts = [privateNativeUi(renderAssetView, value.asset, account),
+        privateNativeUi(renderTemporalQuery, value.temporal, account),
+        privateNativeUi((notes, translate) => notes.map(translate).join('\n\n'), value.notes, account)];
+      // Bind reduced display copies only; locale repaint must never retain raw wallet identities.
+      paint(output, presentation(locale => parts.map(part => renderUi(part, locale)).filter(Boolean).join('\n\n')));
       readOnlyPaint(status, 'kit.ok');
     } catch {
-      if (ticket === epoch) { output.textContent = ''; readOnlyPaint(status, 'kit.error'); }
+      if (ticket === epoch) { paint(output, ''); readOnlyPaint(status, 'kit.error'); }
     } finally { if (ticket === epoch) { busy = false; read.disabled = false; } }
   });
   basePath.addEventListener('input', clear); instant.addEventListener('input', clear);

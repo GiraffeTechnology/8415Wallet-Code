@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { t } from '../../web/i18n.mjs';
 
 import { mountTaskActivity } from '../../web/task-activity-ui.mjs';
 import { Node } from './readonly-panel-harness.mjs';
@@ -19,8 +20,7 @@ import { Node } from './readonly-panel-harness.mjs';
  */
 
 const SECRET = 'SAVED_TASK_DETAIL_THAT_MUST_NOT_REACH_THE_PAGE';
-const UNAVAILABLE =
-  'Activity unavailable. Sign in again or restart from the first page; no action was sent.';
+const UNAVAILABLE = t('task.activityUnavailable');
 
 // A boolean rather than an optional serverId: a destructuring default fires on
 // an explicit undefined, so the no-server case kept getting a server anyway.
@@ -85,7 +85,7 @@ const buttonOf = (host, label) => {
   assert.ok(found, `the panel must expose its ${label} control`);
   return found;
 };
-const FIRST_PAGE = 'Read first activity page';
+const FIRST_PAGE = t('task.refresh');
 
 export function runTaskActivityCases() {
   test('mounts nothing when the task page is absent', () => {
@@ -106,8 +106,9 @@ export function runTaskActivityCases() {
   test('mounts one panel, registers a logout subscriber and starts with no next page', () => {
     const f = fixture();
     assert.equal(f.host.children.length, 1);
-    assert.equal(f.walletLogin.subscriberCount(), 1);
-    assert.equal(buttonOf(f.host, 'Read next activity page').disabled, true);
+    // Both the activity overview and its nested observation-details panel clear on logout.
+    assert.equal(f.walletLogin.subscriberCount(), 2);
+    assert.equal(buttonOf(f.host, t('task.activityNext')).disabled, true);
   });
 
   test('reads nothing until the tasks page is shown', async () => {

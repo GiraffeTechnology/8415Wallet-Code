@@ -20,7 +20,7 @@ async function fixture(options: any = {}) {
   let handler: any;
   const server = createServer((req, res) => handler(req, res)); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const origin = `http://127.0.0.1:${(server.address() as any).port}`;
-  const accounts = [{ username: 'legacy-user', passwordHash: hash, wallets: [{ account: signer.address, chainId: '1' }], caFingerprints: ['a'.repeat(64)] }];
+  const accounts = options.accounts ?? [{ username: 'legacy-user', passwordHash: hash, wallets: [{ account: signer.address, chainId: '1' }], caFingerprints: ['a'.repeat(64)] }];
   const restart = (nextStore = store, extra = {}) => { handler = createAuthService({ origin, tenant: 'xiongan', accounts, store: nextStore,
     sendOtp: options.noMail ? null : options.sendOtp ?? (async (message: any) => { messages.push(message); }), now: () => state.now, ...extra }); };
   restart();
@@ -60,6 +60,28 @@ async function prepareChange(f: any, c: any, intent: any, factors: any = {}, wal
   return { ...proof.data, ...(proof.data.newEmailRequired ? { newEmailCode: f.messages.at(-1).code } : {}) };
 }
 const applyChange = (c: any, proof: any) => c.call('account/change/commit', { changeProof: proof.changeProof, ...(proof.newEmailRequired ? { newEmailCode: proof.newEmailCode } : {}) });
+
+test('first ordinary registration starts empty, needs no username or password, and survives service restart', async t => {
+  const f = await fixture({ accounts: [] }); t.after(f.close); const c = f.client();
+  const pending = await f.begin(c, 'first@example.invalid');
+  assert.equal(await f.store.read('@registration:xiongan'), null);
+  const result = await c.call('registration/confirm', pending.body);
+  assert.equal(result.status, 200, JSON.stringify(result));
+  const record = (await f.store.read('@registration:xiongan')).records[0];
+  assert.match(record.username, /^user-[a-f0-9]{24}$/);
+  assert.equal(record.ordinaryAccount.passwordHash, undefined);
+  assert.deepEqual(record.ordinaryAccount.wallets, [{ account: pending.wallet.address, chainId: '1' }]);
+  const savedCredential = await f.store.read(`xiongan:${record.username}`);
+  await c.call('logout', {}); f.restart();
+  const restored = f.client(); await restored.call('bootstrap');
+  const selected = { method: 'wallet', account: pending.wallet.address, chainId: '1' };
+  const challenge = await restored.call('challenge', selected); assert.equal(challenge.status, 200);
+  const login = await restored.call('proof', { id: challenge.data.id, account: pending.wallet.address,
+    chainId: '1', signature: await pending.wallet.signMessage(challenge.data.message) });
+  assert.equal(login.status, 200); assert.equal(login.data.username, record.username);
+  assert.deepEqual(await f.store.read(`xiongan:${record.username}`), savedCredential);
+  assert.deepEqual(f.accounts, []);
+});
 
 test('signup requires verified email and purpose-bound EOA proof and creates only an ordinary account', async t => {
   const f = await fixture(); t.after(f.close); const c = f.client();

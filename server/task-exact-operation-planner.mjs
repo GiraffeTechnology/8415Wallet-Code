@@ -1,7 +1,11 @@
+import { normalizeTestNFT721Bindings, verifyTestNFT721OperationPreflight, readTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
+import { captureTestNFT721MetadataVerifier } from './task-test-nft721-metadata.mjs';
+import { verifyTaskExactChain, verifyTaskExactFunding } from './task-exact-chain-state.mjs';
 /** Optional read-only proposal planner. No key, signer, store or broadcast port.
  * Server configuration only; HTTP input cannot provide a fee rule or provider.
  * Proposals never replace durable reserve/verify/CAS or the signer's live checks. */
 import { createHash } from 'node:crypto';
+import { normalizeTestAssetPins, testAssetPinForTask } from './task-test-asset-authorization.mjs';
 import { readFileSync } from 'node:fs';
 import { freezeTaskPolicy, freezeChildOperation, normalizeTaskBudget, assessChildScope } from '../src/agent/taskContract.ts';
 import { encodeCall } from '../src/codec/abi.ts';
@@ -9,9 +13,10 @@ import { ControlledAccountClient } from '../src/controls/accounts.ts';
 import { decodeControlSequence } from '../src/controls/client.ts';
 import { controlHex, hashControlBytes, verifyControlDeployment } from '../src/controls/authorization.ts';
 import { encodeTaskOperationCall } from './task-operation-encoding.mjs';
+import { testSeriesMintRequest, verifyTestSeriesMintPreflight } from './task-test-mint-contract.mjs';
 
 export const TASK_EXACT_PLANNER_RUNTIME_FILES = Object.freeze([
-  'server/task-exact-operation-planner.mjs', 'server/task-operation-encoding.mjs',
+  'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-exact-operation-planner.mjs', 'server/task-operation-encoding.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs', 'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts',
@@ -39,7 +44,7 @@ const hex = value => `0x${BigInt(value).toString(16)}`;
 const minimum = (...values) => values.reduce((a, b) => a < b ? a : b);
 const ceiling = (n, d) => (n + d - 1n) / d;
 const pin = (p, chainId) => ({ controller: p.contract, runtimeCodeHash: p.runtimeCodeHash, chainId: BigInt(chainId) });
-const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_estimateGas']);
+const READ_METHODS = new Set(['eth_chainId', 'eth_getTransactionCount', 'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_estimateGas', 'eth_getBalance']);
 
 /** Exposed for independent boundary tests and reuse by trusted read-only code.
  * No forwarding escape hatch; injected provider code itself remains trusted. */
@@ -73,12 +78,14 @@ export function normalizeTaskExactFeeRule(input) {
   return freeze(rule);
 }
 
-export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.now }) {
+export function createTaskExactOperationPlanner({ provider, feeRule, testAssetPins = [], testMint721Bindings = [], testNFT721Metadata = null, now = Date.now }) {
+  const pins = normalizeTestAssetPins(testAssetPins);
+  const mint721Bindings=normalizeTestNFT721Bindings(testMint721Bindings), metadata=captureTestNFT721MetadataVerifier(testNFT721Metadata);
   check(typeof now === 'function', 'TASK_PLAN_CONFIG_REQUIRED');
   const rule = normalizeTaskExactFeeRule(feeRule), readonlyProvider = createTaskPlannerReadProvider(provider);
   const rpc = (method, params = []) => readonlyProvider.request({ method, params });
   const identity = freeze({ schema: '8415-task-planner/1', plannerId: '8415wallet:exact-operation-planner', plannerVersion: '1',
-    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, feeRule: rule }))}` });
+    implementationDigest: `0x${sha(JSON.stringify({ sourceDigest, feeRule: rule, testAssetPins: pins, mint721Bindings, metadataIdentity: metadata?.identity ?? null }))}` });
   function seconds() { const time = now(); check(Number.isSafeInteger(time) && time >= 0, 'TASK_PLAN_CLOCK_REFUSED'); return BigInt(Math.floor(time / 1000)); }
   async function plan(input) {
     fields(input, ['task', 'budget', 'executor', 'grantPolicyVersion']);
@@ -101,6 +108,7 @@ export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.
     check(expiresAt > startedAt, 'TASK_PLAN_EXPIRED');
     const op = task.policy.intent.operation;
     check(quantity(await rpc('eth_chainId')) === BigInt(op.chainId), 'TASK_PLAN_CHAIN_MISMATCH');
+    await verifyTaskExactChain(readonlyProvider, op.chainId);
     const nonce = quantity(await rpc('eth_getTransactionCount', [op.actor, 'pending']));
     check(nonce <= BigInt(Number.MAX_SAFE_INTEGER), 'TASK_PLAN_NONCE_REFUSED');
     const header = await rpc('eth_getBlockByNumber', [rule.sampleBlock, false]);
@@ -124,6 +132,8 @@ export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.
       return rpc(method, copied);
     } });
     check(await rpc('eth_getCode', [op.actor, block]) === '0x', 'TASK_PLAN_EOA_ACTOR_REQUIRED');
+    const testPin = testAssetPinForTask(pins, task);
+    if (testPin) check(hashControlBytes(await rpc('eth_getCode', [testPin.contract, block])) === testPin.runtimeCodeHash, 'TASK_PLAN_TEST_ASSET_CODE_REFUSED');
     if ('controller' in op) await verifyControlDeployment(pinned, pin(op.controller, op.chainId));
     if ('token' in op) await verifyControlDeployment(pinned, pin(op.token, op.chainId));
     const account = ['deposit', 'standalone-withdraw'].includes(op.kind)
@@ -138,12 +148,21 @@ export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.
       check(sequence.token === op.token.contract && sequence.tokenCodeHash === op.token.runtimeCodeHash &&
         sequence.revision === BigInt(op.expectedRevision), 'TASK_PLAN_SEQUENCE_BINDING_REFUSED');
     }
+    if (op.kind === 'artfi-test-series-mint') await verifyTestSeriesMintPreflight({
+      request: testSeriesMintRequest(op), provider: readonlyProvider, snapshotBlock: block,
+      allowedWallets: [op.actor, op.distributionWallet] });
+    if(op.kind==='artfi-test-nft721-mint') {
+      check(metadata!==null,'TASK_TEST_721_METADATA_NOT_ADMITTED');await metadata.verify(op);
+      await verifyTestNFT721OperationPreflight({operation:op,bindings:mint721Bindings,provider:readonlyProvider,snapshotBlock:block});
+    }
     const transaction = { from: op.actor, to: encoded.to, data: encoded.data, value: hex(encoded.value), chainId: hex(op.chainId),
       nonce: hex(nonce), type: '0x2', gas: hex(gasCap), maxFeePerGas: hex(maxFee), maxPriorityFeePerGas: hex(priority), accessList: [] };
     const estimate = quantity(await rpc('eth_estimateGas', [transaction, rule.simulationBlock]));
     check(estimate > 0n, 'TASK_PLAN_ESTIMATE_REFUSED');
     const gasLimit = ceiling(estimate * BigInt(rule.gasPaddingBps), 10000n);
     check(gasLimit <= gasCap && gasLimit * maxFee <= feeBudget, 'TASK_PLAN_GAS_BUDGET_REFUSED');
+    await verifyTaskExactFunding(readonlyProvider, { actor: op.actor, valueWei: encoded.value,
+      gasLimit: gasLimit.toString(), maxFeePerGasWei: maxFee.toString(), block });
     const exact = { ...transaction, gas: hex(gasLimit) };
     const finalEstimate = quantity(await rpc('eth_estimateGas', [exact, rule.simulationBlock]));
     check(finalEstimate > 0n && finalEstimate <= gasLimit, 'TASK_PLAN_ESTIMATE_CHANGED');
@@ -154,6 +173,9 @@ export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.
     const canonical = await rpc('eth_getBlockByNumber', [block, false]);
     check(canonical && hex(quantity(canonical.number)) === block && canonical.hash === blockHash, 'TASK_PLAN_SAMPLE_REORGED');
     check(quantity(await rpc('eth_chainId')) === BigInt(op.chainId), 'TASK_PLAN_CHAIN_MISMATCH');
+    await verifyTaskExactFunding(readonlyProvider, { actor: op.actor, valueWei: encoded.value,
+      gasLimit: gasLimit.toString(), maxFeePerGasWei: maxFee.toString() });
+    await verifyTaskExactChain(readonlyProvider, op.chainId);
     const proposal = { schema: '8415-agent-child/1', taskDigest: task.digest, operation: op, nonce: nonce.toString(), expiresAt: expiresAt.toString(),
       wire: { to: encoded.to, calldataHash: hashControlBytes(encoded.data), valueWei: encoded.value },
       fees: { gasLimit: gasLimit.toString(), maxFeePerGasWei: maxFee.toString() }, market: null };
@@ -166,3 +188,6 @@ export function createTaskExactOperationPlanner({ provider, feeRule, now = Date.
   }
   return Object.freeze({ identity, plan });
 }
+
+
+

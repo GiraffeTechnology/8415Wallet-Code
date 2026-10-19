@@ -1,7 +1,9 @@
 # Gap Semantics
 
-The canonical decision on what "gap" means in this repository, and what it
-does not.
+This retained Kit note explains settlement gaps. The sole current complete
+product requirements are the [Wallet PRD](../ERC-8415-Wallet-PRD.md), including
+§§3.3 and 4.5; protocol semantics remain governed by the frozen ERC interfaces.
+This note does not establish implementation or execution acceptance.
 
 ## One meaning only: the settlement gap
 
@@ -27,9 +29,11 @@ missing", which is a claim the projection never makes.
 
 - **It marks a token contested from `openedAt`.** An instant at or after that
   point has a change in flight covering it.
-- **It closes exactly once**, by admission or by cancellation, and the
-  settlement record keeps the outcome — `ADMITTED` or `CANCELLED` — rather than
-  disappearing.
+- **It closes exactly once**, by admission, cancellation or supersession, and
+  the settlement record keeps the outcome — `ADMITTED`, `CANCELLED` or
+  `SUPERSEDED` — rather than disappearing. Supersession replaces the open
+  settlement with a new one, leaves the projection unchanged and makes proofs
+  for the superseded settlement unusable.
 - **At most one is open per token.**
 
 ## What a gap does not do
@@ -38,8 +42,9 @@ missing", which is a claim the projection never makes.
   transfer, and there is no lock anywhere in the Kit that a gap could take.
   The token keeps trading while the register catches up; that decoupling is
   the whole design, not an oversight.
-- **It does not decide finality, in any direction.** Opening, closing,
-  cancelling and expiring a gap all leave `isFinalAsOf` exactly where it was.
+- **Gap state alone does not decide finality.** Opening, cancellation,
+  supersession and expiry leave the projection unchanged. Admission may change
+  `isFinalAsOf` because it appends an entry, not because it closes a gap.
   Finality is the later-admission rule and nothing else touches it.
 - **It does not confer rights.** Settlement authority is separate from token
   ownership, and relaying a proof grants the relayer nothing.

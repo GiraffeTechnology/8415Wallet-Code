@@ -3,6 +3,7 @@ import { JsonRpcError, type JsonRpcRequest, type JsonRpcTransport } from '../../
 import type { ProjectionEntry } from '../../../src/kit/engine/projection/types.ts';
 
 export interface FakeState {
+  readonly chainId?: bigint;
   readonly registerId: string;
   readonly entries: readonly ProjectionEntry[];
   readonly openGap: string;
@@ -41,6 +42,10 @@ export class FakeNode implements JsonRpcTransport {
 
   async send(request: JsonRpcRequest): Promise<unknown> {
     this.calls.push(request);
+
+    if (request.method === 'eth_chainId') {
+      return `0x${(this.#state.chainId ?? 1n).toString(16)}`;
+    }
 
     if (request.method === 'eth_getBlockByNumber') {
       const { number, stateRoot } = this.#state.finalized;

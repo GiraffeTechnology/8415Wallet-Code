@@ -4,7 +4,7 @@
 functional-Beta profiles. SDK archives remain supporting developer artifacts.
 This kit includes both compiled UIs, the dependency-complete same-origin auth
 runtime and installer, public configuration tooling, exact source, verification,
-static install/upgrade/rollback tooling, and this guide. Xiongan is an optional
+static install/upgrade/rollback tooling, and this guide. An operator-selected tenant is an optional
 V2 tenant preset; there is no assigned server address or deployment permission
 in the public kit.
 
@@ -99,7 +99,7 @@ retains the existing public schema without inventing a reservation.
 
 Use `v3` explicitly for the V3 profile. `--environment local` accepts loopback
 URLs only and is for synthetic local testing; nonlocal deployments require
-HTTPS. The `xiongan` tenant is V2 only. The shipped unconfigured templates have
+HTTPS. An existing tenant must retain its operator-selected profile. The shipped unconfigured templates have
 null URLs and cannot be installed until an endpoint is explicitly selected.
 
 The plan changes no target, route or listener. It emits exact file locations
@@ -182,3 +182,60 @@ negative/tampered cases. Package verification establishes integrity and exact
 source correspondence given trustworthy external pins. It establishes neither
 production installation nor genuine-wallet, physical-CA, public-chain/W-20,
 independent-security-audit or general-release acceptance.
+
+## Retire public tenant directories when upgrading
+
+Current entry and acceptance follow the complete canonical
+[Wallet PRD §10.1](ERC-8415-Wallet-PRD.md#101-release-boundary-and-wallet-entry)
+and [§10.8](ERC-8415-Wallet-PRD.md#108-confidentiality-and-release-acceptance).
+Retiring the public directory must not disable the required human Login flow:
+accept a tenant name, email or wallet address; resolve and authorize it at the
+server boundary without enumeration; then use the canonical
+`https://8415wallet.com/<wallet-name>` route with wallet-bound authentication and
+correct reload/deep-link behavior. No per-wallet DNS record or public roster is
+required. Keep unknown and inaccessible identifier responses non-enumerating.
+An unavailable resolver is an implementation gap, not the final acceptance target
+or permission to restore a public directory. These requirements do not claim a
+particular source version is already connected or accepted online.
+
+### Historical transition: all-name unavailable tombstone
+
+The following paragraph records the earlier directory-retirement transition.
+Its no-request/all-values-unavailable behavior is **historical, not the current
+Login requirement**. The non-enumeration and retired-directory protections remain
+required; replacing the transition must not revive the old public roster.
+
+The public platform does not publish a wallet list or resolve an entered wallet
+name. The historical `web/tenant-password-routing.json` path is an empty
+tombstone; a non-empty legacy directory is rejected even if every entry is marked
+not ready. The name field sends no network request and returns the same
+unavailable result for every value and action. Use the wallet's existing verified
+address directly. The wallet's own configured origin, port, path and local
+authentication boundaries are unchanged.
+
+### Retired-directory cleanup and evidence
+
+The generated static plan contains an exact 404/no-store tombstone for
+`/.well-known/8415wallet-password-routing.json`. In the original exact TLS
+vhost, replace the old operator-owned directory location with that block; do not
+append duplicate locations, add a general rewrite, or change authentication,
+listeners, TLS or another application's configuration. Review and validate the
+complete same-version static plan before activation.
+
+After switching the complete V2/V3 release, independently read back the original
+public entry, routing module, UI module and empty JSON and compare their hashes
+with the installed receipt. Probe the retired well-known path with no credentials
+and with arbitrary query values; all must return the same 404 JSON response with
+no tenant names and no-store headers. Verify that no old routing response remains
+under previously published static aliases, service-worker caches or the existing
+reverse-proxy/CDN cache. Clear or retire only the identified task-owned stale
+public assets/cache keys through the existing deployment mechanism. Do not erase
+credentials, journals, evidence, unrelated caches or shared services.
+
+A source commit, CI run or generated nginx plan does not prove this retirement
+happened online. Record actual served hashes, response status/body/headers and
+cache observations separately. Previously downloaded copies cannot be recalled;
+they must not remain linked or served as the active release. The installer can
+verify the exact legacy static-plan format while preparing an upgrade, but does
+not activate that format as a new release or accept it as a rollback plan.
+

@@ -13,11 +13,19 @@ const { verifyAuthDirectory, TASK_RUNTIME_SOURCE_PATHS, AUTH_STATE_SEMANTICS } =
 const release = verifyAuthDirectory(root);
 assert.equal(release.runtime.authStateSemantics, AUTH_STATE_SEMANTICS);
 assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, [
+  'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
+  'server/forward-progress-reader.mjs', 'src/controls/detachedHistoryLocator.ts', 'src/controls/historyView.ts',
+  'src/controls/historyEntitlement.ts', 'src/controls/historyMilestone.ts', 'src/controls/historyDiscovery.ts', 'src/sdk/conformance.ts',
+  'server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts', 'src/wallet/linkedChainView.ts', 'src/sdk/types.ts',
   'server/task-runtime-import-probe.mjs', 'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
+  'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
+  'server/task-exact-chain-state.mjs',
+  'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs',
   'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
   'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
   'server/task-journal-capabilities.mjs', 'server/task-receipt-runtime.mjs',
-  'server/task-listing-results.mjs', 'web/task-listing-results.mjs',
+  'server/task-listing-results.mjs', 'web/task-listing-results.mjs', 'web/task-observer-context.mjs',
+  'server/task-observation-sources.mjs',
   'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
   'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
   'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
@@ -104,7 +112,7 @@ try {
     intent: { kind: 'exact-operation', operation: { kind: 'native-transfer', chainId: '11155111', actor, recipient, valueWei: '1' } } };
   const prepared = await call('tasks/prepare', { policy }); assert.equal(prepared.status, 200);
   assert.equal(prepared.data.task.digest, freezeTaskPolicy(policy).digest);
-  const granted = await call('tasks/authorize', { challengeId: prepared.data.challengeId, taskDigest: prepared.data.task.digest, executorDigest: prepared.data.executor.digest, observationPolicyDigest: prepared.data.observationPolicy?.digest ?? null, code: hotp(secret, now / 30000) });
+  const granted = await call('tasks/authorize', { challengeId: prepared.data.challengeId, taskDigest: prepared.data.task.digest, executorDigest: prepared.data.executor.digest, observationPolicyDigest: prepared.data.observationPolicy?.digest ?? null, code: prepared.data.approvalFactor === 'totp' ? hotp(secret, now / 30000) : '' });
   assert.equal(granted.status, 200); assert.equal(granted.data.effectiveStatus, 'authorized');
   assert.equal(granted.data.capabilities.executable, false);
   const continuation = await call('tasks/resume', { taskDigest: prepared.data.task.digest }); assert.equal(continuation.status, 200);
@@ -123,3 +131,6 @@ try {
 } finally {
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await store.close();
 }
+
+
+

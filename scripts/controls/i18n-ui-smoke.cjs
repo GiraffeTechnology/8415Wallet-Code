@@ -1,3 +1,5 @@
+const { fixturePath, compositionEvidence, serveEnabledComposition } = require('../../tests/helpers/enabled-composition.cjs');
+const testComposition = 'assets'; // Explicit retained-component fixture, not production foundation acceptance.
 const { installScreenNavigation } = require('./screen-navigation.cjs');
 // Real Chromium page, synthetic provider only. Never a genuine-wallet/device claim.
 const assert = require('node:assert/strict');
@@ -14,6 +16,7 @@ async function main() {
   const config = JSON.parse(fs.readFileSync(path.join(root, 'web/release-config.json'), 'utf8'));
   let profile = 'v2';
   const server = http.createServer((req, res) => {
+    if (serveEnabledComposition(req, res, { root, composition: testComposition })) return;
     res.setHeader('Cache-Control', 'no-store');
     if (req.url === '/web/release-config.json') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ ...config, profile })); return; }
     const relative = req.url === '/' ? 'web/index.html' : req.url.slice(1), full = path.resolve(root, relative);
@@ -50,7 +53,7 @@ async function main() {
       });
       const page = installScreenNavigation(await context.newPage()), errors = [];
       page.on('pageerror', error => errors.push(error.message));
-      await page.goto(`${origin}/web/index.html`);
+      await page.goto(`${origin}${fixturePath(testComposition)}`);
       await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
       await page.selectOption('#ui-locale', locale.id);
       assert.equal(await page.getAttribute('html', 'lang'), locale.id);
@@ -82,7 +85,7 @@ async function main() {
       assert.equal(await page.locator('#wallet-private').isVisible(), false);
       assert.deepEqual(await page.evaluate(() => globalThis.__localeTest.calls), []);
       assert.deepEqual(errors, []);
-      evidence.push({ profile, width, locale: locale.id, privateOnEntry: true, persistence: true, rawIntentUnchanged: true, consentUnchanged: true, switchMakesZeroProviderCalls: true, logoutPrivate: true, noOverflow: true });
+      evidence.push({ composition: compositionEvidence(testComposition), profile, width, locale: locale.id, privateOnEntry: true, persistence: true, rawIntentUnchanged: true, consentUnchanged: true, switchMakesZeroProviderCalls: true, logoutPrivate: true, noOverflow: true });
       await context.close();
     }
     fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ synthetic: true, evidence }, null, 2));

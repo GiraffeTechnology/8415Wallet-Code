@@ -106,3 +106,14 @@ test('a cross-action server response cannot be consumed or expose an unrelated m
   f.choose('password'); f.field('Original password')!.value = 'synthetic'; f.submit(); await f.email(); await rejection;
   assert.equal(f.calls.some(call => call.action === 'commit'), false); assert.equal(f.dialog(), undefined);
 });
+
+
+test('method-change email OTP is masked while retaining numeric autofill and clearing after submit', async t => {
+  const f = fixture(t, { passwordless: true });
+  const pending = f.begin({ action: 'totp.initial' }); f.choose('wallet'); f.submit();
+  await spin(() => !!f.dialog() && !!f.field('Eight-digit email code'));
+  const code: any = f.field('Eight-digit email code')!;
+  assert.equal(code.type, 'password'); assert.equal(code.autocomplete, 'one-time-code');
+  assert.equal(code.inputMode, 'numeric'); assert.equal(code.pattern, '[0-9]{8}');
+  code.value = '12345678'; f.submit(); await pending; assert.equal(code.value, '');
+});

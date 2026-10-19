@@ -1,3 +1,5 @@
+const { fixturePath, compositionEvidence } = require('../../tests/helpers/enabled-composition.cjs');
+const testComposition = 'assets'; // Explicit retained-component fixture, not production foundation acceptance.
 const { installScreenNavigation } = require('./screen-navigation.cjs');
 // Actual Chromium, DOM and strict IndexedDB regression with a synthetic ERC-20
 // provider. No real wallet, user keys/signatures or network RPC; login uses a public test key; no device acceptance.
@@ -65,7 +67,7 @@ async function installProvider(context) {
 async function main() {
   fs.mkdirSync(out, { recursive: true });
   const server = spawn(process.execPath, [path.join(__dirname, 'serve-browser.cjs')], {
-    env: { ...process.env, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    env: { ...process.env, WALLET_BROWSER_TEST_COMPOSITION: testComposition, WALLET_BROWSER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   let browser, stderr = '';
   server.stderr.on('data', chunk => { stderr += chunk.toString(); });
   try {
@@ -98,7 +100,7 @@ async function main() {
           await page.waitForFunction(() => document.getElementById('asset-review-text').textContent.includes('digest')); await idle();
         };
         const sends = () => page.evaluate(() => __erc20Test.sends);
-        await page.goto(origin); await connect();
+        await page.goto(origin + fixturePath(testComposition)); await connect();
         assert.ok((await page.textContent('#release-profile')).includes(profile === 'v2' ? '2.2.0-beta' : '3.0.0-beta'));
         assert.equal(await page.locator('.nav-item[data-route="linked"]').isVisible(), profile === 'v3');
         await page.fill('#asset-contract', contract); await page.click('#asset-token-balance'); await idle();
@@ -149,7 +151,7 @@ async function main() {
         await page.click('.nav-item[data-route="overview"]'); await page.click('[data-route="transfer"]:visible');
         await page.locator('#asset-panel').screenshot({ path: path.join(out, `erc20-${profile}-${viewport.width}.png`) });
         assert.deepEqual(errors, []); assert.deepEqual(externalRequests, []);
-        evidence.push({ profile, viewport, provider: 'synthetic-test-login-no-user-signing-no-rpc', sends: 3,
+        evidence.push({ composition: compositionEvidence(testComposition), profile, viewport, provider: 'synthetic-test-login-no-user-signing-no-rpc', sends: 3,
           journeys: ['explicit-token-balance', 'six-decimal-exact-display', 'raw-integer-refusal', 'unknown-decimals', 'no-ack-no-send',
             'numeric-4001-review-clearing', 'duplicate-click', 'submitted-reload', 'mismatched-effect-refusal', 'canonical-receipt',
             'unknown-reload-no-resend', 'exact-hash-recovery', 'terminal-acknowledgement', 'no-horizontal-overflow'], errors, externalRequests });
@@ -164,7 +166,7 @@ async function main() {
       if (route.request().url() === `${origin}/web/release-config.json`) return route.fulfill({ status: 404, body: 'Missing config' });
       return route.continue();
     });
-    await installProvider(blocked); const blockedPage = installScreenNavigation(await blocked.newPage()); await blockedPage.goto(origin);
+    await installProvider(blocked); const blockedPage = installScreenNavigation(await blocked.newPage()); await blockedPage.goto(origin + fixturePath(testComposition));
     await blockedPage.click('#wallet-login');
     await blockedPage.waitForFunction(() => document.getElementById('wallet-login-status').textContent === 'LOGIN_RELEASE_CONFIG_REFUSED');
     assert.equal(await blockedPage.locator('#wallet-private').isVisible(), false);
@@ -172,7 +174,7 @@ async function main() {
     await blockedPage.waitForFunction(() => document.getElementById('asset-result').textContent === 'LOGIN_REQUIRED');
     assert.equal(await blockedPage.evaluate(() => __erc20Test.accountRequests), 0);
     assert.equal(await blockedPage.evaluate(() => __erc20Test.sends), 0);
-    evidence.push({ profileGate: 'missing-config-refused-before-provider', accountRequests: 0, sends: 0 }); await blocked.close();
+    evidence.push({ composition: compositionEvidence(testComposition), profileGate: 'missing-config-refused-before-provider', accountRequests: 0, sends: 0 }); await blocked.close();
     fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({
       verdict: 'SYNTHETIC_CHROMIUM_INDEXEDDB_REGRESSION_PASSED_NOT_REAL_WALLET_ACCEPTANCE', evidence }, null, 2));
     console.log(JSON.stringify({ passed: true, out, profiles: 2, viewports: 2, evidenceCases: evidence.length }));

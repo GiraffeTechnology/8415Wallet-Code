@@ -35,7 +35,7 @@ import { KitProjectionApi, type KitSettlement } from './kitApi.ts';
  *  - `supportsInterface`, which is how a deployment advertises conformance.
  *    An indexer vouching for a contract it indexes is circular.
  *  - `block.timestamp`, which dates a gap's deadline and decides that the
- *    present instant is never final.
+ *    exact present instant is queried; finality is read independently.
  *
  * So a Kit-backed reader is a chain reader with its projection reads
  * accelerated, never a replacement for one. `RpcErc8415Reader` satisfies this

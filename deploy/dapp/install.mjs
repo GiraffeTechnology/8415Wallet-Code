@@ -79,7 +79,10 @@ export function nginxStaticAllowlist(target, identity, paths) {
   const url = new URL(identity.deployment.url), base = url.pathname.slice(0, -'web/index.html'.length);
   fail(/^\/[A-Za-z0-9_./-]*$/.test(base), 'NGINX_URL_REFUSED');
   const types = { html: 'text/html', js: 'application/javascript', mjs: 'application/javascript', css: 'text/css', json: 'application/json', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', ico: 'image/x-icon', woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', txt: 'text/plain', md: 'text/plain' };
-  return `# Review and include only inside the existing exact TLS vhost for ${url.origin}.\n# Static file allowlist only. No listener, auth route, TLS or fallback rewrite.\n` + [...paths].sort().map(path => {
+  // Replace any historical operator-owned public directory location in this
+  // same vhost with this exact tombstone; never append duplicate locations.
+  const retiredDirectory = 'location = /.well-known/8415wallet-password-routing.json {\n    default_type application/json;\n    add_header Cache-Control "no-store" always;\n    add_header X-Content-Type-Options nosniff always;\n    return 404 \'{"error":"UNAVAILABLE"}\';\n}\n';
+  return `# Review and include only inside the existing exact TLS vhost for ${url.origin}.\n# Static file allowlist only. No listener, auth route, TLS or fallback rewrite.\n# Replace the retired public directory location; do not append a duplicate.\n` + retiredDirectory + [...paths].sort().map(path => {
     fail(isPublicFile(path), 'NGINX_PUBLIC_PATH_REFUSED');
     return `location = ${base}${path} {\n    alias ${target}/current/public/${path};\n    default_type ${types[path.split('.').at(-1)]};\n    add_header Cache-Control "no-store" always;\n    add_header X-Content-Type-Options nosniff always;\n}\n`;
   }).join('\n');
@@ -90,7 +93,7 @@ function currentRelease(target) {
   const link = readlinkSync(path); fail(/^releases\//.test(link) && releasePattern.test(link.slice(9)), 'CURRENT_LINK_REFUSED');
   protectPath(join(target, link), { directory: true }); return link.slice(9);
 }
-export function verifyInstalledRelease(target, id, { expectedReceiptSha256, expectedTree, identity } = {}) {
+export function verifyInstalledRelease(target, id, { expectedReceiptSha256, expectedTree, identity, allowLegacyPlan = false } = {}) {
   fail(releasePattern.test(id), 'RELEASE_ID_REFUSED');
   protectPath(target, { directory: true }); protectPath(join(target, 'releases'), { directory: true });
   const root = join(target, 'releases', id); protectPath(root, { directory: true });
@@ -106,7 +109,13 @@ export function verifyInstalledRelease(target, id, { expectedReceiptSha256, expe
   for (const path of paths) fail(hashPattern.test(receipt.files[path]) && sha256(readFileSync(join(root, 'public', path))) === receipt.files[path], 'PUBLIC_DIGEST_MISMATCH');
   const config = JSON.parse(readFileSync(join(root, 'public/web/release-config.json'), 'utf8'));
   assert.deepEqual(boundary(config, receipt.identity.tenant, receipt.identity.profile), receipt.identity, 'DAPP_INSTALL_CONFIG_BOUNDARY_MISMATCH');
-  fail(readFileSync(join(root, 'static-allowlist.nginx.conf'), 'utf8') === nginxStaticAllowlist(target, receipt.identity, paths), 'NGINX_PLAN_MISMATCH');
+  const expectedPlan = nginxStaticAllowlist(target, receipt.identity, paths);
+  const oldPlan = expectedPlan.replace('# Replace the retired public directory location; do not append a duplicate.\n', '')
+    .replace(/location = \/\.well-known\/8415wallet-password-routing\.json \{\n[\s\S]*?\n\}\n/, '');
+  const actualPlan = readFileSync(join(root, 'static-allowlist.nginx.conf'), 'utf8');
+  // Upgrade may validate the exact prior static-only format before replacing
+  // it. New activation and rollback must use the privacy-preserving plan.
+  fail(actualPlan === expectedPlan || allowLegacyPlan && actualPlan === oldPlan, 'NGINX_PLAN_MISMATCH');
   return { receipt, receiptSha256: sha256(bytes) };
 }
 function syncTree(path) {
@@ -148,7 +157,7 @@ export function installDapp(input) {
     fail(upgrade ? prior !== null : prior === null, upgrade ? 'UPGRADE_REQUIRES_CURRENT' : 'USE_EXPLICIT_UPGRADE');
     const identityPath = join(target, 'IDENTITY.json');
     if (found(identityPath)) assert.deepEqual(loadBoundary(target, tenant, profile), identity, 'DAPP_INSTALL_BOUNDARY_CHANGE_REFUSED');
-    if (prior) verifyInstalledRelease(target, prior, { identity });
+    if (prior) verifyInstalledRelease(target, prior, { identity, allowLegacyPlan: true });
     const releases = ensureReleases(target), releasePath = join(releases, id);
     const receipt = { schema: '8415wallet-dapp-installed-release/1', release: id, identity, sourceTree: expectedTree,
       kitSha256: expectedSha256, uiArchiveSha256: delivery.release.artifacts[profile].sha256,

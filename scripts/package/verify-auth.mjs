@@ -26,6 +26,37 @@ const objectHash = (type, bytes) => createHash('sha1').update(`${type} ${bytes.l
 const fail = (condition, code) => { if (!condition) throw new Error(`AUTH_PACKAGE_${code}`); };
 const hashPattern = /^[0-9a-f]{64}$/;
 const gitPattern = /^[0-9a-f]{40}$/;
+/** Release pins are explicit caller inputs, never derived from the archive being checked.
+ * Development integrity checking remains available without release mode. */
+export function authSourcePolicy({ release = false, expectedCommit, expectedTree } = {}) {
+  fail(typeof release === 'boolean', 'RELEASE_MODE_REFUSED');
+  if (expectedCommit !== undefined) fail(typeof expectedCommit === 'string' && gitPattern.test(expectedCommit), 'EXPECTED_SOURCE_COMMIT_REFUSED');
+  if (expectedTree !== undefined) fail(typeof expectedTree === 'string' && gitPattern.test(expectedTree), 'EXPECTED_SOURCE_TREE_REFUSED');
+  if (release) fail(gitPattern.test(expectedCommit ?? '') && gitPattern.test(expectedTree ?? ''), 'RELEASE_EXTERNAL_PINS_REQUIRED');
+  return { release, expectedCommit, expectedTree };
+}
+export function verifyAuthSourcePolicy(source, options = {}) {
+  const policy = authSourcePolicy(options);
+  if (policy.expectedCommit !== undefined) fail(source?.commit === policy.expectedCommit, 'EXPECTED_SOURCE_COMMIT_MISMATCH');
+  if (policy.expectedTree !== undefined) fail(source?.tree === policy.expectedTree, 'EXPECTED_SOURCE_TREE_MISMATCH');
+  if (policy.release) fail(source?.dirty === false && source.commitTree === policy.expectedTree
+    && source.indexTree === policy.expectedTree && source.tree === policy.expectedTree, 'RELEASE_CLEAN_SOURCE_REQUIRED');
+  return policy;
+}
+export function parseAuthVerifyArguments(args) {
+  const seen = new Set(), options = {}; let target;
+  for (let index = 0; index < args.length; index++) {
+    const key = args[index];
+    fail(['--release', '--expected-commit', '--expected-tree', '--directory', '--manifest'].includes(key) && !seen.has(key), 'ARGUMENT_REFUSED');
+    seen.add(key);
+    if (key === '--release') { options.release = true; continue; }
+    const value = args[++index]; fail(typeof value === 'string' && value.length > 0 && !value.startsWith('--'), 'ARGUMENT_REFUSED');
+    if (key === '--expected-commit') options.expectedCommit = value;
+    else if (key === '--expected-tree') options.expectedTree = value;
+    else { fail(target === undefined, 'ARGUMENT_REFUSED'); target = { kind: key.slice(2), path: value }; }
+  }
+  return { target: target ?? { kind: 'manifest', path: 'dist/auth-package-manifest.json' }, policy: authSourcePolicy(options) };
+}
 export function authStateSemantics(release) {
   const value = release?.runtime?.authStateSemantics;
   // An absent declaration is the pre-registration/recovery generation only.
@@ -42,11 +73,21 @@ export function validateAuthStateTransition(current, candidate, { rollback = fal
   fail(!rollback, 'STATE_SEMANTICS_TRANSITION_REFUSED');
 }
 export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
+  'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
+  'server/forward-progress-reader.mjs', 'src/controls/detachedHistoryLocator.ts', 'src/controls/historyView.ts',
+  'src/controls/historyEntitlement.ts', 'src/controls/historyMilestone.ts', 'src/controls/historyDiscovery.ts', 'src/sdk/conformance.ts',
+  'server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts', 'src/wallet/linkedChainView.ts', 'src/sdk/types.ts',
+  // linkedChainView uses sdk/linked.ts only via import type; native type
+  // stripping does not load it. Keep this list an exact executable closure.
   'server/task-runtime-import-probe.mjs', 'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
+  'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
+  'server/task-exact-chain-state.mjs',
+  'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs',
   'server/task-listing-runtime.mjs', 'server/task-listing-bootstrap.mjs', 'server/task-listing-config.mjs',
   'server/task-listing-installed.mjs', 'server/task-listing-package-pin.mjs', 'server/task-listing-transport.mjs',
   'server/task-journal-capabilities.mjs', 'server/task-receipt-runtime.mjs',
-  'server/task-listing-results.mjs', 'web/task-listing-results.mjs',
+  'server/task-listing-results.mjs', 'web/task-listing-results.mjs', 'web/task-observer-context.mjs',
+  'server/task-observation-sources.mjs',
   'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
   'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
   'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
@@ -54,7 +95,9 @@ export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
 ]);
-export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || TASK_RUNTIME_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/login-core\.mjs|deploy\/auth-xiongan\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth-xiongan\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
+// Retained source contracts are packaged but never counted as executable imports.
+export const TASK_TYPE_SOURCE_PATHS = Object.freeze(['src/sdk/linked.ts']);
+export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || TASK_RUNTIME_SOURCE_PATHS.includes(path) || TASK_TYPE_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/login-core\.mjs|deploy\/auth-runtime\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
 export function safePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length <= 240 && /^[A-Za-z0-9_@.+/=-]+$/.test(path)
     && path.split('/').every(part => part && part !== '.' && part !== '..');
@@ -161,7 +204,8 @@ export function verifyInstalledTaskListingPackage(directory) {
       !['preinstall', 'install', 'postinstall', 'prepare'].some(key => Object.hasOwn(pkg.scripts ?? {}, key)), 'LISTING_DEPENDENCY_REFUSED');
   }
 }
-export function verifyAuthDirectory(directory, { expectedTree } = {}) {
+export function verifyAuthDirectory(directory, options = {}) {
+  const policy = authSourcePolicy(options);
   const files = walkAuth(directory);
   fail(files.every(packagePathAllowed), 'PAYLOAD_ALLOWLIST_REFUSED');
   const release = JSON.parse(readFileSync(join(directory, 'AUTH-RELEASE.json'), 'utf8'));
@@ -173,7 +217,7 @@ export function verifyAuthDirectory(directory, { expectedTree } = {}) {
   const commitBytes = Buffer.from(source.commitObject, 'base64');
   fail(objectHash('commit', commitBytes) === source.commit && commitBytes.toString().startsWith(`tree ${source.commitTree}\n`), 'COMMIT_IDENTITY_MISMATCH');
   fail(sourceTree(source.entries) === source.tree && source.dirty === (source.tree !== source.commitTree), 'SOURCE_TREE_MISMATCH');
-  if (expectedTree) fail(source.tree === expectedTree, 'EXPECTED_SOURCE_TREE_MISMATCH');
+  verifyAuthSourcePolicy(source, policy);
   const sourceEntries = new Map(source.entries.map(entry => [entry.path, entry]));
   const expectedFiles = files.filter(file => !['AUTH-RELEASE.json', 'SHA256SUMS'].includes(file));
   assert.deepEqual(expectedFiles.filter(sourcePathAllowed), source.entries.map(entry => entry.path).filter(sourcePathAllowed).sort(), 'AUTH_PACKAGE_SOURCE_PAYLOAD_COMPLETENESS');
@@ -186,8 +230,15 @@ export function verifyAuthDirectory(directory, { expectedTree } = {}) {
   for (const [original, packaged] of [['package.json', 'provenance/package.source.json'], ['package-lock.json', 'provenance/package-lock.source.json']]) {
     fail(sourceEntries.has(original) && objectHash('blob', readFileSync(join(directory, packaged))) === sourceEntries.get(original).object, 'SOURCE_PACKAGE_BLOB_MISMATCH');
   }
-  const required = ['server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-xiongan/install.mjs', 'deploy/auth-xiongan/8415wallet-auth-xiongan.service', 'deploy/auth-xiongan/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', 'LICENSE'];
+  const required = ['server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', 'LICENSE'];
   if (authStateSemantics(release) === AUTH_STATE_SEMANTICS) required.push('server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS);
+  // The parameterized compatibility entry must not ship without its parser.
+  // Historical immutable packages without this import retain their exact
+  // inventory contract; no source or checksum assertion is relaxed.
+  if (expectedFiles.includes('server/service-entry.mjs') &&
+      readFileSync(join(directory, 'server/service-entry.mjs'), 'utf8').includes("from './credential-instance.mjs'")) {
+    required.push('server/credential-instance.mjs');
+  }
   fail(required.every(file => expectedFiles.includes(file)), 'REQUIRED_FILE_MISSING');
   const sourcePackage = JSON.parse(readFileSync(join(directory, 'provenance/package.source.json'), 'utf8'));
   const sourceLock = JSON.parse(readFileSync(join(directory, 'provenance/package-lock.source.json'), 'utf8'));
@@ -249,22 +300,22 @@ export function unpackAuthArchive(archive) {
   } catch (error) { rmSync(directory, { recursive: true, force: true }); throw error; }
 }
 
-export function verifyAuthArchive(manifestPath) {
+export function verifyAuthArchive(manifestPath, options = {}) {
+  const policy = authSourcePolicy(options);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   fail(/^8415wallet-auth-runtime-[0-9a-f]{40}\.tar\.gz$/.test(manifest.artifact) && hashPattern.test(manifest.sha256), 'MANIFEST_ARTIFACT_REFUSED');
   const archive = join(dirname(resolve(manifestPath)), manifest.artifact);
   fail(sha256(readFileSync(archive)) === manifest.sha256, 'ARCHIVE_DIGEST_MISMATCH');
   const directory = unpackAuthArchive(archive);
   try {
-    const release = verifyAuthDirectory(directory);
+    const release = verifyAuthDirectory(directory, policy);
     const { artifact: _artifact, sha256: _sha256, ...expectedRelease } = manifest;
     assert.deepEqual(release, expectedRelease, 'AUTH_PACKAGE_MANIFEST_RELEASE_MISMATCH');
     return release;
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2);
-  if (args.length && (args.length !== 2 || !['--directory', '--manifest'].includes(args[0]))) throw new Error('AUTH_PACKAGE_ARGUMENT_REFUSED');
-  const release = args[0] === '--directory' ? verifyAuthDirectory(resolve(args[1])) : verifyAuthArchive(resolve(args[1] ?? 'dist/auth-package-manifest.json'));
+  const { target, policy } = parseAuthVerifyArguments(process.argv.slice(2));
+  const release = target.kind === 'directory' ? verifyAuthDirectory(resolve(target.path), policy) : verifyAuthArchive(resolve(target.path), policy);
   console.log(`Auth package integrity verified; source ${release.source.tree}; ${release.status}. Checksums establish integrity, not publisher authenticity or deployment acceptance.`);
 }
