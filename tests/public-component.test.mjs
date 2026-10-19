@@ -47,7 +47,8 @@ test('public V2/V3 projections retain all runtime/legal bytes but exclude privat
     assert.equal(result.release.source.tree, f.manifest.source.tree);
     assert.match(result.release.source.inventoryScope, /selected-install-component-only/);
     for (const path of ['docs/ERC-8415-Wallet-PRD.md', 'docs/APPROVED-UI-IMPLEMENTATION.md', 'docs/deployment/SIN-private.md']) assert.equal(result.entries.has(path), false);
-    assert.doesNotMatch(text, /PRIVATE_|SIN-private|sourceArchive|private-source|commitTree/);
+    assert.doesNotMatch(text, /PRIVATE_|SIN-private|sourceArchive|private-source\.tar\.gz|commitTree/);
+    assert.deepEqual(Object.keys(result.release.source).sort(), ['commit', 'inventoryScope', 'tree']);
     for (const [path, entry] of f.entries) if (/^(web\/|dist\/browser\/)/.test(path) || LEGAL_FILES.includes(path)) assert.deepEqual(result.entries.get(path), entry);
     archive(result.entries, bytes => {
       const manifest = { artifact: `8415wallet-install-${profile}-${result.release.version}.tar.gz`, sha256: sha256(bytes), bytes: bytes.length, members: componentInventory(result.entries), release: result.release };
