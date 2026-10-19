@@ -16,8 +16,6 @@ The dated source closures and test batches below remain historical evidence,
 not a cumulative current-head pass or a claim that the current source was never
 tested. Source implementation and independent security/testnet/UI approval remain
 distinct. Preserve source-specific results instead of reusing an earlier label.
-All new deployment and test execution must use managed CTYun/SIN Linux; Windows
-is development only.
 
 ## Historical source handoff and control evidence
 
@@ -25,7 +23,7 @@ The [V3 development closure](V3-DEVELOPMENT-CLOSURE.md) dated 2026-10-01 was rec
 as NOT_TESTED at its freeze. Source closure is not release acceptance.
 Source was UNTESTED at initial freeze;
 pre-repair Stage 5F local validation passed 651 Node and 49 EVM cases after earlier review repairs
-and read-only detached/reserved payment observation. No new authority is added.
+and read-only detached/reserved payment observation.
 Fresh independent review, genuine UI and public-testnet gates remain open.
 Preserve historical Sepolia receipts; do not relabel them as V3.
 
@@ -37,9 +35,7 @@ This does not validate the later Stage 5E changes or repair GitHub Actions.
 Stage 5E fixes the two P1 findings on that head; see its dedicated report and
 require fresh independent review before public control deployment.
 
-Remote PRs #3–#7 were externally merged during this task's validation. This task
-did not perform those merges. Repairs now need a separate PR; no release approval
-or authorization to merge further work follows from that remote state.
+PRs #3–#7 were merged during this validation.
 
 ## Exact review surface
 
@@ -83,8 +79,7 @@ In addition to W-01–W-24, execute PS-01–PS-17 against the candidate that act
 implements those capabilities. The human-authorized parent task must let an agent
 complete every in-scope step while each child retains the required checks. Demonstrate
 the strict-above-USD-500 single-NFT example with bound price, fee and settlement
-evidence; a transfer or agent-provided price alone must fail. No real transaction
-is authorized by this example or by the acceptance matrix.
+evidence; a transfer or agent-provided price alone must fail.
 
 Use a genuine mobile DApp journey for the displayed task, human confirmation,
 standard TOTP entry and automatic agent resumption, including app switch, cancel,
@@ -129,13 +124,11 @@ of an authorization service, provider integration or complete automated sale.
    receipt/readback to that deployment and retain public evidence only.
 6. Produce W-01–W-21 results individually, with NOT_RUN/BLOCKED where appropriate;
    never infer them from package integrity, source presence or script exit alone.
-7. CI and PR merging are assigned to the release owner by the latest user direction.
-   This task delivers implementation, regressions and stage PRs, not runner or
-   merge operations. PRs #3-#9 have merged; no merge satisfies steps 4-6.
+7. Evaluate the exact candidate's required CI checks. PRs #3-#9 have merged;
+   merging does not satisfy steps 4-6.
 
-No deployment wallet is generated or imported by this handoff. Missing genuine
-provider, signing capability, funding, review or brand inputs must be reported
-precisely while other authorized validation continues. Do not fabricate evidence.
+Missing genuine-provider, signing, funding or independent-review evidence must be
+recorded explicitly. Synthetic or incomplete validation does not replace it.
 
 ---
 

@@ -18,7 +18,7 @@ for (const path of ['README.md', 'AGENTS.md', 'docs/ERC-8415-Wallet-PRD.md']) {
     assert.match(text, /\bV3\b/);
     if (path === 'AGENTS.md') {
       assert.match(text, /Tenant deployments are configurations, not separate products/);
-      assert.match(text, /Do not publish real tenant identities/);
+      assert.match(text, /without a public tenant list/);
     } else if (path === 'docs/ERC-8415-Wallet-PRD.md') {
       assert.match(text, /Wallet-specific deployment bindings remain private/);
     }
@@ -56,13 +56,13 @@ test('native PRD requirements hold, and port reservations stay out of them', () 
 
   const installer = prose(read('docs/DAPP-INSTALL.md'));
   assert.match(installer, /deployment\.reservedPorts/);
-  assert.doesNotMatch(installer, /For CTYun the list includes 443|CTYun reserves TCP 443/);
+  assert.doesNotMatch(installer, /the list includes 443|reserves TCP 443/);
 });
 
 test('current complete PRD bytes and execution-entry pin stay synchronized', () => {
   const bytes = readFileSync(new URL('../docs/ERC-8415-Wallet-PRD.md', import.meta.url));
-  const expectedHash = '3a4ac57c8cfec42b51799a26cf89ac91bc7218a14265c95e62493d5d6a95a39f';
-  assert.equal(bytes.length, 111167);
+  const expectedHash = '40d750fb5c50b199de6fa900c19e84a92e4eaff1a9ea2cfc8563c1551e273783';
+  assert.equal(bytes.length, 110356);
   assert.equal(createHash('sha256').update(bytes).digest('hex'), expectedHash);
   assert.ok(read('AGENTS.md').includes(expectedHash));
   const text = bytes.toString('utf8');

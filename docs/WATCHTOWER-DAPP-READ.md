@@ -12,6 +12,6 @@ Reads are sequential live reads, not one block-pinned atomic snapshot and not th
 
 ## Validation handoff
 
-Authored test source is `tests/watchtower-read.test.mjs`. Proposed focused command for the existing authorized Linux test owner is `node --test tests/watchtower-read.test.mjs`; it has NOT_RUN status and is not automatically included in the current npm test script. Bear retains ordinary validation/CI/merge ownership. Required follow-up includes typecheck/browser emit, exact-source regression selection, package inclusion, synthetic DOM logout/late-response cases, actual provider/device observations and independent review. No syntax check or product test has been executed by this development task.
+Authored test source is `tests/watchtower-read.test.mjs`. The focused regression command is `node --test tests/watchtower-read.test.mjs`; it has NOT_RUN status and is not automatically included in the current npm test script. Required follow-up includes typecheck/browser emit, exact-source regression selection, package inclusion, synthetic DOM logout/late-response cases, actual provider/device observations and independent review. No syntax check or product test has been executed by this development task.
 
-This is a bounded initial Stage 5 consumer increment, not completion of Stage 5, full PRD, production deployment or the separately owned three-wallet testing task. PR102 is frozen and unchanged.
+This is a bounded initial Stage 5 consumer increment, not completion of Stage 5, full PRD, or production deployment.

@@ -6,4 +6,4 @@ The scan now checks both comparison fields are exact 32-byte hexadecimal strings
 
 Token/entry budgets, identity rechecks, repeated-token refusal, per-token occurrence identity and sequential-read scope are unchanged. No global uniqueness, snapshot atomicity, entitlement, legal identity or transaction authority is inferred.
 
-Five regression cases are authored in tests/collision-byte-values.test.ts, NOT_RUN. Assigned approved Linux owner should run node --test tests/collision-byte-values.test.ts plus existing collision-boundaries/browser/full pipeline checks. No syntax/typecheck/tests/build/CI/deployment/chain execution occurred in this development batch. No frozen PR99/PR102 inputs are replaced, and full PRD acceptance remains OPEN.
+Five regression cases are authored in tests/collision-byte-values.test.ts, NOT_RUN. Focused regression command: node --test tests/collision-byte-values.test.ts plus existing collision-boundaries/browser/full pipeline checks. No syntax/typecheck/tests/build/CI/deployment/chain execution occurred in this development batch. No frozen PR99/PR102 inputs are replaced, and full PRD acceptance remains OPEN.

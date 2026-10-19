@@ -1,5 +1,5 @@
 /** Synthetic loopback HTTP authentication and observation-route boundaries, not live-chain acceptance.
- * Run only on an approved Linux runtime. No browser, injected UI provider, real
+ * No browser, injected UI provider, real
  * wallet key, password, TOTP, transaction signing or broadcast is used here.
  */
 import test from 'node:test';

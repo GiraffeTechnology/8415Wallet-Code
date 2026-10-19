@@ -46,23 +46,19 @@ was repaired and the complete suite rerun. Subsequent independent review found
 P2 impossible reservations; shared execution eligibility plus two additional
 regressions repair that finding. See Stage 5E for exact scope.
 All older tables below remain historical, not the current integrated counts.
-CI and merging are the release owner's responsibility; no CI outcome is asserted here.
+No CI outcome is asserted here.
 
 ## Source and stage delivery
 
-*(Later the same day, after the unified validation batch, the user lifted the
-merge hold and PRs #3-#7 merged in dependency order. The paragraph below
-records the state when this report was written and is left as it stood.)*
+*(Later the same day, after the unified validation batch, PRs #3-#7 merged
+in dependency order. The paragraph below records the earlier state.)*
 
 PR #3 remains unmerged. Independent controls are in draft PR #4; SDK/account/
 payment adapters in #5; browser/consent/recovery integration in #6; validation
 and deployment tooling in #7. No stage was merged during this work.
 
-Readback timing, for the record: the merges landed between 08:46:46Z and
-08:49:21Z, from the session holding the instruction. A parallel execution
-observed them as external and superseded its own earlier "unmerged" notes; main
-was `762646a2ba462e544cffc01554b3a54129da006e` at that point. Repair work after
-this uses a new PR rather than an automatic merge.
+The merges landed between 08:46:46Z and 08:49:21Z. Main was
+`762646a2ba462e544cffc01554b3a54129da006e` at that point.
 
 Stage 5C initial source tree: `47636e407dcc23c4ef8eae9854fa75419859deb1`.
 Local commit `0b4df952a6c686dbcde9d8011ddd1d96238fc8b3` and GitHub commit

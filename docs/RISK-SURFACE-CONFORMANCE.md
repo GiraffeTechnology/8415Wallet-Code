@@ -6,4 +6,4 @@ The risk builder previously detected conformance but continued into projection r
 
 A projection-only contract no longer triggers settlement history reads; its risk view states that the settlement interface is not advertised rather than saying no gap is open. Existing no-account and no-log disclosures remain. No entitlement, policy, finality, login, signer or transaction authority is introduced.
 
-Seven regression cases are authored, NOT_RUN. Assigned approved Linux owner command: node --test tests/riskSurfaces-conformance.test.ts, followed by existing risk/holder/full pipeline checks. Source inspection is not runtime reproduction. No syntax/typecheck/tests/build/CI/deployment/chain execution occurred here. Complete product acceptance remains OPEN.
+Seven regression cases are authored, NOT_RUN. Focused regression command: node --test tests/riskSurfaces-conformance.test.ts, followed by existing risk/holder/full pipeline checks. Source inspection is not runtime reproduction. No syntax/typecheck/tests/build/CI/deployment/chain execution occurred here. Complete product acceptance remains OPEN.

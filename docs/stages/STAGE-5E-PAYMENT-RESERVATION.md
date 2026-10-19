@@ -73,7 +73,7 @@ does not. Local test accounts are not evidence of a genuine UI or public chain.
 Fresh independent review, exact new-tree Node 22 validation, real wallet desktop/
 mobile UI, and actual V3 public-testnet deployment/transactions are still needed.
 The earlier 630/30 Linux run is retained as separate Stage 5D evidence. GitHub
-Historical CI failed before any runner/step was assigned; current CI and merging
-belong to the release owner. This task neither changes runners nor claims CI status.
+Historical CI failed before any runner/step was assigned; no current CI outcome
+is asserted here.
 No merge, public deployment, real-asset operation or new public-chain receipt
 is asserted by this stage.

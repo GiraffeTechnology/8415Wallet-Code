@@ -1,4 +1,4 @@
-/** Synthetic loopback mTLS fixtures shared by approved-server tests. */
+/** Synthetic loopback mTLS fixtures shared by server tests. */
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import { X509Certificate } from 'node:crypto';

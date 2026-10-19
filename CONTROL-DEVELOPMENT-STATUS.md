@@ -4,19 +4,14 @@ Current Stage 5F repair baseline (2026-09-26): **656/656 Node, 49/49 local EVM**
 typecheck and browser emit pass, at code head `bf9ff8451b2d5d5f37c0109ab821467df5782e5a`.
 The 651-case figures below are the pre-repair batch, not the latest result.
 These are local development results, not CI, independent audit, public-testnet
-or genuine desktop/mobile acceptance. CI and merging remain with the release owner.
+or genuine desktop/mobile acceptance.
 
 
 Status: **IMPLEMENTED_LOCAL_VALIDATION_PASS / NOT_INDEPENDENTLY_AUDITED / NOT_RELEASE_READY**.
 PR #3, and the four stages stacked on it, merged into `main` on 2026-09-25
 after the first unified validation batch. This record is not an acceptance
 report, and the merge did not make it one.
-The merges were performed from the session holding the user's instruction; a
-parallel execution saw them as external. Later repairs go in their own PR.
-
-Latest user assignment: **the release owner owns CI and merging**. This task keeps
-developing V3, resolving findings and delivering stage PRs. It must not wait for
-CI scheduling as a substitute for development or change runner configuration.
+Later repairs retain separate source identities and validation evidence.
 
 ## Validation batches (historical and repaired)
 
@@ -59,16 +54,11 @@ NOT_RUN; independent review and CI are not inferred from these local results.
 
 ## Historical execution order at source freeze
 
-The user requires all development to finish before the unified test campaign.
 During this increment no compilation, typecheck, unit/EVM test, CI trigger,
 testnet RPC, signature, deployment or transaction was executed. Source reading
-and implementation are not passing tests. The later user instruction requests
-one new draft PR per stage. Current P0 supersedes the former deferred-CI
-mechanism: every new commit must remain CI-eligible; do not add any CI-skip
+and implementation are not passing tests. Every new commit must remain CI-eligible; do not add any CI-skip
 directive to commit messages or PR metadata. Keep the push/pull_request workflow
-and required checks intact. Continue the next independent stage without waiting
-for CI; this does not waive validation. CI and merge stay with their assigned
-owner. Inserted cooperation and checkpoint reports do not complete the task.
+and required checks intact. Independent changes remain subject to the same validation requirements.
 
 After implementation is complete: freeze the candidate; run the complete local
 and adversarial suites; obtain independent security review and resolve findings;

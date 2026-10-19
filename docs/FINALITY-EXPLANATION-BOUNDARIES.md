@@ -21,6 +21,6 @@ certify snapshot consistency. Normal known-boundary wording and unavailable
 behavior remain. No legal or commercial completion claim is introduced.
 
 Nine regression cases are AUTHORED_NOT_RUN. No compiler, syntax check, tests,
-build, browser or chain execution was performed here. Bear owns exact-candidate
-approved-Linux verification, including temporal/finality rendering callers.
-Specialist source, deployment parameters, providers and signers are untouched.
+build, browser or chain execution was performed here. Exact-candidate
+verification includes temporal/finality rendering callers.
+Deployment parameters, providers and signers are untouched.

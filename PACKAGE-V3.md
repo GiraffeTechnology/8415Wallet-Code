@@ -45,11 +45,10 @@ or bind their outcomes to its new source commit. The historical figures live in
 `docs/INTEGRATION-BOUNDARIES.md` ships the consumer contract: forbidden
 inferences, responsibility/payment separation, execution recovery and release
 limitations. Development instructions and coordination records do not ship.
-Deployment and tests use CTYun/SIN Linux environments, not Windows hosts.
 
 ## External-account companion and tenant identity
 
-The product is 8415wallet; Xiongan is a V2 tenant. The browser entry
+The product is 8415wallet. The browser entry
 additionally exports the external-EOA companion. It
 recognizes Ethereum/Base and their selected testnets for ETH and standard NFTs;
 this source capability does not change the testnet scope of Beta control

@@ -1,6 +1,5 @@
 /** Synthetic handler and bounded loopback HTTP tests; no browser, production
- * endpoint, real wallet/RPC, credential files or transaction submission.
- * Execute on approved Linux only. */
+ * endpoint, real wallet/RPC, credential files or transaction submission. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
@@ -230,7 +229,7 @@ test('wallet-only revision-zero account continues its bounded task after logout 
   assert.equal(await f.store.read('example:alice'), null);
 });
 
-/** Actual OS-selected loopback HTTP, still synthetic and approved-Linux-only.
+/** Actual OS-selected loopback HTTP, still synthetic.
  * No browser, production endpoint, persistent credential or real-chain access.
  * Every server/socket is bounded and closed before its fixture returns.
  */

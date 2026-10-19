@@ -3,13 +3,13 @@
 This is curated, rebuildable product source for the V2/V3 DApps, dependency-complete
 auth runtime, installers and independent SDK packages. It is not the full developer
 repository: repository tests, EVM fixtures, development preview/control journeys,
-private operations and historical release archives are intentionally absent.
+deployment-specific configuration and historical release archives are intentionally absent.
 `npm test`, `npm run verify`, `npm run test:evm` and development-preview commands are
 not supported by this curated source. The root package scripts retain
 their full-repository definitions (including the export-tooling regression test); their presence is not a completeness
 claim. In particular, the build section in `docs/DAPP-INSTALL.md` and the full-matrix
 section in `docs/AUTH-INSTALL.md` describe full-repository validation. Use the curated
-rebuild commands below instead; do not restore private or historical inputs to run
+rebuild commands below instead; do not restore deployment-specific or historical inputs to run
 those repository-only commands.
 
 The exact 263-path input boundary has been approved for a local product build.
@@ -28,7 +28,7 @@ corresponding build report, never inferred from this guide.
 ## Start here: verify and extract
 
 Use Node >=22.18, an independently trusted source checkout containing the existing
-strict verifier, and the release owner's independently conveyed final archive
+strict verifier, and independently authenticated final archive
 SHA-256 and product Git tree. First run the origin verifier described below against
 the same artifact to bind the reviewed upstream and policy. Then use the unchanged
 strict delivery verifier for safe extraction into a nonexistent private directory:
@@ -185,8 +185,7 @@ service/proxy templates, default-instance installer and old-template migrator;
 current auth packaging uses the mandatory tenant-neutral `deploy/auth-runtime/`
 replacements. Their upstream bytes and history remain intact. Exclusion does not
 waive upstream cleanliness, allow them into a freshly rehashed policy, or satisfy
-an import from selected product source. It does not authorize copying private
-operations data. All four replacement files and `deploy/dapp/install.mjs` remain
+an import from selected product source. All four replacement files and `deploy/dapp/install.mjs` remain
 mandatory. No directory-wide deployment exemption exists, and unknown siblings
 still fail completeness checks.
 Other unknown source-family members remain failures. Policy, tests, guide and CI

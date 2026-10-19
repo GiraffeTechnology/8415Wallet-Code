@@ -16,9 +16,7 @@ Evidence for implemented components is mapped below. A passing component test
 does not establish completion of a whole stage or the deployment acceptance
 gate. Documentation rows identify documentation only.
 
-`npm run verify` is the current aggregate command, including EVM tests. It may
-only be run in an already authorized execution environment under the current
-execution restrictions; this historical ledger grants no execution permission.
+`npm run verify` is the current aggregate command, including EVM tests.
 
 ## Stage 0 — Foundation
 

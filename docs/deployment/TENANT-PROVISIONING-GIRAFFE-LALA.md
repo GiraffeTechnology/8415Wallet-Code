@@ -1,23 +1,21 @@
-# Provision two tenants: giraffe and lala
+# Provision two example tenants
 
-For the operator configuring them on the host. This is configuration, not an
-application change: no code edit is required to add either tenant.
+The examples below use synthetic tenant names and hostnames. Tenant configuration
+does not require a separate application fork.
 
 | | |
 |---|---|
-| Tenants | `giraffe`, `lala` |
-| Tenant hosts | `giraffe.8415wallet.com`, `lala.8415wallet.com` |
+| Example tenants | `example-a`, `example-b` |
+| Example tenant hosts | `example-a.example`, `example-b.example` |
 | Profile | **v3** for both — see section 2 |
-| Network for this deployment | **Hoodi**, chain ID **560048**, for both V3 tenants |
-| Purpose | independent tenant instances for the planned W-20 journey |
+| Example network | **Hoodi**, chain ID **560048**, for both V3 tenants |
+| Purpose | illustrate separate tenant configuration for V3 |
 
 Both names satisfy the installer's tenant pattern `^[a-z][a-z0-9-]{0,47}$`, and
 neither is on the reserved-subdomain list in `SIN-DOMAIN-REQUIREMENTS.md`.
 
-The approved tenant renames are `artfi1` → `giraffe` and `artfi2` → `lala`.
-This document describes that V3 Hoodi deployment, not a product-wide default-chain
-change. Xiongan remains a separate V2 Base deployment. Preserve the existing
-approved wallet bindings; the private deployment preset carries their exact values.
+The V3 Hoodi examples do not change the product-wide default chain.
+Each deployment supplies its own verified wallet bindings.
 Two tenant instances alone do not establish W-20: its complete runner needs five
 distinct custodied actors, and deployed multi-wallet UI evidence is separate.
 
@@ -34,8 +32,8 @@ and is not. `paths(prefix, tenant)` derives every path from the tenant:
 /run/8415wallet-auth-<tenant>
 ```
 
-Every command takes `--tenant`, defaulting to `xiongan` only when omitted. So
-`--tenant giraffe` and `--tenant lala` produce two fully separate installs,
+Always pass `--tenant` explicitly; do not rely on the legacy default.
+`--tenant example-a` and `--tenant example-b` produce two fully separate installs,
 services and state directories. Do not copy or fork the directory per tenant.
 
 ## 2. Profile must be v3, not v2
@@ -79,41 +77,38 @@ installer refuses rather than defaulting.
 
 ```
 node deploy/dapp/install.mjs config \
-  --tenant giraffe \
+  --tenant example-a \
   --label '<display label>' \
   --profile v3 \
   --environment <environment id> \
-  --url '<approved exact giraffe HTTPS entry URL>' \
+  --url '<approved exact example-a HTTPS entry URL>' \
   --reserved-ports <comma list|none> \
-  --output /absolute/path/giraffe-release.json
+  --output /absolute/path/example-a-release.json
 ```
 
 Then `plan`, then `install`:
 
 ```
 node deploy/dapp/install.mjs install \
-  --tenant giraffe --profile v3 \
+  --tenant example-a --profile v3 \
   --target <target root> --tree <expected tree> \
   --archive <artifact> --sha256 <artifact sha256> \
-  --config /absolute/path/giraffe-release.json
+  --config /absolute/path/example-a-release.json
 ```
 
 Notes:
 
-- use the exact approved HTTPS entry URL from the private deployment preset,
-  once completed by the deployment owner. The private preset is currently
-  unconfigured for origin, entry URL and reserved ports: first confirm the existing
-  TLS virtual host, actual listeners and approved entry path. Preserve these,
-  including the existing port and path; do not substitute port 443, `/web/`,
-  `/v3/web/`, or another origin. The auth `--origin` is only that URL's scheme,
-  host and port, without its path. Repeat with lala's own approved URL;
+- use the configured HTTPS entry URL, including its allocated port and path.
+  Verify the TLS virtual host and actual listeners before installation; preserve
+  any origin with existing operation journals. The auth `--origin` is only the
+  URL's scheme, host and port, without its path. Configure each tenant separately;
 - `--reserved-ports` takes the host's reserved ports, or the literal `none`.
   Which ports a host reserves is that environment's configuration; the
   installer enforces whatever is listed and has no rule of its own;
 - `--output` must be absolute, and the file must not already exist;
 - `IDENTITY.json` binds the install to tenant and profile. A later `upgrade`
   with a different pair is refused with `IDENTITY_MISMATCH`;
-- repeat the whole block for `lala`.
+- repeat the whole block for `example-b`.
 
 ## 5. Where the wallet addresses go
 
@@ -125,13 +120,13 @@ auth bindings, supplied to `prepare` as a JSON file.
 node deploy/auth-xiongan/install.mjs prepare \
   --package <package dir> \
   --node <absolute node path> \
-  --origin '<origin of the approved exact giraffe HTTPS entry URL>' \
-  --tenant giraffe \
-  --bindings /absolute/path/giraffe-bindings.json \
+  --origin '<origin of the approved exact example-a HTTPS entry URL>' \
+  --tenant example-a \
+  --bindings /absolute/path/example-a-bindings.json \
   --reserved-ports none
 ```
 
-`giraffe-bindings.json` is an array, and each entry may carry **only**
+`example-a-bindings.json` is an array, and each entry may carry **only**
 `username` and `wallets` — any other key is refused with
 `AUTH_PUBLIC_BINDINGS_ONLY`:
 
@@ -139,7 +134,7 @@ node deploy/auth-xiongan/install.mjs prepare \
 [
   {
     "username": "<operator-chosen username>",
-    "wallets": [{ "account": "0x<GIRAFFE_WALLET_ADDRESS>", "chainId": "560048" }]
+    "wallets": [{ "account": "0x<EXAMPLE_A_WALLET_ADDRESS>", "chainId": "560048" }]
   }
 ]
 ```
@@ -147,7 +142,7 @@ node deploy/auth-xiongan/install.mjs prepare \
 - `chainId` is `560048` for the approved V3 Hoodi journey; the deployment,
   public bindings and selected provider chain must match. This does not change
   unrelated product examples or other tenants' configured networks;
-- `lala-bindings.json` is the same shape with the second address;
+- `example-b-bindings.json` is the same shape with the second address;
 - a binding is a **public** address record. It is not a credential, confers no
   operator or tenant-management authority, and does not authenticate anyone.
   Registration still requires its own verified email ownership and an exact
@@ -155,12 +150,9 @@ node deploy/auth-xiongan/install.mjs prepare \
 
 ### The two addresses are a required input
 
-This document deliberately leaves `0x<GIRAFFE_WALLET_ADDRESS>` and the lala
-equivalent as placeholders. Take the exact original approved addresses from the
-private deployment preset, and independently verify the intended wallet and chain.
-Do not substitute a fixture, generate a replacement key, or reuse one actor for
-multiple required roles. Keep account-linked deployment bindings in the private
-handoff; do not publish them in this document or a GitHub report.
+This document leaves wallet addresses as placeholders. Independently verify the
+intended wallet and chain before supplying deployment bindings. Do not substitute
+a fixture, generate a replacement key, or reuse one actor for multiple required roles.
 
 ## 6. Activation is a separate human step
 
@@ -175,8 +167,8 @@ person at a trusted terminal, per tenant, and no secret is passed through any
 command line. Then:
 
 ```
-node deploy/auth-xiongan/install.mjs enable-proxy --nginx-site <exact existing TLS site> --tenant giraffe
-node deploy/auth-xiongan/install.mjs check --tenant giraffe
+node deploy/auth-xiongan/install.mjs enable-proxy --nginx-site <exact existing TLS site> --tenant example-a
+node deploy/auth-xiongan/install.mjs check --tenant example-a
 ```
 
 `enable-proxy` takes an **exact existing** TLS site; it does not create one.
@@ -188,7 +180,7 @@ status must provide each exact approved endpoint and verified matching UI/runtim
 capabilities before its password entry can become ready. Do not enable readiness
 merely because files were copied or this document was followed.
 
-## 7. Report back
+## 7. Verify the installation
 
 Per tenant:
 
@@ -197,11 +189,10 @@ Per tenant:
 3. certificate subject, issuer and `notAfter`;
 4. the release config's sha256, as `config` printed it;
 5. `install.mjs check --tenant <tenant>` output;
-6. the exact bindings file through the private handoff only; public reports may
-   state the tenant and chain plus a checksum without disclosing account bindings;
+6. verify that the configured bindings match the intended tenant and chain;
 7. confirmation that activation was performed by a person at a trusted
    terminal, and that no secret appeared in any command line or log;
 8. the served build sha256 at each origin.
 
-Also report once: that neither origin serves anything but the wallet, and that
+Also verify that neither origin serves anything but the wallet, and that
 no wildcard DNS record or wildcard certificate was created for either.

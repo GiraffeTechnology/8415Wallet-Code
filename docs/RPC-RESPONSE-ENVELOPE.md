@@ -21,7 +21,7 @@ The absent-result fixture now permits the earlier envelope refusal diagnostic.
 All cases are AUTHORED_NOT_RUN here. No syntax check, compiler, unit suite,
 network request, Linux runtime or on-chain execution was performed.
 
-Bear should run the exact candidate on approved Linux, including the existing
-transport/RPC reader tests and full applicable suite. Other legacy fixtures that
+Validate the exact candidate with the existing transport/RPC reader tests and
+full applicable suite. Other legacy fixtures that
 omit protocol members must be corrected rather than weakening the envelope gate.
-Specialist inputs and existing test versions are not silently replaced.
+Existing test versions retain their exact source identities.

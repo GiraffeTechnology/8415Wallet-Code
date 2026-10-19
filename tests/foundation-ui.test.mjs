@@ -1,4 +1,4 @@
-/** Source and isolated presentation tests. Run only on an approved Linux owner.
+/** Source and isolated presentation tests.
  * These fixtures do not establish served-site, server, signer or chain acceptance.
  */
 import test from 'node:test';

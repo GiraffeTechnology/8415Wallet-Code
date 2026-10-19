@@ -29,9 +29,8 @@ are not accepted by the historical implementation rows below. Record final
 UI/backend/API/source identities and actual results separately for V2 and V3;
 prioritize the forum checklist alongside all applicable mainline tests.
 
-Installation/product packages remain withdrawn under §10.8 and the current
-publication policy. Preserve CI tests/builds/checks while suppressing only the
-installer/product-kit upload. Privacy review and required online/on-chain
+The current CI workflow disables installer/product-kit uploads while retaining
+tests, builds and checks. Downloadable package acceptance follows §10.8. Privacy review and required online/on-chain
 acceptance, fixes and successful retests precede downloadable package release.
 This document synchronization runs no validation and claims no new acceptance.
 
