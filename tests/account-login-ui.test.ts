@@ -119,7 +119,10 @@ function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 
     }
     nodes.find(node => node.tagName === 'form')!.fire('submit');
   };
-  const document = { getElementById: element, addEventListener() {}, body: new DialogElement('body', onDialog), activeElement: null,
+  const documentEvents = new Map<string, Function[]>();
+  const document = { getElementById: element,
+    addEventListener(name: string, fn: Function) { documentEvents.set(name, [...documentEvents.get(name) ?? [], fn]); },
+    dispatchEvent(event: {type: string}) { for (const fn of documentEvents.get(event.type) ?? []) fn(event); }, body: new DialogElement('body', onDialog), activeElement: null,
     createElement: (tag: string) => new DialogElement(tag, onDialog) };
   const setTimer = (handler: () => void) => { timers.set(++timerId, handler); return timerId; }, clearTimer = (id: number) => timers.delete(id);
   const changeUi = new Function('document', 'setTimeout', 'clearTimeout', 'msg', 'paint', 'WalletLoginError',
@@ -697,4 +700,22 @@ for (const event of ['auth-management-close', 'wallet-logout', 'popstate', 'keyd
   assert.equal(f.requests.some(r => r.path === 'account/change/start' || r.path === 'account/change/commit'), false);
   for (const { id } of uiI18n.LOCALES) { uiI18n.setLocale(id, { persist: false }); assert.equal(f.element('auth-enroll-secret').textContent, ''); }
   uiI18n.setLocale('en', { persist: false });
+});
+
+test('leaving a pending public login clears credentials and rejects its late successful response', async () => {
+  const f = fixture('password'); await f.ready; let release!: () => void;
+  f.state.hold = new Promise<void>(resolve => { release = resolve; });
+  const pending = f.click('wallet-login');
+  try {
+    for (let n = 0; n < 10 && !f.requests.some(r => r.path === 'password'); n++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.requests.some(r => r.path === 'password'), true);
+    f.document.dispatchEvent({ type: 'wallet:authentication-leaving' });
+    assert.equal(f.element('auth-password').value, ''); assert.equal(f.element('auth-code').value, '');
+    assert.equal(f.element('wallet-login').disabled, true, 'Cancellation must not free the unresolved request lock');
+    assert.equal(f.element('wallet-private').hidden, true); assert.throws(() => f.login.assert());
+  } finally { release(); await pending; }
+  assert.equal(f.element('wallet-private').hidden, true); assert.throws(() => f.login.assert());
+  assert.equal(f.element('wallet-login').disabled, false);
+  assert.equal(f.requests.filter(r => r.path === 'password').length, 1);
+  assert.equal(f.requests.some(r => r.path === 'account'), false, 'No account read from the cancelled login');
 });

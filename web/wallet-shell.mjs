@@ -87,14 +87,14 @@ for (const button of document.querySelectorAll('[data-route]')) button.addEventL
   }
   route(next);
 });
-function openPublicPage(next, { history = true } = {}) {
-  if (!foundationOnly || authenticated || walletUiBusy() || !publicPages.has(next)) return;
+function openPublicPage(next, { history = true, cancelledAuthentication = false } = {}) {
+  if (!foundationOnly || authenticated || (walletUiBusy() && !cancelledAuthentication) || !publicPages.has(next)) return;
   if (page === next && (next !== 'register' || !el('auth-registration').hidden)) return;
   publicEntryTransition = true;
   try {
     // Real auth cancellation remains owned by wallet-auth, including late-result
     // invalidation and any already-submitted registration reconciliation.
-    document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
+    if (!cancelledAuthentication) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
     if (next === 'register') el('auth-registration-open').click();
   } finally { publicEntryTransition = false; }
   if (history) globalThis.history.pushState({ ...(globalThis.history.state ?? {}), walletPage: next }, '');
@@ -109,7 +109,17 @@ el('auth-registration-close').addEventListener('click', () => {
 });
 el('skip-content').addEventListener('click', () => el('page-title').focus());
 globalThis.addEventListener('keydown', event => { if (event.key !== 'Escape' || walletUiBusy()) return; if (foundationOnly && !authenticated && page === 'register') { route('login', { history: false }); return; } if (page === 'review') el('asset-dismiss').click(); else if (page === 'settings') { avatarGeneration++; avatar.cancel(); el('tenant-avatar-file').value = ''; renderAvatar(); } });
-globalThis.addEventListener('popstate', event => { if (walletUiBusy()) { globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; } if (foundationOnly && !authenticated) { openPublicPage(publicPages.has(event.state?.walletPage) ? event.state.walletPage : 'home', { history: false }); return; } route(event.state?.walletPage, { history: false }); });
+globalThis.addEventListener('popstate', event => {
+  const cancelledAuthentication = foundationOnly && !authenticated && page === 'login';
+  if (cancelledAuthentication) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
+  else if (walletUiBusy()) { globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; }
+  // Leaving invalidates the UI attempt, not an already-issued server request.
+  // The original request keeps its lock until finally; history can still leave.
+  if (foundationOnly && !authenticated) {
+    openPublicPage(publicPages.has(event.state?.walletPage) ? event.state.walletPage : 'home', { history: false, cancelledAuthentication }); return;
+  }
+  route(event.state?.walletPage, { history: false });
+});
 el('asset-dismiss').addEventListener('click', () => { if (isPlaceholder(el('asset-dismiss'))) return; if (page === 'review' && !navigationDismiss) { page = 'transfer'; route('transfer'); } });
 document.addEventListener('wallet:asset-review', event => {
   if (!authenticated) return;

@@ -250,7 +250,7 @@ function closeManagement() {
 el('auth-management-close').addEventListener('click', closeManagement);
 globalThis.addEventListener('popstate', () => { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); });
 globalThis.addEventListener('keydown', event => { if (event.key === 'Escape') { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); } });
-document.addEventListener('wallet:authentication-leaving', () => { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); for (const id of ['auth-password', 'auth-code']) el(id).value = ''; });
+document.addEventListener('wallet:authentication-leaving', () => { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); else if (signing) cancelLogin(); for (const id of ['auth-password', 'auth-code']) el(id).value = ''; });
 function methodStillCurrent(client, binding, revision) {
   try { walletLogin.assert(binding); return client === accountClient && revision === attemptRevision && moduleOpen && freshManagement(); }
   catch { return false; }

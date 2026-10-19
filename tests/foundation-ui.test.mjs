@@ -183,7 +183,7 @@ test('six existing locale choices remain ordered and every new label is authored
 
 test('real auth implementation is preserved except registration navigation cleanup', () => {
   const before = "document.addEventListener('wallet:authentication-leaving', () => { if (moduleOpen) closeManagement(); });";
-  const after = "document.addEventListener('wallet:authentication-leaving', () => { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); for (const id of ['auth-password', 'auth-code']) el(id).value = ''; });";
+  const after = "document.addEventListener('wallet:authentication-leaving', () => { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); else if (signing) cancelLogin(); for (const id of ['auth-password', 'auth-code']) el(id).value = ''; });";
   const auth = text('../web/wallet-auth.mjs'); assert.ok(auth.includes(after));
   assert.equal(createHash('sha256').update(auth.replace(after, before)).digest('hex'), 'adb10701500d8f913b5477752eed34314a3aaec2e25080449673a2dc25b0ac7a');
 });
@@ -215,4 +215,15 @@ test('all entered authentication secrets are masked without losing one-time-code
     assert.equal(attrs.get('type'), 'password', id);
     assert.equal(attrs.get('autocomplete'), 'one-time-code', id);
   }
+});
+
+test('Back leaves a pending public login once without releasing its request lock', async () => {
+  const f = fixture(); await new Promise(resolve => setImmediate(resolve)); f.publicRoute('login');
+  let cancelled = 0; f.events.addEventListener('wallet:authentication-leaving', () => { cancelled++; });
+  f.setBusy(true);
+  f.windowEvents.dispatchEvent({ type: 'popstate', state: { walletPage: 'home' } });
+  assert.equal(cancelled, 1);
+  assert.equal(f.el('public-home').hidden, false); assert.equal(f.el('login-panel').hidden, true);
+  const requestCount = JSON.stringify(f.counters); f.publicRoute('register');
+  assert.equal(JSON.stringify(f.counters), requestCount, 'Navigation cannot release the pending operation lock');
 });
