@@ -1,7 +1,8 @@
 /** Offline auth-package integrity checks. Uses only the externally supplied Node runtime. */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -264,16 +265,17 @@ export function verifyAuthDirectory(directory, options = {}) {
 }
 
 /** Strict bounded USTAR reader: validate every header before writing any file. */
-export function readAuthArchive(bytes) {
-  fail(bytes.length <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
-  const tar = gunzipSync(bytes, { maxOutputLength: 256 * 1024 * 1024 });
-  fail(tar.length % 512 === 0, 'TAR_LENGTH_REFUSED');
+function scanAuthTar(read, length) {
+  fail(length <= 256 * 1024 * 1024 && length % 512 === 0, 'TAR_LENGTH_REFUSED');
   const entries = []; const seen = new Set(); let offset = 0; let terminated = false;
   const string = buffer => buffer.subarray(0, buffer.indexOf(0) < 0 ? buffer.length : buffer.indexOf(0)).toString('utf8');
   const octal = buffer => { const value = string(buffer).trim(); fail(/^[0-7]+$/.test(value), 'TAR_NUMBER_REFUSED'); return parseInt(value, 8); };
-  while (offset + 512 <= tar.length) {
-    const header = tar.subarray(offset, offset + 512); offset += 512;
-    if (header.every(byte => byte === 0)) { fail(offset + 512 <= tar.length && tar.subarray(offset).every(byte => byte === 0), 'TAR_TRAILING_DATA_REFUSED'); terminated = true; break; }
+  const zeroes = (start, end, code) => {
+    for (let at = start; at < end; at += 65536) fail(read(at, Math.min(65536, end - at)).every(byte => byte === 0), code);
+  };
+  while (offset + 512 <= length) {
+    const header = read(offset, 512); offset += 512;
+    if (header.every(byte => byte === 0)) { fail(offset + 512 <= length, 'TAR_TRAILING_DATA_REFUSED'); zeroes(offset, length, 'TAR_TRAILING_DATA_REFUSED'); terminated = true; break; }
     const checksum = octal(header.subarray(148, 156));
     fail(checksum === [...header].reduce((sum, byte, index) => sum + (index >= 148 && index < 156 ? 32 : byte), 0), 'TAR_CHECKSUM_MISMATCH');
     fail(string(header.subarray(257, 263)) === 'ustar' && header.subarray(263, 265).toString() === '00', 'TAR_FORMAT_REFUSED');
@@ -282,22 +284,51 @@ export function readAuthArchive(bytes) {
     const name = string(header.subarray(0, 100)); const prefix = string(header.subarray(345, 500));
     const path = prefix ? `${prefix}/${name}` : name;
     fail(packagePathAllowed(path) && !seen.has(path), 'TAR_PATH_OR_DUPLICATE_REFUSED'); seen.add(path);
-    const size = octal(header.subarray(124, 136)); fail(size <= 32 * 1024 * 1024 && offset + size <= tar.length, 'TAR_ENTRY_SIZE_REFUSED');
-    entries.push({ path, bytes: tar.subarray(offset, offset + size) });
+    const size = octal(header.subarray(124, 136)); fail(size <= 32 * 1024 * 1024 && offset + size <= length, 'TAR_ENTRY_SIZE_REFUSED');
+    entries.push({ path, offset, size });
     fail(entries.length <= 20000, 'TAR_ENTRY_COUNT_REFUSED');
     const padded = Math.ceil(size / 512) * 512;
-    fail(tar.subarray(offset + size, offset + padded).every(byte => byte === 0), 'TAR_PADDING_REFUSED'); offset += padded;
+    fail(offset + padded <= length, 'TAR_ENTRY_SIZE_REFUSED');
+    zeroes(offset + size, offset + padded, 'TAR_PADDING_REFUSED'); offset += padded;
   }
   fail(terminated && entries.length > 0, 'TAR_TERMINATOR_REQUIRED');
   return entries;
 }
+export function readAuthArchive(bytes) {
+  fail(bytes.length <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
+  const tar = gunzipSync(bytes, { maxOutputLength: 256 * 1024 * 1024 });
+  return scanAuthTar((offset, size) => tar.subarray(offset, offset + size), tar.length)
+    .map(({ path, offset, size }) => ({ path, bytes: tar.subarray(offset, offset + size) }));
+}
 export function unpackAuthArchive(archive) {
-  const entries = readAuthArchive(readFileSync(archive));
-  const directory = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-'));
+  fail(lstatSync(archive).size <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
+  const spool = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-spool-'));
+  const tarPath = join(spool, 'payload.tar');
+  let descriptor, directory;
   try {
-    for (const { path, bytes } of entries) { mkdirSync(dirname(join(directory, path)), { recursive: true, mode: 0o755 }); writeFileSync(join(directory, path), bytes, { flag: 'wx', mode: 0o644 }); }
+    const output = openSync(tarPath, 'wx', 0o600);
+    try {
+      // Bounded streaming expansion avoids retaining the entire tar and all
+      // payload subarrays during the independent directory verification.
+      // Only inherited descriptors and this private spool are used by the child.
+      const script = `const {createReadStream,createWriteStream}=require('node:fs');const {createGunzip}=require('node:zlib');const {Transform}=require('node:stream');const {pipeline}=require('node:stream/promises');let n=0;pipeline(createReadStream(process.argv[1]),createGunzip(),new Transform({transform(b,e,c){n+=b.length;c(n>268435456?Error('AUTH_PACKAGE_TAR_LENGTH_REFUSED'):null,b)}}),createWriteStream(null,{fd:1,autoClose:false})).catch(e=>{console.error(e.message);process.exitCode=1});`;
+      const env = { ...process.env, NODE_OPTIONS: '--max-old-space-size=96' }; delete env.NODE_PATH;
+      execFileSync(process.execPath, ['-e', script, resolve(archive)], { env, stdio: ['ignore', output, 'pipe'], timeout: 60000, maxBuffer: 65536 });
+    } finally { closeSync(output); }
+    descriptor = openSync(tarPath, 'r');
+    const read = (offset, size) => {
+      const bytes = Buffer.allocUnsafe(size); let received = 0;
+      while (received < size) { const n = readSync(descriptor, bytes, received, size - received, offset + received); fail(n > 0, 'TAR_LENGTH_REFUSED'); received += n; }
+      return bytes;
+    };
+    // Validate every header, duplicate, padding and terminator before writing
+    // any extracted file. No external tar parser replaces these strict checks.
+    const entries = scanAuthTar(read, fstatSync(descriptor).size);
+    directory = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-'));
+    for (const { path, offset, size } of entries) { mkdirSync(dirname(join(directory, path)), { recursive: true, mode: 0o755 }); writeFileSync(join(directory, path), read(offset, size), { flag: 'wx', mode: 0o644 }); }
     return directory;
-  } catch (error) { rmSync(directory, { recursive: true, force: true }); throw error; }
+  } catch (error) { if (directory) rmSync(directory, { recursive: true, force: true }); throw error; }
+  finally { if (descriptor !== undefined) closeSync(descriptor); rmSync(spool, { recursive: true, force: true }); }
 }
 
 export function verifyAuthArchive(manifestPath, options = {}) {
@@ -319,3 +350,4 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const release = target.kind === 'directory' ? verifyAuthDirectory(resolve(target.path), policy) : verifyAuthArchive(resolve(target.path), policy);
   console.log(`Auth package integrity verified; source ${release.source.tree}; ${release.status}. Checksums establish integrity, not publisher authenticity or deployment acceptance.`);
 }
+
