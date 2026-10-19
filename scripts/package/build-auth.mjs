@@ -1,11 +1,10 @@
 /** Build an independent, dependency-complete auth runtime, never a public UI deployment. */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, cpSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
 import { AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, authSourcePolicy, verifyAuthSourcePolicy, TASK_RUNTIME_SOURCE_PATHS, jsonBytes, packagePathAllowed, runtimePackage, safePath, sha256, sourcePathAllowed, sourceTree, verifyAuthDirectory, verifyTaskListingArtifact, verifyInstalledTaskListingPackage, walkAuth } from './verify-auth.mjs';
 
 /** Private, per-attempt diagnostics, outside the runtime/archive allowlist.
@@ -100,24 +99,57 @@ export function parseAuthBuildArguments(args) {
 
 /** Fixed USTAR subset with only regular, non-executable files; no host metadata. */
 export function deterministicAuthArchive(root) {
-  const chunks = [];
-  for (const path of walkAuth(root)) {
-    if (!packagePathAllowed(path)) throw new Error(`AUTH_PACKAGE_PAYLOAD_ALLOWLIST_REFUSED: ${path}`);
-    const bytes = readFileSync(join(root, path)); const header = Buffer.alloc(512);
-    let name = path; let prefix = '';
-    if (Buffer.byteLength(name) > 100) {
-      const boundary = [...path.matchAll(/\//g)].map(match => match.index).find(index => Buffer.byteLength(path.slice(0, index)) <= 155 && Buffer.byteLength(path.slice(index + 1)) <= 100);
-      if (boundary === undefined) throw new Error('AUTH_PACKAGE_TAR_PATH_TOO_LONG');
-      prefix = path.slice(0, boundary); name = path.slice(boundary + 1);
+  // Keep only one input file in memory. The complete runtime can contain a
+  // large, integrity-pinned listing bundle: retaining every file and then a
+  // second concatenated tar image exhausts small approved build hosts.
+  // Private spool files never enter the runtime/archive inventory. Failure
+  // retains them as evidence; success removes only this fresh private spool.
+  const temporary = mkdtempSync(join(tmpdir(), 'wallet-auth-archive-'));
+  const tarPath = join(temporary, 'payload.tar'), gzipPath = join(temporary, 'payload.tar.gz');
+  let tarFd, gzipFd, complete = false;
+  try {
+    tarFd = openSync(tarPath, 'wx', 0o600);
+    const writeAll = bytes => {
+      for (let offset = 0; offset < bytes.length;) {
+        const written = writeSync(tarFd, bytes, offset, bytes.length - offset);
+        if (written <= 0) throw new Error('AUTH_PACKAGE_ARCHIVE_WRITE_INCOMPLETE');
+        offset += written;
+      }
+    };
+    for (const path of walkAuth(root)) {
+      if (!packagePathAllowed(path)) throw new Error(`AUTH_PACKAGE_PAYLOAD_ALLOWLIST_REFUSED: ${path}`);
+      const bytes = readFileSync(join(root, path)); const header = Buffer.alloc(512);
+      let name = path; let prefix = '';
+      if (Buffer.byteLength(name) > 100) {
+        const boundary = [...path.matchAll(/\//g)].map(match => match.index).find(index => Buffer.byteLength(path.slice(0, index)) <= 155 && Buffer.byteLength(path.slice(index + 1)) <= 100);
+        if (boundary === undefined) throw new Error('AUTH_PACKAGE_TAR_PATH_TOO_LONG');
+        prefix = path.slice(0, boundary); name = path.slice(boundary + 1);
+      }
+      const octal = (value, offset, length) => { const text = value.toString(8).padStart(length - 1, '0'); if (text.length >= length) throw new Error('AUTH_PACKAGE_TAR_NUMBER_REFUSED'); header.write(`${text}\0`, offset, length, 'ascii'); };
+      header.write(name, 0, 100); octal(0o644, 100, 8); octal(0, 108, 8); octal(0, 116, 8); octal(bytes.length, 124, 12); octal(0, 136, 12);
+      header.fill(32, 148, 156); header[156] = 48; header.write('ustar\0', 257, 6); header.write('00', 263, 2); header.write(prefix, 345, 155);
+      const sum = [...header].reduce((total, byte) => total + byte, 0); header.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 8);
+      writeAll(header); writeAll(bytes); writeAll(Buffer.alloc((512 - bytes.length % 512) % 512));
     }
-    const octal = (value, offset, length) => { const text = value.toString(8).padStart(length - 1, '0'); if (text.length >= length) throw new Error('AUTH_PACKAGE_TAR_NUMBER_REFUSED'); header.write(`${text}\0`, offset, length, 'ascii'); };
-    header.write(name, 0, 100); octal(0o644, 100, 8); octal(0, 108, 8); octal(0, 116, 8); octal(bytes.length, 124, 12); octal(0, 136, 12);
-    header.fill(32, 148, 156); header[156] = 48; header.write('ustar\0', 257, 6); header.write('00', 263, 2); header.write(prefix, 345, 155);
-    const sum = [...header].reduce((total, byte) => total + byte, 0); header.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 8);
-    chunks.push(header, bytes, Buffer.alloc((512 - bytes.length % 512) % 512));
+    writeAll(Buffer.alloc(1024));
+    closeSync(tarFd); tarFd = undefined;
+    gzipFd = openSync(gzipPath, 'wx', 0o600);
+    // The same Node/zlib encoder and level retain the canonical gzip format.
+    // A separate streamed encoder avoids a full tar Buffer in either process.
+    // Its stdout is a private file descriptor, not execFileSync's output buffer.
+    execFileSync(process.execPath, ['--max-old-space-size=96', '--input-type=module', '-e',
+      "import { createReadStream } from 'node:fs'; import { createGzip } from 'node:zlib'; import { pipeline } from 'node:stream/promises'; await pipeline(createReadStream(process.argv[1]), createGzip({ level: 9 }), process.stdout);",
+      tarPath], { stdio: ['ignore', gzipFd, 'pipe'], timeout: 120000,
+      env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' } });
+    closeSync(gzipFd); gzipFd = undefined;
+    const archive = readFileSync(gzipPath);
+    complete = true;
+    return archive;
+  } finally {
+    if (tarFd !== undefined) closeSync(tarFd);
+    if (gzipFd !== undefined) closeSync(gzipFd);
+    if (complete) rmSync(temporary, { recursive: true, force: true });
   }
-  chunks.push(Buffer.alloc(1024));
-  return gzipSync(Buffer.concat(chunks), { level: 9 });
 }
 
 function normalizeTree(root) {
@@ -247,4 +279,3 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const result = buildAuthPackage(parseAuthBuildArguments(process.argv.slice(2)));
   console.log(`${result.artifact}\nsha256 ${result.sha256}\nsource tree ${result.source.tree}${result.source.dirty ? ' (uncommitted tracked/staged changes included)' : ''}\n${result.status}`);
 }
-

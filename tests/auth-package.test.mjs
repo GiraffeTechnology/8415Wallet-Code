@@ -55,6 +55,29 @@ test('diagnostic output failures cannot replace an original child failure', t =>
   }), actual => actual === error);
 });
 function put(root, path, value) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), value); chmodSync(join(root, path), 0o644); }
+test('streamed auth archive retains canonical gzip bytes and exact sorted USTAR payload', t => {
+  const root = temporary(t);
+  put(root, 'server/stream-fixture.mjs', Buffer.alloc(192 * 1024, 0x61));
+  put(root, 'docs/AUTH-INSTALL.md', 'Synthetic bounded archive fixture.\n');
+  const first = deterministicAuthArchive(root), second = deterministicAuthArchive(root);
+  assert.deepEqual(first, second);
+  const tar = gunzipSync(first);
+  assert.deepEqual(first, gzipSync(tar, { level: 9 }));
+  const entries = readAuthArchive(first);
+  assert.deepEqual(entries.map(entry => entry.path), ['docs/AUTH-INSTALL.md', 'server/stream-fixture.mjs']);
+  for (const entry of entries) assert.deepEqual(entry.bytes, readFileSync(join(root, entry.path)));
+});
+test('auth archive avoids retaining payload plus a second complete tar image', { timeout: 60000 }, t => {
+  const root = temporary(t), block = Buffer.alloc(1024 * 1024, 0x62);
+  for (let index = 0; index < 96; index++) put(root, `server/memory-fixture-${String(index).padStart(3, '0')}.mjs`, block);
+  const moduleURL = new URL('../scripts/package/build-auth.mjs', import.meta.url).href;
+  const program = `import { deterministicAuthArchive } from ${JSON.stringify(moduleURL)}; const bytes = deterministicAuthArchive(process.argv[1]); console.log(JSON.stringify({ maxRssKiB: process.resourceUsage().maxRSS, archiveBytes: bytes.length }));`;
+  const result = JSON.parse(execFileSync(process.execPath, ['--max-old-space-size=32', '--input-type=module', '-e', program, root], {
+    encoding: 'utf8', timeout: 45000, env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' },
+  }));
+  assert.ok(result.archiveBytes > 0);
+  assert.ok(result.maxRssKiB < 192 * 1024, `Archive parent exceeded bounded fixture RSS: ${result.maxRssKiB} KiB`);
+});
 const sourcePackage = { name: '8415wallet', version: '0.1.0', license: 'SEE LICENSE IN LICENSE', dependencies: { ethers: '^6.17.0' }, devDependencies: { typescript: '^5.9.0' } };
 const sourceLock = { name: '8415wallet', lockfileVersion: 3, packages: {
   '': { dependencies: sourcePackage.dependencies },
@@ -378,4 +401,3 @@ test('password generation /3 can upgrade to /4 without changing user, key or cre
   assert.deepEqual(readFileSync(keyPath), keyBytes); assert.deepEqual(readFileSync(f.config.statePath), stateBytes);
   assert.deepEqual(readFileSync(join(f.target.config, 'auth.json')), configBytes);
 });
-

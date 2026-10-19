@@ -817,8 +817,8 @@
     {
       "path": "scripts/package/build-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "604ab0af17cdd4d45fa29cf382bd58a27ef37391",
-      "sha256": "e1056f2811e276bb3914bfded3621058e590741fa74a0919df5b973d0e839eab"
+      "git_blob_sha1": "eb999f63e2c60c02e71a902e38bab9fab301e647",
+      "sha256": "8eefae2c06972611cc3c42d00ba72d595ee37713f7b526014bde5ff0162e38c8"
     },
     {
       "path": "scripts/package/build-dapp.mjs",
