@@ -2653,8 +2653,8 @@
     {
       "path": "web/wallet-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f6b157643d83a12cc38001f3adabc5345fe713f6",
-      "sha256": "966b38a9456d16dff9cc9dd442b39092111f71ea9a2b0037951f7027c0ce6e97"
+      "git_blob_sha1": "575ed0af959c03693a1095805661765f8c97aa52",
+      "sha256": "919dd431e67be51652ad9ada8d27bfb8c78ed98f1e952a10b4089bf9b0c8e850"
     },
     {
       "path": "web/wallet-identity-display.mjs",
@@ -2665,8 +2665,8 @@
     {
       "path": "web/wallet-shell.mjs",
       "mode": "100644",
-      "git_blob_sha1": "690400f1f4a3962847bab199d16db8127f2dfd4f",
-      "sha256": "e4136c7f99d5bfedbf82ac8bf6ae4ec16c0b1af72d96f79d2a62e880680df1b9"
+      "git_blob_sha1": "aa79b3c9d0a6ff4e209a0a4b009439dd5ee80690",
+      "sha256": "633d67ae7231137d10ee022a2ec64f4a7a2804c70cd19cc25d868349fafba289"
     },
     {
       "path": "web/wallet.css",
