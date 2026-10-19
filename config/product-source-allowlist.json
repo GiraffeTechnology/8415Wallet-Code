@@ -883,8 +883,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e003b3fd64ee44432b6ec8da7ff6dcab55b3f2a6",
-      "sha256": "97452dded260373b5d7acbc9b0881a31c184b198266d1adbd88bb7adc991f98a"
+      "git_blob_sha1": "edbb66b0e7f773e78b1dbfb3d1f6876e1321fdc1",
+      "sha256": "6892bc8713429007d42dc0f2f59894bd5edf2cf25acc400a7a520f9b4fc952ed"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -2688,3 +2688,5 @@
     }
   ]
 }
+
+

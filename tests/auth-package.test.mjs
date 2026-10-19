@@ -79,6 +79,29 @@ test('auth archive avoids retaining payload plus a second complete tar image', {
   assert.ok(result.maxRssKiB < 192 * 1024, `Archive parent exceeded bounded fixture RSS: ${result.maxRssKiB} KiB`);
 });
 const sourcePackage = { name: '8415wallet', version: '0.1.0', license: 'SEE LICENSE IN LICENSE', dependencies: { ethers: '^6.17.0' }, devDependencies: { typescript: '^5.9.0' } };
+test('streamed auth extraction keeps large payload out of verifier RSS', { timeout: 60000 }, t => {
+  const root = temporary(t), payload = join(root, 'payload'), block = Buffer.alloc(1024 * 1024, 0x63);
+  mkdirSync(payload);
+  for (let index = 0; index < 96; index++) put(payload, `server/extract-fixture-${String(index).padStart(3, '0')}.mjs`, block);
+  const archive = join(root, 'fixture.tar.gz'); writeFileSync(archive, deterministicAuthArchive(payload));
+  const moduleURL = new URL('../scripts/package/verify-auth.mjs', import.meta.url).href;
+  const program = `import { unpackAuthArchive,walkAuth } from ${JSON.stringify(moduleURL)};import {rmSync,readFileSync} from 'node:fs';import {join} from 'node:path';const root=unpackAuthArchive(process.argv[1]);try {const files=walkAuth(root);for(const file of files){const bytes=readFileSync(join(root,file));if(bytes.length!==1048576||!bytes.every(b=>b===0x63))throw Error('fixture mismatch');}console.log(JSON.stringify({files:files.length,maxRssKiB:process.resourceUsage().maxRSS}));}finally{rmSync(root,{recursive:true,force:true});}`;
+  const result = JSON.parse(execFileSync(process.execPath, ['--max-old-space-size=32','--input-type=module','-e',program,archive], { encoding:'utf8',timeout:45000,env:{...process.env,NODE_PATH:'',NODE_OPTIONS:''} }));
+  assert.equal(result.files,96); assert.ok(result.maxRssKiB < 192 * 1024, `Verifier parent RSS: ${result.maxRssKiB} KiB`);
+});
+test('streamed auth extraction preserves strict pre-write header and trailing-data rejection', t => {
+  const root=temporary(t);put(root,'server/fixture.mjs','export {};\n');const bytes=deterministicAuthArchive(root);
+  for(const [label,mutate,pattern] of [
+    ['link',tar=>{tar[156]=50;},/TAR_LINK_OR_TYPE_REFUSED/],
+    ['mode',tar=>tar.write('0000755\0',100,8),/TAR_METADATA_REFUSED/],
+    ['path',tar=>{tar.fill(0,0,100);tar.write('../unsafe');},/TAR_PATH_OR_DUPLICATE_REFUSED/],
+    ['tail',tar=>{tar[tar.length-1]=1;},/TAR_TRAILING_DATA_REFUSED/],
+    ['padding',tar=>{tar[512+11]=1;},/TAR_PADDING_REFUSED/],
+  ]) {
+    const bad=mutateArchive(bytes,mutate),path=join(root,`${label}.tar.gz`);writeFileSync(path,bad);
+    assert.throws(()=>readAuthArchive(bad),pattern);assert.throws(()=>unpackAuthArchive(path),pattern);
+  }
+});
 const sourceLock = { name: '8415wallet', lockfileVersion: 3, packages: {
   '': { dependencies: sourcePackage.dependencies },
   'node_modules/ethers': { version: '6.17.0', resolved: 'https://registry.npmjs.org/ethers/-/ethers-6.17.0.tgz', integrity: 'sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' },
@@ -401,3 +424,5 @@ test('password generation /3 can upgrade to /4 without changing user, key or cre
   assert.deepEqual(readFileSync(keyPath), keyBytes); assert.deepEqual(readFileSync(f.config.statePath), stateBytes);
   assert.deepEqual(readFileSync(join(f.target.config, 'auth.json')), configBytes);
 });
+
+
