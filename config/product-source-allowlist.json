@@ -313,6 +313,7 @@
       "web/audit-export-panel.mjs",
       "web/audit-export.mjs",
       "web/enrollment-qr.mjs",
+      "web/escrow-ordering-i18n.mjs",
       "web/external-assets.mjs",
       "web/external-store.mjs",
       "web/feed-continuity-panel.mjs",
@@ -811,8 +812,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "9a905254b198cffa9f7b891313140f17a517b193",
-      "sha256": "5a86a3c56b1f487d2c5a61ee6e08afb05b6df69ea58130a9b8da8c55e9709ac5"
+      "git_blob_sha1": "fa76c7a1f21f83381494596a392f191bfb89f8b6",
+      "sha256": "3bf7533b31b1ebef57018d4790f33fc6bb549e3085592b613932522f0c0cb284"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -2005,8 +2006,8 @@
     {
       "path": "src/wallet/renderEscrow.ts",
       "mode": "100644",
-      "git_blob_sha1": "27457827b54fdac1860431c9195c3224666b5535",
-      "sha256": "45341e174eec7bc92e3cf4d447dd21b8c76744f74be9dccd79a147005e7bc92e"
+      "git_blob_sha1": "3d4efef8a3822b0b22ea663f7fdeb24079eeda2c",
+      "sha256": "688d76e2058c6d58a0e154b2e667e99be32c9f479b28987c07d57ef10562afd5"
     },
     {
       "path": "src/wallet/renderFreshness.ts",
@@ -2253,6 +2254,12 @@
       "mode": "100644",
       "git_blob_sha1": "d89260a9b7e5778787cf6d5a2b5fe66cd51cd2ed",
       "sha256": "099eb55b92923de5b45f16fc7aec12aab363df162f8cef798329cf37b1176681"
+    },
+    {
+      "path": "web/escrow-ordering-i18n.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "8d2c91e5e756b1666c8496cc388236723568f712",
+      "sha256": "0b7c51971e9ed168fb08daa588944474be687b3dea4060e05e587703700104e1"
     },
     {
       "path": "web/external-assets.mjs",
@@ -2685,12 +2692,6 @@
       "mode": "100644",
       "git_blob_sha1": "eaa99afc3ff705faf5dbc5b7d28cf034e1c51757",
       "sha256": "17f27cc7faaa00395ed6cc111f10e6457219d39b9727aa211de096e017f2f1c8"
-    },
-    {
-      "path": "web/escrow-ordering-i18n.mjs",
-      "mode": "100644",
-      "git_blob_sha1": "8d2c91e5e756b1666c8496cc388236723568f712",
-      "sha256": "0b7c51971e9ed168fb08daa588944474be687b3dea4060e05e587703700104e1"
     }
   ]
 }
