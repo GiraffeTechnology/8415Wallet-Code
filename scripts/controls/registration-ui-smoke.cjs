@@ -123,6 +123,9 @@ async function run() {
         assert.equal(await page.locator('#wallet-private').isVisible(), false);
       } finally { releaseBackStart(); }
       await page.waitForLoadState('networkidle'); await page.unroute('**/auth/registration/start');
+      // Transport idleness can precede the original request's finally callback.
+      // Wait for the real business-lock release; a stuck lock still times out.
+      await page.waitForFunction(async () => !(await import('/web/ui-lock.mjs')).walletUiBusy());
       console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 7, profile, width }));
       assert.equal(await page.evaluate(async () => (await import('/web/ui-lock.mjs')).walletUiBusy()), false);
       console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 8, profile, width }));
