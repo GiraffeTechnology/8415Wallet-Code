@@ -104,13 +104,16 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
   }
   async function status(session, body = {}) {
     fields(body, ['protocol', 'changeId', 'changeDigest', 'expectedRevision']);
-    const reference = Object.keys(body).length ? changeReference(body) : null;
+    const versioned = Object.keys(body).length > 0;
+    const discovery = Object.keys(body).length === 1 && body.protocol === CHANGE_PROTOCOL;
+    const reference = versioned && !discovery ? changeReference(body) : null;
     const keys = [credentialKey(session)], values = await store.readMany(keys);
     owner(session, values[keys[0]]);
     const state = readCredential(values[keys[0]], session);
     sweep();
     const selectedScope = digest(JSON.stringify(scopeFor(session)));
-    const visible = slot => slot && slot.scopeDigest === selectedScope && slot.credentialRevision === session.revision;
+    const visible = slot => slot && slot.scopeDigest === selectedScope && slot.credentialRevision === session.revision &&
+      slot.expectedRevision === state.revision;
     const own = slots.get(session.id);
     const pendingChange = visible(own) ? { changeId: own.changeId, changeDigest: own.changeDigest,
       expectedRevision: own.expectedRevision, mode: own.mode, stage: own.stage,
@@ -124,14 +127,17 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
       const negative = outcomes.get(outcomeKey(session, reference));
       reconciliation = { ...reference, state: 'unknown', reason: 'unresolved', automaticRetryAllowed: false, committedChange: null };
       if (committed) reconciliation = { ...reconciliation, state: 'committed', reason: null, committedChange: structuredClone(committed) };
+      else if (BigInt(state.revision) > BigInt(reference.expectedRevision)) reconciliation = {
+        ...reconciliation, state: 'not-committed', reason: 'revision-superseded' };
       else if (pending) reconciliation = { ...reconciliation, state: pending.committing ? 'committing' : 'pending', reason: null };
-      else if (negative || BigInt(state.revision) > BigInt(reference.expectedRevision)) reconciliation = {
-        ...reconciliation, state: 'not-committed', reason: negative?.reason ?? 'revision-superseded' };
+      else if (negative) reconciliation = { ...reconciliation, state: 'not-committed', reason: negative.reason };
     }
-    return { ...state, label: 'Per-operation human verification', appliesTo: 'still-valid-in-scope-authorizations',
+    const legacy = { ...state, label: 'Per-operation human verification', appliesTo: 'still-valid-in-scope-authorizations',
       grantsAuthority: false, factorsForOFF: ['password-or-bound-wallet', 'previously-verified-email'],
-      factorsForEverySave: ['password-or-bound-wallet', 'previously-verified-email'],
-      changeProtocol: CHANGE_PROTOCOL, pendingChange, reconciliation };
+      factorsForEverySave: ['password-or-bound-wallet', 'previously-verified-email'] };
+    // Existing strict browser decoders retain their original exact response.
+    // A versioned discovery or qualified enquiry explicitly selects new keys.
+    return versioned ? { ...legacy, changeProtocol: CHANGE_PROTOCOL, pendingChange, reconciliation } : legacy;
   }
   async function cancelChange(session, body) {
     const reference = changeReference(body);
@@ -146,7 +152,9 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
       reconciliation: { ...reference, state: 'not-committed', reason: 'cancelled', automaticRetryAllowed: false, committedChange: null } };
   }
   async function prepare(session, body) {
-    fields(body, ['expectedRevision', 'identityMethod', 'mode']); revision(body.expectedRevision); limit(session);
+    fields(body, ['expectedRevision', 'identityMethod', 'mode', 'protocol']); revision(body.expectedRevision); limit(session);
+    const versioned = body.protocol !== undefined;
+    check(!versioned || body.protocol === CHANGE_PROTOCOL, 'TASK_VERIFICATION_INPUT_REFUSED', 400);
     check(body.mode === undefined || ['ON', 'OFF'].includes(body.mode), 'TASK_VERIFICATION_INPUT_REFUSED', 400);
     body = { expectedRevision: body.expectedRevision, identityMethod: body.identityMethod, mode: body.mode ?? 'OFF' };
     check(!slots.get(session.id)?.committing, 'TASK_VERIFICATION_CHANGE_IN_PROGRESS', 409);
@@ -173,7 +181,7 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
     const previous = slots.get(session.id); if (previous) remember(session, previous, 'replaced');
     slots.set(session.id, { ...request, scopeDigest: digest(JSON.stringify(request.scope)), changeDigest,
       sessionId: session.id, method: body.identityMethod, factorBinding: bound.fingerprint, message, stage: 'identity', attempts: 0 });
-    return { changeProtocol: CHANGE_PROTOCOL, request, changeDigest, identityMethod: body.identityMethod, emailMasked: maskEmail(bound.email),
+    return { ...(versioned ? { changeProtocol: CHANGE_PROTOCOL } : {}), request, changeDigest, identityMethod: body.identityMethod, emailMasked: maskEmail(bound.email),
       ...(body.identityMethod === 'wallet' ? { message } : {}) };
   }
   async function verify(session, body) {

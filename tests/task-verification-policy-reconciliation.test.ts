@@ -30,7 +30,7 @@ function fixture(store: any = new MemoryCredentialStore({ 'fixture:alice': { rev
     methodStates: () => ({ wallet: { enabled: true }, password: { enabled: false } }),
     directory: { checkCredential() {} }, sendOtp: async (message: any) => { deliveries.push(message); }, now: () => 1_800_000_000_000 };
   const service = createTaskVerificationPolicyService(options);
-  const prepare = (expectedRevision = '0', mode = 'OFF') => service.prepare(session, { expectedRevision, mode, identityMethod: 'wallet' });
+  const prepare = (expectedRevision = '0', mode = 'OFF') => service.prepare(session, { protocol, expectedRevision, mode, identityMethod: 'wallet' });
   const verify = async (change: any) => service.verify(session, { changeId: change.request.changeId,
     changeDigest: change.changeDigest, signature: await wallet.signMessage(change.message) });
   const confirm = (change: any) => service.confirm(session, { changeId: change.request.changeId,
@@ -40,7 +40,7 @@ function fixture(store: any = new MemoryCredentialStore({ 'fixture:alice': { rev
 }
 
 test('versioned status preserves default ON and exposes no pending evidence before a change', async () => {
-  const f = fixture(), status = await f.service.status(f.session);
+  const f = fixture(), status = await f.service.status(f.session, { protocol });
   assert.equal(status.changeProtocol, protocol); assert.equal(status.mode, 'ON'); assert.equal(status.revision, '0');
   assert.equal(status.pendingChange, null); assert.equal(status.reconciliation, null);
   assert.equal(f.deliveries.length, 0); assert.equal((await f.store.read('fixture:alice')).taskVerificationPolicies, undefined);
@@ -51,7 +51,7 @@ test('late qualified cancel never deletes a replacement draft and its two factor
   const cancelled = await f.service.cancelChange(f.session, reference(old));
   assert.equal(cancelled.cancelled, false); assert.equal(cancelled.reconciliation?.changeId, old.request.changeId);
   assert.equal(cancelled.reconciliation?.state, 'not-committed'); assert.equal(cancelled.reconciliation?.reason, 'replaced');
-  assert.equal((await f.service.status(f.session)).pendingChange?.changeId, current.request.changeId);
+  assert.equal((await f.service.status(f.session, { protocol })).pendingChange?.changeId, current.request.changeId);
   await f.verify(current); const saved = await f.confirm(current);
   assert.equal(saved.mode, 'ON'); assert.equal(saved.revision, '1');
   assert.deepEqual(saved.changes[0]!.verifiedFactors, ['wallet', 'verified-email']);
@@ -63,7 +63,7 @@ test('unqualified, wrong-version and forged-digest cancels cannot clear the sele
     await assert.rejects(f.service.cancelChange(f.session, body));
   const forged = await f.service.cancelChange(f.session, { ...ref, changeDigest: 'f'.repeat(64) });
   assert.equal(forged.cancelled, false); assert.equal(forged.reconciliation?.state, 'unknown');
-  assert.equal((await f.service.status(f.session)).pendingChange?.changeId, change.request.changeId);
+  assert.equal((await f.service.status(f.session, { protocol })).pendingChange?.changeId, change.request.changeId);
 });
 
 test('exact cancellation acknowledges only its own uncommitted change without changing effective policy', async () => {
@@ -73,7 +73,7 @@ test('exact cancellation acknowledges only its own uncommitted change without ch
   assert.equal(result.reconciliation?.reason, 'cancelled'); assert.equal(result.reconciliation?.automaticRetryAllowed, false);
   assert.deepEqual(await f.store.read('fixture:alice'), before);
   assert.equal((await f.service.status(f.session, reference(change))).reconciliation?.state, 'not-committed');
-  assert.equal((await f.service.status(f.session)).pendingChange, null);
+  assert.equal((await f.service.status(f.session, { protocol })).pendingChange, null);
 });
 
 test('readback finds the exact older committed change even after a later owner save', async () => {
@@ -130,7 +130,7 @@ test('a replacement arriving during cancellation read is not cleared by the old 
   const cancelling = f.service.cancelChange(f.session, reference(old)); await entered.promise;
   const next = await f.prepare('0', 'ON'); gate.resolve();
   assert.equal((await cancelling).cancelled, false);
-  assert.equal((await f.service.status(f.session)).pendingChange?.changeId, next.request.changeId);
+  assert.equal((await f.service.status(f.session, { protocol })).pendingChange?.changeId, next.request.changeId);
 });
 
 test('encrypted restart resolves a lost commit acknowledgement from durable audit, not browser flags', async () => {
@@ -171,7 +171,19 @@ test('original authenticated HTTP routes refuse cancel{} and support versioned q
   };
   await call('bootstrap'); assert.equal((await call('password', { username: 'alice', password, account: wallet.address, chainId: '560048' })).status, 200);
   const prefix = 'account/task-verification/';
-  const prepared = await call(prefix + 'prepare', { expectedRevision: '0', mode: 'OFF', identityMethod: 'wallet' });
+  const legacy = await call(prefix + 'status', {});
+  assert.equal(legacy.status, 200);
+  assert.deepEqual(Object.keys(legacy.data).sort(), ['schema', 'scope', 'mode', 'revision', 'label', 'appliesTo',
+    'grantsAuthority', 'factorsForOFF', 'factorsForEverySave', 'changeCount', 'lastChange'].sort());
+  const oldPrepared = await call(prefix + 'prepare', { expectedRevision: '0', mode: 'OFF', identityMethod: 'wallet' });
+  assert.equal(oldPrepared.status, 200);
+  assert.deepEqual(Object.keys(oldPrepared.data).sort(), ['request', 'changeDigest', 'identityMethod', 'emailMasked', 'message'].sort());
+  const discovery = await call(prefix + 'status', { protocol });
+  assert.equal(discovery.status, 200); assert.equal(discovery.data.changeProtocol, protocol);
+  assert.equal(discovery.data.reconciliation, null);
+  assert.equal(discovery.data.pendingChange.changeId, oldPrepared.data.request.changeId);
+  assert.equal((await call(prefix + 'status', { protocol: 'unknown/1' })).status, 400);
+  const prepared = await call(prefix + 'prepare', { protocol, expectedRevision: '0', mode: 'OFF', identityMethod: 'wallet' });
   assert.equal(prepared.status, 200); assert.equal(prepared.data.changeProtocol, protocol);
   assert.equal((await call(prefix + 'cancel', {})).status, 400);
   const readback = await call(prefix + 'status', reference(prepared.data));
@@ -181,4 +193,33 @@ test('original authenticated HTTP routes refuse cancel{} and support versioned q
   assert.equal(cancelled.status, 200); assert.equal(cancelled.data.cancelled, true);
   assert.equal((await call(prefix + 'status', reference(prepared.data))).data.reconciliation.state, 'not-committed');
   assert.equal((await call(prefix + 'status', { ...reference(prepared.data), account: wallet.address })).status, 400);
+});
+
+test('consumed durable revision hides the losing live draft and overrides pending reconciliation', async () => {
+  const f = fixture(), other = f.newSession();
+  const losing = await f.service.prepare(other, { protocol, expectedRevision: '0', mode: 'ON', identityMethod: 'wallet' });
+  const winning = await f.prepare(); await f.verify(winning); await f.confirm(winning);
+  const result = await f.service.status(other, reference(losing));
+  assert.equal(result.revision, '1'); assert.equal(result.mode, 'OFF');
+  assert.equal(result.pendingChange, null);
+  assert.equal(result.reconciliation?.state, 'not-committed');
+  assert.equal(result.reconciliation?.reason, 'revision-superseded');
+  assert.equal(result.reconciliation?.automaticRetryAllowed, false);
+  assert.equal(result.reconciliation?.committedChange, null);
+  const committed = await f.service.status(other, reference(winning));
+  assert.equal(committed.reconciliation?.state, 'committed');
+  assert.equal(committed.reconciliation?.committedChange?.changeDigest, winning.changeDigest);
+});
+
+test('legacy status and prepare keep their exact shapes while explicit discovery negotiates additions', async () => {
+  const f = fixture(), oldStatus = await f.service.status(f.session, {});
+  for (const key of ['changeProtocol', 'pendingChange', 'reconciliation']) assert.equal(Object.hasOwn(oldStatus, key), false);
+  const oldPrepare = await f.service.prepare(f.session, { expectedRevision: '0', mode: 'OFF', identityMethod: 'wallet' });
+  assert.equal(Object.hasOwn(oldPrepare, 'changeProtocol'), false);
+  const discovery = await f.service.status(f.session, { protocol });
+  assert.equal(discovery.changeProtocol, protocol); assert.equal(discovery.pendingChange?.changeId, oldPrepare.request.changeId);
+  const selected = await f.prepare(); assert.equal(selected.changeProtocol, protocol);
+  await assert.rejects(f.service.status(f.session, { protocol: 'future/1' }));
+  await assert.rejects(f.service.status(f.session, { protocol, extra: true }));
+  await assert.rejects(f.service.prepare(f.session, { protocol: 'future/1', expectedRevision: '0', mode: 'OFF', identityMethod: 'wallet' }));
 });

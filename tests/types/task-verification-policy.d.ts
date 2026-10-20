@@ -11,12 +11,13 @@ declare module '*server/task-verification-policy.mjs' {
   }
   interface Status extends State {
     label: string; appliesTo: string; grantsAuthority: false; factorsForOFF: string[]; factorsForEverySave: string[];
-    changeProtocol: string; pendingChange: null | { changeId: string; changeDigest: string; expectedRevision: string;
+    changeProtocol?: string; pendingChange?: null | { changeId: string; changeDigest: string; expectedRevision: string;
       mode: 'ON' | 'OFF'; stage: string; issuedAt: number; expiresAt: number };
-    reconciliation: null | { changeId: string; changeDigest: string; expectedRevision: string; state: string;
+    reconciliation?: null | { changeId: string; changeDigest: string; expectedRevision: string; state: string;
       automaticRetryAllowed: false; committedChange: Change | null; reason: string | null };
   }
   interface Prepared {
+    changeProtocol?: string;
     request: { mode: 'ON' | 'OFF'; changeId: string; nonce: string; expectedRevision: string; expiresAt: number };
     changeDigest: string; identityMethod: 'wallet' | 'password'; emailMasked: string; message?: string;
   }

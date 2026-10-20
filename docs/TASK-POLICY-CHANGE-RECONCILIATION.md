@@ -9,11 +9,15 @@ credential schema and execution gates are unchanged.
 
 The existing authenticated, tenant/account/chain-bound, CSRF-protected POST
 routes remain `/auth/account/task-verification/{status,prepare,verify,confirm,cancel}`.
-Status and prepare advertise `changeProtocol: "8415-task-policy-change-wire/1"`.
+Legacy `status {}` and three-field prepare requests preserve their original
+exact response shapes for installed strict decoders. A new client explicitly
+requests discovery with `{ "protocol": "8415-task-policy-change-wire/1" }`.
+Discovery and qualified status responses advertise that exact `changeProtocol`;
+prepare advertises it only when its request also includes the same `protocol`.
 A client must explicitly decode this version; an old unqualified cancellation
 is refused. No server endpoint, signer or credential may be selected in a body.
 
-`status` accepts either `{}` or exactly:
+`status` accepts legacy `{}`, explicit discovery `{ "protocol": "8415-task-policy-change-wire/1" }`, or exactly:
 
 ```json
 {
@@ -26,12 +30,18 @@ is refused. No server endpoint, signer or credential may be selected in a body.
 
 `cancel` requires that exact qualified body. `prepare`, `verify` and `confirm`
 retain their existing inputs and exact-change factors. `prepare` additionally
-advertises the version alongside its existing request and digest.
+accepts the optional explicit protocol selector and advertises the version only
+for that selector. Confirm retains its existing compatible response; the new
+client subsequently queries its exact qualified reference to establish the
+authoritative outcome, rather than treating that response as a new grant.
 
 ## Status additions
 
 Status keeps its existing effective policy and scope fields, `changeCount` and
-`lastChange`. It adds `changeProtocol`, `pendingChange` and `reconciliation`.
+`lastChange`. Only explicit versioned discovery or a qualified read adds
+`changeProtocol`, `pendingChange` and `reconciliation`. A consumed durable
+revision suppresses an obsolete pending summary and yields `revision-superseded`
+before any transient pending evidence; a matching durable commit wins first.
 The persisted policy schema remains unchanged. A pending draft is never effective.
 
 `pendingChange` is null or exactly the following safe summary of the current
