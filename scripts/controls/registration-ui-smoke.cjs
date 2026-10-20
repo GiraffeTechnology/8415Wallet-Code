@@ -43,7 +43,7 @@ async function run() {
         state.changeAccount = actor => { state.actor = actor; for (const fn of listeners.get('accountsChanged') ?? []) fn(); };
       }, { actor: newWallet.address });
       const page = installScreenNavigation(await context.newPage()); page.on('pageerror', error => errors.push(error.message));
-      const post = async (button, endpoint) => { const wait = page.waitForResponse(r => r.url().endsWith(`/auth/${endpoint}`)); await page.click(button); return (await wait).json(); };
+      const post = async (button, endpoint, expectedStatus = 200) => { const wait = page.waitForResponse(r => r.url().endsWith(`/auth/${endpoint}`)); await page.click(button); const response = await wait; assert.equal(response.status(), expectedStatus, 'Registration endpoint must return its expected status'); return response.json(); };
       const openRegistration = async () => {
         if (!await page.locator('#public-home').isVisible()) await page.locator('.foundation-public-nav [data-public-route="home"]').click();
         await page.locator('#public-home [data-public-route="register"]').click();
@@ -72,15 +72,16 @@ async function run() {
       assert.deepEqual(authRequests, []); assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
       console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'pending-start-cancellation', profile, width }));
       // Real raw-page Escape while a successful start response is held in transport.
-      await openRegistration(); await page.locator('#auth-registration-email').fill(email);
-      let releaseStart, seenStart;
+      await openRegistration(); await page.locator('#auth-registration-email').fill('cancelled-user@example.invalid');
+      let releaseStart, seenStart, heldStartStatus;
       const startGate = new Promise(resolve => { releaseStart = resolve; });
       const startSeen = new Promise(resolve => { seenStart = resolve; });
       await page.route('**/auth/registration/start', async route => {
-        const response = await route.fetch(); seenStart(); await startGate; await route.fulfill({ response });
+        const response = await route.fetch(); heldStartStatus = response.status(); seenStart(); await startGate; await route.fulfill({ response });
       });
       try {
         await page.locator('#auth-registration-start').click(); await startSeen;
+        assert.equal(heldStartStatus, 200, 'Cancellation scenario holds an actual successful start response');
         await page.keyboard.press('Escape'); await page.locator('#existing-user-panel').waitFor({ state: 'visible' });
         assert.equal(await page.locator('#registration-panel').isVisible(), false);
         assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
@@ -97,7 +98,7 @@ async function run() {
       console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'start-verification', profile, width }));
       await post('#auth-registration-start', 'registration/start'); assert.equal(mail.at(-1).purpose, 'registration');
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []); assert.equal(await store.read(`@registration:${config.tenant.id}`), null);
-      await page.fill('#auth-registration-code', mail.at(-1).code === '00000000' ? '11111111' : '00000000'); const refused = await post('#auth-registration-verify', 'registration/verify');
+      await page.fill('#auth-registration-code', mail.at(-1).code === '00000000' ? '11111111' : '00000000'); const refused = await post('#auth-registration-verify', 'registration/verify', 401);
       assert.equal(refused.error, 'AUTH_REFUSED');
       console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'verify-email', profile, width }));
       await page.fill('#auth-registration-code', mail.at(-1).code); await post('#auth-registration-verify', 'registration/verify');
