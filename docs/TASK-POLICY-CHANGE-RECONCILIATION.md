@@ -5,6 +5,12 @@ per-operation verification setting. It is not a task grant or an additional
 Agent transaction prerequisite. The effective policy, its two-factor audit,
 credential schema and execution gates are unchanged.
 
+The standard `createAuthRuntime` and installed service entry expose this
+authenticated policy API without a new JSON feature flag. A fresh scope reads
+the authoritative ON default; existing owner-saved policy values and audit remain
+authoritative. This availability is independent of disabled listing or exact
+execution adapters and does not configure those capabilities.
+
 ## Version and routes
 
 The existing authenticated, tenant/account/chain-bound, CSRF-protected POST

@@ -5,7 +5,8 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { webcrypto } from 'node:crypto';
 import { Wallet } from 'ethers';
-import { createAuthService } from '../server/auth-service.mjs';
+import { createAuthRuntime } from '../server/main.mjs';
+import { disabledTaskListingRuntime } from '../server/task-listing-runtime.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
 import { hashPassword } from '../server/crypto.mjs';
 import { AccountAuthClient } from '../web/account-auth.mjs';
@@ -18,11 +19,18 @@ async function setup(t) {
   const password='synthetic-policy-password', passwordHash=await hashPassword(password), deliveries=[];
   const registration={version:1,email:'owner@example.invalid',verifiedAt:1};
   const store=new MemoryCredentialStore({'fixture:alice':{registration},'@registration:fixture':{version:1,records:[{username:'alice',email:registration.email,verifiedAt:1}]}});
-  let handler;const server=createServer((req,res)=>handler(req,res));server.listen(0,'127.0.0.1');await once(server,'listening');
-  t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
-  const origin=`http://127.0.0.1:${server.address().port}`;
-  handler=createAuthService({origin,tenant:'fixture',store,taskVerificationPolicyEnabled:true,
-    accounts:[{username:'alice',passwordHash,wallets:[{account:wallet.address,chainId:'560048'}]}],sendOtp:async message=>deliveries.push(message)});
+  // Reserve a free loopback port, then start the real process-level runtime.
+  const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');
+  const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
+  const origin=`http://127.0.0.1:${port}`;
+  const runtime=await createAuthRuntime({config:{origin,tenant:'fixture',port,
+    statePath:'/synthetic-policy-runtime/credentials.enc',
+    accounts:[{username:'alice',passwordHash,wallets:[{account:wallet.address,chainId:'560048'}]}]},store,
+    sendOtp:async message=>deliveries.push(message),
+    listingRuntime:{runtime:disabledTaskListingRuntime(),async start(){},async stop(){}}});
+  t.after(async()=>{runtime.server.closeAllConnections();await runtime.stop();});
+  await runtime.start();
+  assert.equal(runtime.exactState,'disabled');assert.equal(runtime.listingState,'disabled');
   const wire=createTaskVerificationPolicyWire({crypto:webcrypto}),port=memoryStorage();
   async function login() {
     const jar=new Map(),calls=[];
@@ -40,6 +48,7 @@ async function setup(t) {
     return {client,session,binding,signal,bridge,calls};
   }
   const first=await login();
+  assert.equal((await first.client.account()).taskHumanVerification.mode,'ON');
   async function prepare(c,mode='OFF',expectedRevision='0') {
     const account=await c.client.account(),reviewed=await c.bridge().read(c);
     const raw=await c.client.taskVerification('prepare',{protocol,mode,expectedRevision,identityMethod:'wallet'});

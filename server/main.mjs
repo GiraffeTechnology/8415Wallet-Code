@@ -40,7 +40,11 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
   try {
   const handler = createAuthService({ origin: config.origin, tenant: config.tenant, accounts: config.accounts, store, verifyCa, sendOtp, now,
     taskTestAuthorization: testAuthorization, forwardProgressReader,
-    ...composeTaskAuthOptions({ exact: exact.authOptions, listing: listing.runtime.authOptions }) });
+    ...composeTaskAuthOptions({ exact: exact.authOptions, listing: listing.runtime.authOptions }),
+    // The authenticated owner-policy API is part of the standard runtime.
+    // Its persisted effective value and factors remain service-owned; this
+    // exposes neither an execution capability nor a caller-selected flag.
+    taskVerificationPolicyEnabled: true });
   listing.runtime.connectAuthorization(handler.taskListingAuthorization);
   const background = createTaskBackgroundRunner({ store, continuation: handler.taskBackground, now });
   const server = createServer(handler);
