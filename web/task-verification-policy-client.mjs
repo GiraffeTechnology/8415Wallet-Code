@@ -78,7 +78,10 @@ export function createTaskVerificationPolicyClient({ client, walletLogin, docume
         if (!reference) return state.view;
         // UNKNOWN is not permission to retry or a false cancellation success.
         // Only the exact live, noncommitting draft is cancellable from this UI.
-        if (decoded.reconciliation?.state !== 'pending') return state.view;
+        const slot = decoded.pendingChange;
+        if (decoded.reconciliation?.state !== 'pending' || !slot || slot.stage === 'committing' ||
+          slot.changeId !== reference.changeId || slot.changeDigest !== reference.changeDigest ||
+          slot.expectedRevision !== reference.previousRevision || slot.mode !== reference.mode) return state.view;
         const raw = await client.taskVerification('cancel', taskPolicyChangeQuery(reference), { signal }); current(binding, signal);
         if (typeof wire.cancelled !== 'function') throw refused('TASK_POLICY_WIRE_REFUSED');
         const result = wire.cancelled(raw, reference, decoded); current(binding, signal);

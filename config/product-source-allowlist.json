@@ -2595,8 +2595,8 @@
     {
       "path": "web/task-verification-policy-client.mjs",
       "mode": "100644",
-      "git_blob_sha1": "ad8b81b88a443c1dca1af266cb8f5d8695886851",
-      "sha256": "a6971e8a4cd9e22c70cf59a4c7db522f4b53ca49e248535fccffbc437fb03215"
+      "git_blob_sha1": "07bc9bab7069bf6b92c333626a2fcbbffc2800b6",
+      "sha256": "56474301eda1c4586a3f0b193e83624d024437e91356b25a3b69d1a8441f2cd6"
     },
     {
       "path": "web/task-verification-policy-entry.mjs",
@@ -2625,8 +2625,8 @@
     {
       "path": "web/task-verification-policy-wire.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f81087085f2aec59a9a3102eead7d747f657f317",
-      "sha256": "86d14912255fe2ae756c7ab561c729af49f1f01976194fa1daa616f153ff92ae"
+      "git_blob_sha1": "b85a4bb39f3529c81236f29d3210668660d4b676",
+      "sha256": "516c474053517d6488a9cf3045519668ad636f233e39131a67dac22178627d9a"
     },
     {
       "path": "web/tenant-avatar.mjs",

@@ -74,7 +74,10 @@ test('only exact live pending/committing summaries corroborate the outcome', asy
     const decoded=await wire.status({...initial(),pendingChange:{...pending(),stage},reconciliation:reconcile(state,null)},session,account,reference);
     assert.equal(decoded.view.changeState,'unknown');
   }
-  await assert.rejects(wire.status({...initial(),pendingChange:null,reconciliation:reconcile('pending',null)},session,account,reference));
+  const reloaded=await wire.status({...initial(),pendingChange:null,reconciliation:reconcile('pending',null)},session,account,reference);
+  assert.equal(reloaded.view.changeState,'unknown');assert.equal(reloaded.pendingChange,null);
+  const otherSlot=await wire.status({...initial(),pendingChange:{...pending(),changeId:'e'.repeat(43)},reconciliation:reconcile('pending',null)},session,account,reference);
+  assert.equal(otherSlot.reconciliation.changeId,reference.changeId);
 });
 test('not-committed needs a conclusive reason and revision-superseded needs a later revision', async () => {
   for(const reason of ['cancelled','replaced']) assert.equal((await wire.status({...initial(),reconciliation:reconcile('not-committed',reason)},session,account,reference)).reconciliation.state,'not-committed');

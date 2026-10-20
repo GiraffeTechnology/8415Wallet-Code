@@ -157,10 +157,13 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
       if (reference) {
         check(reference.scopeKey === scopeDigest);
         reconciled = reconciliation(raw.reconciliation, reference, scopeDigest, raw.revision);
-        if (['pending', 'committing'].includes(reconciled.state)) check(pendingChange &&
-          pendingChange.changeId === reference.changeId && pendingChange.changeDigest === reference.changeDigest &&
-          pendingChange.expectedRevision === reference.previousRevision && pendingChange.mode === reference.mode &&
-          (reconciled.state === 'committing') === (pendingChange.stage === 'committing'));
+        // The query may resolve a draft retained by another session. The safe
+        // summary enumerates only this session's current draft, not that query.
+        if (pendingChange?.changeId === reference.changeId && pendingChange.changeDigest === reference.changeDigest) {
+          check(pendingChange.expectedRevision === reference.previousRevision && pendingChange.mode === reference.mode);
+          if (['pending', 'committing'].includes(reconciled.state))
+            check((reconciled.state === 'committing') === (pendingChange.stage === 'committing'));
+        }
       } else check(raw.reconciliation === null);
     }
     const view = Object.freeze({ mode: raw.mode, revision: raw.revision, context,
