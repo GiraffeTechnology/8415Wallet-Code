@@ -174,7 +174,11 @@ async function run() {
       // Finish requests from the preceding setup view before measuring policy-only reads.
       await page.waitForLoadState('networkidle');
       const beforePolicy = requests.length;
-      await page.locator('#auth-setup-policy-open').click();
+      // Wait for the required read itself, not a network-idle interval before it starts.
+      await Promise.all([
+        page.waitForRequest(request => request.method() === 'GET' && new URL(request.url()).pathname === '/auth/account'),
+        page.locator('#auth-setup-policy-open').click(),
+      ]);
       await page.locator('#task-verification-policy-settings').waitFor({ state: 'visible' });
       await page.waitForLoadState('networkidle');
       const observedPolicyReads = requests.slice(beforePolicy);
