@@ -171,10 +171,18 @@ async function run() {
       await page.locator('#auth-management-back').click();
       assert.equal(await page.locator('#task-verification-policy-settings').isVisible(), false);
       console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'policy-view', profile, width }));
+      // Finish requests from the preceding setup view before measuring policy-only reads.
+      await page.waitForLoadState('networkidle');
       const beforePolicy = requests.length;
       await page.locator('#auth-setup-policy-open').click();
       await page.locator('#task-verification-policy-settings').waitFor({ state: 'visible' });
       await page.waitForLoadState('networkidle');
+      const observedPolicyReads = requests.slice(beforePolicy);
+      console.error(JSON.stringify({ check: 'POLICY_READONLY_ASSERTIONS',
+        verificationHidden: !await page.locator('#auth-management-verification').isVisible(),
+        otherPanelsHidden: (await Promise.all(['auth-password-settings', 'auth-enrollment', 'auth-method-states', 'auth-recovery-settings'].map(id => page.locator('#' + id).isVisible()))).every(value => value === false),
+        accountRead: observedPolicyReads.includes('/auth/account'),
+        onlyAllowedReads: observedPolicyReads.every(route => ['/auth/session', '/auth/account', '/auth/account/task-verification/status'].includes(route)) }));
       assert.equal(await page.locator('#auth-management-verification').isVisible(), false);
       for (const id of ['auth-password-settings', 'auth-enrollment', 'auth-method-states', 'auth-recovery-settings']) assert.equal(await page.locator(`#${id}`).isVisible(), false);
       const policyReads = requests.slice(beforePolicy);
