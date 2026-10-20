@@ -306,16 +306,14 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       // Owner settings are not task grants. Two established factors are bound
       // to each exact ON/OFF revision; an existing OFF or Agent grant never saves.
       if (path === 'account/task-verification/status') {
-        requireThat(Object.keys(body).length === 0, 'AUTH_REQUEST_REFUSED', 400);
-        return publicVerificationPolicy(await verificationPolicyService.status(session));
+        return publicVerificationPolicy(await verificationPolicyService.status(session, body));
       }
       if (path === 'account/task-verification/prepare') return verificationPolicyService.prepare(session, body);
       if (path === 'account/task-verification/verify') return verificationPolicyService.verify(session, body);
       if (path === 'account/task-verification/confirm') return publicVerificationPolicy(await verificationPolicyService.confirm(session, body));
       if (path === 'account/task-verification/on') return publicVerificationPolicy(await verificationPolicyService.enable(session, body));
       if (path === 'account/task-verification/cancel') {
-        requireThat(Object.keys(body).length === 0, 'AUTH_REQUEST_REFUSED', 400);
-        verificationPolicyService.cancel(session); return { cancelled: true };
+        return verificationPolicyService.cancelChange(session, body);
       }
       throw new AuthError('AUTH_ROUTE_REFUSED', 404);
     }

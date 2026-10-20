@@ -927,8 +927,8 @@
     {
       "path": "server/auth-service.mjs",
       "mode": "100644",
-      "git_blob_sha1": "62d2edf13f20245a29f6f7e809e1a29e9559bf5d",
-      "sha256": "34b3f1239e8402e8f604342a88bf98cd6ffa12d06166fea2cce0e77fe1f31808"
+      "git_blob_sha1": "726011a22cea30976aaca0ea22cc26b7e8d78dc3",
+      "sha256": "8f0e9570851e18c3e9e8dc02229004d94b4b843c8ce6510b4ebfbbecc747ece3"
     },
     {
       "path": "server/ca-verifier.mjs",
@@ -1245,8 +1245,8 @@
     {
       "path": "server/task-verification-policy.mjs",
       "mode": "100644",
-      "git_blob_sha1": "122bdb712487b75e973b320061837d9cebc1719a",
-      "sha256": "92e59a782bc7be448115c7a4774d05b9bff0221872f01d244cf3ce46923f2e72"
+      "git_blob_sha1": "00ce7c36a9c7d59e7a3aeadd66baf7395b3fd04f",
+      "sha256": "3492c574191a2bdd3fe80fb5fdedac28251c91fbe655564911e95bb8d391887b"
     },
     {
       "path": "server/task-verification-state.mjs",
