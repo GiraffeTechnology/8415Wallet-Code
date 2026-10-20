@@ -95,6 +95,36 @@ async function run() {
       assert.equal(authRequests.some(value => value === '/auth/registration/verify' || value === '/auth/registration/confirm'), false);
       console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'open-register', profile, width }));
       await openRegistration(); await page.fill('#auth-registration-email', email);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'pending-start-history-back', profile, width }));
+      await openRegistration(); await page.locator('#auth-registration-email').fill('back-cancelled-user@example.invalid');
+      let releaseBackStart, seenBackStart, backStartStatus;
+      const backGate = new Promise(resolve => { releaseBackStart = resolve; });
+      const backSeen = new Promise(resolve => { seenBackStart = resolve; });
+      const backRequestStart = authRequests.length;
+      await page.route('**/auth/registration/start', async route => {
+        const response = await route.fetch(); backStartStatus = response.status(); seenBackStart();
+        await backGate; await route.fulfill({ response });
+      });
+      try {
+        await page.locator('#auth-registration-start').click(); await backSeen;
+        assert.equal(backStartStatus, 200);
+        await page.evaluate(() => globalThis.history.back());
+        await page.locator('#public-home').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#auth-registration').isVisible(), false);
+        assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
+        assert.equal(await page.locator('#auth-registration-start').isDisabled(), true, 'Back preserves the unresolved request lock');
+        assert.equal(await page.evaluate(async () => (await import('/web/ui-lock.mjs')).walletUiBusy()), true);
+        assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      } finally { releaseBackStart(); }
+      await page.waitForLoadState('networkidle'); await page.unroute('**/auth/registration/start');
+      assert.equal(await page.evaluate(async () => (await import('/web/ui-lock.mjs')).walletUiBusy()), false);
+      assert.equal(await page.locator('#public-home').isVisible(), true);
+      assert.equal(await page.locator('#auth-registration').isVisible(), false);
+      assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      assert.equal(authRequests.slice(backRequestStart).filter(value => value === '/auth/registration/start').length, 1);
+      assert.equal(authRequests.slice(backRequestStart).some(value => value === '/auth/registration/verify' || value === '/auth/registration/confirm'), false);
+      assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
+      await openRegistration(); await page.fill('#auth-registration-email', email);
       console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'start-verification', profile, width }));
       await post('#auth-registration-start', 'registration/start'); assert.equal(mail.at(-1).purpose, 'registration');
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []); assert.equal(await store.read(`@registration:${config.tenant.id}`), null);

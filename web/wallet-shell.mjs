@@ -126,7 +126,7 @@ el('auth-registration-close').addEventListener('click', () => {
 el('skip-content').addEventListener('click', () => el('page-title').focus());
 globalThis.addEventListener('keydown', event => { if (event.key !== 'Escape' || walletUiBusy()) return; if (foundationOnly && !authenticated && page === 'register') { openPublicPage('existing', { history: false }); globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; } if (page === 'review') el('asset-dismiss').click(); else if (page === 'settings') { avatarGeneration++; avatar.cancel(); el('tenant-avatar-file').value = ''; renderAvatar(); } });
 globalThis.addEventListener('popstate', event => {
-  const cancelledManagement = page === managementPage || (foundationOnly && !authenticated && page === 'login');
+  const cancelledManagement = page === managementPage || (foundationOnly && !authenticated && (page === 'login' || page === 'register'));
   if (cancelledManagement) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
   else if (walletUiBusy()) { globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; }
   // Cancellation invalidates the attempt immediately, but its request owns the

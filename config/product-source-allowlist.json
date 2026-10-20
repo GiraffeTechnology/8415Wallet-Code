@@ -2672,8 +2672,8 @@
     {
       "path": "web/wallet-shell.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b5031c6aba06686ef6e9b636c257a8758f8bb2c5",
-      "sha256": "5201fb7a34420c59ba748c25c3a0db67ed4ad11ad2d77946b84193a69822521e"
+      "git_blob_sha1": "dde9e3f6af872c94e1a754c771dfce6396e98cda",
+      "sha256": "67c2bab969b2e62147e4ccc458877b597807a2a480ff8d3f221b7daa5b67b98b"
     },
     {
       "path": "web/wallet.css",
