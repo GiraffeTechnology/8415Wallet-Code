@@ -371,6 +371,7 @@
       "web/task-verification-policy-ceremony.mjs",
       "web/task-verification-policy-client.mjs",
       "web/task-verification-policy-entry.mjs",
+      "web/task-verification-policy-pending.mjs",
       "web/task-verification-policy-startup.mjs",
       "web/task-verification-policy-ui.mjs",
       "web/task-verification-policy-wire.mjs",
@@ -812,8 +813,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "fa76c7a1f21f83381494596a392f191bfb89f8b6",
-      "sha256": "3bf7533b31b1ebef57018d4790f33fc6bb549e3085592b613932522f0c0cb284"
+      "git_blob_sha1": "c6e3c90c2df2a5dd9ae7bbb477b7357a2b9ed331",
+      "sha256": "616570457b84e604683fab4ab9de11df34819786c140ea075ace245119fcec01"
     },
     {
       "path": "scripts/package/build-auth.mjs",
