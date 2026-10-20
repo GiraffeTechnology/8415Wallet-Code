@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { renderEscrow } from '../src/wallet/renderEscrow.ts';
 import { buildEscrowView } from '../src/wallet/escrowView.ts';
 import type { Trade, TradeObservation, ReleaseConfirmation, ReleaseOrderingEvidence } from '../src/sdk/escrow.ts';
 import type { Bytes32 } from '../src/sdk/types.ts';
@@ -25,6 +26,13 @@ test('release before same-block admission preserves release v2 while classifying
   assert.equal(view.confirmedHolder, seller); assert.equal(view.state, 'released');
   assert.equal(view.releaseOrdering.evidence?.attempt.position.transactionIndex, 0n);
   assert.equal(view.releaseOrdering.evidence?.supersession?.position.transactionIndex, 1n);
+  const beforeRender = structuredClone(view), text = renderEscrow(view);
+  assert.match(text, /Release ordering\s+superseded-after-release/);
+  assert.match(text, /Confirming entry\s+v2/);
+  assert.ok(text.includes(h('4')));
+  assert.ok(text.includes(seller));
+  assert.match(text.replace(/\s+/g, ' '), /release anchor is retained/);
+  assert.deepEqual(view, beforeRender);
 });
 
 test('admission before reverted attempt is not a completed release or an execution-time entry assertion', () => {
@@ -37,6 +45,11 @@ test('admission before reverted attempt is not a completed release or an executi
   assert.equal(view.confirmingVersion, undefined); assert.equal(view.confirmingRecordCommitment, undefined);
   assert.equal(view.state, 'waiting-for-the-register');
   assert.match(view.releaseOrdering.note, /No successful release or execution-time entry read/);
+  const beforeRender = structuredClone(view), text = renderEscrow(view);
+  assert.match(text, /Release ordering\s+superseded-before-release-attempt/);
+  assert.match(text.replace(/\s+/g, ' '), /No successful release or execution-time/);
+  assert.doesNotMatch(text, /Confirming entry|Release commitment/);
+  assert.deepEqual(view, beforeRender);
 });
 
 test('block-end version, timestamps and a release without positioned event cannot manufacture ordering', () => {
@@ -57,6 +70,14 @@ test('conflicting block, entry, receipt and same-transaction positions remain un
     { ...after, attempt: { ...after.attempt, outcome: 'reverted' } },
     { ...after, attempt: { ...after.attempt, basisSource: 'prepared-observation' } },
   ];
-  for (const input of variants) assert.equal(buildEscrowView(trade, observation, 100n, release, input).releaseOrdering.classification, 'unknown');
+  for (const input of variants) {
+    const view = buildEscrowView(trade, observation, 100n, release, input);
+    assert.equal(view.releaseOrdering.classification, 'unknown');
+    const beforeRender = structuredClone(view), text = renderEscrow(view);
+    assert.match(text, /Release ordering\s+unknown/);
+    assert.doesNotMatch(text, /Release ordering\s+superseded-/);
+    assert.deepEqual(view, beforeRender);
+  }
   assert.equal(buildEscrowView(trade, observation, 100n, { ...release, position: { ...release.position!, transactionHash: h('6') } }, after).releaseOrdering.classification, 'unknown');
 });
+
