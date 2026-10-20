@@ -11,6 +11,7 @@ const check = (ok, code = 'TASK_VERIFICATION_POLICY_REFUSED', status = 403) => {
   if (!ok) throw new TaskVerificationPolicyError(code, status);
 };
 const LIFE = 5 * 60_000;
+const CHANGE_PROTOCOL = '8415-task-policy-change-wire/1';
 /** Factory callbacks are auth-service-owned closures, never HTTP-supplied flags.
  * Password OR registered-wallet control is factor one; OTP to the PREVIOUSLY
  * verified email is factor two. Existing TOTP/recovery are not a third gate.
@@ -21,7 +22,7 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
     users instanceof Map && [assertSession, credentialFor, passwordFor, methodStates, now].every(x => typeof x === 'function') &&
     typeof directory?.checkCredential === 'function' && (sendOtp === null || typeof sendOtp === 'function'),
   'TASK_VERIFICATION_CONFIG_REFUSED', 500);
-  const slots = new Map(), limits = new Map(), pepper = randomBytes(32);
+  const slots = new Map(), limits = new Map(), outcomes = new Map(), pepper = randomBytes(32);
   let expensive = 0;
   const stamp = () => { const t = now(); check(Number.isSafeInteger(t) && t >= 0, 'TASK_VERIFICATION_CLOCK_REFUSED', 503); return t; };
   const keyed = value => createHmac('sha256', pepper).update(JSON.stringify(value)).digest('hex');
@@ -33,9 +34,26 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
   const readCredential = (credential, session) => readCredentialTaskVerificationPolicy(credential, scopeFor(session));
   const withPolicy = (credential, session, next) => ({ ...credential, taskVerificationPolicies: {
     ...(credential?.taskVerificationPolicies ?? {}), [policyKey(session)]: next } });
+  const changeMatches = (value, reference) => value && value.changeId === reference.changeId &&
+    value.changeDigest === reference.changeDigest && value.expectedRevision === reference.expectedRevision;
+  const outcomeKey = (session, reference) => digest(JSON.stringify([scopeFor(session), reference.changeId,
+    reference.changeDigest, reference.expectedRevision]));
+  function changeReference(body) {
+    fields(body, ['protocol', 'changeId', 'changeDigest', 'expectedRevision']);
+    check(body.protocol === CHANGE_PROTOCOL && typeof body.changeId === 'string' && /^[A-Za-z0-9_-]{43}$/.test(body.changeId) &&
+      typeof body.changeDigest === 'string' && /^[a-f0-9]{64}$/.test(body.changeDigest), 'TASK_VERIFICATION_INPUT_REFUSED', 400);
+    revision(body.expectedRevision);
+    return { changeId: body.changeId, changeDigest: body.changeDigest, expectedRevision: body.expectedRevision };
+  }
+  function remember(session, slot, reason) {
+    // Transient negative evidence is never an owner policy or execution grant.
+    // After restart, its absence is UNKNOWN, not proof that a save failed.
+    if (outcomes.size >= 10000) outcomes.delete(outcomes.keys().next().value);
+    outcomes.set(outcomeKey(session, slot), { reason, issuedAt: stamp(), expiresAt: stamp() + LIFE });
+  }
   function sweep() {
     const time = stamp();
-    for (const map of [slots, limits]) for (const [key, value] of map) {
+    for (const map of [slots, limits, outcomes]) for (const [key, value] of map) {
       if (!value.committing && (time < value.issuedAt || time >= value.expiresAt)) map.delete(key);
     }
   }
@@ -78,19 +96,60 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
     check(equal(bound.fingerprint, slot.factorBinding), 'TASK_VERIFICATION_FACTORS_CHANGED', 409);
     return bound;
   }
-  function cancel(session) { slots.delete(session.id); }
-  async function status(session) {
+  // Trusted auth-service revocation cleanup only. HTTP cancellation is qualified
+  // below and cannot invoke this session-wide method. Never abandon a commit.
+  function cancel(session) {
+    const slot = slots.get(session.id);
+    if (slot && !slot.committing) { slots.delete(session.id); remember(session, slot, 'cancelled'); }
+  }
+  async function status(session, body = {}) {
+    fields(body, ['protocol', 'changeId', 'changeDigest', 'expectedRevision']);
+    const reference = Object.keys(body).length ? changeReference(body) : null;
     const keys = [credentialKey(session)], values = await store.readMany(keys);
     owner(session, values[keys[0]]);
     const state = readCredential(values[keys[0]], session);
+    sweep();
+    const selectedScope = digest(JSON.stringify(scopeFor(session)));
+    const visible = slot => slot && slot.scopeDigest === selectedScope && slot.credentialRevision === session.revision;
+    const own = slots.get(session.id);
+    const pendingChange = visible(own) ? { changeId: own.changeId, changeDigest: own.changeDigest,
+      expectedRevision: own.expectedRevision, mode: own.mode, stage: own.stage,
+      issuedAt: own.issuedAt, expiresAt: own.expiresAt } : null;
+    let reconciliation = null;
+    if (reference) {
+      // Search the complete authoritative audit, not only its latest change.
+      const committed = state.changes.find(change => change.changeId === reference.changeId &&
+        change.changeDigest === reference.changeDigest && change.previousRevision === reference.expectedRevision);
+      const pending = [...slots.values()].find(slot => visible(slot) && changeMatches(slot, reference));
+      const negative = outcomes.get(outcomeKey(session, reference));
+      reconciliation = { ...reference, state: 'unknown', reason: 'unresolved', automaticRetryAllowed: false, committedChange: null };
+      if (committed) reconciliation = { ...reconciliation, state: 'committed', reason: null, committedChange: structuredClone(committed) };
+      else if (pending) reconciliation = { ...reconciliation, state: pending.committing ? 'committing' : 'pending', reason: null };
+      else if (negative || BigInt(state.revision) > BigInt(reference.expectedRevision)) reconciliation = {
+        ...reconciliation, state: 'not-committed', reason: negative?.reason ?? 'revision-superseded' };
+    }
     return { ...state, label: 'Per-operation human verification', appliesTo: 'still-valid-in-scope-authorizations',
       grantsAuthority: false, factorsForOFF: ['password-or-bound-wallet', 'previously-verified-email'],
-      factorsForEverySave: ['password-or-bound-wallet', 'previously-verified-email'] };
+      factorsForEverySave: ['password-or-bound-wallet', 'previously-verified-email'],
+      changeProtocol: CHANGE_PROTOCOL, pendingChange, reconciliation };
+  }
+  async function cancelChange(session, body) {
+    const reference = changeReference(body);
+    const observed = await status(session, body);
+    const slot = slots.get(session.id);
+    if (observed.reconciliation.state === 'committed' || !changeMatches(slot, reference) || slot.committing)
+      return { changeProtocol: CHANGE_PROTOCOL, cancelled: false, reconciliation: observed.reconciliation };
+    // No await between the exact-slot comparison and deletion. A stale tab can
+    // neither cancel a replacement draft nor undo a save already committing.
+    slots.delete(session.id); remember(session, slot, 'cancelled');
+    return { changeProtocol: CHANGE_PROTOCOL, cancelled: true,
+      reconciliation: { ...reference, state: 'not-committed', reason: 'cancelled', automaticRetryAllowed: false, committedChange: null } };
   }
   async function prepare(session, body) {
     fields(body, ['expectedRevision', 'identityMethod', 'mode']); revision(body.expectedRevision); limit(session);
     check(body.mode === undefined || ['ON', 'OFF'].includes(body.mode), 'TASK_VERIFICATION_INPUT_REFUSED', 400);
     body = { expectedRevision: body.expectedRevision, identityMethod: body.identityMethod, mode: body.mode ?? 'OFF' };
+    check(!slots.get(session.id)?.committing, 'TASK_VERIFICATION_CHANGE_IN_PROGRESS', 409);
     const credential = await credentialFor(session), bound = established(session, credential, body.identityMethod);
     const values = await store.readMany([credentialKey(session)]);
     owner(session, values[credentialKey(session)]);
@@ -98,6 +157,7 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
       'TASK_VERIFICATION_FACTORS_CHANGED', 409);
     const state = readCredential(values[credentialKey(session)], session);
     check(state.revision === body.expectedRevision, 'TASK_VERIFICATION_REVISION_CONFLICT', 409);
+    check(!slots.get(session.id)?.committing, 'TASK_VERIFICATION_CHANGE_IN_PROGRESS', 409);
     sweep(); check(slots.size < 10000 || slots.has(session.id), 'TASK_VERIFICATION_BUSY', 503);
     const request = { schema: '8415-task-human-verification-change/2', scope: scopeFor(session),
       mode: body.mode, expectedRevision: state.revision, credentialRevision: session.revision,
@@ -110,9 +170,10 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
       `Revision: ${request.expectedRevision}`, `Credential revision: ${request.credentialRevision}`,
       `Change: ${request.changeId}`, `Nonce: ${request.nonce}`, `Digest: ${changeDigest}`,
       `Expires at: ${request.expiresAt}`, 'Purpose: policy change only; no login, recovery, or transaction signature.'].join('\n');
+    const previous = slots.get(session.id); if (previous) remember(session, previous, 'replaced');
     slots.set(session.id, { ...request, scopeDigest: digest(JSON.stringify(request.scope)), changeDigest,
       sessionId: session.id, method: body.identityMethod, factorBinding: bound.fingerprint, message, stage: 'identity', attempts: 0 });
-    return { request, changeDigest, identityMethod: body.identityMethod, emailMasked: maskEmail(bound.email),
+    return { changeProtocol: CHANGE_PROTOCOL, request, changeDigest, identityMethod: body.identityMethod, emailMasked: maskEmail(bound.email),
       ...(body.identityMethod === 'wallet' ? { message } : {}) };
   }
   async function verify(session, body) {
@@ -178,5 +239,5 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
     throw new TaskVerificationPolicyError('TASK_VERIFICATION_OWNER_CHANGE_REQUIRED', 409);
   }
 
-  return Object.freeze({ status, prepare, verify, confirm, enable, cancel, keyFor: policyKey, readStored, readCredential });
+  return Object.freeze({ status, prepare, verify, confirm, enable, cancel, cancelChange, keyFor: policyKey, readStored, readCredential });
 }
