@@ -92,6 +92,7 @@ async function run() {
         await page.locator('#auth-management-close').click();
         return { secret, codes };
       };
+      console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'initial-layout', profile, width }));
       await page.goto(`${origin}/web/index.html`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
       await page.locator('#ui-locale').focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
       assert.equal(await page.inputValue('#ui-locale'), 'zh-Hans');
@@ -102,7 +103,9 @@ async function run() {
         }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       }
+      console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'initial-no-requests', profile, width }));
       assert.deepEqual(requests, []); assert.deepEqual(await page.evaluate(() => globalThis.__settingsCalls), []);
+      console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'management-back-pending', profile, width }));
       // Back must leave an already-cancelled management attempt immediately,
       // even though the held HTTP request still owns the business lock.
       await page.locator('.foundation-public-nav [data-public-route="home"]').click();
@@ -130,6 +133,7 @@ async function run() {
       assert.equal(await page.locator('#existing-user-panel').isVisible(), true);
       assert.equal(await page.locator('#wallet-private').isVisible(), false, 'Late cancelled login cannot authenticate');
       assert.equal(await page.locator('#auth-management-view').isVisible(), false);
+      console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'ordinary-login-back-pending', profile, width }));
       // Separate ordinary Login route: the management scenario above cannot
       // exercise the public-login cancellation branch in wallet-shell.
       await page.locator('#existing-login-open').click();
@@ -156,14 +160,17 @@ async function run() {
       assert.equal(await page.locator('#wallet-private').isVisible(), false, 'Late ordinary Login result cannot unlock a different page');
       assert.equal(requests.slice(publicRequestStart).filter(value => value === '/auth/password').length, 1, 'Back must not replay the login');
       assert.equal(requests.slice(publicRequestStart).includes('/auth/account'), false, 'Cancelled ordinary Login must not read protected account state');
+      console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'setup-navigation', profile, width }));
       await page.selectOption('#ui-locale', 'en'); await page.selectOption('#wallet-login-method', 'totp');
       await page.click('#auth-initial-open'); await page.click('#auth-setup-totp-open'); assert.equal(await page.inputValue('#wallet-login-method'), 'wallet');
       await page.keyboard.press('Escape'); assert.equal(await page.locator('#auth-management').isVisible(), false);
       await page.click('#auth-initial-open'); await page.click('#auth-setup-totp-open'); await login();
+      console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'methods-state', profile, width }));
       assert.equal(await page.isChecked('#auth-enable-password'), true); assert.equal(await page.isChecked('#auth-enable-wallet'), true);
       assert.equal(await page.isDisabled('#auth-enable-ca'), true); assert.equal(await page.locator('#auth-existing-fields').isVisible(), false);
       await page.locator('#auth-management-back').click();
       assert.equal(await page.locator('#task-verification-policy-settings').isVisible(), false);
+      console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'policy-view', profile, width }));
       const beforePolicy = requests.length;
       await page.locator('#auth-setup-policy-open').click();
       await page.locator('#task-verification-policy-settings').waitFor({ state: 'visible' });
@@ -175,6 +182,7 @@ async function run() {
       assert.ok(policyReads.every(route => ['/auth/session', '/auth/account', '/auth/account/task-verification/status'].includes(route)), 'Read-only policy must not dispatch credential or policy writes');
       await page.locator('#auth-management-back').click();
       assert.equal(await page.locator('#task-verification-policy-settings').isVisible(), false);
+      console.error(JSON.stringify({ check: 'ACCOUNT_SETTINGS_STAGE', stage: 'recovery-entry', profile, width }));
       await chooseSetup('recovery');
       assert.equal(await page.inputValue('#auth-reserved-email'), 'reserved@example.invalid');
       await page.fill('#auth-reserved-answer', answer);
