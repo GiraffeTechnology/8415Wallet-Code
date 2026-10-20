@@ -1,4 +1,4 @@
-import type { Trade, TradeObservation, ReleaseConfirmation } from '../sdk/escrow.ts';
+import type { Trade, TradeObservation, ReleaseConfirmation, ReleaseOrderingEvidence } from '../sdk/escrow.ts';
 import type { Address, Bytes32, Instant, Version } from '../sdk/types.ts';
 
 /**
@@ -72,13 +72,54 @@ export type EscrowView = {
    * register has said, and the reason release did not wait for more.
    */
   readonly provisionalNote: string | undefined;
+  /** Independent from the current holder and the historical release anchor. */
+  readonly releaseOrdering: EscrowReleaseOrdering;
 };
+
+export type EscrowReleaseOrdering = {
+  readonly classification: 'superseded-after-release' | 'superseded-before-release-attempt' | 'unknown';
+  readonly note: string;
+  readonly evidence?: ReleaseOrderingEvidence;
+};
+
+function releaseOrdering(trade: Trade, release: ReleaseConfirmation | undefined,
+  evidence: ReleaseOrderingEvidence | undefined): EscrowReleaseOrdering {
+  const unknown = (note: string): EscrowReleaseOrdering => ({ classification: 'unknown', note, ...(evidence ? { evidence } : {}) });
+  if (!evidence) return unknown('No independently bound transaction-position evidence; current or block-end observations do not establish release ordering.');
+  const { attempt, supersession } = evidence;
+  if (!supersession) return unknown('No corroborated successor in the release block. This is not proof that no later admission exists.');
+  const a = attempt.position, b = supersession.position;
+  const valid = (p: typeof a) => p.blockNumber >= 0n && p.transactionIndex >= 0n &&
+    /^0x[0-9a-f]{64}$/.test(p.blockHash) && !/^0x0+$/.test(p.blockHash) &&
+    /^0x[0-9a-f]{64}$/.test(p.transactionHash) && !/^0x0+$/.test(p.transactionHash);
+  if (!valid(a) || !valid(b) || b.logIndex < 0n || supersession.source !== 'canonical-receipt-and-entry' ||
+    supersession.scope !== 'release-block-only' || a.blockNumber !== b.blockNumber || a.blockHash !== b.blockHash ||
+    attempt.basisVersion <= 0n || supersession.supersededVersion !== attempt.basisVersion ||
+    supersession.successorVersion !== attempt.basisVersion + 1n ||
+    (attempt.basisCommitment !== undefined && attempt.basisCommitment !== supersession.supersededCommitment))
+    return unknown('Conflicting or incomplete source/entry/position evidence; no before/after conclusion.');
+  if (a.transactionHash === b.transactionHash || a.transactionIndex === b.transactionIndex)
+    return unknown('Same-transaction ordering is not established by this product path; log order alone is insufficient.');
+  if (b.transactionIndex < a.transactionIndex && attempt.outcome === 'reverted' && attempt.basisSource === 'prepared-observation' &&
+    trade.state !== 'RELEASED') return { classification: 'superseded-before-release-attempt',
+      note: 'The old prepared basis was superseded before the reverted release attempt. No successful release or execution-time entry read is inferred.', evidence };
+  const p = release?.position;
+  if (b.transactionIndex > a.transactionIndex && trade.state === 'RELEASED' && attempt.outcome === 'released' &&
+    attempt.basisSource === 'release-event' && release?.version === attempt.basisVersion &&
+    release.recordCommitment === supersession.supersededCommitment && p &&
+    p.blockHash === a.blockHash && p.blockNumber === a.blockNumber && p.transactionHash === a.transactionHash &&
+    p.transactionIndex === a.transactionIndex && p.logIndex >= 0n)
+    return { classification: 'superseded-after-release',
+      note: 'The receipt-pinned release basis was superseded by a later transaction in the same block. The release anchor is retained; block-end state is a separate fact.', evidence };
+  return unknown('Receipt outcome and ordering do not establish a supported before/after release classification.');
+}
 
 export function buildEscrowView(
   trade: Trade,
   observation: TradeObservation,
   now: Instant,
   release?: ReleaseConfirmation,
+  ordering?: ReleaseOrderingEvidence,
 ): EscrowView {
   const state = classify(trade, observation, now);
   const window =
@@ -115,6 +156,7 @@ export function buildEscrowView(
     window,
     provisionalNote:
       state === 'confirmed' || state === 'released' ? PROVISIONAL : undefined,
+    releaseOrdering: releaseOrdering(trade, release, ordering),
   };
 }
 

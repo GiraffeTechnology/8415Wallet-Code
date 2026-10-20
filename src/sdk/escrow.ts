@@ -78,6 +78,44 @@ export type ReleaseConfirmation = {
   readonly version: Version;
   readonly effectiveAt: Instant;
   readonly recordCommitment?: Bytes32;
+  /** Canonical receipt/event position, never a timestamp-derived position. */
+  readonly position?: EscrowTransactionPosition & { readonly logIndex: bigint };
+};
+
+export type EscrowTransactionPosition = {
+  readonly blockNumber: bigint;
+  readonly blockHash: Bytes32;
+  readonly transactionHash: Bytes32;
+  readonly transactionIndex: bigint;
+};
+
+/** A reverted attempt has no release confirmation. Its prepared version is an
+ * old client assumption, not proof of the entry read inside execution. */
+export type ReleaseAttemptEvidence = {
+  readonly position: EscrowTransactionPosition;
+  readonly outcome: 'released' | 'reverted';
+  readonly basisVersion: Version;
+  readonly basisSource: 'release-event' | 'prepared-observation';
+  readonly basisCommitment?: Bytes32;
+};
+
+/** Same-block successor event corroborated with both stored entries, the
+ * admitting transaction's successful receipt and the pinned runtime identity.
+ * This is not an execution trace or a block-end reconstruction of release. */
+export type ReleaseSupersessionEvidence = {
+  readonly source: 'canonical-receipt-and-entry';
+  readonly scope: 'release-block-only';
+  readonly position: EscrowTransactionPosition & { readonly logIndex: bigint };
+  readonly supersededVersion: Version;
+  readonly supersededCommitment: Bytes32;
+  readonly successorVersion: Version;
+  readonly successorCommitment: Bytes32;
+  readonly effectiveAt: Instant;
+};
+
+export type ReleaseOrderingEvidence = {
+  readonly attempt: ReleaseAttemptEvidence;
+  readonly supersession?: ReleaseSupersessionEvidence;
 };
 
 /**

@@ -44,6 +44,10 @@ export function renderEscrow(view: EscrowView): string {
     lines.push('  Release confirmation   unavailable — current register observation is not release evidence');
   }
 
+  lines.push('');
+  lines.push(`  Release ordering       ${view.releaseOrdering.classification}`);
+  block(lines, view.releaseOrdering.note, '      ');
+
   if (view.window !== undefined) {
     lines.push('');
     lines.push(`  Deadline               ${formatInstant(view.window.deadline)}`);
@@ -86,3 +90,4 @@ function formatWei(amount: bigint): string {
 function abs(value: bigint): bigint {
   return value < 0n ? -value : value;
 }
+
