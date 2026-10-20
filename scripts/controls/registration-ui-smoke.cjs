@@ -58,7 +58,9 @@ async function run() {
         await page.selectOption('#wallet-login-method', 'password'); await page.fill('#auth-username', identifier); await page.fill('#auth-password', password); await page.click('#wallet-login');
         await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled); await chooseSetup('email');
       };
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'page-load', profile, width }));
       await page.goto(`${origin}/web/index.html`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'open-register', profile, width }));
       await openRegistration(); await page.fill('#auth-registration-email', email);
       for (const locale of LOCALES) { await page.selectOption('#ui-locale', locale.id); assert.equal(await page.textContent('#auth-registration-start'), CATALOGS[locale.id]['registration.send']); assert.equal(await page.inputValue('#auth-registration-email'), email); }
       assert.deepEqual(authRequests, []); assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
@@ -68,6 +70,7 @@ async function run() {
       assert.equal(await page.locator('#registration-panel').isVisible(), false);
       assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
       assert.deepEqual(authRequests, []); assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'pending-start-cancellation', profile, width }));
       // Real raw-page Escape while a successful start response is held in transport.
       await openRegistration(); await page.locator('#auth-registration-email').fill(email);
       let releaseStart, seenStart;
@@ -89,16 +92,21 @@ async function run() {
       assert.equal(await page.locator('#auth-registration').isVisible(), false);
       assert.equal(await page.locator('#wallet-private').isVisible(), false);
       assert.equal(authRequests.some(value => value === '/auth/registration/verify' || value === '/auth/registration/confirm'), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'open-register', profile, width }));
       await openRegistration(); await page.fill('#auth-registration-email', email);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'start-verification', profile, width }));
       await post('#auth-registration-start', 'registration/start'); assert.equal(mail.at(-1).purpose, 'registration');
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []); assert.equal(await store.read(`@registration:${config.tenant.id}`), null);
       await page.fill('#auth-registration-code', mail.at(-1).code === '00000000' ? '11111111' : '00000000'); const refused = await post('#auth-registration-verify', 'registration/verify');
       assert.equal(refused.error, 'AUTH_REFUSED');
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'verify-email', profile, width }));
       await page.fill('#auth-registration-code', mail.at(-1).code); await post('#auth-registration-verify', 'registration/verify');
       await page.waitForFunction(() => !document.getElementById('auth-registration-wallet-fields').hidden);
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []); assert.equal(await store.read(`@registration:${config.tenant.id}`), null);
       await page.fill('#auth-registration-password', password); await page.fill('#auth-registration-password-confirm', password);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'finish-registration', profile, width }));
       await page.click('#auth-registration-finish'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'setup-menu', profile, width }));
       await page.locator('#auth-setup-menu').waitFor({ state: 'visible' });
       assert.equal(await page.inputValue('#auth-registration-password'), ''); assert.equal(await page.locator('#auth-registration').isVisible(), false);
       await chooseSetup('recovery');
