@@ -44,16 +44,52 @@ async function run() {
       }, { actor: newWallet.address });
       const page = installScreenNavigation(await context.newPage()); page.on('pageerror', error => errors.push(error.message));
       const post = async (button, endpoint) => { const wait = page.waitForResponse(r => r.url().endsWith(`/auth/${endpoint}`)); await page.click(button); return (await wait).json(); };
+      const openRegistration = async () => {
+        if (!await page.locator('#public-home').isVisible()) await page.locator('.foundation-public-nav [data-public-route="home"]').click();
+        await page.locator('#public-home [data-public-route="register"]').click();
+      };
+      const chooseSetup = async step => {
+        if (!await page.locator('#auth-management').isVisible()) await page.click('#auth-manage-open');
+        if (!await page.locator('#auth-setup-menu').isVisible()) await page.click('#auth-management-back');
+        await page.click(`#auth-setup-${step}-open`);
+      };
       const login = async identifier => {
+        if (await page.locator('#wallet-private').evaluate(node => node.hidden) && await page.locator('#auth-management-view').isVisible()) await page.locator('#auth-management-close').click();
         await page.selectOption('#wallet-login-method', 'password'); await page.fill('#auth-username', identifier); await page.fill('#auth-password', password); await page.click('#wallet-login');
-        await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled); await page.click('#auth-manage-open');
+        await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled); await chooseSetup('email');
       };
       await page.goto(`${origin}/web/index.html`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
-      await page.click('#auth-registration-open'); await page.fill('#auth-registration-email', email);
+      await openRegistration(); await page.fill('#auth-registration-email', email);
       for (const locale of LOCALES) { await page.selectOption('#ui-locale', locale.id); assert.equal(await page.textContent('#auth-registration-start'), CATALOGS[locale.id]['registration.send']); assert.equal(await page.inputValue('#auth-registration-email'), email); }
       assert.deepEqual(authRequests, []); assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
       await page.selectOption('#ui-locale', 'en'); await page.keyboard.press('Escape'); assert.equal(await page.locator('#auth-registration').isVisible(), false);
-      await page.click('#auth-registration-open'); await page.fill('#auth-registration-email', email);
+      assert.equal(await page.locator('#existing-user-panel').isVisible(), true, 'Escape must return to existing-wallet choices');
+      assert.equal(await page.locator('#login-panel').isVisible(), false, 'Cancelling Register must not select Login');
+      assert.equal(await page.locator('#registration-panel').isVisible(), false);
+      assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
+      assert.deepEqual(authRequests, []); assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
+      // Real raw-page Escape while a successful start response is held in transport.
+      await openRegistration(); await page.locator('#auth-registration-email').fill(email);
+      let releaseStart, seenStart;
+      const startGate = new Promise(resolve => { releaseStart = resolve; });
+      const startSeen = new Promise(resolve => { seenStart = resolve; });
+      await page.route('**/auth/registration/start', async route => {
+        const response = await route.fetch(); seenStart(); await startGate; await route.fulfill({ response });
+      });
+      try {
+        await page.locator('#auth-registration-start').click(); await startSeen;
+        await page.keyboard.press('Escape'); await page.locator('#existing-user-panel').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#registration-panel').isVisible(), false);
+        assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
+        assert.equal(await page.locator('#auth-registration-start').isDisabled(), true);
+        assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      } finally { releaseStart(); }
+      await page.waitForLoadState('networkidle'); await page.unroute('**/auth/registration/start');
+      assert.equal(await page.locator('#existing-user-panel').isVisible(), true);
+      assert.equal(await page.locator('#auth-registration').isVisible(), false);
+      assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      assert.equal(authRequests.some(value => value === '/auth/registration/verify' || value === '/auth/registration/confirm'), false);
+      await openRegistration(); await page.fill('#auth-registration-email', email);
       await post('#auth-registration-start', 'registration/start'); assert.equal(mail.at(-1).purpose, 'registration');
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []); assert.equal(await store.read(`@registration:${config.tenant.id}`), null);
       await page.fill('#auth-registration-code', mail.at(-1).code === '00000000' ? '11111111' : '00000000'); const refused = await post('#auth-registration-verify', 'registration/verify');
@@ -62,12 +98,16 @@ async function run() {
       await page.waitForFunction(() => !document.getElementById('auth-registration-wallet-fields').hidden);
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []); assert.equal(await store.read(`@registration:${config.tenant.id}`), null);
       await page.fill('#auth-registration-password', password); await page.fill('#auth-registration-password-confirm', password);
-      await page.click('#auth-registration-finish'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('auth-registration-account').hidden);
+      await page.click('#auth-registration-finish'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled);
+      await page.locator('#auth-setup-menu').waitFor({ state: 'visible' });
       assert.equal(await page.inputValue('#auth-registration-password'), ''); assert.equal(await page.locator('#auth-registration').isVisible(), false);
+      await chooseSetup('recovery');
       assert.equal(await page.inputValue('#auth-reserved-email'), email); assert.equal(await page.getAttribute('#auth-reserved-email', 'readonly'), '');
+      await chooseSetup('methods');
       assert.equal(await page.isChecked('#auth-enable-password'), true); assert.equal(await page.isChecked('#auth-enable-wallet'), true);
       const directory = await store.read(`@registration:${config.tenant.id}`); assert.equal(directory.records.length, 1); assert.equal(directory.records[0].email, email);
       assert.deepEqual(directory.records[0].ordinaryAccount.caFingerprints, []); assert.equal(directory.records[0].ordinaryAccount.admin, undefined);
+      await chooseSetup('recovery');
       await page.fill('#auth-reserved-answer', 'synthetic private recovery phrase');
       const recovery = await change.commit(page, '#auth-recovery-enroll', { password }, () => mail.at(-1));
       assert.equal(recovery.status, 200); assert.equal(mail.at(-1).to, email); assert.equal(mail.at(-1).purpose, 'method-change'); await page.waitForFunction(() => document.getElementById('wallet-private').hidden);
@@ -78,7 +118,8 @@ async function run() {
       assert.match(await page.textContent('#auth-registration-account-state'), /needs a verified/);
       await page.fill('#auth-registration-account-email', 'legacy@example.invalid'); await page.click('#auth-registration-account-start');
       assert.equal((await change.identity(page, { password })).status, 200);
-      assert.equal(mail.at(-1).purpose, 'method-change'); assert.equal(await page.locator('#wallet-private').isVisible(), true);
+      assert.equal(mail.at(-1).purpose, 'method-change');
+      assert.equal(await page.locator('#wallet-private').evaluate(node => !node.hidden && !node.inert), true, 'email migration retains the authenticated session while its separate screen is open');
       const migration = change.changeResponse(page, 'commit'); await change.email(page, mail.at(-1).code); assert.equal((await migration).status(), 200); await page.waitForFunction(() => document.getElementById('wallet-private').hidden);
       await login('LEGACY@EXAMPLE.INVALID'); assert.match(await page.textContent('#auth-registration-account-state'), /l\*\*\*@example.invalid/);
       assert.equal((await store.read(`@registration:${config.tenant.id}`)).records.length, 2);

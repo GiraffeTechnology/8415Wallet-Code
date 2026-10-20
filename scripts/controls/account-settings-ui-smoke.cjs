@@ -17,8 +17,9 @@ async function run() {
   const password = 'synthetic-management-password', passwordHash = await hashPassword(password), answer = 'synthetic private recovery phrase';
   const actor = '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf';
   const config = JSON.parse(fs.readFileSync(path.join(root, 'web/release-config.json'), 'utf8'));
-  let profile = 'v2', auth, time = Date.now(), mail = [];
-  const server = http.createServer((req, res) => {
+  let profile = 'v2', auth, time = Date.now(), mail = [], heldPassword = null, passwordSeen = null;
+  const server = http.createServer(async (req, res) => {
+    if (req.url === '/auth/password' && heldPassword) { const pending = heldPassword; passwordSeen?.(); await pending; }
     if (req.url.startsWith('/auth/')) return auth(req, res);
     res.setHeader('Cache-Control', 'no-store');
     if (req.url === '/web/release-config.json') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ ...config, profile })); }
@@ -51,19 +52,45 @@ async function run() {
       });
       const page = installScreenNavigation(await context.newPage()); page.on('pageerror', error => errors.push(error.message)); await page.clock.install({ time });
       const idle = () => page.waitForFunction(() => !document.getElementById('wallet-login').disabled);
-      const login = async (method = 'password') => {
+      const chooseSetup = async step => {
+        if (!await page.locator('#auth-management').isVisible()) await page.click('#auth-manage-open');
+        if (!await page.locator('#auth-setup-menu').isVisible()) await page.click('#auth-management-back');
+        await page.click(`#auth-setup-${step}-open`);
+      };
+      const login = async (method = 'password', step = 'methods') => {
+        if (await page.locator('#wallet-private').evaluate(node => node.hidden) && await page.locator('#auth-management-view').isVisible()) await page.locator('#auth-management-close').click();
         await page.selectOption('#wallet-login-method', method); if (['password', 'totp'].includes(method)) await page.fill('#auth-username', 'tester');
         if (method === 'password') await page.fill('#auth-password', password);
         await page.click('#wallet-login'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden); await idle();
-        await page.click('#auth-manage-open'); await page.waitForFunction(() => !document.getElementById('auth-method-states').hidden);
+        await chooseSetup(step);
       };
       const post = async (button, suffix) => { const response = page.waitForResponse(r => r.url().endsWith(`/auth/${suffix}`)); await page.click(button); return (await response).json(); };
-      const confirmTotp = async () => {
+      const confirmTotp = async (leaveVia = null) => {
         await page.waitForFunction(() => document.getElementById('auth-enroll-secret').textContent.includes('otpauth://'));
         const secret = (await page.textContent('#auth-enroll-secret')).match(/\n([A-Z2-7]{32})\n/)[1];
         await page.fill('#auth-enroll-code', hotp(secret, Math.floor(time / 30000))); await page.click('#auth-enroll-confirm');
         await page.waitForFunction(() => !document.getElementById('auth-recovery-output').hidden);
-        const codes = (await page.textContent('#auth-recovery-codes')).split('\n'); await page.click('#auth-recovery-dismiss'); return { secret, codes };
+        const codes = (await page.textContent('#auth-recovery-codes')).split('\n');
+        assert.equal(codes.length, 8); assert.equal(await page.locator('#auth-recovery-output').isVisible(), true);
+        if (leaveVia) {
+          // Actual completed enrollment, then real user navigation; no DOM injection
+          // or hidden-state mutation. Both desktop/Home and mobile/Back run in V2/V3.
+          if (leaveVia === 'home') await page.locator('.foundation-public-nav [data-public-route="home"]').click();
+          else await page.goBack();
+          await page.locator('#auth-management-view').waitFor({ state: 'hidden' });
+          assert.equal(await page.locator('#auth-recovery-codes').textContent(), '');
+          assert.equal(await page.locator('#auth-recovery-output').isVisible(), false);
+          await page.locator('#ui-locale').selectOption('ja'); await page.locator('#ui-locale').selectOption('en');
+          assert.equal(await page.locator('#auth-recovery-codes').textContent(), '', 'Locale repaint must not restore completed secrets');
+          if (await page.locator('#public-home').isVisible()) await page.locator('#public-home [data-public-route="existing"]').click();
+          else if (!await page.locator('#existing-user-panel').isVisible()) await page.locator('#login-panel [data-public-route="existing"]').click();
+          await page.locator('#auth-initial-open').click();
+          await page.locator('#auth-setup-menu').waitFor({ state: 'visible' });
+          assert.equal(await page.locator('#auth-recovery-codes').textContent(), '', 'Re-entering management must not reveal old codes');
+          assert.equal(await page.locator('#auth-recovery-output').isVisible(), false);
+        } else await page.click('#auth-recovery-dismiss');
+        await page.locator('#auth-management-close').click();
+        return { secret, codes };
       };
       await page.goto(`${origin}/web/index.html`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
       await page.locator('#ui-locale').focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
@@ -76,20 +103,88 @@ async function run() {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       }
       assert.deepEqual(requests, []); assert.deepEqual(await page.evaluate(() => globalThis.__settingsCalls), []);
+      // Back must leave an already-cancelled management attempt immediately,
+      // even though the held HTTP request still owns the business lock.
+      await page.locator('.foundation-public-nav [data-public-route="home"]').click();
+      await page.locator('#public-home [data-public-route="existing"]').click();
+      await page.locator('#auth-initial-open').click();
+      assert.equal(await page.locator('#auth-setup-policy-open').isVisible(), false);
+      assert.equal(await page.locator('#task-verification-policy-settings').isVisible(), false);
+      await page.locator('#auth-setup-password-open').click();
+      await page.locator('#wallet-login-method').selectOption('password');
+      await page.locator('#auth-username').fill('tester'); await page.locator('#auth-password').fill(password);
+      let releasePassword, reachedPassword;
+      heldPassword = new Promise(resolve => { releasePassword = resolve; });
+      const passwordReached = new Promise(resolve => { reachedPassword = resolve; }); passwordSeen = reachedPassword;
+      try {
+        await page.locator('#wallet-login').click(); await passwordReached;
+        await page.goBack(); await page.locator('#existing-user-panel').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#auth-management-view').isVisible(), false);
+        assert.equal(await page.locator('#auth-password').inputValue(), '');
+        assert.equal(await page.locator('#auth-code').inputValue(), '');
+        assert.equal(await page.locator('#wallet-private').isVisible(), false);
+        // Display navigation must not release the unresolved operation's lock.
+        assert.equal(await page.locator('#wallet-login').isDisabled(), true);
+      } finally { heldPassword = null; passwordSeen = null; releasePassword(); }
+      await idle(); await page.waitForLoadState('networkidle');
+      assert.equal(await page.locator('#existing-user-panel').isVisible(), true);
+      assert.equal(await page.locator('#wallet-private').isVisible(), false, 'Late cancelled login cannot authenticate');
+      assert.equal(await page.locator('#auth-management-view').isVisible(), false);
+      // Separate ordinary Login route: the management scenario above cannot
+      // exercise the public-login cancellation branch in wallet-shell.
+      await page.locator('#existing-login-open').click();
+      await page.locator('#login-panel').waitFor({ state: 'visible' });
+      assert.equal(await page.locator('#auth-management-view').isVisible(), false);
+      await page.locator('#wallet-login-method').selectOption('password');
+      await page.locator('#auth-username').fill('tester'); await page.locator('#auth-password').fill(password);
+      const publicRequestStart = requests.length;
+      let releasePublicPassword, publicPasswordSeen;
+      heldPassword = new Promise(resolve => { releasePublicPassword = resolve; });
+      const publicPasswordReached = new Promise(resolve => { publicPasswordSeen = resolve; }); passwordSeen = publicPasswordSeen;
+      try {
+        await page.locator('#wallet-login').click(); await publicPasswordReached;
+        await page.goBack(); await page.locator('#existing-user-panel').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#login-panel').isVisible(), false);
+        assert.equal(await page.locator('#auth-management-view').isVisible(), false);
+        assert.equal(await page.locator('#auth-password').inputValue(), '');
+        assert.equal(await page.locator('#auth-code').inputValue(), '');
+        assert.equal(await page.locator('#wallet-private').isVisible(), false);
+        assert.equal(await page.locator('#wallet-login').isDisabled(), true, 'Back cannot release the unresolved ordinary Login request lock');
+      } finally { heldPassword = null; passwordSeen = null; releasePublicPassword(); }
+      await idle(); await page.waitForLoadState('networkidle');
+      assert.equal(await page.locator('#existing-user-panel').isVisible(), true);
+      assert.equal(await page.locator('#wallet-private').isVisible(), false, 'Late ordinary Login result cannot unlock a different page');
+      assert.equal(requests.slice(publicRequestStart).filter(value => value === '/auth/password').length, 1, 'Back must not replay the login');
+      assert.equal(requests.slice(publicRequestStart).includes('/auth/account'), false, 'Cancelled ordinary Login must not read protected account state');
       await page.selectOption('#ui-locale', 'en'); await page.selectOption('#wallet-login-method', 'totp');
-      await page.click('#auth-initial-open'); assert.equal(await page.inputValue('#wallet-login-method'), 'wallet');
+      await page.click('#auth-initial-open'); await page.click('#auth-setup-totp-open'); assert.equal(await page.inputValue('#wallet-login-method'), 'wallet');
       await page.keyboard.press('Escape'); assert.equal(await page.locator('#auth-management').isVisible(), false);
-      await page.click('#auth-manage-open'); await login();
+      await page.click('#auth-initial-open'); await page.click('#auth-setup-totp-open'); await login();
       assert.equal(await page.isChecked('#auth-enable-password'), true); assert.equal(await page.isChecked('#auth-enable-wallet'), true);
       assert.equal(await page.isDisabled('#auth-enable-ca'), true); assert.equal(await page.locator('#auth-existing-fields').isVisible(), false);
+      await page.locator('#auth-management-back').click();
+      assert.equal(await page.locator('#task-verification-policy-settings').isVisible(), false);
+      const beforePolicy = requests.length;
+      await page.locator('#auth-setup-policy-open').click();
+      await page.locator('#task-verification-policy-settings').waitFor({ state: 'visible' });
+      await page.waitForLoadState('networkidle');
+      assert.equal(await page.locator('#auth-management-verification').isVisible(), false);
+      for (const id of ['auth-password-settings', 'auth-enrollment', 'auth-method-states', 'auth-recovery-settings']) assert.equal(await page.locator(`#${id}`).isVisible(), false);
+      const policyReads = requests.slice(beforePolicy);
+      assert.ok(policyReads.includes('/auth/account'));
+      assert.ok(policyReads.every(route => ['/auth/session', '/auth/account', '/auth/account/task-verification/status'].includes(route)), 'Read-only policy must not dispatch credential or policy writes');
+      await page.locator('#auth-management-back').click();
+      assert.equal(await page.locator('#task-verification-policy-settings').isVisible(), false);
+      await chooseSetup('recovery');
       assert.equal(await page.inputValue('#auth-reserved-email'), 'reserved@example.invalid');
       await page.fill('#auth-reserved-answer', answer);
       const reserved = await change.commit(page, '#auth-recovery-enroll', { password }, () => mail.at(-1));
       assert.equal(reserved.status, 200); assert.equal(mail.length, 1); assert.equal(mail.at(-1).purpose, 'method-change');
       assert.equal(await page.inputValue('#auth-reserved-answer'), ''); await page.waitForFunction(() => document.getElementById('wallet-private').hidden);
-      await login(); assert.match(await page.textContent('#auth-recovery-state'), /r\*\*\*@example.invalid/);
+      await login('password', 'recovery'); assert.match(await page.textContent('#auth-recovery-state'), /r\*\*\*@example.invalid/);
+      await chooseSetup('totp');
       await page.click('#auth-enroll-start'); await change.authorize(page, { password, answer }, () => mail.at(-1));
-      const initial = await confirmTotp(); await login();
+      const initial = await confirmTotp(width === 1440 ? 'home' : 'back'); await login('password', 'totp');
       const beforeWrong = await store.read(`${config.tenant.id}:tester`), mailBeforeWrong = mail.length;
       await page.click('#auth-enroll-start');
       const wrong = await change.identity(page, { password, answer: 'wrong synthetic phrase', existingCode: initial.codes[0], recovery: true });
@@ -105,13 +200,14 @@ async function run() {
       assert.equal(JSON.stringify(await store.read(`${config.tenant.id}:tester`)) === JSON.stringify(beforeWrong), true);
       // Failed combined proof is cancelled. Restart after the production OTP budget
       // window, with a new login and the still-unused existing recovery factor.
-      time += 900001; await page.clock.fastForward(900001); await login();
+      time += 900001; await page.clock.fastForward(900001); await login('password', 'totp');
       await page.click('#auth-enroll-start'); await change.authorize(page, { password, answer, existingCode: initial.codes[0], recovery: true }, () => mail.at(-1));
       const replacement = await confirmTotp(); await login();
       assert.equal(await page.isChecked('#auth-enable-password'), true); assert.equal(await page.isChecked('#auth-enable-wallet'), true); assert.equal(await page.isChecked('#auth-enable-totp'), true);
       await page.uncheck('#auth-enable-totp');
       const disabled = await change.commit(page, '#auth-methods-save', { password, answer, existingCode: replacement.codes[0], recovery: true }, () => mail.at(-1));
       assert.equal(disabled.status, 200); await page.waitForFunction(() => document.getElementById('wallet-private').hidden);
+      await page.locator('#auth-management-close').click();
       time += 30000; await page.clock.fastForward(30000); await page.selectOption('#wallet-login-method', 'totp'); await page.fill('#auth-username', 'tester'); await page.fill('#auth-code', hotp(replacement.secret, Math.floor(time / 30000)));
       const denied = await post('#wallet-login', 'totp'); assert.equal(denied.error, 'AUTH_REFUSED'); await idle();
       await login(); assert.equal(await page.isChecked('#auth-enable-totp'), false); assert.equal(await page.isDisabled('#auth-enable-totp'), false);

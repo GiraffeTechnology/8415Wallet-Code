@@ -1,4 +1,4 @@
-/** Source and isolated presentation tests. Run only on an approved Linux owner.
+/** Source and isolated presentation tests.
  * These fixtures do not establish served-site, server, signer or chain acceptance.
  */
 import test from 'node:test';
@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as i18n from '../web/i18n.mjs';
 import { walletIdentityStateDisplay } from '../web/wallet-identity-display.mjs';
+import { isPlatformPasswordProfile } from '../web/tenant-password-routing.mjs';
 const text = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const html = text('../web/index.html');
 const source = text('../web/wallet-shell.mjs').replace(/^import[^\n]*\n/gm, '');
@@ -14,7 +15,7 @@ const tags = [...html.matchAll(/<([a-z][a-z0-9]*)\b([^>]*)>/g)];
 const attrsOf = raw => new Map([...raw.matchAll(/([\w-]+)(?:="([^"]*)")?/g)].map(([, key, value]) => [key, value ?? '']));
 
 class Element {
-  id = ''; dataset = {}; attributes = new Map(); handlers = new Map();
+  id = ''; dataset = {}; attributes = new Map(); handlers = new Map(); parentElement = null;
   hidden = false; disabled = false; checked = false; value = ''; textContent = ''; children = []; files = []; className = ''; focused = false;
   classList = { toggle() {} };
   setAttribute(key, value) { this.attributes.set(key, value); }
@@ -25,11 +26,31 @@ class Element {
   click() { if (!this.disabled) this.dispatchEvent({ type: 'click', target: this }); }
   focus() { this.focused = true; }
   replaceChildren(...nodes) { this.children = nodes; this.textContent = ''; }
-  append(...nodes) { this.children.push(...nodes); }
+  append(...nodes) {
+    for (const node of nodes) {
+      if (node.parentElement) node.parentElement.children = node.parentElement.children.filter(child => child !== node);
+      this.children.push(node); node.parentElement = this;
+    }
+  }
+  closest(selector) {
+    for (let node = this; node; node = node.parentElement) {
+      if (selector.startsWith('.') && node.className.split(' ').includes(selector.slice(1))) return node;
+      if (selector.startsWith('#') && node.id === selector.slice(1)) return node;
+    }
+    return null;
+  }
 }
-function fixture(initialEntry = null) {
+function fixture(initialEntry = null, platform = false) {
   const nodes = [], ids = new Map(), events = new Element(), windowEvents = new Element();
-  for (const [, tagName, raw] of tags) {
+  // Model physical containment and DOM reparenting used by the independent
+  // management route. Browser suites separately verify actual layout/focus.
+  const stack = [], voidTags = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+  for (const [, closing, tagName, raw] of html.matchAll(/<(\/?)([a-z][a-z0-9]*)\b([^>]*)>/g)) {
+    if (closing) {
+      const index = stack.findLastIndex(node => node.tagName === tagName);
+      if (index >= 0) stack.splice(index);
+      continue;
+    }
     const node = new Element(); node.tagName = tagName; node.attributes = attrsOf(raw);
     for (const [key, value] of node.attributes) {
       if (key === 'id') { node.id = value; ids.set(value, node); }
@@ -37,6 +58,7 @@ function fixture(initialEntry = null) {
       if (key.startsWith('data-')) node.dataset[key.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
     }
     node.hidden = node.attributes.has('hidden'); node.disabled = node.attributes.has('disabled'); nodes.push(node);
+    stack.at(-1)?.append(node); if (!voidTags.has(tagName)) stack.push(node);
   }
   const body = nodes.find(node => node.tagName === 'body');
   const match = (node, selector) => {
@@ -57,7 +79,7 @@ function fixture(initialEntry = null) {
   const el = id => ids.get(id);
   const login = session => { el('wallet-private').hidden = !session; subscriber?.(session); };
   // Minimal existing-auth navigation contract. Real auth is covered by its own
-  // retained suites, plus the exact preimage assertion below.
+  // retained suites, plus the exact reviewed-source identity assertion below.
   el('wallet-login-method').value = 'wallet-local';
   el('auth-registration-open').addEventListener('click', () => { counters.registrationOpens++; login(null); el('auth-registration').hidden = false; });
   el('auth-registration-close').addEventListener('click', () => { counters.registrationCloses++; login(null); el('auth-registration').hidden = true; });
@@ -69,8 +91,9 @@ function fixture(initialEntry = null) {
     cancel() {} setContext() {} async load() {} dispose() {}
     async select() { counters.avatarWrites++; } async save() { counters.avatarWrites++; } async remove() { counters.avatarWrites++; }
   }
-  const sdk = { ...i18n, walletIdentityStateDisplay, walletLogin: { subscribe(fn) { subscriber = fn; login(null); } },
-    getReleaseProfile: async () => ({ id: 'v3', tenant: { id: 'example', label: 'Example' }, features: { linkedResponsibilities: true } }),
+  const sdk = { ...i18n, walletIdentityStateDisplay, isPlatformPasswordProfile, walletLogin: { subscribe(fn) { subscriber = fn; login(null); } },
+    getReleaseProfile: async () => ({ id: 'v3', tenant: { id: platform ? 'default' : 'example', label: platform ? '8415wallet' : 'Example' },
+      deployment: { url: platform ? 'https://8415wallet.com/v3/web/index.html' : null }, features: { linkedResponsibilities: true } }),
     walletUiBusy: () => busy, TenantAvatarController: Avatar };
   new Function('document', 'globalThis', ...Object.keys(sdk), source)(document, window, ...Object.values(sdk));
   return { el, nodes, events, windowEvents, counters, historyCalls, history, login, setBusy(value) { busy = value; },
@@ -109,10 +132,12 @@ test('every placeholder is disabled before startup and cannot submit a form', ()
   }
 });
 
-test('public Home, Login, Register and Back retain the same verified pathname', async () => {
+test('public Home, existing-user, Login, Register and Back retain the same verified pathname', async () => {
   const f = fixture(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.el('public-home').hidden, false); assert.equal(f.el('login-panel').hidden, true);
+  f.publicRoute('existing'); assert.equal(f.el('existing-user-panel').hidden, false); assert.equal(f.el('login-panel').hidden, true);
   f.publicRoute('login'); assert.equal(f.el('public-home').hidden, true); assert.equal(f.el('login-panel').hidden, false);
+  f.publicRoute('home');
   f.publicRoute('register'); assert.equal(f.el('auth-registration').hidden, false);
   const opens = f.counters.registrationOpens; f.el('auth-registration-code').value = 'synthetic';
   f.publicRoute('register'); assert.equal(f.counters.registrationOpens, opens); assert.equal(f.el('auth-registration-code').value, 'synthetic');
@@ -129,11 +154,13 @@ test('reload reopens only a known public page; arbitrary history is not wallet r
   for (const f of [registered, unknown, privatePage]) assert.equal(f.el('wallet-private').hidden, true);
 });
 
-test('existing initial-setup navigation reveals real authentication management', () => {
+test('shell routes initial setup into an independent management branch', () => {
   const f = fixture(); f.el('auth-management').hidden = false;
   f.events.dispatchEvent({ type: 'wallet:authentication-method' });
-  assert.equal(f.el('public-home').hidden, true); assert.equal(f.el('login-panel').hidden, false);
-  assert.equal(f.el('auth-management').hidden, false); assert.equal(f.el('wallet-private').hidden, true);
+  assert.equal(f.el('public-home').hidden, true); assert.equal(f.el('login-panel').hidden, true);
+  assert.equal(f.el('auth-management-view').hidden, false); assert.equal(f.el('auth-management').hidden, false);
+  assert.equal(f.el('auth-login-controls').parentElement, f.el('auth-management-verification'));
+  assert.equal(f.el('wallet-private').hidden, true);
 });
 
 test('direct placeholder handlers remain no-ops after removing DOM disabled markers', async () => {
@@ -181,11 +208,40 @@ test('six existing locale choices remain ordered and every new label is authored
   for (const locale of i18n.LOCALES) for (const key of keys) assert.equal(typeof i18n.CATALOGS[locale.id][`foundation.${key}`], 'string');
 });
 
-test('real auth implementation is preserved except registration navigation cleanup', () => {
-  const before = "document.addEventListener('wallet:authentication-leaving', () => { if (moduleOpen) closeManagement(); });";
-  const after = "document.addEventListener('wallet:authentication-leaving', () => { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); else if (signing) cancelLogin(); for (const id of ['auth-password', 'auth-code']) el(id).value = ''; });";
-  const auth = text('../web/wallet-auth.mjs'); assert.ok(auth.includes(after));
-  assert.equal(createHash('sha256').update(auth.replace(after, before)).digest('hex'), 'adb10701500d8f913b5477752eed34314a3aaec2e25080449673a2dc25b0ac7a');
+test('reviewed progressive authentication source has an exact identity, with retained security modules', () => {
+  // This pin identifies reviewed source; it does not assert runtime acceptance.
+  // Account-login, method-change and raw-page browser suites retain behavioral
+  // proof/cancellation/replay tests for this changed presentation.
+  const auth = text('../web/wallet-auth.mjs');
+  assert.equal(createHash('sha256').update(auth).digest('hex'), '4c90a394037ad3d1d5491d62ec6ae43274191c217622b0986a1c549053f6e3ef');
+  for (const [path, expected] of [
+    ['web/login-core.mjs', 'fa7c752bb73e7ad658cba67486c1599bada50c0b63336b0ee92007c8912aef57'],
+    ['web/account-auth.mjs', '05353729b2033396627abee77acadf7312301d74b71caa787bc6989ff84f03cc'],
+    ['web/method-change-ui.mjs', '31119a18fbf541cb588b9daf531dc0e75ca46f25d8d7340e7e65d89728d209fe'],
+  ]) assert.equal(createHash('sha256').update(text('../' + path)).digest('hex'), expected, path);
+});
+
+test('home has only Register/Login and management is a separate DOM branch', () => {
+  const f = fixture();
+  const homeButtons = f.nodes.filter(node => node.tagName === 'button' && node.closest('#public-home'));
+  assert.deepEqual(homeButtons.map(node => node.dataset.publicRoute).sort(), ['existing', 'register']);
+  assert.equal(f.el('auth-management-view').closest('#login-panel'), null);
+  assert.equal(f.el('auth-management-view').closest('#existing-user-panel'), null);
+  assert.equal(f.el('wallet-login-method').tagName, 'select');
+  assert.equal(f.nodes.some(node => node.attributes.has('data-login-method')), false);
+  for (const key of ['entry.existing', 'entry.unconfigured', 'entry.managementHelp', 'entry.resolverUnavailable']) {
+    for (const locale of i18n.LOCALES) assert.equal(typeof i18n.CATALOGS[locale.id][key], 'string', `${locale.id}:${key}`);
+  }
+});
+
+test('platform entry cannot select a default tenant or open login without resolution', async () => {
+  const f = fixture(null, true); await new Promise(resolve => setImmediate(resolve));
+  f.publicRoute('existing');
+  assert.equal(f.el('existing-user-panel').hidden, false);
+  assert.equal(f.el('existing-login-open').disabled, true);
+  f.publicRoute('login'); assert.equal(f.el('login-panel').hidden, true);
+  assert.equal(f.counters.requests + f.counters.signatures + f.counters.sends, 0);
+  assert.ok(f.historyCalls.every(([, , url]) => url === undefined));
 });
 
 
@@ -226,4 +282,20 @@ test('Back leaves a pending public login once without releasing its request lock
   assert.equal(f.el('public-home').hidden, false); assert.equal(f.el('login-panel').hidden, true);
   const requestCount = JSON.stringify(f.counters); f.publicRoute('register');
   assert.equal(JSON.stringify(f.counters), requestCount, 'Navigation cannot release the pending operation lock');
+});
+
+test('registration Escape returns to existing-wallet choices without opening Login for tenant or platform profiles', async () => {
+  for (const platform of [false, true]) {
+    const f = fixture(null, platform); await new Promise(resolve => setImmediate(resolve));
+    f.publicRoute('register'); f.el('auth-registration-code').value = 'synthetic-unsubmitted-code';
+    f.windowEvents.dispatchEvent({ type: 'keydown', key: 'Escape' });
+    assert.equal(f.el('auth-registration').hidden, true);
+    assert.equal(f.el('registration-panel').hidden, true);
+    assert.equal(f.el('existing-user-panel').hidden, false);
+    assert.equal(f.el('login-panel').hidden, true, 'Escape is not an identity-proof selection');
+    assert.equal(f.el('auth-registration-code').value, '');
+    assert.equal(f.el('wallet-private').hidden, true);
+    assert.equal(f.counters.requests, 0); assert.equal(f.counters.signatures, 0); assert.equal(f.counters.sends, 0);
+    assert.equal(f.history.state.walletPage, 'existing');
+  }
 });

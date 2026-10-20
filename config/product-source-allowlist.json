@@ -2305,8 +2305,8 @@
     {
       "path": "web/index.html",
       "mode": "100644",
-      "git_blob_sha1": "62624a2fb205fe68da8e83e35442cadf09749732",
-      "sha256": "3f9addc3ce496f41b5d24ef8c3bf29db2852337ebbed660697eaecefac89bb4f"
+      "git_blob_sha1": "2f189f3933121ff4affe94bce8a2c5f06ef810ab",
+      "sha256": "b8c05a1404fcef942cda35bd44062f98b946a74b9fc1047dc9c3fd5c030c67f4"
     },
     {
       "path": "web/kit-read-panel.mjs",
@@ -2341,8 +2341,8 @@
     {
       "path": "web/locales/auth-management.mjs",
       "mode": "100644",
-      "git_blob_sha1": "d5599442b8cad10afdb4f5388a31ecc80548ffa3",
-      "sha256": "cc90951fb4281e74ff22eb04cff49a8779ee7265c6e14e5797e9343dce140d5e"
+      "git_blob_sha1": "b99de0d1531fbfe3d8b543c0a7cfd8c5e9da1fa7",
+      "sha256": "5197016182b14e7bae1f3a855957f549259330ce314d985bb1423cf3a6d6ab56"
     },
     {
       "path": "web/locales/custody-panels.mjs",
@@ -2599,8 +2599,8 @@
     {
       "path": "web/task-verification-policy-startup.mjs",
       "mode": "100644",
-      "git_blob_sha1": "178989a07626e96c34b952bf32ca46843eb187d4",
-      "sha256": "1a82f776a9b340bf23f8cdd3d2fecb3f8247b26ccec7e1857704f1173d3beabb"
+      "git_blob_sha1": "f898acbb77dedac266e3cfaaca69c38c84aa1ebb",
+      "sha256": "da9bd1edb5ec7d939be8077d5095407c91494fd6d858d8cc0cacf5d502d9282f"
     },
     {
       "path": "web/task-verification-policy-ui.mjs",
@@ -2653,8 +2653,8 @@
     {
       "path": "web/wallet-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "575ed0af959c03693a1095805661765f8c97aa52",
-      "sha256": "919dd431e67be51652ad9ada8d27bfb8c78ed98f1e952a10b4089bf9b0c8e850"
+      "git_blob_sha1": "c868ec76410ef957481ee600217460a9c7de7b80",
+      "sha256": "4c90a394037ad3d1d5491d62ec6ae43274191c217622b0986a1c549053f6e3ef"
     },
     {
       "path": "web/wallet-identity-display.mjs",
@@ -2665,8 +2665,8 @@
     {
       "path": "web/wallet-shell.mjs",
       "mode": "100644",
-      "git_blob_sha1": "aa79b3c9d0a6ff4e209a0a4b009439dd5ee80690",
-      "sha256": "633d67ae7231137d10ee022a2ec64f4a7a2804c70cd19cc25d868349fafba289"
+      "git_blob_sha1": "b5031c6aba06686ef6e9b636c257a8758f8bb2c5",
+      "sha256": "5201fb7a34420c59ba748c25c3a0db67ed4ad11ad2d77946b84193a69822521e"
     },
     {
       "path": "web/wallet.css",

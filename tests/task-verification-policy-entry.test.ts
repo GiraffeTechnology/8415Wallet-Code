@@ -115,7 +115,8 @@ test('foundation connects the read-only policy host without mounting task execut
 test('retained policy startup still connects the authenticated account-settings controller when explicitly mounted', () => {
   const startup = readFileSync(new URL('../web/task-verification-policy-startup.mjs', import.meta.url), 'utf8');
   assert.match(startup, /from '\.\/task-verification-policy-ui\.mjs'/);
-  assert.match(startup, /currentAccountClient, subscribeAccountSettings/);
+  assert.match(startup, /currentAccountClient, subscribeAgentPolicySettings/);
+  assert.match(startup, /subscribeAccountSettings: subscribeAgentPolicySettings/);
   assert.match(startup, /connectTaskVerificationPolicySettings\(/);
   assert.match(startup, /from '\.\/task-verification-policy-client\.mjs'/);
 });

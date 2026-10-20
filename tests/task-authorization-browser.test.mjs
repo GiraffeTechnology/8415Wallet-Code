@@ -84,7 +84,8 @@ test('explicit synthetic enabled-task composition: desktop/mobile approval, app 
       // First exercise unchanged production foundation under the same synthetic
       // authenticated account. No retained task handler may run there.
       await page.goto(`${origin}/web/index.html`);
-      await page.locator('[data-public-route="login"]').first().click(); await login();
+      await page.locator('#public-home [data-public-route="existing"]').click();
+      await page.locator('#existing-login-open').click(); await login();
       await page.locator('[data-route="tasks"]').first().click();
       const beforeNoop = requests.filter(path => path.startsWith('tasks/'));
       assert.deepEqual(beforeNoop, []);

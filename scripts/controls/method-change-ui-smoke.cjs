@@ -52,14 +52,18 @@ async function run() {
       }, { actor });
       const page = installScreenNavigation(await context.newPage()), errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.goto(`${origin}/web/index.html`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
-      // Exercise the current public Home -> Login entry without bypassing hidden/inert.
-      await page.locator('[data-public-route="login"]').first().click();
-      const login = async (method = 'wallet') => {
-        if (!(await page.locator('#login-panel').isVisible())) await page.locator('[data-public-route="login"]').first().click();
+      // Exercise Home -> Existing wallet -> Login without bypassing hidden/inert.
+      await page.locator('#public-home [data-public-route="existing"]').click();
+      await page.locator('#existing-login-open').click();
+      const login = async (method = 'wallet', step = 'email') => {
+        if (await page.locator('#wallet-private').evaluate(node => node.hidden) && await page.locator('#auth-management-view').isVisible()) await page.locator('#auth-management-close').click();
+        if (await page.locator('#auth-management').isVisible()) await page.click('#auth-management-close');
+        if (!(await page.locator('#login-panel').isVisible())) await page.locator('#existing-login-open').click();
         await page.selectOption('#wallet-login-method', method);
         if (method === 'password') { await page.fill('#auth-username', 'tester'); await page.fill('#auth-password', password); }
         await page.click('#wallet-login'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled);
         await page.click('#auth-manage-open');
+        await page.click(`#auth-setup-${step}-open`);
       };
       const verify = async ({ method, recovery } = {}) => {
         const dialog = page.locator('dialog.auth-change-dialog'); await dialog.waitFor();
@@ -76,10 +80,10 @@ async function run() {
       // No password, authenticator or verified email exists. Bootstrap the email explicitly.
       await page.fill('#auth-registration-account-email', 'synthetic@example.invalid'); await page.click('#auth-registration-account-start'); await verify({ method: 'wallet' }); await loggedOut();
       let credential = await store.read(`${config.tenant.id}:tester`); assert.equal(credential.registration.email, 'synthetic@example.invalid');
-      await login();
+      await login('wallet', 'password');
       phase = `${profile}-${width}-initial-password`;
       await page.fill('#auth-new-password', password); await page.fill('#auth-new-password-confirm', password); await page.click('#auth-password-save'); await verify({ method: 'wallet' }); await loggedOut();
-      await login('password');
+      await login('password', 'totp');
       // Cancel during identity verification: no code, secret or durable mutation.
       phase = `${profile}-${width}-authenticator`;
       const before = await store.read(`${config.tenant.id}:tester`), mailBefore = messages.length;
@@ -98,7 +102,7 @@ async function run() {
       const recovery = (await page.textContent('#auth-recovery-codes')).split('\n'); assert.equal(recovery.length, 8);
       await page.click('#auth-recovery-dismiss'); assert.equal(await page.textContent('#auth-enroll-secret'), ''); await loggedOut();
       phase = `${profile}-${width}-unbind`;
-      await login('password'); await page.click('#auth-unbind'); await verify({ recovery: recovery[0] }); await loggedOut();
+      await login('password', 'totp'); await page.click('#auth-unbind'); await verify({ recovery: recovery[0] }); await loggedOut();
       credential = await store.read(`${config.tenant.id}:tester`); assert.ok(credential.secret === undefined, 'authenticator unbound'); assert.equal(credential.registration.email, 'synthetic@example.invalid');
       assert.equal(credential.revision, 4); assert.equal(errors.length, 0, 'no page errors'); assert.equal(offOrigin.length, 0, 'no off-origin requests');
       assert.equal(await page.evaluate(() => Object.keys(localStorage).some(key => /secret|password|proof|otp/i.test(key))), false);
