@@ -2604,6 +2604,12 @@
       "sha256": "8dfe62ba6861ea215b8fcf58889734c281ba883779ee74e5fa7821562c9db2c0"
     },
     {
+      "path": "web/task-verification-policy-pending.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "fda7d9094410523d0371e22cfd27ceb5ba90c252",
+      "sha256": "8d99990b5965a18b0501c17e62aeba1286ccad18d2bf6a9cd8b2ed2e89763b6d"
+    },
+    {
       "path": "web/task-verification-policy-startup.mjs",
       "mode": "100644",
       "git_blob_sha1": "178989a07626e96c34b952bf32ca46843eb187d4",
