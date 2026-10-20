@@ -1,9 +1,6 @@
-/** Strict HTTP decoder derived from verified 92b3a11 source, not historical PR137.
- * server/task-verification-policy.mjs: 92e59a78…; state: 869de8a4…;
- * auth-service publicVerificationPolicy projection: f7761641….
- * The later e636 origin-parser delta is not included in this source baseline.
- * This decoder authenticates no human factor and grants no execution authority.
- */
+/** Strict owner-policy HTTP decoder. Legacy policy status remains readable;
+ * changing and recovery require the qualified change protocol. This decoder
+ * authenticates no human factor and grants no execution authority. */
 const refuse = () => new Error('TASK_POLICY_WIRE_REFUSED');
 const check = value => { if (!value) throw refuse(); };
 const MODE = ['ON', 'OFF'], FACTORS = ['password-or-bound-wallet', 'previously-verified-email'];

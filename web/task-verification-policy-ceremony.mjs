@@ -152,7 +152,7 @@ export async function runTaskVerificationPolicyChange({ document, window, wallet
     input = await prompt('identity', account); await recheck();
     needsCancel = true;
     const raw = await client.taskVerification('prepare', { expectedRevision: reviewed.revision,
-      identityMethod: input.identityMethod, mode }, { signal });
+      identityMethod: input.identityMethod, mode, protocol: '8415-task-policy-change-wire/1' }, { signal });
     await recheck();
     flow.prepared = await decoders.prepared(raw, { session, account, reviewed, mode,
       identityMethod: input.identityMethod, now: now() });

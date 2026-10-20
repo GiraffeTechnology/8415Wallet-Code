@@ -97,7 +97,7 @@ for (const mode of ['ON', 'OFF']) test(`${mode}: password then verified email, n
   const f = setup({ mode }); const result = runTaskVerificationPolicyChange(f.options);
   await identity(f); await email(f); await result;
   assert.deepEqual(f.calls.map(call => call.action), ['prepare', 'verify', 'confirm']);
-  assert.equal(f.calls[0]?.mode, mode); assert.deepEqual(f.calls[0]?.keys, ['expectedRevision', 'identityMethod', 'mode']);
+  assert.equal(f.calls[0]?.mode, mode); assert.deepEqual(f.calls[0]?.keys, ['expectedRevision', 'identityMethod', 'mode', 'protocol']);
   assert.deepEqual(f.calls[1]?.keys, ['changeId', 'changeDigest', 'password']);
   assert.equal(f.signed.length, 0); assert.equal(f.commits(), 1); assert.equal(f.document.body.children.length, 0);
 });

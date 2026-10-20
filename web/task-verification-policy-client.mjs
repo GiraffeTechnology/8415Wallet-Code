@@ -2,7 +2,7 @@
  * authority or factors. Reload only reads/reconciles; it never repeats a save. */
 import { runTaskVerificationPolicyChange } from './task-verification-policy-ceremony.mjs';
 import { validateTaskVerificationPolicyView } from './task-verification-policy-ui.mjs';
-import { createTaskVerificationPolicyWire, taskPolicyChangeQuery } from './task-verification-policy-wire.mjs';
+import { createTaskVerificationPolicyWire, taskPolicyChangeQuery, TASK_POLICY_CHANGE_PROTOCOL } from './task-verification-policy-wire.mjs';
 import { createTaskPolicyPendingStore, taskPolicyPendingReference } from './task-verification-policy-pending.mjs';
 const refused = code => Object.assign(new Error(code), { code });
 export function createTaskVerificationPolicyClient({ client, walletLogin, document, window,
@@ -26,7 +26,17 @@ export function createTaskVerificationPolicyClient({ client, walletLogin, docume
       changeDigest: value.changeDigest, mode: value.mode, previousRevision: value.expectedRevision });
   }
   async function requestStatus(binding, signal, session, account, reference = null) {
-    const raw = await client.taskVerification('status', reference ? taskPolicyChangeQuery(reference) : {}, { signal });
+    let raw;
+    try {
+      raw = await client.taskVerification('status', reference ? taskPolicyChangeQuery(reference) :
+        { protocol: TASK_POLICY_CHANGE_PROTOCOL }, { signal });
+    } catch (error) {
+      // An older exact-input reader may reject discovery. Only that explicit
+      // input error permits a legacy read, never a mutation or auth fallback.
+      current(binding, signal);
+      if (reference || error?.code !== 'TASK_VERIFICATION_INPUT_REFUSED' || error?.status !== 400) throw error;
+      raw = await client.taskVerification('status', {}, { signal });
+    }
     current(binding, signal);
     const decoded = await wire.status(raw, session, account, reference); current(binding, signal);
     validateTaskVerificationPolicyView(decoded.view, session);

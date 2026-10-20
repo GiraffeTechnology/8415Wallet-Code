@@ -83,25 +83,26 @@ test('not-committed needs a conclusive reason and revision-superseded needs a la
 });
 test('reload reads same reference and retains UNKNOWN without any prepare, confirm or cancel', async () => {
   const port=storage();createTaskPolicyPendingStore({storage:port}).remember(reference);
-  const x=bridge((_action,body)=>({...initial(),reconciliation:body.protocol?reconcile():null}),port);
+  const x=bridge((_action,body)=>({...initial(),reconciliation:body.changeId?reconcile():null}),port);
   const value=await x.api.read(x);assert.equal(value.changeState,'unknown');
   assert.deepEqual(x.calls.map(x=>x.action),['status','status']);assert.deepEqual(x.calls[1].body,taskPolicyChangeQuery(reference));
+  assert.deepEqual(x.calls[0].body,{protocol});
   assert.deepEqual(createTaskPolicyPendingStore({storage:port}).read(reference.scopeKey),reference);
 });
 test('reload resolves original commit from complete audit, not current mode or lastChange', async () => {
   const port=storage();createTaskPolicyPendingStore({storage:port}).remember(reference);
-  const x=bridge((_action,body)=>({...saved(),reconciliation:body.protocol?saved().reconciliation:null}),port);
+  const x=bridge((_action,body)=>({...saved(),reconciliation:body.changeId?saved().reconciliation:null}),port);
   const value=await x.api.read(x);assert.equal(value.changeState,'settled');assert.equal(value.mode,'ON');
   assert.equal(createTaskPolicyPendingStore({storage:port}).read(reference.scopeKey),null);
 });
 test('live server pending is adopted only as a nonsecret scoped reference', async () => {
-  const x=bridge((_action,body)=>({...initial(),pendingChange:pending(),reconciliation:body.protocol?reconcile('pending',null):null}));
+  const x=bridge((_action,body)=>({...initial(),pendingChange:pending(),reconciliation:body.changeId?reconcile('pending',null):null}));
   assert.equal((await x.api.read(x)).changeState,'unknown');
   assert.deepEqual(createTaskPolicyPendingStore({storage:x.port}).read(reference.scopeKey),reference);
 });
 test('explicit cancel is qualified and unavailable for UNKNOWN, never a retry', async () => {
   const port=storage();createTaskPolicyPendingStore({storage:port}).remember(reference);
-  const x=bridge((_action,body)=>({...initial(),reconciliation:body.protocol?reconcile():null}),port);
+  const x=bridge((_action,body)=>({...initial(),reconciliation:body.changeId?reconcile():null}),port);
   await x.api.cancelPending({...x,expectedScopeKey:reference.scopeKey});
   assert.equal(x.calls.some(x=>x.action!=='status'),false);
 });
@@ -110,7 +111,7 @@ test('explicit cancel removes only the exact pending draft after authenticated p
   const x=bridge((action,body)=>{
     if(action==='cancel'){assert.deepEqual(body,taskPolicyChangeQuery(reference));cancelled=true;
       return {changeProtocol:protocol,cancelled:true,reconciliation:reconcile('not-committed','cancelled')};}
-    return {...initial(),pendingChange:cancelled?null:pending(),reconciliation:body.protocol?reconcile('pending',null):null};
+    return {...initial(),pendingChange:cancelled?null:pending(),reconciliation:body.changeId?reconcile('pending',null):null};
   });
   await x.api.read(x);const view=await x.api.cancelPending({...x,expectedScopeKey:reference.scopeKey});
   assert.equal(view.changeState,'settled');assert.equal(x.calls.filter(x=>x.action==='cancel').length,1);
@@ -129,3 +130,20 @@ test('all six locales explain missing inventory without disabling or granting au
   for(const locale of POLICY_LOCALES){assert.equal(typeof POLICY_CATALOGS[locale].cancelPending,'string');
     assert.ok(POLICY_CATALOGS[locale].permissionsUnavailable.length>10);}
 });
+test('explicit discovery input refusal falls back to the strict read-only legacy shape', async()=>{
+  const x=bridge((_action,body)=>{
+    if(body.protocol) throw Object.assign(new Error('old input'),{code:'TASK_VERIFICATION_INPUT_REFUSED',status:400});
+    const raw=initial();delete raw.changeProtocol;delete raw.pendingChange;delete raw.reconciliation;return raw;
+  });
+  const view=await x.api.read(x);assert.equal(view.canChange,false);assert.equal(view.mode,'ON');
+  assert.deepEqual(x.calls.map(x=>x.body),[{protocol},{}]);
+});
+test('authentication, unknown errors and qualified-reference failures never use legacy fallback',async()=>{
+  for(const error of [Object.assign(new Error('unauthorized'),{code:'AUTH_REQUIRED',status:401}),new Error('network')]){
+    const x=bridge(()=>{throw error;});await assert.rejects(x.api.read(x));assert.equal(x.calls.length,1);
+  }
+  const port=storage();createTaskPolicyPendingStore({storage:port}).remember(reference);
+  const x=bridge((_a,b)=>{if(b.changeId)throw Object.assign(new Error('bad reference'),{code:'TASK_VERIFICATION_INPUT_REFUSED',status:400});return initial();},port);
+  await assert.rejects(x.api.read(x));assert.deepEqual(x.calls.map(x=>x.body),[{protocol},taskPolicyChangeQuery(reference)]);
+});
+

@@ -13,7 +13,7 @@ function policyRequestBody(action, input) {
   const value = key => properties[key]?.value;
   const string = key => typeof value(key) === 'string' && value(key).length > 0;
   if (action === 'status' || action === 'cancel') {
-    if (!(action === 'status' && exact([])) &&
+    if (!(action === 'status' && (exact([]) || exact(['protocol']) && value('protocol') === '8415-task-policy-change-wire/1')) &&
       (!exact(['protocol', 'changeId', 'changeDigest', 'expectedRevision']) ||
         value('protocol') !== '8415-task-policy-change-wire/1' ||
         typeof value('changeId') !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value('changeId')) ||
@@ -22,7 +22,8 @@ function policyRequestBody(action, input) {
         BigInt(value('expectedRevision')) >= (1n << 256n))) refuse();
   }
   else if (action === 'prepare') {
-    if (!exact(['expectedRevision', 'identityMethod', 'mode']) ||
+    if (!(exact(['expectedRevision', 'identityMethod', 'mode']) ||
+      exact(['expectedRevision', 'identityMethod', 'mode', 'protocol']) && value('protocol') === '8415-task-policy-change-wire/1') ||
       typeof value('expectedRevision') !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(value('expectedRevision')) ||
       BigInt(value('expectedRevision')) >= (1n << 256n) || !['password', 'wallet'].includes(value('identityMethod')) ||
       !['ON', 'OFF'].includes(value('mode'))) refuse();
@@ -251,16 +252,18 @@ export class AccountAuthClient {
           ['password', 'wallet'].includes(result.lastChange.verifiedFactors[0]) &&
           result.lastChange.verifiedFactors[1] === 'verified-email';
       }
-      if (valid && action === 'prepare') this.#taskPolicyChange = { session, request: result.request, changeDigest: result.changeDigest };
       if (valid && action === 'confirm') {
         const pending = this.#taskPolicyChange;
         valid = pending?.session === session && body.changeId === pending.request.changeId &&
           body.changeDigest === pending.changeDigest && JSON.stringify(result.scope) === JSON.stringify(pending.request.scope) && result.mode === pending.request.mode &&
           result.revision === (BigInt(pending.request.expectedRevision) + 1n).toString();
       }
-      if (valid && action === 'status' && body.protocol) valid = result.changeProtocol === body.protocol &&
+      if (valid && action === 'status' && body.changeId) valid = result.changeProtocol === body.protocol &&
         result.reconciliation?.changeId === body.changeId && result.reconciliation?.changeDigest === body.changeDigest &&
         result.reconciliation?.expectedRevision === body.expectedRevision && result.reconciliation?.automaticRetryAllowed === false;
+      if (valid && ['status', 'prepare'].includes(action) && body.protocol)
+        valid = result.changeProtocol === body.protocol;
+      if (valid && action === 'prepare') this.#taskPolicyChange = { session, request: result.request, changeDigest: result.changeDigest };
       if (valid && action === 'cancel' && result.cancelled &&
           this.#taskPolicyChange?.request.changeId === body.changeId && this.#taskPolicyChange?.changeDigest === body.changeDigest ||
           valid && action === 'confirm') this.#taskPolicyChange = null;
