@@ -107,22 +107,35 @@ async function run() {
       });
       try {
         await page.locator('#auth-registration-start').click(); await backSeen;
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 1, profile, width }));
         assert.equal(backStartStatus, 200);
         await page.evaluate(() => globalThis.history.back());
         await page.locator('#public-home').waitFor({ state: 'visible' });
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 2, profile, width }));
         assert.equal(await page.locator('#auth-registration').isVisible(), false);
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 3, profile, width }));
         assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 4, profile, width }));
         assert.equal(await page.locator('#auth-registration-start').isDisabled(), true, 'Back preserves the unresolved request lock');
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 5, profile, width }));
         assert.equal(await page.evaluate(async () => (await import('/web/ui-lock.mjs')).walletUiBusy()), true);
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 6, profile, width }));
         assert.equal(await page.locator('#wallet-private').isVisible(), false);
       } finally { releaseBackStart(); }
       await page.waitForLoadState('networkidle'); await page.unroute('**/auth/registration/start');
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 7, profile, width }));
       assert.equal(await page.evaluate(async () => (await import('/web/ui-lock.mjs')).walletUiBusy()), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 8, profile, width }));
       assert.equal(await page.locator('#public-home').isVisible(), true);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 9, profile, width }));
       assert.equal(await page.locator('#auth-registration').isVisible(), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 10, profile, width }));
       assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 11, profile, width }));
       assert.equal(authRequests.slice(backRequestStart).filter(value => value === '/auth/registration/start').length, 1);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 12, profile, width }));
       assert.equal(authRequests.slice(backRequestStart).some(value => value === '/auth/registration/verify' || value === '/auth/registration/confirm'), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 13, profile, width }));
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
       await openRegistration(); await page.fill('#auth-registration-email', email);
       console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'start-verification', profile, width }));
