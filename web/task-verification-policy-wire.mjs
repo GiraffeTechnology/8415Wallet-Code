@@ -9,6 +9,14 @@ const check = value => { if (!value) throw refuse(); };
 const MODE = ['ON', 'OFF'], FACTORS = ['password-or-bound-wallet', 'previously-verified-email'];
 const SCOPE = ['origin', 'tenant', 'username', 'account', 'chainId', 'agentId'];
 const TOKEN = /^[A-Za-z0-9_-]{43}$/, HASH = /^[a-f0-9]{64}$/;
+export const TASK_POLICY_CHANGE_PROTOCOL = '8415-task-policy-change-wire/1';
+export function taskPolicyChangeQuery(reference) {
+  reference = snapshot(reference);
+  check(reference && typeof reference.changeId === 'string' && TOKEN.test(reference.changeId) &&
+    typeof reference.changeDigest === 'string' && HASH.test(reference.changeDigest));
+  return Object.freeze({ protocol: TASK_POLICY_CHANGE_PROTOCOL, changeId: reference.changeId,
+    changeDigest: reference.changeDigest, expectedRevision: version(reference.previousRevision) });
+}
 function snapshot(value, depth = 0) {
   check(depth <= 8);
   if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return value;
@@ -75,7 +83,32 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
     const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value)));
     return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
   }
-  async function status(raw, session, account) {
+  function reconciliation(raw, reference, scopeDigest, revision) {
+    record(raw, ['changeId', 'changeDigest', 'expectedRevision', 'state', 'reason', 'automaticRetryAllowed', 'committedChange']);
+    check(reference && raw.changeId === reference.changeId && raw.changeDigest === reference.changeDigest &&
+      version(raw.expectedRevision) === reference.previousRevision && raw.automaticRetryAllowed === false);
+    check(['committed', 'pending', 'committing', 'not-committed', 'unknown'].includes(raw.state));
+    if (raw.state === 'committed') {
+      const entry = raw.committedChange;
+      record(entry, ['revision', 'previousRevision', 'mode', 'changeId', 'changeDigest', 'scopeDigest',
+        'credentialRevision', 'verifiedFactors', 'changedAt']);
+      check(raw.reason === null && entry.changeId === raw.changeId && entry.changeDigest === raw.changeDigest &&
+        version(entry.previousRevision) === raw.expectedRevision && entry.mode === reference.mode &&
+        version(entry.revision) === (BigInt(raw.expectedRevision) + 1n).toString() &&
+        BigInt(entry.revision) <= BigInt(revision) && entry.scopeDigest === scopeDigest);
+      integer(entry.credentialRevision); integer(entry.changedAt);
+      const factors = array(entry.verifiedFactors);
+      check(factors.length === 2 && ['password', 'wallet'].includes(factors[0]) && factors[1] === 'verified-email');
+    } else {
+      check(raw.committedChange === null);
+      if (raw.state === 'not-committed') {
+        check(['cancelled', 'replaced', 'revision-superseded'].includes(raw.reason));
+        if (raw.reason === 'revision-superseded') check(BigInt(revision) > BigInt(raw.expectedRevision));
+      } else check(raw.reason === (raw.state === 'unknown' ? 'unresolved' : null));
+    }
+    return raw;
+  }
+  async function status(raw, session, account, reference = null) {
     raw = snapshot(raw);
     check(account && account.origin === session.origin && account.tenant === session.tenant &&
       account.account.toLowerCase() === session.account.toLowerCase() && account.chainId === session.chainId);
@@ -84,7 +117,11 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
       'factorsForOFF', 'factorsForEverySave', 'changeCount', 'lastChange'];
     const schema = Object.getOwnPropertyDescriptor(raw ?? {}, 'schema'); check(schema && Object.hasOwn(schema, 'value'));
     const v2 = schema.value === '8415-task-human-verification/2';
-    record(raw, v2 ? [...base, 'enforcedFromRevision'] : base);
+    const qualified = Object.hasOwn(raw, 'changeProtocol');
+    record(raw, [...base, ...(v2 ? ['enforcedFromRevision'] : []),
+      ...(qualified ? ['changeProtocol', 'pendingChange', 'reconciliation'] : [])]);
+    if (qualified) check(raw.changeProtocol === TASK_POLICY_CHANGE_PROTOCOL);
+    if (reference) check(qualified);
     check(v2 || raw.schema === '8415-task-human-verification/1');
     const boundScope = scope(raw.scope, session, account), scopeDigest = await digest(boundScope);
     version(raw.revision); integer(raw.changeCount);
@@ -109,19 +146,41 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
       account: session.account, chainId: boundScope.chainId });
     // The actual source supplies applicability, not an Agent permission inventory.
     // Never reinterpret missing inventory as an empty grant list or all authority.
-    // Change remains disabled until session-wide cancel and reload UNKNOWN are
-    // authoritatively safe. This is not a browser-controlled activation switch.
+    let pendingChange = null, reconciled = null;
+    if (qualified) {
+      if (raw.pendingChange !== null) {
+        const p = raw.pendingChange;
+        record(p, ['changeId', 'changeDigest', 'expectedRevision', 'mode', 'stage', 'issuedAt', 'expiresAt']);
+        check(typeof p.changeId === 'string' && TOKEN.test(p.changeId) && typeof p.changeDigest === 'string' &&
+          HASH.test(p.changeDigest) && MODE.includes(p.mode) && ['identity', 'verifying', 'email', 'committing'].includes(p.stage));
+        version(p.expectedRevision); integer(p.issuedAt); integer(p.expiresAt);
+        check(p.expiresAt > p.issuedAt && p.expiresAt - p.issuedAt <= 300000);
+        pendingChange = p;
+      }
+      if (reference) {
+        check(reference.scopeKey === scopeDigest);
+        reconciled = reconciliation(raw.reconciliation, reference, scopeDigest, raw.revision);
+        if (['pending', 'committing'].includes(reconciled.state)) check(pendingChange &&
+          pendingChange.changeId === reference.changeId && pendingChange.changeDigest === reference.changeDigest &&
+          pendingChange.expectedRevision === reference.previousRevision && pendingChange.mode === reference.mode &&
+          (reconciled.state === 'committing') === (pendingChange.stage === 'committing'));
+      } else check(raw.reconciliation === null);
+    }
     const view = Object.freeze({ mode: raw.mode, revision: raw.revision, context,
       scopeKey: scopeDigest, walletLabel: boundScope.tenant, agentId: boundScope.agentId,
       agentLabel: boundScope.agentId, scopeLabel: raw.appliesTo, permissions: null,
-      canChange: false, changeState: 'settled' });
-    return Object.freeze({ view, lastChange, scope: boundScope, scopeDigest, schema: raw.schema });
+      canChange: qualified, changeState: pendingChange || reference && !['committed', 'not-committed'].includes(reconciled?.state) ? 'unknown' : 'settled' });
+    return Object.freeze({ view, lastChange, scope: boundScope, scopeDigest, schema: raw.schema,
+      changeProtocol: qualified ? raw.changeProtocol : null, pendingChange, reconciliation: reconciled });
   }
   async function prepared(raw, { session, account, reviewed, mode, identityMethod, now }) {
     raw = snapshot(raw);
     check(['password', 'wallet'].includes(identityMethod));
-    record(raw, identityMethod === 'wallet' ? ['request', 'changeDigest', 'identityMethod', 'emailMasked', 'message'] :
-      ['request', 'changeDigest', 'identityMethod', 'emailMasked']);
+    const qualified = Object.hasOwn(raw, 'changeProtocol');
+    if (qualified) check(raw.changeProtocol === TASK_POLICY_CHANGE_PROTOCOL);
+    record(raw, ['request', 'changeDigest', 'identityMethod', 'emailMasked', ...(identityMethod === 'wallet' ? ['message'] : []),
+      ...(qualified ? ['changeProtocol'] : [])]);
+    if (reviewed.canChange) check(qualified);
     record(raw.request, ['schema', 'scope', 'mode', 'expectedRevision', 'credentialRevision', 'changeId', 'nonce', 'issuedAt', 'expiresAt']);
     const r = raw.request, boundScope = scope(r.scope, session, account);
     check(r.schema === '8415-task-human-verification-change/2' && MODE.includes(mode) && r.mode === mode &&
@@ -158,5 +217,14 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
       JSON.stringify(decoded.scope) === JSON.stringify(r.scope));
     return raw;
   }
-  return Object.freeze({ status, prepared, verified, committed });
+  function cancelled(raw, reference, decodedStatus) {
+    raw = snapshot(raw);
+    record(raw, ['changeProtocol', 'cancelled', 'reconciliation']);
+    check(raw.changeProtocol === TASK_POLICY_CHANGE_PROTOCOL && typeof raw.cancelled === 'boolean' &&
+      reference.scopeKey === decodedStatus.scopeDigest);
+    const result = reconciliation(raw.reconciliation, reference, decodedStatus.scopeDigest, decodedStatus.view.revision);
+    if (raw.cancelled) check(result.state === 'not-committed' && result.reason === 'cancelled');
+    return result;
+  }
+  return Object.freeze({ status, prepared, verified, committed, cancelled });
 }

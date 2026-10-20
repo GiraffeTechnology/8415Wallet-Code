@@ -312,8 +312,10 @@ test('window focus does not cancel a draft or pending human ceremony', async () 
   f.setView(view({ mode: 'OFF', revision: '8' })); pending.resolve(null); await drain(); f.api.destroy();
 });
 
-test('missing authoritative permission inventory is explicit and cannot enable changes', () => {
+test('missing inventory is explicit, not an extra gate on a source-qualified owner setting', () => {
   const decoded = validateTaskVerificationPolicyView(view({ permissions: null, canChange: false }), initialSession);
   assert.equal(decoded.permissions, null); assert.equal(decoded.canChange, false);
-  assert.throws(() => validateTaskVerificationPolicyView(view({ permissions: null, canChange: true }), initialSession));
+  const qualified = validateTaskVerificationPolicyView(view({ permissions: null, canChange: true }), initialSession);
+  assert.equal(qualified.permissions, null); assert.equal(qualified.canChange, true);
 });
+

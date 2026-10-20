@@ -12,7 +12,15 @@ function policyRequestBody(action, input) {
   const exact = expected => keys.length === expected.length && expected.every(key => Object.hasOwn(properties, key));
   const value = key => properties[key]?.value;
   const string = key => typeof value(key) === 'string' && value(key).length > 0;
-  if (action === 'status' || action === 'cancel') { if (!exact([])) refuse(); }
+  if (action === 'status' || action === 'cancel') {
+    if (!(action === 'status' && exact([])) &&
+      (!exact(['protocol', 'changeId', 'changeDigest', 'expectedRevision']) ||
+        value('protocol') !== '8415-task-policy-change-wire/1' ||
+        typeof value('changeId') !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value('changeId')) ||
+        typeof value('changeDigest') !== 'string' || !/^[a-f0-9]{64}$/.test(value('changeDigest')) ||
+        typeof value('expectedRevision') !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(value('expectedRevision')) ||
+        BigInt(value('expectedRevision')) >= (1n << 256n))) refuse();
+  }
   else if (action === 'prepare') {
     if (!exact(['expectedRevision', 'identityMethod', 'mode']) ||
       typeof value('expectedRevision') !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(value('expectedRevision')) ||
@@ -211,7 +219,10 @@ export class AccountAuthClient {
       const token = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
       const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
       let valid;
-      if (action === 'cancel') valid = result.cancelled === true;
+      if (action === 'cancel') valid = result.changeProtocol === '8415-task-policy-change-wire/1' &&
+        typeof result.cancelled === 'boolean' && result.reconciliation?.changeId === body.changeId &&
+        result.reconciliation?.changeDigest === body.changeDigest && result.reconciliation?.expectedRevision === body.expectedRevision &&
+        result.reconciliation?.automaticRetryAllowed === false;
       else if (['status', 'confirm'].includes(action)) {
         valid = ['8415-task-human-verification/1', '8415-task-human-verification/2'].includes(result.schema) && boundScope(result.scope) &&
           ['ON', 'OFF'].includes(result.mode) && version(result.revision) && Number.isSafeInteger(result.changeCount) && result.changeCount >= 0 &&
@@ -247,7 +258,12 @@ export class AccountAuthClient {
           body.changeDigest === pending.changeDigest && JSON.stringify(result.scope) === JSON.stringify(pending.request.scope) && result.mode === pending.request.mode &&
           result.revision === (BigInt(pending.request.expectedRevision) + 1n).toString();
       }
-      if (action === 'cancel' || valid && action === 'confirm') this.#taskPolicyChange = null;
+      if (valid && action === 'status' && body.protocol) valid = result.changeProtocol === body.protocol &&
+        result.reconciliation?.changeId === body.changeId && result.reconciliation?.changeDigest === body.changeDigest &&
+        result.reconciliation?.expectedRevision === body.expectedRevision && result.reconciliation?.automaticRetryAllowed === false;
+      if (valid && action === 'cancel' && result.cancelled &&
+          this.#taskPolicyChange?.request.changeId === body.changeId && this.#taskPolicyChange?.changeDigest === body.changeDigest ||
+          valid && action === 'confirm') this.#taskPolicyChange = null;
       if (!valid) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
       return result;
     } catch (error) { current(); throw error; }

@@ -2145,8 +2145,8 @@
     {
       "path": "web/account-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f63de039b73e2d3f3e5f958bf6ad35b0028d6f74",
-      "sha256": "05353729b2033396627abee77acadf7312301d74b71caa787bc6989ff84f03cc"
+      "git_blob_sha1": "6d774c8df866f91511628e9e6764f91ba68e4baa",
+      "sha256": "9da9ba34de2ea6a0f39a9ef4d53322bafd341892971f83a079290d5b158d4ece"
     },
     {
       "path": "web/app.mjs",
@@ -2451,8 +2451,8 @@
     {
       "path": "web/locales/task-verification-policy.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e8116f0cd121adfdf450715527c98a7449bf583f",
-      "sha256": "30f2cb4e63a4e0c483679800abaf0a9acb0890e77d60fe2f24b20af889756f51"
+      "git_blob_sha1": "5543037f749efbf2da24599c93a64ed6bcaba062",
+      "sha256": "2852298261c0f70ffec0bf55c803cf052f0256a57f2f49e1b6b6b4444f5fbcb8"
     },
     {
       "path": "web/locales/trading-observation.mjs",
@@ -2589,14 +2589,14 @@
     {
       "path": "web/task-verification-policy-ceremony.mjs",
       "mode": "100644",
-      "git_blob_sha1": "520eb3ffeadcf0daedc4d502c508dba5d93af6b5",
-      "sha256": "eff8635da9087275ecd507c84c344d099b506b0f68f3f3b3d414634c660a9c8e"
+      "git_blob_sha1": "eb23eb1b68e596e5901e8d3d7fb1089d7696e4c4",
+      "sha256": "7bdf2a7dc7d61197a9d941f19b4c52de92bd8f2899f01c25328bb16a83129f58"
     },
     {
       "path": "web/task-verification-policy-client.mjs",
       "mode": "100644",
-      "git_blob_sha1": "abc2473f183e1db1d5a2ab8cbab318451ec585ff",
-      "sha256": "380d89daff92d810414cb7c69c9537b8e49bc2fbf365b4a5e129684dccb7745e"
+      "git_blob_sha1": "9b108b8f0a58433f20067cf2435ee7f960ca7bbc",
+      "sha256": "a0e17324077773536bc9937d7a041e2a9f9a29fdc2fbbea920d22c8e40ff517b"
     },
     {
       "path": "web/task-verification-policy-entry.mjs",
@@ -2619,14 +2619,14 @@
     {
       "path": "web/task-verification-policy-ui.mjs",
       "mode": "100644",
-      "git_blob_sha1": "7050bede19739c504e9834e554872ad0eeb4b122",
-      "sha256": "766344ba9dfd1fc705ca7796c45808e759cb2e53be27c5f59649462b626fe0bc"
+      "git_blob_sha1": "41408b78c8b2f60dfb2c9a58c8e48940156febc2",
+      "sha256": "b7a547be9589fc28613da64353d6f6a67ac7932940b2d22283911f289a62471b"
     },
     {
       "path": "web/task-verification-policy-wire.mjs",
       "mode": "100644",
-      "git_blob_sha1": "211eca2c6de464c34cd984c2a4178cd2bedf6020",
-      "sha256": "bc32921b9a2c2bddefb5b534ae76b9c5c81009a2eb087f66b72a88b5462a1f9f"
+      "git_blob_sha1": "6f75ac817a1e69af939dfa19590e1b265647ab05",
+      "sha256": "66b912e40530d96a40807dbe51084ce37defac5d169f17df5645935844701f69"
     },
     {
       "path": "web/tenant-avatar.mjs",

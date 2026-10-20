@@ -62,7 +62,11 @@ function setup({ mode = 'OFF', walletOnly = false } = {}) {
         return { synthetic: 'email-challenge' };
       }
       if (action === 'confirm') { confirms++; assert.equal(body.code, '12345678'); if (rejectConfirm) throw new Error('UNKNOWN_CONFIRM_OUTCOME'); return { synthetic: 'committed' }; }
-      if (action === 'cancel') return { cancelled: true };
+      if (action === 'cancel') {
+        assert.deepEqual(body, { protocol: '8415-task-policy-change-wire/1',
+          changeId: prepared.changeId, changeDigest: prepared.changeDigest, expectedRevision: '7' });
+        return { cancelled: true };
+      }
       throw new Error('UNEXPECTED_ACTION');
     } };
   const reviewed = { mode: mode === 'OFF' ? 'ON' : 'OFF', revision: '7', walletLabel: 'Synthetic wallet', context,
@@ -140,7 +144,8 @@ test('prepare rejection clears identity value without signing or submitting anot
   const f = setup(); f.rejectPrepare(); const pending = runTaskVerificationPolicyChange(f.options); const rejection = assert.rejects(pending);
   await drain(); const password = f.find('input'); password.value = 'synthetic-password';
   f.find('form').emit('submit'); await rejection; assert.equal(password.value, '');
-  assert.deepEqual(f.calls.map(call => call.action), ['prepare', 'cancel']); assert.equal(f.signed.length, 0);
+  // No decoded reference exists: a guessed/session-wide cancel could delete another draft.
+  assert.deepEqual(f.calls.map(call => call.action), ['prepare']); assert.equal(f.signed.length, 0);
 });
 test('duplicate ceremony is rejected while the first human prompt is active', async () => {
   const f = setup(); const pending = runTaskVerificationPolicyChange(f.options); const rejection = assert.rejects(pending);
@@ -171,6 +176,7 @@ test('rejected prepared mode decoder prevents wallet signing and both verificati
   const pending = runTaskVerificationPolicyChange({ ...f.options, decoders: { ...f.options.decoders,
     prepared() { throw new Error('TASK_POLICY_WIRE_REFUSED'); } } });
   const rejection = assert.rejects(pending); await drain(); f.find('form').emit('submit'); await rejection;
-  assert.deepEqual(f.calls.map(call => call.action), ['prepare', 'cancel']);
+  assert.deepEqual(f.calls.map(call => call.action), ['prepare']);
   assert.equal(f.signed.length, 0); assert.equal(f.commits(), 0);
 });
+
