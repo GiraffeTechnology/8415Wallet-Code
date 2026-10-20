@@ -37,8 +37,9 @@ test('release before same-block admission preserves release v2 while classifying
 
 test('admission before reverted attempt is not a completed release or an execution-time entry assertion', () => {
   const before = structuredClone(after);
-  const input: ReleaseOrderingEvidence = { attempt: { ...before.attempt, position: { ...position, transactionIndex: 1n },
-    outcome: 'reverted', basisSource: 'prepared-observation', basisCommitment: undefined },
+  const { basisCommitment: _basisCommitment, ...preparedAttempt } = before.attempt;
+  const input: ReleaseOrderingEvidence = { attempt: { ...preparedAttempt, position: { ...position, transactionIndex: 1n },
+    outcome: 'reverted', basisSource: 'prepared-observation' },
     supersession: { ...before.supersession!, position: { ...before.supersession!.position, transactionIndex: 0n } } };
   const view = buildEscrowView({ ...trade, state: 'FUNDED' }, { ...observation, state: 'FUNDED' }, 100n, undefined, input);
   assert.equal(view.releaseOrdering.classification, 'superseded-before-release-attempt');

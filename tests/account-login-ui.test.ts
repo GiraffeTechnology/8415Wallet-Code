@@ -263,7 +263,7 @@ for (const event of ['pagehide', 'pageshow']) test(`page lifecycle ${event} cann
 });
 for (const { id } of uiI18n.LOCALES) test(`locale ${id} cannot unlock login or revive enrollment secrets after logout`, async () => {
   uiI18n.setLocale('en', { persist: false }); const f = fixture('password');
-  uiI18n.setLocale(id, { persist: false }); assert.equal(f.element('wallet-private').hidden, true); assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []);
+  uiI18n.setLocale(id, { persist: false }); assert.equal(f.element('wallet-private').hidden, true); assert.deepEqual(f.calls, []); assert.deepEqual([...f.requests], []);
   await f.click('wallet-login'); await openOperation(f, 'totp'); await f.click('auth-enroll-start'); assert.equal(f.element('wallet-private').hidden, false);
   const binding = f.login.capture(), callCount = f.calls.length, requestCount = f.requests.length;
   uiI18n.setLocale('en', { persist: false }); uiI18n.setLocale(id, { persist: false });
@@ -280,7 +280,7 @@ test('public entry is request-free and explicit setup checks capabilities withou
   const f = fixture('totp'); assert.deepEqual(f.calls, []); assert.equal(f.requests.length, 0); await f.ready; await f.click('auth-initial-open');
   assert.equal(f.element('auth-management').hidden, false); assert.equal(f.element('auth-enrollment').hidden, true);
   assert.equal(f.element('auth-setup-menu').hidden, false); assert.equal(f.element('auth-management-verification').hidden, true);
-  assert.equal(f.element('wallet-login-method').value, 'totp'); assert.deepEqual(f.requests, []);
+  assert.equal(f.element('wallet-login-method').value, 'totp'); assert.deepEqual([...f.requests], []);
   await chooseOperation(f, 'totp');
   assert.equal(f.element('wallet-login-method').value, 'wallet'); assert.equal(f.element('auth-existing-fields').hidden, true);
   assert.deepEqual(f.calls, []); assert.deepEqual(f.requests.map(r => r.path), ['capabilities']);
@@ -296,7 +296,7 @@ test('unverified menu refuses nonoffered operations and Back clears selected ide
     await f.click(`auth-setup-${step}-open`); // Adversarial hidden-handler guard probe.
     assert.equal(f.element('auth-setup-menu').hidden, false);
   }
-  assert.deepEqual(f.requests, []); assert.deepEqual(f.calls, []);
+  assert.deepEqual([...f.requests], []); assert.deepEqual(f.calls, []);
   await chooseOperation(f, 'password');
   assert.equal(f.element('auth-management-verification').hidden, false);
   assert.equal(f.element('auth-enrollment').hidden, true); assert.equal(f.element('auth-method-states').hidden, true);
@@ -346,7 +346,7 @@ for (const { id } of uiI18n.LOCALES) test(`login action follows method and ${id}
   assert.equal(f.element('auth-recovery').checked, false, 'Method changes clear recovery-code mode');
   f.element('auth-recovery').checked = true; f.element('auth-recovery').handlers.get('change')();
   assert.equal(f.element('wallet-login').textContent, uiI18n.t('account.loginRecovery'));
-  assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []); uiI18n.setLocale('en', { persist: false });
+  assert.deepEqual(f.calls, []); assert.deepEqual([...f.requests], []); uiI18n.setLocale('en', { persist: false });
 });
 test('initial enrollment does not request an existing code, replacement does and retains other enabled methods', async () => {
   const f = fixture('password'); await f.click('wallet-login'); await openOperation(f, 'totp');
@@ -742,7 +742,7 @@ test('management freshness expiry clears password entry and refuses submission',
 });
 test('close invalidates delayed capability results and never exposes password controls', async () => {
   const f = fixture('password'); let release!: () => void; f.state.capabilitiesHold = new Promise<void>(resolve => { release = resolve; });
-  await f.ready; await f.click('auth-initial-open'); assert.deepEqual(f.requests, []);
+  await f.ready; await f.click('auth-initial-open'); assert.deepEqual([...f.requests], []);
   await chooseOperation(f, 'password'); assert.deepEqual(f.requests.map(r => r.path), ['capabilities']);
   f.click('auth-management-close'); release(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.element('auth-management').hidden, true); assert.equal(f.element('auth-password-fields').hidden, true); assert.deepEqual(f.calls, []);
@@ -814,7 +814,7 @@ for (const button of ['auth-initial-open', 'auth-manage-open']) {
     if (tenant === 'default') {
       assert.equal(f.element('auth-management-verification').hidden, true);
       assert.equal(f.element('auth-management-status').textContent, uiI18n.t('entry.resolverUnavailable'));
-      assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []);
+      assert.deepEqual(f.calls, []); assert.deepEqual([...f.requests], []);
     }
   });
 }
@@ -854,7 +854,7 @@ test('Agent policy is a separate authenticated subpage, not a pre-authentication
   f.subscribeAgentPolicySettings((open: boolean) => states.push(open));
   await f.ready; await f.click('auth-initial-open');
   assert.deepEqual(states, [false]); assert.equal(f.element('auth-setup-policy-open').hidden, true);
-  await f.click('auth-setup-policy-open'); assert.deepEqual(f.requests, []); assert.deepEqual(f.calls, []);
+  await f.click('auth-setup-policy-open'); assert.deepEqual([...f.requests], []); assert.deepEqual(f.calls, []);
   assert.equal(f.element('auth-setup-menu').hidden, false); assert.deepEqual(states, [false]);
   await chooseOperation(f, 'password');
   f.element('wallet-login-method').value = 'password'; f.change();
