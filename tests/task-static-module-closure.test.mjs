@@ -56,6 +56,7 @@ test('foundation entries and separately retained module closures are served exac
     const actual = await servedClosure(pending);
     t.diagnostic(`Verified ${entryCount} actual foundation entries and ${actual.size} served modules`);
     assert.ok(actual.has('/web/method-change-ui.mjs'));
+    assert.ok(actual.has('/web/escrow-ordering-i18n.mjs'));
     assert.equal(actual.has('/web/task-ui.mjs'), false);
     assert.equal(actual.has('/web/task-verification-policy-ui.mjs'), true);
     assert.ok(actual.has('/web/task-verification-policy-entry.mjs'));

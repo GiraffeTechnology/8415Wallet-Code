@@ -14,6 +14,7 @@ const port=Number(process.env.WALLET_BROWSER_PORT??'8415');
 if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('BROWSER_PORT_REFUSED');
 const web=new Set(['index.html','login-core.mjs','wallet-auth.mjs','account-auth.mjs','app.mjs','public-store.mjs','wallet.css','external-assets.mjs','external-store.mjs','ui-lock.mjs','release-profile.mjs','release-config.json','settlement-store.mjs','legacy-clearing.mjs','legacy-clearing-store.mjs','i18n.mjs','locale-ui.mjs','native-i18n.mjs','wallet-shell.mjs','tenant-avatar.mjs']);
 web.add('method-change-ui.mjs');
+web.add('escrow-ordering-i18n.mjs');
 web.add('enrollment-qr.mjs'); web.add('qr-generator.mjs');
 web.add('task-listing-results.mjs');
 for (const module of ['task-activity.mjs','task-activity-ui.mjs','asset-workspace-panel.mjs','hoodi-journey-panel.mjs']) web.add(module);
