@@ -118,6 +118,12 @@ async function main() {
       };
       const passwordAgain = async () => {
         await page.waitForLoadState('networkidle');
+        // Account/chain changes intentionally return management to its menu.
+        // Select the real operation again before using its verification form;
+        // do not force hidden controls or weaken the lifecycle assertions.
+        if (await page.locator('#auth-management').isVisible() && await page.locator('#auth-setup-menu').isVisible()) {
+          await page.click('#auth-setup-totp-open');
+        }
         await page.selectOption('#wallet-login-method', 'password');
         await page.fill('#auth-username', 'tester'); await page.fill('#auth-password', password);
         await page.click('#wallet-login'); await unlocked(); await idle();
