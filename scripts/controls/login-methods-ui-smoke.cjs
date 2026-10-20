@@ -94,7 +94,27 @@ async function main() {
         await openTotpSetup();
         await page.click('#auth-enroll-start');
         await change.authorize(page, { password }, () => mail.at(-1));
-        await page.waitForFunction(() => !document.getElementById('auth-enroll-qr').hidden);
+        try {
+          await page.waitForFunction(() => !document.getElementById('auth-enroll-qr').hidden);
+        } catch (error) {
+          // Fixed classifications and booleans only: never emit credentials,
+          // enrollment URI, QR pixels, response bodies or private DOM text.
+          const state = await page.evaluate(() => {
+            const get = id => document.getElementById(id);
+            const status = get('wallet-login-status').textContent;
+            const known = ['LOGIN_CANCELLED', 'LOGIN_EXPIRED', 'AUTH_SETUP_EXPIRED',
+              'AUTH_SETUP_UNAVAILABLE', 'AUTH_CHANGE_REFUSED', 'AUTH_REFUSED'];
+            return { code: known.find(value => status === value) ?? 'UNCLASSIFIED',
+              sessionVisible: !get('wallet-private').hidden,
+              enrollmentVisible: !get('auth-enrollment').hidden,
+              secretPresent: get('auth-enroll-secret').textContent.length > 0,
+              qrWidthPositive: get('auth-enroll-qr').width > 0,
+              startDisabled: get('auth-enroll-start').disabled,
+              confirmDisabled: get('auth-enroll-confirm').disabled };
+          });
+          console.error(JSON.stringify({ error: 'AUTH_ENROLLMENT_DISPLAY_STATE', ...state }));
+          throw error;
+        }
       };
       const passwordAgain = async () => {
         await page.waitForLoadState('networkidle');
