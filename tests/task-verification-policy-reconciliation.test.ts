@@ -156,7 +156,8 @@ test('original authenticated HTTP routes refuse cancel{} and support versioned q
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const store = new MemoryCredentialStore({ 'fixture:alice': { registration } });
+  const store = new MemoryCredentialStore({ 'fixture:alice': { registration },
+    '@registration:fixture': { version: 1, records: [{ username: 'alice', email: registration.email, verifiedAt: registration.verifiedAt }] } });
   handler = createAuthService({ origin, tenant: 'fixture', store, taskVerificationPolicyEnabled: true,
     accounts: [{ username: 'alice', passwordHash, wallets: [{ account: wallet.address, chainId: '560048' }] }], sendOtp: async () => {} });
   const jar = new Map<string, string>(); let csrf = '';
