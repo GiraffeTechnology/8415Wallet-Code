@@ -15,6 +15,7 @@ function fixture(actor = seller) {
   const flags = { state: 0n, approved: true, operator: false, confirmed: false, now: 1000n, selected: actor, chain: '0x7a69',
     projectionCode: '0x6001', register: registerId, settlement: true, interface: true, invalidInterface: false, reject: null as unknown,
     releaseSchema: 'legacy', releaseCommitment: profile, releaseDataMismatch: false,
+    includePositions: false, successorOrder: 'after', wrongSuccessorEntry: false, duplicateSuccessor: false, revertedAdmission: false,
     observationVersion: 0n, observedHolder: null as string | null,
     failReserve: false, failReset: false, failSubmitted: false, omitEvent: false, wrongTx: false, pending: false, receiptStatus: '0x1', reorg: false, nonce: 0n, owner: seller, rpcCase: false, replacement: false, wrongNonce: false, head: '0x65' };
   let record: LegacyClearingState | null = null, sends = 0, sent: Record<string, string> | null = null, method = '';
@@ -45,14 +46,36 @@ function fixture(actor = seller) {
       if (data === encodeCall('ownerOf(uint256)', ['uint256'], [1n])) return encodeWords(['address'], [flags.owner]);
       if (data === encodeCall('getApproved(uint256)', ['uint256'], [1n])) return encodeWords(['address'], [flags.approved ? escrow : zeroAddress]);
       if (data === encodeCall('isApprovedForAll(address,address)', ['address', 'address'], [seller, escrow])) return encodeWords(['bool'], [flags.operator]);
+      if (flags.includePositions && data === encodeCall('entryAt(uint256,uint64)', ['uint256', 'uint64'], [1n, 2n])) {
+        assert.equal(params[1], '0x64');
+        return encodeWords(['bytes32', 'bytes32', 'bytes32', 'address', 'uint64', 'uint64', 'uint64'],
+          [flags.wrongSuccessorEntry ? localId : profile, zero, registerId, buyer, 2n, 1050n, 1060n]);
+      }
+      if (flags.includePositions && data === encodeCall('entryAt(uint256,uint64)', ['uint256', 'uint64'], [1n, 3n])) {
+        assert.equal(params[1], '0x64');
+        return encodeWords(['bytes32', 'bytes32', 'bytes32', 'address', 'uint64', 'uint64', 'uint64'],
+          [registerId, profile, registerId, seller, 3n, 1060n, 0n]);
+      }
       throw new Error(`unhandled call ${data}`);
     }
     if (name === 'eth_sendTransaction') { sends++; sent = params[0] as Record<string, string>;
       method = ['approve', 'open', 'fund', 'release', 'refund', 'abandon'].find(k => sent!.data!.startsWith(k === 'approve' ? encodeCall('approve(address,uint256)', ['address', 'uint256'], [escrow, 1n]).slice(0, 10) : k === 'open' ? encodeCall('open(bytes32,address,uint256,address,uint256,uint64,uint64)', ['bytes32', 'address', 'uint256', 'address', 'uint256', 'uint64', 'uint64'], [localId, projection, 1n, buyer, 1000n, 1200n, 1100n]).slice(0, 10) : encodeCall(`${k}(bytes32)`, ['bytes32'], [key]).slice(0, 10)))!;
       assert.equal(record?.status, 'outcome-unknown'); if (flags.reject) throw flags.reject; return txHash; }
-    if (name === 'eth_getTransactionByHash') return { ...sent, from: flags.wrongTx ? buyer : actor, nonce: flags.wrongNonce ? '0xff' : sent!.nonce, input: flags.replacement ? '0x' : sent!.data, hash: txHash, blockHash, blockNumber: '0x64', transactionIndex: '0x0' };
+    const releaseIndex = flags.includePositions && flags.successorOrder === 'before' ? '0x1' : '0x0';
+    const admissionIndex = flags.successorOrder === 'before' ? '0x0' : '0x1';
+    const successorLog = { address: projection, transactionHash: localId, blockHash, blockNumber: '0x64', transactionIndex: admissionIndex,
+      logIndex: flags.successorOrder === 'before' ? '0x0' : '0x2', removed: false,
+      topics: [keccak256Utf8('RegisterSuperseded(uint256,uint64,bytes32,bytes32,address,uint64)'), encodeWords(['uint256'], [1n]), encodeWords(['uint64'], [3n]), registerId],
+      data: encodeWords(['bytes32', 'address', 'uint64'], [profile, seller, 1060n]) };
+    if (name === 'eth_getLogs' && flags.includePositions) {
+      assert.deepEqual(params, [{ address: projection, blockHash, topics: [successorLog.topics[0], successorLog.topics[1], successorLog.topics[2]] }]);
+      return flags.duplicateSuccessor ? [successorLog, successorLog] : [successorLog];
+    }
+    if (name === 'eth_getTransactionByHash') return { ...sent, from: flags.wrongTx ? buyer : actor, nonce: flags.wrongNonce ? '0xff' : sent!.nonce, input: flags.replacement ? '0x' : sent!.data, hash: txHash, blockHash, blockNumber: '0x64', transactionIndex: releaseIndex };
     if (name === 'eth_getTransactionReceipt') {
       if (flags.pending) return null;
+      if (params[0] === localId && flags.includePositions) return { status: flags.revertedAdmission ? '0x0' : '0x1', transactionHash: localId,
+        blockHash, blockNumber: '0x64', transactionIndex: admissionIndex, logs: [successorLog] };
       const addressWord = (a: string) => encodeWords(['address'], [a]);
       const events: Record<string, { topics: string[]; data: string }> = {
         approve: { topics: [keccak256Utf8('Approval(address,address,uint256)'), addressWord(seller), addressWord(escrow), encodeWords(['uint256'], [1n])], data: '0x' },
@@ -69,13 +92,45 @@ function fixture(actor = seller) {
       if (flags.releaseDataMismatch) events.release!.data = flags.releaseSchema === 'committed'
         ? encodeWords(['uint64', 'uint64'], [2n, 1050n])
         : encodeWords(['uint64', 'uint64', 'bytes32'], [2n, 1050n, profile]);
-      return { transactionHash: txHash, blockHash, blockNumber: '0x64', transactionIndex: '0x0', from: actor, to: sent!.to, status: flags.receiptStatus,
-        logs: flags.omitEvent ? [] : [{ ...events[method], address: sent!.to, transactionHash: txHash, blockHash, blockNumber: '0x64', transactionIndex: '0x0', removed: false }] };
+      return { transactionHash: txHash, blockHash, blockNumber: '0x64', transactionIndex: releaseIndex, from: actor, to: sent!.to, status: flags.receiptStatus,
+        logs: flags.omitEvent ? [] : [{ ...events[method], address: sent!.to, transactionHash: txHash, blockHash, blockNumber: '0x64', transactionIndex: releaseIndex, removed: false,
+          ...(flags.includePositions ? { logIndex: '0x0' } : {}) }] };
     }
     throw new Error(`unhandled ${name}`);
   } };
   return { flags, provider, store, session: () => new LegacyClearingSession(provider, deployment, actor, store), sends: () => sends, record: () => record };
 }
+
+// The actual session, not the test, constructs before/after classification from
+// canonical receipt metadata, bounded logs and independently decoded entries.
+for (const order of ['after', 'before']) test(`same-block ${order}: session wires receipt and entry provenance into product view`, async () => {
+  const f = fixture(), s = f.session();
+  Object.assign(f.flags, { state: 2n, confirmed: true, releaseSchema: 'committed', includePositions: true, successorOrder: order });
+  const review = await s.prepare(JSON.stringify({ kind: 'release', tradeKey: key }));
+  await s.submit(review, review.digest);
+  Object.assign(f.flags, { state: order === 'after' ? 3n : 2n, confirmed: false, observationVersion: 3n, observedHolder: seller,
+    receiptStatus: order === 'after' ? '0x1' : '0x0' });
+  const result = await s.observe(key);
+  assert.equal(result.view.releaseOrdering.classification, order === 'after' ? 'superseded-after-release' : 'superseded-before-release-attempt');
+  assert.equal(result.view.confirmingVersion, order === 'after' ? 2n : undefined);
+  assert.equal(result.view.confirmingRecordCommitment, order === 'after' ? profile : undefined);
+  assert.equal(result.view.releaseOrdering.evidence?.attempt.basisSource, order === 'after' ? 'release-event' : 'prepared-observation');
+  assert.equal(result.view.releaseOrdering.evidence?.supersession?.source, 'canonical-receipt-and-entry');
+  assert.equal(f.sends(), 1, 'Provenance reads cannot submit or replay a transaction');
+  assert.equal((await s.status()).status, 'submitted', 'Presentation cannot release the durable journal');
+});
+
+for (const failure of ['wrongSuccessorEntry', 'duplicateSuccessor', 'revertedAdmission'] as const)
+  test(`same-block invalid ${failure} remains unknown without losing actual release evidence`, async () => {
+    const f = fixture(), s = f.session();
+    Object.assign(f.flags, { state: 2n, confirmed: true, releaseSchema: 'committed', includePositions: true });
+    const review = await s.prepare(JSON.stringify({ kind: 'release', tradeKey: key })); await s.submit(review, review.digest);
+    Object.assign(f.flags, { state: 3n, confirmed: false, observationVersion: 3n }); f.flags[failure] = true;
+    const result = await s.observe(key);
+    assert.equal(result.view.releaseOrdering.classification, 'unknown');
+    assert.equal(result.view.confirmingVersion, 2n); assert.equal(result.view.confirmingRecordCommitment, profile);
+    assert.equal(f.sends(), 1); assert.equal((await s.status()).status, 'submitted');
+  });
 for (const kind of ['approve', 'open', 'fund', 'release', 'refund', 'abandon']) test(`legacy ${kind}: read/review, durable owner send, bound event receipt and acknowledgement`, async () => {
   const f = fixture(kind === 'fund' ? buyer : seller), s = f.session();
   f.flags.state = ['fund', 'abandon'].includes(kind) ? 1n : ['release', 'refund'].includes(kind) ? 2n : 0n;

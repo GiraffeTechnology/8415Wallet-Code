@@ -7,7 +7,7 @@ import { controlHex, controlRpc, controlPendingNonce, hashControlBytes, requireC
 import { isAddressInput } from '../xiongan/address.ts';
 import type { Address, Bytes32 } from '../sdk/types.ts';
 import { buildEscrowView } from './escrowView.ts';
-import type { ReleaseConfirmation } from '../sdk/escrow.ts';
+import type { ReleaseConfirmation, ReleaseAttemptEvidence, ReleaseOrderingEvidence, ReleaseSupersessionEvidence, Trade } from '../sdk/escrow.ts';
 
 /** Fixed, owner-reviewed legacy ProjectionEscrow actions. This is independent of
  * responsibility controls; it neither admits entries nor chooses trade remedies. */
@@ -25,7 +25,7 @@ export type LegacyClearingState = { schema: '8415-legacy-operation/1'; revision:
 export type LegacyClearingStore = { read(): Promise<LegacyClearingState | null>;
   compareAndSwap(expected: number | null, next: LegacyClearingState): Promise<boolean> };
 type Receipt = { state: 'pending' | 'reorged' | 'confirming' | 'confirmed' | 'reverted'; transactionHash: string; confirmations: string;
-  releaseConfirmation?: ReleaseConfirmation };
+  releaseConfirmation?: ReleaseConfirmation; releaseAttempt?: ReleaseAttemptEvidence };
 const ZERO = `0x${'0'.repeat(64)}`, ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
 const TRADE_TYPES: StaticType[] = ['address', 'uint256', 'address', 'address', 'uint256', 'uint64', 'uint64', 'uint64', 'uint8'];
 const OBSERVE_TYPES: StaticType[] = ['uint8', 'bool', 'uint64', 'uint64', 'address', 'address', 'uint64'];
@@ -180,11 +180,11 @@ export class LegacyClearingSession {
     check(trade.projection === this.#deployment.projection.address, 'CLEARING_TRADE_PROJECTION_REFUSED');
     const observation = await snapshot.reader.observe(key as Bytes32);
     check(observation.state === trade.state, 'CLEARING_OBSERVATION_MISMATCH');
-    let releaseConfirmation: ReleaseConfirmation | undefined;
+    let releaseConfirmation: ReleaseConfirmation | undefined, ordering: ReleaseOrderingEvidence | undefined;
     // Only use this session's still-retained, exact canonical release receipt.
     // Clearing the journal does not authorize guessing from current history.
     const saved = await this.#store.read();
-    if (trade.state === 'RELEASED' && saved !== null) {
+    if (saved !== null) {
       const operation = parseLegacyClearingState(json(saved));
       check(operation.chainId === this.#deployment.chainId && operation.actor === this.actor,
         'CLEARING_JOURNAL_BINDING_REFUSED');
@@ -194,13 +194,22 @@ export class LegacyClearingSession {
         operation.review?.action === 'release' && operation.review.tradeKey === key) {
         const receipt = await this.#receipt(operation, operation.transactionHash, 2n);
         if (receipt.state === 'confirmed') releaseConfirmation = receipt.releaseConfirmation;
+        if (receipt.releaseAttempt && receipt.releaseAttempt.position.blockNumber <= quantity(snapshot.block)) {
+          ordering = { attempt: receipt.releaseAttempt };
+          // Additional presentation evidence is not permission to replay, release
+          // a reservation or rewrite the retained transaction journal.
+          try {
+            const supersession = await this.#sameBlockSuccessor(trade, receipt.releaseAttempt);
+            if (supersession) ordering = { ...ordering, supersession };
+          } catch { /* Missing/pruned/inconsistent evidence remains unknown. */ }
+        }
       }
     }
     await this.#finish(snapshot.block, snapshot.blockHash);
     return { tradeKey: key, chainId: this.#deployment.chainId, escrow: this.#deployment.escrow.address,
       projection: this.#deployment.projection.address, registerId: this.#deployment.registerId, verificationProfile: this.#deployment.verificationProfile,
       blockNumber: snapshot.block, blockHash: snapshot.blockHash, now: snapshot.now.toString(), trade, observation,
-      view: buildEscrowView(trade, observation, snapshot.now, releaseConfirmation), notes: CLEARING_NOTES };
+      view: buildEscrowView(trade, observation, snapshot.now, releaseConfirmation, ordering), notes: CLEARING_NOTES };
   }
   async prepare(requestText: string, expiresAt?: string): Promise<LegacyClearingReview> {
     const r = request(requestText), d = this.#deployment, s = await this.#snapshot();
@@ -292,7 +301,18 @@ export class LegacyClearingSession {
     await this.#identity();
     const again = await this.#rpc('eth_getBlockByNumber', [hex(number), false]);
     if (again === null || hash(object(again).hash) !== blockHash) return result('reorged');
+    let releaseAttempt: ReleaseAttemptEvidence | undefined;
+    if (review.action === 'release') {
+      const facts = object(JSON.parse(review.facts)), observed = object(facts.observation);
+      releaseAttempt = { position: { blockNumber: number, blockHash: blockHash as Bytes32,
+        transactionHash: transactionHash as Bytes32, transactionIndex: quantity(receipt.transactionIndex) },
+        outcome: status === 1n ? 'released' : 'reverted',
+        basisVersion: effect?.releaseConfirmation?.version ?? uint(observed.version, 64),
+        basisSource: effect?.releaseConfirmation ? 'release-event' : 'prepared-observation',
+        ...(effect?.releaseConfirmation?.recordCommitment ? { basisCommitment: effect.releaseConfirmation.recordCommitment } : {}) };
+    }
     return { ...result(status === 0n ? 'reverted' : 'confirmed', count),
+      ...(releaseAttempt ? { releaseAttempt } : {}),
       ...(effect?.releaseConfirmation ? { releaseConfirmation: effect.releaseConfirmation } : {}) };
   }
   #effect(receipt: Record<string, unknown>, review: LegacyClearingReview, transactionHash: string, blockHash: string, number: bigint): { observed: boolean; releaseConfirmation?: ReleaseConfirmation } {
@@ -325,12 +345,50 @@ export class LegacyClearingSession {
         if ((fields[0] as bigint) <= BigInt(trade.entryCountAtFunding as string) ||
           (fields[1] as bigint) > BigInt(trade.maxEffectiveAt as string)) return false;
         releaseConfirmation = { version: fields[0] as bigint, effectiveAt: fields[1] as bigint,
-          ...(newRelease ? { recordCommitment: hash(fields[2]) as Bytes32 } : {}) };
+          ...(newRelease ? { recordCommitment: hash(fields[2]) as Bytes32 } : {}),
+          ...(typeof log.logIndex === 'string' ? { position: { blockNumber: number, blockHash: blockHash as Bytes32,
+            transactionHash: transactionHash as Bytes32, transactionIndex: quantity(receipt.transactionIndex), logIndex: quantity(log.logIndex) } } : {}) };
         return true;
       }
       return true;
     });
     return { observed, ...(releaseConfirmation ? { releaseConfirmation } : {}) };
+  }
+  async #sameBlockSuccessor(trade: Trade, attempt: ReleaseAttemptEvidence): Promise<ReleaseSupersessionEvidence | undefined> {
+    const version = attempt.basisVersion, p = attempt.position, d = this.#deployment;
+    if (version <= 0n || version >= (1n << 64n) - 1n) return;
+    const topic = keccak256Utf8('RegisterSuperseded(uint256,uint64,bytes32,bytes32,address,uint64)');
+    const raw = await this.#rpc('eth_getLogs', [{ address: d.projection.address, blockHash: p.blockHash,
+      topics: [topic, encodeWords(['uint256'], [trade.tokenId]), encodeWords(['uint64'], [version + 1n])] }]);
+    check(Array.isArray(raw) && raw.length === 1, 'CLEARING_SUPERSESSION_UNOBSERVED');
+    const log = object(raw[0]), transactionHash = hash(log.transactionHash), index = quantity(log.transactionIndex), logIndex = quantity(log.logIndex);
+    check(typeof log.address === 'string' && log.address.toLowerCase() === d.projection.address && log.removed === false &&
+      hash(log.blockHash) === p.blockHash && quantity(log.blockNumber) === p.blockNumber && Array.isArray(log.topics) &&
+      log.topics.length === 4 && log.topics[0] === topic && log.topics[1] === encodeWords(['uint256'], [trade.tokenId]) &&
+      log.topics[2] === encodeWords(['uint64'], [version + 1n]), 'CLEARING_SUPERSESSION_BINDING_REFUSED');
+    const successorCommitment = hash(log.topics[3]) as Bytes32;
+    const values = decoded(['bytes32', 'address', 'uint64'], log.data), predecessorCommitment = hash(values[0]) as Bytes32;
+    const block = hex(p.blockNumber), entryTypes: StaticType[] = ['bytes32', 'bytes32', 'bytes32', 'address', 'uint64', 'uint64', 'uint64'];
+    const previous = await this.#call(d.projection.address, block, 'entryAt(uint256,uint64)', ['uint256', 'uint64'], [trade.tokenId, version], entryTypes);
+    const next = await this.#call(d.projection.address, block, 'entryAt(uint256,uint64)', ['uint256', 'uint64'], [trade.tokenId, version + 1n], entryTypes);
+    check(previous[0] === predecessorCommitment && previous[4] === version && previous[6] === values[2] &&
+      next[0] === successorCommitment && next[1] === predecessorCommitment && next[3] === values[1] &&
+      next[4] === version + 1n && next[5] === values[2] &&
+      (attempt.basisCommitment === undefined || attempt.basisCommitment === predecessorCommitment), 'CLEARING_SUPERSESSION_ENTRY_MISMATCH');
+    const receipt = object(await this.#rpc('eth_getTransactionReceipt', [transactionHash]));
+    check(quantity(receipt.status) === 1n && hash(receipt.transactionHash) === transactionHash &&
+      hash(receipt.blockHash) === p.blockHash && quantity(receipt.blockNumber) === p.blockNumber &&
+      quantity(receipt.transactionIndex) === index && Array.isArray(receipt.logs) && receipt.logs.some((item: unknown) => {
+        const member = object(item);
+        return member.address === log.address && member.transactionHash === log.transactionHash && member.blockHash === log.blockHash &&
+          member.blockNumber === log.blockNumber && member.transactionIndex === log.transactionIndex && member.logIndex === log.logIndex &&
+          member.removed === false && json(member.topics) === json(log.topics) && member.data === log.data;
+      }), 'CLEARING_SUPERSESSION_RECEIPT_MISMATCH');
+    await this.#finish(block, p.blockHash);
+    return { source: 'canonical-receipt-and-entry', scope: 'release-block-only',
+      position: { blockNumber: p.blockNumber, blockHash: p.blockHash, transactionHash: transactionHash as Bytes32, transactionIndex: index, logIndex },
+      supersededVersion: version, supersededCommitment: predecessorCommitment, successorVersion: version + 1n,
+      successorCommitment, effectiveAt: values[2] as bigint };
   }
   async reconcile(minimum = 2n): Promise<Receipt> {
     const state = await this.status(); check(state.status === 'submitted' && state.transactionHash !== null, 'CLEARING_KNOWN_HASH_REQUIRED');

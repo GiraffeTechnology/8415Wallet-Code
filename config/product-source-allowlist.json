@@ -1795,8 +1795,8 @@
     {
       "path": "src/sdk/escrow.ts",
       "mode": "100644",
-      "git_blob_sha1": "a8286cf26d8e6be01de2f5e7144a6d62566955db",
-      "sha256": "fd030bff1a8696fa577bfabcfbe756181e70a23752ee0ab4031efedd1da5dc68"
+      "git_blob_sha1": "021573b64163e6dd82900c1ae7127a98c04778f0",
+      "sha256": "c5827aa3b695bd54cc040538ce6e575c46ab14600955d37d8144d93f66754b99"
     },
     {
       "path": "src/sdk/events.ts",
@@ -1915,8 +1915,8 @@
     {
       "path": "src/wallet/escrowView.ts",
       "mode": "100644",
-      "git_blob_sha1": "f1cf34a79f0663ad551af684f71beede24d3e21f",
-      "sha256": "003ecaee98146f299f6789b39be4f848811badaa2afba57912de08b44c58ffc7"
+      "git_blob_sha1": "d0e0c9efbdae1d2c2aab6eb23eef928c42457448",
+      "sha256": "57f7da378bdcc9353a1d9a35c58a813742995a2b5f53ad3a3ed3efae2c332cad"
     },
     {
       "path": "src/wallet/finality.ts",
@@ -1963,8 +1963,8 @@
     {
       "path": "src/wallet/legacyClearingSession.ts",
       "mode": "100644",
-      "git_blob_sha1": "1548407521a9256dc48829254b0c1442ede56e84",
-      "sha256": "926ad47cd410dcb64fc69d7b42b50dd1fcc4ced06d5b0636fc9d4e123ba07c9d"
+      "git_blob_sha1": "6ded3c0f15d7803c447020effc6ccdf43046aa7a",
+      "sha256": "c4b7919e1c4a1e282a3e17f4af3d633b34c21c523e16d75eb2b8a00e220f7774"
     },
     {
       "path": "src/wallet/linkedChainView.ts",
@@ -2479,8 +2479,8 @@
     {
       "path": "web/native-i18n.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b7a4b04fe5d3f29f084b579f816ee4f51505d5ed",
-      "sha256": "3f97185fd6e64d123bc28236fa7e5c2d14ebc011298939a0e29096a50bfffb39"
+      "git_blob_sha1": "0f07351a04e44cd8307f87d34f5e8cdb626e64e6",
+      "sha256": "da069f0ef2191309b5896203dfb87f682b209c7e5d90a878df4909f794bb23e2"
     },
     {
       "path": "web/observation-details-flow.mjs",
@@ -2685,8 +2685,12 @@
       "mode": "100644",
       "git_blob_sha1": "eaa99afc3ff705faf5dbc5b7d28cf034e1c51757",
       "sha256": "17f27cc7faaa00395ed6cc111f10e6457219d39b9727aa211de096e017f2f1c8"
+    },
+    {
+      "path": "web/escrow-ordering-i18n.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "8d2c91e5e756b1666c8496cc388236723568f712",
+      "sha256": "0b7c51971e9ed168fb08daa588944474be687b3dea4060e05e587703700104e1"
     }
   ]
 }
-
-

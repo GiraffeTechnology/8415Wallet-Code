@@ -1,5 +1,6 @@
 /** Explicit, first-party native presentation boundary. Never apply to token data. */
 import nativeSource from './locales/native-en.mjs';
+import { escrowOrderingDisplay } from './escrow-ordering-i18n.mjs';
 import fragments from './locales/native-fragments.mjs';
 const source = { ...nativeSource, ...fragments.en };
 import { getLocale, t, jsonUi, presentation, trustedMessage } from './i18n.mjs';
@@ -65,7 +66,8 @@ export function clearingDisplay(observation) {
   if (!observation?.view) return jsonUi(observation);
   const view = observation.view;
   return jsonUi({ ...observation, notes: typeof observation.notes === 'string' ? trustedMessage(observation.notes) : observation.notes, view: { ...view, headline: nativeText(view.headline), meaning: nativeText(view.meaning), action: nativeText(view.action),
-    ...(view.provisionalNote === undefined ? {} : { provisionalNote: nativeText(view.provisionalNote) }) } });
+    ...(view.provisionalNote === undefined ? {} : { provisionalNote: nativeText(view.provisionalNote) }),
+    ...(view.releaseOrdering === undefined ? {} : { releaseOrdering: escrowOrderingDisplay(view.releaseOrdering) }) } });
 }
 
 export const checkDisplay = values => values.map(check => ({ ...check, name: nativeText(check.name), detail: nativeText(check.detail) }));
