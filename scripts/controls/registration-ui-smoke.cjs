@@ -43,31 +43,126 @@ async function run() {
         state.changeAccount = actor => { state.actor = actor; for (const fn of listeners.get('accountsChanged') ?? []) fn(); };
       }, { actor: newWallet.address });
       const page = installScreenNavigation(await context.newPage()); page.on('pageerror', error => errors.push(error.message));
-      const post = async (button, endpoint) => { const wait = page.waitForResponse(r => r.url().endsWith(`/auth/${endpoint}`)); await page.click(button); return (await wait).json(); };
-      const login = async identifier => {
-        await page.selectOption('#wallet-login-method', 'password'); await page.fill('#auth-username', identifier); await page.fill('#auth-password', password); await page.click('#wallet-login');
-        await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled); await page.click('#auth-manage-open');
+      const post = async (button, endpoint, expectedStatus = 200) => { const wait = page.waitForResponse(r => r.url().endsWith(`/auth/${endpoint}`)); await page.click(button); const response = await wait; assert.equal(response.status(), expectedStatus, 'Registration endpoint must return its expected status'); return response.json(); };
+      const openRegistration = async () => {
+        if (!await page.locator('#public-home').isVisible()) await page.locator('.foundation-public-nav [data-public-route="home"]').click();
+        await page.locator('#public-home [data-public-route="register"]').click();
       };
+      const chooseSetup = async step => {
+        if (!await page.locator('#auth-management').isVisible()) await page.click('#auth-manage-open');
+        if (!await page.locator('#auth-setup-menu').isVisible()) await page.click('#auth-management-back');
+        await page.click(`#auth-setup-${step}-open`);
+      };
+      const login = async identifier => {
+        if (await page.locator('#wallet-private').evaluate(node => node.hidden) && await page.locator('#auth-management-view').isVisible()) await page.locator('#auth-management-close').click();
+        await page.selectOption('#wallet-login-method', 'password'); await page.fill('#auth-username', identifier); await page.fill('#auth-password', password); await page.click('#wallet-login');
+        await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled); await chooseSetup('email');
+      };
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'page-load', profile, width }));
       await page.goto(`${origin}/web/index.html`); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
-      await page.click('#auth-registration-open'); await page.fill('#auth-registration-email', email);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'open-register', profile, width }));
+      await openRegistration(); await page.fill('#auth-registration-email', email);
       for (const locale of LOCALES) { await page.selectOption('#ui-locale', locale.id); assert.equal(await page.textContent('#auth-registration-start'), CATALOGS[locale.id]['registration.send']); assert.equal(await page.inputValue('#auth-registration-email'), email); }
       assert.deepEqual(authRequests, []); assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
       await page.selectOption('#ui-locale', 'en'); await page.keyboard.press('Escape'); assert.equal(await page.locator('#auth-registration').isVisible(), false);
-      await page.click('#auth-registration-open'); await page.fill('#auth-registration-email', email);
+      assert.equal(await page.locator('#existing-user-panel').isVisible(), true, 'Escape must return to existing-wallet choices');
+      assert.equal(await page.locator('#login-panel').isVisible(), false, 'Cancelling Register must not select Login');
+      assert.equal(await page.locator('#registration-panel').isVisible(), false);
+      assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
+      assert.deepEqual(authRequests, []); assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'pending-start-cancellation', profile, width }));
+      // Real raw-page Escape while a successful start response is held in transport.
+      await openRegistration(); await page.locator('#auth-registration-email').fill('cancelled-user@example.invalid');
+      let releaseStart, seenStart, heldStartStatus;
+      const startGate = new Promise(resolve => { releaseStart = resolve; });
+      const startSeen = new Promise(resolve => { seenStart = resolve; });
+      await page.route('**/auth/registration/start', async route => {
+        const response = await route.fetch(); heldStartStatus = response.status(); seenStart(); await startGate; await route.fulfill({ response });
+      });
+      try {
+        await page.locator('#auth-registration-start').click(); await startSeen;
+        assert.equal(heldStartStatus, 200, 'Cancellation scenario holds an actual successful start response');
+        await page.keyboard.press('Escape'); await page.locator('#existing-user-panel').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#registration-panel').isVisible(), false);
+        assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
+        assert.equal(await page.locator('#auth-registration-start').isDisabled(), true);
+        assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      } finally { releaseStart(); }
+      await page.waitForLoadState('networkidle'); await page.unroute('**/auth/registration/start');
+      assert.equal(await page.locator('#existing-user-panel').isVisible(), true);
+      assert.equal(await page.locator('#auth-registration').isVisible(), false);
+      assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      assert.equal(authRequests.some(value => value === '/auth/registration/verify' || value === '/auth/registration/confirm'), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'open-register', profile, width }));
+      await openRegistration(); await page.fill('#auth-registration-email', email);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'pending-start-history-back', profile, width }));
+      await openRegistration(); await page.locator('#auth-registration-email').fill('back-cancelled-user@example.invalid');
+      let releaseBackStart, seenBackStart, backStartStatus;
+      const backGate = new Promise(resolve => { releaseBackStart = resolve; });
+      const backSeen = new Promise(resolve => { seenBackStart = resolve; });
+      const backRequestStart = authRequests.length;
+      await page.route('**/auth/registration/start', async route => {
+        const response = await route.fetch(); backStartStatus = response.status(); seenBackStart();
+        await backGate; await route.fulfill({ response });
+      });
+      try {
+        await page.locator('#auth-registration-start').click(); await backSeen;
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 1, profile, width }));
+        assert.equal(backStartStatus, 200);
+        await page.evaluate(() => globalThis.history.back());
+        await page.locator('#public-home').waitFor({ state: 'visible' });
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 2, profile, width }));
+        assert.equal(await page.locator('#auth-registration').isVisible(), false);
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 3, profile, width }));
+        assert.equal(await page.locator('#auth-registration-email').inputValue(), '');
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 4, profile, width }));
+        assert.equal(await page.locator('#auth-registration-start').isDisabled(), true, 'Back preserves the unresolved request lock');
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 5, profile, width }));
+        assert.equal(await page.evaluate(async () => (await import('/web/ui-lock.mjs')).walletUiBusy()), true);
+        console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 6, profile, width }));
+        assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      } finally { releaseBackStart(); }
+      await page.waitForLoadState('networkidle'); await page.unroute('**/auth/registration/start');
+      // Transport idleness can precede the original request's finally callback.
+      // Wait for the real business-lock release; a stuck lock still times out.
+      await page.waitForFunction(async () => !(await import('/web/ui-lock.mjs')).walletUiBusy());
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 7, profile, width }));
+      assert.equal(await page.evaluate(async () => (await import('/web/ui-lock.mjs')).walletUiBusy()), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 8, profile, width }));
+      assert.equal(await page.locator('#public-home').isVisible(), true);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 9, profile, width }));
+      assert.equal(await page.locator('#auth-registration').isVisible(), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 10, profile, width }));
+      assert.equal(await page.locator('#wallet-private').isVisible(), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 11, profile, width }));
+      assert.equal(authRequests.slice(backRequestStart).filter(value => value === '/auth/registration/start').length, 1);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 12, profile, width }));
+      assert.equal(authRequests.slice(backRequestStart).some(value => value === '/auth/registration/verify' || value === '/auth/registration/confirm'), false);
+      console.error(JSON.stringify({ check: 'REGISTRATION_BACK_ASSERTION', index: 13, profile, width }));
+      assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []);
+      await openRegistration(); await page.fill('#auth-registration-email', email);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'start-verification', profile, width }));
       await post('#auth-registration-start', 'registration/start'); assert.equal(mail.at(-1).purpose, 'registration');
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []); assert.equal(await store.read(`@registration:${config.tenant.id}`), null);
-      await page.fill('#auth-registration-code', mail.at(-1).code === '00000000' ? '11111111' : '00000000'); const refused = await post('#auth-registration-verify', 'registration/verify');
+      await page.fill('#auth-registration-code', mail.at(-1).code === '00000000' ? '11111111' : '00000000'); const refused = await post('#auth-registration-verify', 'registration/verify', 401);
       assert.equal(refused.error, 'AUTH_REFUSED');
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'verify-email', profile, width }));
       await page.fill('#auth-registration-code', mail.at(-1).code); await post('#auth-registration-verify', 'registration/verify');
       await page.waitForFunction(() => !document.getElementById('auth-registration-wallet-fields').hidden);
       assert.deepEqual(await page.evaluate(() => __registrationTest.calls), []); assert.equal(await store.read(`@registration:${config.tenant.id}`), null);
       await page.fill('#auth-registration-password', password); await page.fill('#auth-registration-password-confirm', password);
-      await page.click('#auth-registration-finish'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('auth-registration-account').hidden);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'finish-registration', profile, width }));
+      await page.click('#auth-registration-finish'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden && !document.getElementById('wallet-login').disabled);
+      console.error(JSON.stringify({ check: 'REGISTRATION_STAGE', stage: 'setup-menu', profile, width }));
+      await page.locator('#auth-setup-menu').waitFor({ state: 'visible' });
       assert.equal(await page.inputValue('#auth-registration-password'), ''); assert.equal(await page.locator('#auth-registration').isVisible(), false);
+      await chooseSetup('recovery');
       assert.equal(await page.inputValue('#auth-reserved-email'), email); assert.equal(await page.getAttribute('#auth-reserved-email', 'readonly'), '');
+      await chooseSetup('methods');
       assert.equal(await page.isChecked('#auth-enable-password'), true); assert.equal(await page.isChecked('#auth-enable-wallet'), true);
       const directory = await store.read(`@registration:${config.tenant.id}`); assert.equal(directory.records.length, 1); assert.equal(directory.records[0].email, email);
       assert.deepEqual(directory.records[0].ordinaryAccount.caFingerprints, []); assert.equal(directory.records[0].ordinaryAccount.admin, undefined);
+      await chooseSetup('recovery');
       await page.fill('#auth-reserved-answer', 'synthetic private recovery phrase');
       const recovery = await change.commit(page, '#auth-recovery-enroll', { password }, () => mail.at(-1));
       assert.equal(recovery.status, 200); assert.equal(mail.at(-1).to, email); assert.equal(mail.at(-1).purpose, 'method-change'); await page.waitForFunction(() => document.getElementById('wallet-private').hidden);
@@ -78,7 +173,8 @@ async function run() {
       assert.match(await page.textContent('#auth-registration-account-state'), /needs a verified/);
       await page.fill('#auth-registration-account-email', 'legacy@example.invalid'); await page.click('#auth-registration-account-start');
       assert.equal((await change.identity(page, { password })).status, 200);
-      assert.equal(mail.at(-1).purpose, 'method-change'); assert.equal(await page.locator('#wallet-private').isVisible(), true);
+      assert.equal(mail.at(-1).purpose, 'method-change');
+      assert.equal(await page.locator('#wallet-private').evaluate(node => !node.hidden && !node.inert), true, 'email migration retains the authenticated session while its separate screen is open');
       const migration = change.changeResponse(page, 'commit'); await change.email(page, mail.at(-1).code); assert.equal((await migration).status(), 200); await page.waitForFunction(() => document.getElementById('wallet-private').hidden);
       await login('LEGACY@EXAMPLE.INVALID'); assert.match(await page.textContent('#auth-registration-account-state'), /l\*\*\*@example.invalid/);
       assert.equal((await store.read(`@registration:${config.tenant.id}`)).records.length, 2);

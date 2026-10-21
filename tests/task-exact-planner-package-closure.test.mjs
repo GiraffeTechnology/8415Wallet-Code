@@ -90,9 +90,9 @@ test('actual checked-in source inspection resolves the installed runtime import 
     assert.equal(graph.files.includes(path), false);
   }
   assert.deepEqual(graph.files, [...new Set([...TASK_RUNTIME_SOURCE_PATHS.filter(path => !typeOnlyInputs.includes(path)), ...TASK_RECEIPT_RUNTIME_FILES,
-    ...['account-directory', 'auth-service', 'ca-verifier', 'config-validation', 'crypto', 'mail-config', 'mail-otp', 'main',
+    ...['account-directory', 'auth-service', 'ca-verifier', 'config-validation', 'crypto', 'login-identifier', 'mail-config', 'mail-otp', 'main',
       'method-change-service', 'recovery-service', 'registration-service', 'socket-path', 'store',
-      'task-authorization', 'task-background-runner', 'task-verification-policy'].map(name => `server/${name}.mjs`), 'web/login-core.mjs'])].sort());
+      'task-authorization', 'task-background-runner', 'task-verification-policy'].map(name => `server/${name}.mjs`), 'web/login-core.mjs', 'web/wallet-entry.mjs'])].sort());
   assert.deepEqual(graph.dependencies, ['@artfi/task-listing-runtime/server', 'ethers']);
 });
 
@@ -230,7 +230,7 @@ test('isolated planner imports with native Node type stripping and pinned offlin
 test('fresh offline auth dependency installation passes the build import probe and refuses missing planner or ethers', { timeout: 180000 }, () => {
   const directory = mkdtempSync(join(tmpdir(), 'wallet-exact-planner-auth-'));
   try {
-    copyRuntime(directory, [...new Set([probeEntry, ...listingEntries, ...TASK_RUNTIME_SOURCE_PATHS, ...readdirSync(join(root, 'server')).filter(name => name.endsWith('.mjs')).map(name => `server/${name}`), 'web/login-core.mjs', 'server/store.mjs', 'vendor/artfi-task-listing-runtime-1.0.0.tgz', ...TASK_EXACT_SIGNER_RUNTIME_FILES, ...TASK_RECEIPT_RUNTIME_FILES])]);
+    copyRuntime(directory, [...new Set([probeEntry, ...listingEntries, ...TASK_RUNTIME_SOURCE_PATHS, ...readdirSync(join(root, 'server')).filter(name => name.endsWith('.mjs')).map(name => `server/${name}`), 'web/login-core.mjs', 'web/wallet-entry.mjs', 'server/store.mjs', 'vendor/artfi-task-listing-runtime-1.0.0.tgz', ...TASK_EXACT_SIGNER_RUNTIME_FILES, ...TASK_RECEIPT_RUNTIME_FILES])]);
     const { manifest, lock } = runtimePackage(readJson('package.json'), readJson('package-lock.json'));
     writeFileSync(join(directory, 'package.json'), JSON.stringify(manifest));
     writeFileSync(join(directory, 'package-lock.json'), JSON.stringify(lock));

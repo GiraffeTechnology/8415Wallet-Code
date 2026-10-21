@@ -7,17 +7,34 @@ import { getReleaseProfile } from './release-profile.mjs';
 import { acquireWalletUi, releaseWalletUi } from './ui-lock.mjs';
 import { clearEnrollmentQr, renderEnrollmentQr } from './enrollment-qr.mjs';
 import { authorizeMethodChange, commitMethodChange, cancelMethodChangeUi } from './method-change-ui.mjs';
+import { loginIdentifier, requestedWalletPath } from './wallet-entry.mjs';
 
-export { WalletLoginError, currentAccountClient, currentAccountFeatures, subscribeAccountSettings };
+export { WalletLoginError, currentAccountClient, currentAccountFeatures, subscribeAccountSettings, subscribeAgentPolicySettings };
 function currentAccountFeatures() { return currentSession()?.serverId ? { forwardProgressAvailable: accountState?.forwardProgressAvailable === true } : null; }
 export const walletLogin = new WalletLogin({ crypto: { verifyMessage, getAddress, hashMessage, Interface }, origin: () => globalThis.location.origin });
 // Only the current authenticated account client supplies cookie/CSRF task requests.
 function currentAccountClient() { return walletLogin.assert().serverId ? accountClient : null; }
 const el = id => document.getElementById(id);
 let timer = null, signing = false, attemptRevision = 0, accountClient = null, enrollmentTimer = null;
-let managementProfile = null;
+let managementProfile = null, managementStep = null, managementContext = null, managementReauthStep = null;
+let platformRelease = false, releaseManagementContext = null;
 let moduleOpen = false, accountState = null, managementTimer = null, enrollmentId = null, enrollmentRevision = 0, enrollmentProof = null;
 const accountSettingsListeners = new Set();
+const agentPolicySettingsListeners = new Set();
+let agentPolicySettingsOpen = false;
+function subscribeAgentPolicySettings(listener) {
+  if (typeof listener !== 'function') throw new TypeError('Agent policy settings listener required');
+  agentPolicySettingsListeners.add(listener);
+  try { listener(agentPolicySettingsOpen); } catch (error) { agentPolicySettingsListeners.delete(listener); throw error; }
+  return () => agentPolicySettingsListeners.delete(listener);
+}
+function notifyAgentPolicySettings(open) {
+  if (agentPolicySettingsOpen === open) return;
+  agentPolicySettingsOpen = open;
+  for (const listener of agentPolicySettingsListeners) {
+    try { listener(open); } catch { /* An optional reader cannot interrupt auth cleanup. */ }
+  }
+}
 function subscribeAccountSettings(listener) {
   if (typeof listener !== 'function') throw new TypeError('Account settings listener required');
   accountSettingsListeners.add(listener);
@@ -75,27 +92,44 @@ function clearEnrollment() {
 function renderManagement() {
   el('auth-management').hidden = !moduleOpen;
   for (const id of ['auth-initial-open', 'auth-manage-open']) {
-    el(id).disabled = managementProfile !== 'local';
-    el(id).hidden = managementProfile === 'platform';
+    el(id).disabled = managementProfile === null;
+    el(id).hidden = false;
     el(id).setAttribute?.('aria-expanded', String(moduleOpen));
   }
   const session = currentSession(), verified = !!session?.serverId && !!accountState, fresh = verified && freshManagement();
-  el('auth-method-states').hidden = !verified;
-  el('auth-enrollment').hidden = !verified || !fresh;
+  el('auth-method-states').hidden = !verified || managementStep !== 'methods';
+  el('auth-enrollment').hidden = !verified || !fresh || managementStep !== 'totp';
   el('auth-existing-fields').hidden = true;
-  el('auth-reauthenticate').hidden = !moduleOpen || (verified && fresh);
+  el('auth-reauthenticate').hidden = !moduleOpen || !managementStep || managementStep === 'policy' || managementProfile !== 'local' || (verified && fresh);
   for (const method of methods) paint(el(`auth-state-${method}`), verified ? msg(accountState.methods[method].bound ?
     accountState.methods[method].enabled ? 'account.enabled' : accountState.methods[method].available === false ? 'account.unavailable' : 'account.disabled' : 'account.notBound') : '');
   for (const method of methods) {
     el(`auth-enable-${method}`).checked = verified && accountState.methods[method].enabled;
     el(`auth-enable-${method}`).disabled = !fresh || !accountState?.methods[method].bound || accountState?.methods[method].available === false;
   }
-  paint(el('auth-management-status'), msg(verified ? fresh ? 'change.combined' : 'account.freshRequired' : 'account.signInRequired'));
+  paint(el('auth-management-status'), managementStep === 'policy' ? '' : msg(managementProfile === 'platform' ? 'entry.resolverUnavailable' : !managementStep ? 'entry.chooseSetup' : verified ? fresh ? 'change.combined' : 'account.freshRequired' : 'entry.verifyHelp'));
   paint(el('auth-enrollment-title'), msg(accountState?.authenticator.enrolled ? 'account.reset' : 'ui.020'));
   paint(el('auth-enroll-start'), msg(accountState?.authenticator.enrolled ? 'account.reset' : 'ui.024'));
-  el('auth-initial-guide').hidden = verified && accountState.authenticator.enrolled;
-  el('auth-reset-guide').hidden = verified && !accountState.authenticator.enrolled;
+  el('auth-initial-guide').hidden = managementStep !== 'totp' || !verified || accountState.authenticator.enrolled;
+  el('auth-reset-guide').hidden = managementStep !== 'totp' || !verified || !accountState.authenticator.enrolled;
   enrollmentControls(); renderRecovery(); renderRegistration();
+  // Choosing an operation changes presentation only; existing server proofs own authority.
+  el('auth-setup-menu').hidden = !!managementStep;
+  el('auth-management-back').hidden = !managementStep;
+  const labels = { totp: 'entry.authenticator', password: 'account.passwordTitle', methods: 'account.methods', email: 'registration.migrateTitle', recovery: 'recovery.title', policy: 'entry.agentPolicy' };
+  el('auth-management-step-title').hidden = !managementStep;
+  paint(el('auth-management-step-title'), managementStep ? msg(labels[managementStep]) : '');
+  for (const step of ['methods', 'email', 'recovery', 'policy']) el(`auth-setup-${step}-open`).hidden = !verified;
+  for (const step of Object.keys(labels)) el(`auth-setup-${step}-open`).disabled = managementProfile === null;
+  const needsEmail = verified && !!managementStep && managementStep !== 'policy' && !accountState.registration.complete && !accountState.recovery.configured;
+  el('auth-password-settings').hidden = managementProfile !== 'local' || managementStep !== 'password' || needsEmail;
+  el('auth-registration-account').hidden = !verified || (managementStep !== 'email' && !needsEmail);
+  el('auth-recovery-settings').hidden = !verified || managementStep !== 'recovery' || needsEmail;
+  if (needsEmail) { el('auth-enrollment').hidden = true; el('auth-method-states').hidden = true; }
+  el('auth-management-verification').hidden = !moduleOpen || !managementStep || managementStep === 'policy' || fresh || managementProfile !== 'local';
+  if (managementContext) paint(el('auth-management-tenant-context'), msg(managementProfile === 'local' ? 'entry.currentWallet' : 'entry.platformContext', { wallet: managementContext }));
+  notifyAgentPolicySettings(moduleOpen && verified && managementProfile === 'local' && managementStep === 'policy');
+  document.dispatchEvent?.(new CustomEvent('wallet:authentication-view', { detail: { open: moduleOpen } }));
 }
 async function loadAccount() {
   const client = accountClient, binding = walletLogin.capture(), revision = attemptRevision;
@@ -116,6 +150,21 @@ async function loadAccount() {
   }
 }
 walletLogin.subscribe((session, reason) => {
+  if (platformRelease) {
+    const requested = requestedWalletPath(globalThis.location);
+    // A known path keeps the verification form reachable during reauthentication;
+    // it never supplies verified/fresh account state or method-change authority.
+    managementProfile = session?.serverId && session.walletRoute || moduleOpen && requested ? 'local' : 'platform';
+    managementContext = session?.walletRoute?.walletName ?? requested?.slice(1) ?? releaseManagementContext;
+  }
+  if (!session) {
+    const continuingReauthentication = managementReauthStep && moduleOpen && ['LOGIN_REQUIRED', 'LOGIN_STARTING'].includes(reason);
+    if (continuingReauthentication) managementStep = managementReauthStep;
+    else {
+      managementReauthStep = null;
+      if (!['password', 'totp'].includes(managementStep) || ['LOGIN_ACCOUNT_CHANGED', 'LOGIN_CHAIN_CHANGED', 'LOGIN_ACCOUNT_OR_CHAIN_CHANGED', 'LOGIN_DISCONNECTED'].includes(reason)) managementStep = null;
+    }
+  } else managementReauthStep = null;
   clearTimeout(timer); clearTimeout(managementTimer); enrollmentRevision++; capabilityRevision++; accountState = null;
   cancelMethodChangeUi(); clearPassword();
   if (!(signupAuthenticating && reason === 'LOGIN_STARTING')) {
@@ -147,9 +196,13 @@ el('wallet-login').addEventListener('click', async () => {
     paint(el('wallet-login-status'), msg('message.018'));
     const method = el('wallet-login-method').value || 'wallet-local';
     const credentials = { username: el('auth-username').value, password: el('auth-password').value, code: el('auth-code').value, recovery: el('auth-recovery').checked === true };
+    const platform = isPlatformPasswordProfile(profile);
+    const identifier = platform ? loginIdentifier(el('password-tenant-select').value) : null;
+    if (platform && (!identifier || method === 'wallet-local')) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
     if (method === 'wallet-local') { accountClient = null; await walletLogin.signIn(globalThis.ethereum); }
     else {
-      accountClient = new AccountAuthClient({ tenant: profile.tenant.id });
+      accountClient = new AccountAuthClient({ tenant: profile.tenant.id,
+        ...(platform ? { loginEntry: { identifier, requestedWalletPath: requestedWalletPath(globalThis.location) } } : {}) });
       const adapter = accountClient.adapter(method, credentials);
       el('auth-password').value = ''; el('auth-code').value = '';
       await walletLogin.signIn(globalThis.ethereum, adapter);
@@ -166,7 +219,8 @@ el('wallet-login').addEventListener('click', async () => {
     try { walletLogin.assert(); } catch { el('wallet-logout').hidden = true; }
   }
 });
-function cancelLogin() {
+function cancelLogin({ preserveManagementStep = false } = {}) {
+  managementReauthStep = preserveManagementStep && moduleOpen ? managementStep : null;
   const pendingRegistration = signupClient; signupClient = null;
   if (pendingRegistration) void pendingRegistration.cancelRegistration();
   attemptRevision++; enrollmentRevision++; recoveryRevision++; registrationRevision++; migrationRevision++; capabilityRevision++;
@@ -187,11 +241,11 @@ function renderLoginMethod() {
   paint(el('wallet-login'), msg(labels[method] ?? 'ui.018'));
   paint(el('auth-method-help'), method === 'wallet-local' ? msg('ui.017') : method === 'ca' ? msg('message.020') : msg('message.021'));
 }
-function methodChanged() { cancelLogin(); el('auth-password').value = ''; el('auth-code').value = ''; renderLoginMethod(); }
+function methodChanged() { cancelLogin({ preserveManagementStep: moduleOpen }); el('auth-password').value = ''; el('auth-code').value = ''; el('auth-recovery').checked = false; renderLoginMethod(); }
 el('wallet-login-method').addEventListener('change', methodChanged);
 el('auth-recovery').addEventListener('change', renderLoginMethod);
 function verifyAgain() {
-  cancelLogin(); accountState = null;
+  cancelLogin({ preserveManagementStep: true }); accountState = null;
   if (!['password', 'wallet', 'ca'].includes(el('wallet-login-method').value)) el('wallet-login-method').value = 'wallet';
   renderLoginMethod(); renderManagement(); el('wallet-login-method').focus?.();
   document.dispatchEvent?.(new CustomEvent('wallet:authentication-method'));
@@ -212,19 +266,53 @@ async function loadManagementCapabilities() {
   passwordControls();
 }
 async function openManagement({ initial = false } = {}) {
-  // Ignore pre-profile clicks rather than queueing a panel that opens later.
-  if (managementProfile !== 'local') return;
-  if (registrationOpen) closeRegistration();
-  moduleOpen = true; renderManagement(); notifyAccountSettings();
-  const session = currentSession(), needsIndependentLogin = !session?.serverId || !['password', 'wallet', 'ca'].includes(session.kind);
-  // A selector choice is not proof that a password exists. Initial setup must
-  // offer the registered-wallet path until an independent server login exists.
-  if (initial && needsIndependentLogin) el('wallet-login-method').value = 'wallet';
-  if (!session?.serverId || (initial && needsIndependentLogin)) verifyAgain();
-  else if (!accountState) await loadAccount();
-  await loadManagementCapabilities();
-  if (moduleOpen) el('auth-management-title').focus?.();
+  // Pre-profile events are ignored, never queued for later execution.
+  if (managementProfile === null || signing) return;
+  if (registrationOpen) closeRegistration({ navigate: false });
+  clearManagementOperation(); moduleOpen = true; managementStep = null;
+  renderManagement(); notifyAccountSettings();
+  document.dispatchEvent?.(new CustomEvent('wallet:authentication-method'));
+  document.dispatchEvent?.(new CustomEvent('wallet:authentication-settings'));
+  el('auth-management-title').focus?.();
 }
+function clearManagementOperation() {
+  managementReauthStep = null;
+  const pendingEnrollment = !!enrollmentId, pendingRecovery = !!recoveryStep || !!resetProof, pendingMigration = !!migrationStep;
+  enrollmentRevision++; recoveryRevision++; migrationRevision++; capabilityRevision++;
+  cancelMethodChangeUi();
+  if (signing) cancelLogin();
+  else {
+    // Preserve each existing server-cancellation path, not only its local fields.
+    if (pendingEnrollment) void cancelSetup({ status: false }); else clearEnrollment();
+    if (pendingRecovery) void cancelRecovery(); else clearRecovery();
+    if (pendingMigration) void cancelMigration(); else clearMigration();
+    clearPassword();
+  }
+  for (const id of ['auth-password', 'auth-code', 'auth-existing-code']) el(id).value = '';
+  el('auth-recovery').checked = false; el('auth-existing-recovery').checked = false;
+  paint(el('auth-recovery-codes'), ''); el('auth-recovery-output').hidden = true;
+}
+function chooseManagementStep(step) {
+  if (!moduleOpen || managementProfile === null || signing || !['totp', 'password', 'methods', 'email', 'recovery', 'policy'].includes(step)) return;
+  if (!['totp', 'password'].includes(step) && !(currentSession()?.serverId && accountState)) return;
+  if (managementStep === step) return;
+  clearManagementOperation(); managementStep = step; renderManagement();
+  if (managementProfile === 'local' && step !== 'policy') {
+    if (!freshManagement()) {
+      if (!currentSession()?.serverId || !['password', 'wallet', 'ca'].includes(currentSession()?.kind)) el('wallet-login-method').value = 'wallet';
+      verifyAgain();
+    }
+    void loadManagementCapabilities();
+  }
+  el('auth-management-step-title').focus?.();
+}
+for (const step of ['totp', 'password', 'methods', 'email', 'recovery', 'policy']) {
+  el(`auth-setup-${step}-open`)?.addEventListener('click', () => chooseManagementStep(step));
+}
+el('auth-management-back')?.addEventListener('click', () => {
+  if (!moduleOpen) return;
+  clearManagementOperation(); managementStep = null; renderManagement(); el('auth-management-title').focus?.();
+});
 el('auth-initial-open').addEventListener('click', () => openManagement({ initial: true }));
 el('auth-manage-open').addEventListener('click', () => openManagement());
 el('auth-reauthenticate').addEventListener('click', verifyAgain);
@@ -241,16 +329,25 @@ async function cancelSetup({ status = true } = {}) {
     if (status && revision === enrollmentRevision && currentSession()) paint(el('auth-management-status'), error instanceof WalletLoginError ? error.code : 'AUTH_SETUP_UNAVAILABLE');
   }
 }
-function closeManagement() {
-  moduleOpen = false; notifyAccountSettings(); capabilityRevision++; clearPassword();
-  // A submitted confirmation may already have committed; closing never promises rollback.
-  if (signing) cancelLogin(); else { void cancelSetup({ status: false }); void cancelRecovery(); void cancelMigration(); }
-  renderManagement(); el('auth-manage-open').focus?.();
+function closeManagement({ navigate = true } = {}) {
+  moduleOpen = false; managementStep = null; notifyAccountSettings();
+  // Closing invalidates local generations. A submitted commit may still require reconciliation.
+  clearManagementOperation(); renderManagement();
+  if (navigate) document.dispatchEvent?.(new CustomEvent('wallet:authentication-closed'));
 }
-el('auth-management-close').addEventListener('click', closeManagement);
-globalThis.addEventListener('popstate', () => { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); });
-globalThis.addEventListener('keydown', event => { if (event.key === 'Escape') { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); } });
-document.addEventListener('wallet:authentication-leaving', () => { if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement(); else if (signing) cancelLogin(); for (const id of ['auth-password', 'auth-code']) el(id).value = ''; });
+el('auth-management-close').addEventListener('click', () => closeManagement());
+globalThis.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  if (registrationOpen) closeRegistration(); else if (moduleOpen) closeManagement();
+});
+document.addEventListener('wallet:authentication-leaving', () => {
+  if (registrationOpen) closeRegistration({ navigate: false });
+  if (moduleOpen) closeManagement({ navigate: false });
+  // Successful enrollment closes the form before showing one-time recovery
+  // codes. Leaving that completed screen must clear those codes and bindings too.
+  else clearManagementOperation();
+  for (const id of ['auth-password', 'auth-code']) el(id).value = '';
+});
 function methodStillCurrent(client, binding, revision) {
   try { walletLogin.assert(binding); return client === accountClient && revision === attemptRevision && moduleOpen && freshManagement(); }
   catch { return false; }
@@ -319,7 +416,7 @@ el('auth-password-save').addEventListener('click', savePassword);
 el('auth-password-recovery-link').addEventListener('click', event => {
   event?.preventDefault?.();
   if (!moduleOpen || !freshManagement() || !accountState?.recovery?.configured) return;
-  el('auth-recovery-settings').scrollIntoView?.({ block: 'start' }); el('auth-reset-answer').focus?.();
+  chooseManagementStep('recovery'); el('auth-recovery-settings').scrollIntoView?.({ block: 'start' }); el('auth-reset-answer').focus?.();
 });
 el('auth-password-cancel').addEventListener('click', () => {
   if (passwordPending) { cancelLogin(); paint(el('wallet-login-status'), msg('account.passwordSubmitted')); }
@@ -471,7 +568,7 @@ function clearMigration() {
 }
 function renderRegistration() {
   el('auth-registration').hidden = !registrationOpen;
-  el('auth-registration-open').hidden = !!currentSession();
+  el('auth-registration-open').hidden = true; // Routed entry trigger; never a duplicate visible action.
   el('auth-registration-open').setAttribute?.('aria-expanded', String(registrationOpen));
   const state = accountState?.registration, visible = !!currentSession()?.serverId && !!state;
   el('auth-registration-account').hidden = !visible;
@@ -481,7 +578,7 @@ function renderRegistration() {
   if (visible && !state.emailOtpAvailable) paint(el('auth-registration-account-status'), msg('recovery.unavailable'));
   registrationControls();
 }
-function closeRegistration() {
+function closeRegistration({ navigate = true } = {}) {
   const client = signupClient; signupClient = null;
   cancelLogin(); registrationOpen = false; renderRegistration();
   if (client) {
@@ -491,12 +588,15 @@ function closeRegistration() {
     });
   }
   el('auth-registration-open').focus?.();
+  // Navigation may leave immediately; the in-flight operation still owns its lock
+  // until its original finally and any submitted registration still needs reconciliation.
+  if (navigate) document.dispatchEvent?.(new CustomEvent('wallet:authentication-closed'));
 }
 el('auth-registration-open').addEventListener('click', () => {
   cancelLogin(); moduleOpen = false; notifyAccountSettings(); registrationOpen = true; signupClient = null; renderManagement();
   el('auth-registration-title').focus?.();
 });
-el('auth-registration-close').addEventListener('click', closeRegistration);
+el('auth-registration-close').addEventListener('click', () => closeRegistration());
 function challengeMetadata(result) {
   if (typeof result.challengeId !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(result.challengeId) || result.digits !== 8 || typeof result.emailMasked !== 'string' ||
     !Number.isSafeInteger(result.expiresAt) || result.expiresAt <= Date.now()) throw new WalletLoginError('LOGIN_SERVER_RESPONSE_REFUSED');
@@ -541,7 +641,7 @@ async function runSignup(action) {
       await walletLogin.signIn(globalThis.ethereum, client.registrationAdapter(proof.id, credentials));
       if (revision !== registrationRevision || attempt !== attemptRevision) throw new WalletLoginError('LOGIN_CANCELLED');
       await loadAccount(); walletLogin.assert();
-      signupClient = null; registrationOpen = false; moduleOpen = true; el('auth-username').value = email; el('wallet-login-method').value = 'wallet';
+      signupClient = null; registrationOpen = false; moduleOpen = true; managementStep = null; el('auth-username').value = email; el('wallet-login-method').value = 'wallet';
       renderLoginMethod(); renderManagement(); notifyAccountSettings(); paint(el('wallet-login-status'), msg('registration.complete'));
       document.dispatchEvent?.(new CustomEvent('wallet:authentication-method'));
       document.dispatchEvent?.(new CustomEvent('wallet:authentication-settings'));
@@ -605,6 +705,16 @@ renderLoginMethod(); renderManagement();
 /** Fixed fragment opens a local panel only; it is not login or change authority. */
 getReleaseProfile().then(profile => {
   managementProfile = isPlatformPasswordProfile(profile) ? 'platform' : 'local';
+  platformRelease = managementProfile === 'platform';
+  releaseManagementContext = profile.tenant.label;
+  if (managementProfile === 'platform') {
+    const localOption = el('wallet-login-method').querySelector('option[value="wallet-local"]');
+    if (localOption) { localOption.disabled = true; localOption.hidden = true; }
+    if (el('wallet-login-method').value === 'wallet-local') el('wallet-login-method').value = 'wallet';
+    el('auth-username').readOnly = true;
+    renderLoginMethod();
+  }
+  managementContext = profile.tenant.label;
   renderManagement();
   if (managementProfile !== 'local') return;
   const action = passwordPanelAction(profile, globalThis.location);
@@ -612,3 +722,10 @@ getReleaseProfile().then(profile => {
   globalThis.history.replaceState(globalThis.history.state, '', profile.deployment.url);
   return openManagement({ initial: action === 'initial' });
 }).catch(() => { /* Invalid location/config stays closed. */ });
+// Editing intent invalidates any in-flight proof, without querying membership.
+el('password-tenant-select').addEventListener('input', () => {
+  if (platformRelease) {
+    cancelLogin();
+    el('auth-username').value = loginIdentifier(el('password-tenant-select').value) ?? '';
+  }
+});

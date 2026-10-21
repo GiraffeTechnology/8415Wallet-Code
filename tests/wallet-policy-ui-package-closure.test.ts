@@ -51,7 +51,7 @@ function moduleClosure(entries: string[]): Set<string> {
   return seen;
 }
 
-test('foundation page reaches read-only policy settings without mounting task execution', () => {
+test('foundation page mounts authenticated read-only policy but leaves task execution unmounted', () => {
   const html = readFileSync(resolve(root, 'web/index.html'), 'utf8');
   assert.match(html, /id=["']task-verification-policy-settings["']/);
   const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/g)]
@@ -68,7 +68,7 @@ test('foundation page reaches read-only policy settings without mounting task ex
   assert.ok(reached.has('web/about-entry.mjs'));
 });
 
-test('retained unmounted policy and read-only modules have a complete independent source and dev-server closure', () => {
+test('policy and retained read-only modules have a complete independent source and dev-server closure', () => {
   // Explicit retained-module roots are not evidence of production page mounting.
   // Do not enable business modules merely to satisfy this packaging assertion.
   const reached = moduleClosure(['web/wallet-auth.mjs', 'web/wallet-shell.mjs',

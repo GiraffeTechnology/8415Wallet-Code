@@ -20,3 +20,11 @@ declare module '*tenant-password-routing.mjs' {
   export function isPlatformPasswordProfile(profile: any): boolean;
   export function passwordPanelAction(profile: any, location: any): string | null;
 }
+
+declare module '*wallet-entry.mjs' {
+  export function walletName(value: unknown): boolean;
+  export function walletPath(value: unknown): string | null;
+  export function loginIdentifier(value: unknown): string | null;
+  export function authenticatedRoute(value: unknown): Readonly<{ walletName: string; walletPath: string }> | null;
+  export function requestedWalletPath(location: { pathname?: string; search?: string; hash?: string } | null | undefined): string | null;
+}

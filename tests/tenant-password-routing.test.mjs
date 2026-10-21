@@ -66,5 +66,6 @@ test('public markup uses an unpopulated name input and UI never resolves it', ()
   assert.doesNotMatch(html, /<select id="password-tenant-select"|<datalist/);
   assert.doesNotMatch(ui, /fetch|loadPasswordRoutes|passwordTenantDestination|localStorage|sessionStorage|postMessage/);
   assert.match(ui, /walletUiBusy\(\)/);
-  assert.match(html, /referrerpolicy="no-referrer"/);
+  assert.match(html, /<button id="password-tenant-continue"[^>]+type="button"/);
+  assert.doesNotMatch(html, /<a id="password-tenant-continue"/);
 });

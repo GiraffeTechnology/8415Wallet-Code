@@ -1,4 +1,4 @@
-/** Read-only foundation integration. Execute only on an approved Linux server. */
+/** Read-only foundation integration using synthetic fixtures. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';

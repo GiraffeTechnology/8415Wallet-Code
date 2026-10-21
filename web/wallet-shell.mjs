@@ -2,6 +2,8 @@
 import { msg, paint } from './i18n.mjs';
 import { walletLogin } from './wallet-auth.mjs';
 import { getReleaseProfile } from './release-profile.mjs';
+import { loginIdentifier, requestedWalletPath, authenticatedRoute } from './wallet-entry.mjs';
+import { isPlatformPasswordProfile } from './tenant-password-routing.mjs';
 import { walletUiBusy } from './ui-lock.mjs';
 import { TenantAvatarController } from './tenant-avatar.mjs';
 import { walletIdentityStateDisplay } from './wallet-identity-display.mjs';
@@ -9,10 +11,11 @@ const el = id => document.getElementById(id);
 // This entry composition keeps business modules unmounted. It is not a service
 // enablement flag, saved policy, authorization grant or backend security control.
 const foundationOnly = document.body.dataset?.walletComposition === 'foundation';
-const publicPages = new Set(['home', 'login', 'register']);
+const managementPage = 'authentication-management';
+const publicPages = new Set(['home', 'existing', 'login', 'register', managementPage]);
 const placeholderNodes = new Set(foundationOnly ? document.querySelectorAll('[data-foundation-placeholder="true"]') : []);
 const isPlaceholder = node => placeholderNodes.has(node);
-let publicEntryTransition = false;
+let publicEntryTransition = false, restoringPublicHistory = false;
 if (foundationOnly) {
   // Capture the actual nodes once: removing a disabled/ARIA/data attribute later
   // does not activate a saved handler. Native disabled controls also cover keys.
@@ -31,6 +34,7 @@ if (foundationOnly) {
 }
 const pages = new Set(['overview', 'native', 'settlement', 'account', 'transfer', 'review', 'receive', 'activity', 'nft', 'linked', 'advanced', 'settings', 'tasks']);
 const titles = { overview: 'overview', native: 'native', settlement: 'settlement', account: 'standalone', transfer: 'send', review: 'review', receive: 'receive', activity: 'activity', nft: 'nftDetails', linked: 'responsibilities', advanced: 'advanced', settings: 'settings', tasks: 'tasks' };
+pages.add(managementPage);
 if (foundationOnly) for (const entry of publicPages) pages.add(entry);
 let page = 'overview', authenticated = false, profile = null, avatarGeneration = 0, navigationDismiss = false;
 let avatar = new TenantAvatarController();
@@ -43,17 +47,24 @@ function dismissReview() { if (page !== 'review') return; navigationDismiss = tr
 function route(next, { history = true, focus = true } = {}) {
   if (!pages.has(next)) next = foundationOnly && !authenticated ? 'home' : 'overview';
   if (foundationOnly && !authenticated && !publicPages.has(next)) next = 'login';
-  if (foundationOnly && authenticated && publicPages.has(next)) next = 'overview';
+  if (foundationOnly && authenticated && publicPages.has(next) && next !== managementPage) next = 'overview';
   if (next === 'linked' && !profile?.features.linkedResponsibilities) next = 'overview';
   if (page !== next) { dismissReview(); avatarGeneration++; avatar.cancel(); renderAvatar(); }
   page = next;
   for (const node of document.querySelectorAll('[data-page]')) node.hidden = node.dataset.page !== page;
   el('external-pages').hidden = !['transfer', 'review', 'receive', 'activity', 'nft'].includes(page);
-  el('login-panel').hidden = foundationOnly ? (authenticated ? page !== 'settings' : page === 'home') : authenticated && page !== 'settings';
+  el('login-panel').hidden = page === managementPage || (foundationOnly ? page !== 'login' : authenticated && page !== 'settings');
+  el('registration-panel').hidden = page !== 'register';
+  el('existing-user-panel').hidden = authenticated || page !== 'existing';
+  el('auth-management-view').hidden = page !== managementPage;
+  const host = el(page === managementPage ? 'auth-management-verification' : 'auth-login-host');
+  if (el('auth-login-controls').parentElement !== host) host.append(el('auth-login-controls'));
+  const statusHost = el(page === managementPage ? 'auth-management-view' : 'auth-login-controls');
+  if (el('wallet-login-status').parentElement !== statusHost) statusHost.append(el('wallet-login-status'));
   if (foundationOnly) {
     el('public-home').hidden = authenticated || page !== 'home';
     for (const node of document.querySelectorAll('[data-public-route]')) {
-      node.hidden = authenticated;
+      node.hidden = authenticated || (node.closest('.foundation-public-nav') !== null && page === 'home');
       if (node.dataset.publicRoute === page) node.setAttribute('aria-current', 'page'); else node.removeAttribute('aria-current');
     }
   }
@@ -64,7 +75,7 @@ function route(next, { history = true, focus = true } = {}) {
     const active = node.dataset.route === page || (node.dataset.route === 'native' && ['nft', 'settlement', 'account'].includes(page)) || (node.dataset.route === 'overview' && ['transfer', 'review', 'receive'].includes(page));
     if (active) node.setAttribute('aria-current', 'page'); else node.removeAttribute('aria-current');
   }
-  paint(el('page-title'), msg(foundationOnly && !authenticated ? `foundation.${page}` : authenticated ? `design.${titles[page]}` : 'ui.005'));
+  paint(el('page-title'), msg(page === managementPage ? 'account.title' : page === 'existing' ? 'entry.existing' : foundationOnly && !authenticated ? `foundation.${page}` : authenticated ? `design.${titles[page]}` : 'ui.005'));
   paint(el('page-description'), authenticated && page === 'overview' ? msg('design.overviewNote') : '');
   if (history) globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, '');
   if (focus) el('page-title').focus({ preventScroll: true });
@@ -74,7 +85,7 @@ for (const button of document.querySelectorAll('[data-route]')) button.addEventL
   if (walletUiBusy() || isPlaceholder(button)) return;
   if (foundationOnly && !authenticated) return;
   const next = button.dataset.route;
-  if (page === 'settings' && page !== next) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
+  if (['settings', managementPage].includes(page) && page !== next) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
   if (authenticated && next !== page) globalThis.history.pushState({ ...(globalThis.history.state ?? {}), walletPage: next }, '');
   if (button.dataset.settlement) {
     el('settlement-kind').value = button.dataset.settlement;
@@ -87,36 +98,68 @@ for (const button of document.querySelectorAll('[data-route]')) button.addEventL
   }
   route(next);
 });
-function openPublicPage(next, { history = true, cancelledAuthentication = false } = {}) {
-  if (!foundationOnly || authenticated || (walletUiBusy() && !cancelledAuthentication) || !publicPages.has(next)) return;
-  if (page === next && (next !== 'register' || !el('auth-registration').hidden)) return;
+function openPublicPage(next, { history = true, cancelledManagement = false } = {}) {
+  if (!foundationOnly || authenticated || (walletUiBusy() && !cancelledManagement) || !publicPages.has(next)) return;
+  if (next === 'login' && !profile) return;
+  if (next === 'login' && isPlatformPasswordProfile(profile)) {
+    const identifier = loginIdentifier(el('password-tenant-select').value);
+    if (!identifier) { el('password-tenant-select').focus?.(); return; }
+    el('auth-username').value = identifier;
+  }
+  if (next === managementPage) {
+    restoringPublicHistory = !history;
+    try { el('auth-initial-open').click(); } finally { restoringPublicHistory = false; }
+    return;
+  }
+  if (page === next && (next !== 'register' || !el('auth-registration').hidden) &&
+      !(history && profile && isPlatformPasswordProfile(profile) && ['home', 'register'].includes(next) && requestedWalletPath(globalThis.location))) return;
   publicEntryTransition = true;
   try {
     // Real auth cancellation remains owned by wallet-auth, including late-result
     // invalidation and any already-submitted registration reconciliation.
-    if (!cancelledAuthentication) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
+    if (!cancelledManagement) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
     if (next === 'register') el('auth-registration-open').click();
   } finally { publicEntryTransition = false; }
-  if (history) globalThis.history.pushState({ ...(globalThis.history.state ?? {}), walletPage: next }, '');
+  let publicDestination;
+  if (history && profile && isPlatformPasswordProfile(profile) && ['home', 'register'].includes(next)) {
+    publicDestination = new URL(profile.deployment.url).pathname;
+    el('password-tenant-select').value = ''; el('auth-username').value = '';
+    el('existing-login-open').disabled = true; el('password-tenant-continue').disabled = true;
+  }
+  if (history) globalThis.history.pushState({ ...(globalThis.history.state ?? {}), walletPage: next }, '', publicDestination);
   route(next, { history: false });
 }
 for (const button of document.querySelectorAll('[data-public-route]')) button.addEventListener('click', () => openPublicPage(button.dataset.publicRoute));
 el('auth-registration-open').addEventListener('click', () => {
+  if (profile && isPlatformPasswordProfile(profile) && !authenticated && requestedWalletPath(globalThis.location)) {
+    globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: 'register' }, '', new URL(profile.deployment.url).pathname);
+    el('password-tenant-select').value = ''; el('auth-username').value = '';
+  }
   if (foundationOnly && !publicEntryTransition && !authenticated) route('register', { history: false });
 });
 el('auth-registration-close').addEventListener('click', () => {
-  if (foundationOnly && !publicEntryTransition && !authenticated) route('login', { history: false });
+  if (foundationOnly && !publicEntryTransition && !authenticated) route('existing', { history: false });
 });
 el('skip-content').addEventListener('click', () => el('page-title').focus());
-globalThis.addEventListener('keydown', event => { if (event.key !== 'Escape' || walletUiBusy()) return; if (foundationOnly && !authenticated && page === 'register') { route('login', { history: false }); return; } if (page === 'review') el('asset-dismiss').click(); else if (page === 'settings') { avatarGeneration++; avatar.cancel(); el('tenant-avatar-file').value = ''; renderAvatar(); } });
+globalThis.addEventListener('keydown', event => { if (event.key !== 'Escape' || walletUiBusy()) return; if (foundationOnly && !authenticated && page === 'register') { openPublicPage('existing', { history: false }); globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; } if (page === 'review') el('asset-dismiss').click(); else if (page === 'settings') { avatarGeneration++; avatar.cancel(); el('tenant-avatar-file').value = ''; renderAvatar(); } });
 globalThis.addEventListener('popstate', event => {
-  const cancelledAuthentication = foundationOnly && !authenticated && page === 'login';
-  if (cancelledAuthentication) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
+  try {
+    const session = walletLogin.assert();
+    if (profile && isPlatformPasswordProfile(profile) && session.walletRoute && session.walletRoute.walletPath !== globalThis.location.pathname) {
+      document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
+      walletLogin.logout('LOGIN_CONTEXT_CHANGED');
+    }
+  } catch { /* No authenticated route to retain across navigation. */ }
+  const cancelledManagement = page === managementPage || (foundationOnly && !authenticated && (page === 'login' || page === 'register'));
+  if (cancelledManagement) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
   else if (walletUiBusy()) { globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; }
-  // Leaving invalidates the UI attempt, not an already-issued server request.
-  // The original request keeps its lock until finally; history can still leave.
-  if (foundationOnly && !authenticated) {
-    openPublicPage(publicPages.has(event.state?.walletPage) ? event.state.walletPage : 'home', { history: false, cancelledAuthentication }); return;
+  // Cancellation invalidates the attempt immediately, but its request owns the
+  // business lock until finally. History may display the destination meanwhile.
+  if (foundationOnly && !authenticated) { openPublicPage(publicPages.has(event.state?.walletPage) ? event.state.walletPage : 'home', { history: false, cancelledManagement }); return; }
+  if (event.state?.walletPage === managementPage) {
+    restoringPublicHistory = true;
+    try { el('auth-manage-open').click(); } finally { restoringPublicHistory = false; }
+    return;
   }
   route(event.state?.walletPage, { history: false });
 });
@@ -182,6 +225,19 @@ document.addEventListener('wallet:native-view', event => {
   paint(el('native-status'), standing.note ? msg(standing.note) : msg('design.snapshot', { instant: view.observedAt }));
 });
 walletLogin.subscribe(session => {
+  if (session && profile && isPlatformPasswordProfile(profile)) {
+    const destination = authenticatedRoute(session.walletRoute);
+    const requested = requestedWalletPath(globalThis.location);
+    if (!session.serverId || !destination || requested !== null && requested !== destination.walletPath) {
+      walletLogin.logout('LOGIN_SERVICE_BINDING_REFUSED'); return;
+    }
+    globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: 'overview' }, '', destination.walletPath);
+    // Keep only authenticated canonical intent in memory for later reauth.
+    // Do not dispatch input: this is not a new user attempt or a lookup.
+    el('password-tenant-select').value = destination.walletName;
+    el('auth-username').value = destination.walletName;
+    paint(el('tenant-label'), destination.walletName);
+  }
   authenticated = !!session;
   // A new authenticated context must not inherit another account's summary.
   resetNative();
@@ -191,6 +247,7 @@ walletLogin.subscribe(session => {
   if (!session) { resetNative(); paint(el('shell-balance'), msg('design.balanceUnread')); paint(el('native-read-result'), ''); }
   if (publicEntryTransition) return;
   const entry = publicPages.has(page) ? page : 'home';
+  if (page === managementPage) { route(managementPage, { focus: false, history: false }); return; }
   route(session ? (/^0x[0-9a-f]{64}$/.test(globalThis.history.state?.walletTaskDigest ?? '') ? 'tasks' : 'overview') : foundationOnly ? entry : 'settings', { focus: false, history: !foundationOnly });
 });
 function avatarImage(target, url) {
@@ -228,25 +285,45 @@ globalThis.addEventListener('pageshow', event => {
 });
 getReleaseProfile().then(async value => {
   profile = value; paint(el('tenant-label'), value.tenant.label);
+  const platform = isPlatformPasswordProfile(value);
+  for (const id of ['existing-tenant-context', 'login-tenant-context']) paint(el(id), msg(platform ? 'entry.platformContext' : 'entry.currentWallet', { wallet: value.tenant.label }));
+  // A configured current wallet is usable. An arbitrary public identifier is not a resolver.
+  if (platform) {
+    const requested = requestedWalletPath(globalThis.location);
+    if (requested && !el('password-tenant-select').value) el('password-tenant-select').value = requested.slice(1);
+  }
+  el('existing-login-open').disabled = platform && !loginIdentifier(el('password-tenant-select').value);
   // Release identity belongs to the shared shell, not an optional business module.
   paint(el('release-profile'), msg('status.profile', { product: value.product, version: value.version, platform: value.platform, tenant: value.tenant.label }));
   el('profile-name').value = value.tenant.label; el('profile-tenant').value = value.tenant.id; el('profile-version').value = value.id.toUpperCase();
   paint(el('tenant-context'), msg('design.workspace', { profile: value.id.toUpperCase() }));
   document.querySelector('.nav-item[data-route="linked"]').hidden = !value.features.linkedResponsibilities;
   try { avatar.setContext(value, globalThis.location); await avatar.load(); } catch { /* Storage unavailable is a visible local preference failure only. */ }
-  renderAvatar(); route(page, { focus: false });
+  renderAvatar(); route(platform && requestedWalletPath(globalThis.location) && !authenticated ? 'existing' : page, { focus: false });
 }).catch(() => { paint(el('release-profile'), msg('message.000')); for (const button of document.querySelectorAll('[data-route]')) button.disabled = true; });
-for (const button of document.querySelectorAll('[data-login-method]')) button.addEventListener('click', () => {
-  el('wallet-login-method').value = button.dataset.loginMethod; el('wallet-login-method').dispatchEvent(new Event('change', { bubbles: true }));
+el('wallet-login-method').addEventListener('change', () => {
+  if (foundationOnly && !authenticated && page !== managementPage) route('login', { history: false });
 });
-function loginMethod() { for (const button of document.querySelectorAll('[data-login-method]')) button.setAttribute('aria-pressed', String(button.dataset.loginMethod === el('wallet-login-method').value)); }
-el('wallet-login-method').addEventListener('change', () => { loginMethod(); if (foundationOnly && !authenticated) route('login', { history: false }); });
-document.addEventListener('wallet:authentication-method', () => { loginMethod(); if (foundationOnly && !authenticated && !el('auth-management').hidden) route('login', { history: false }); });
-document.addEventListener('wallet:authentication-settings', () => route('settings'));
-loginMethod();
+document.addEventListener('wallet:authentication-method', () => {
+  if (el('auth-management').hidden) return;
+  if (page !== managementPage && !restoringPublicHistory) globalThis.history.pushState({ ...(globalThis.history.state ?? {}), walletPage: managementPage }, '');
+  route(managementPage, { history: false });
+});
+document.addEventListener('wallet:authentication-settings', () => {
+  if (page !== managementPage && !restoringPublicHistory) globalThis.history.pushState({ ...(globalThis.history.state ?? {}), walletPage: managementPage }, '');
+  route(managementPage, { history: false });
+});
+document.addEventListener('wallet:authentication-closed', () => {
+  route(authenticated ? 'settings' : 'existing');
+  el(authenticated ? 'auth-manage-open' : 'auth-initial-open').focus?.();
+});
+document.addEventListener('wallet:authentication-view', () => {
+  if (page === managementPage) route(managementPage, { focus: false, history: false });
+});
 resetNative();
 if (foundationOnly) {
   const entry = publicPages.has(globalThis.history.state?.walletPage) ? globalThis.history.state.walletPage : 'home';
   if (entry === 'register') openPublicPage(entry, { history: false });
+  else if (entry === managementPage) route('existing', { focus: false, history: false });
   else route(entry, { focus: false, history: false });
 } else route('overview', { focus: false });

@@ -98,7 +98,8 @@ test('signup requires verified email and purpose-bound EOA proof and creates onl
   assert.deepEqual(state.registration, { required: false, complete: true, email: 'New.User@example.invalid', emailMasked: 'N***@example.invalid', emailOtpAvailable: true });
   assert.equal(state.methods.password.enabled, true); assert.equal(state.methods.ca.bound, false);
   const directory = await f.store.read('@registration:xiongan'), record = directory.records[0];
-  assert.deepEqual(Object.keys(record.ordinaryAccount).sort(), ['caFingerprints', 'passwordHash', 'username', 'wallets']);
+  assert.deepEqual(Object.keys(record.ordinaryAccount).sort(), ['caFingerprints', 'passwordHash', 'username', 'walletName', 'wallets']);
+  assert.equal(record.ordinaryAccount.walletName, record.username);
   assert.match(record.ordinaryAccount.passwordHash, /^scrypt-v1\$/); assert.equal(record.ordinaryAccount.passwordHash.includes(password), false);
   assert.equal((await c.call('registration/confirm', pending.body)).status, 403); // session CSRF cannot stand in for preauth
   await c.call('logout', {}); await c.call('bootstrap');

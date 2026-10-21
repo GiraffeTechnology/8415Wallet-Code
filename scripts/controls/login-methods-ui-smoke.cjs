@@ -85,14 +85,45 @@ async function main() {
         assert.equal(await page.textContent('#auth-enroll-secret'), '');
         assert.equal(await page.evaluate(() => { const c = document.getElementById('auth-enroll-qr'); return c.hidden && c.width === 0 && c.height === 0; }), true);
       };
+      const openTotpSetup = async () => {
+        if (!await page.locator('#auth-management').isVisible()) await page.click('#auth-manage-open');
+        if (!await page.locator('#auth-setup-menu').isVisible()) await page.click('#auth-management-back');
+        await page.click('#auth-setup-totp-open');
+      };
       const startSetup = async () => {
-        await page.click('#auth-manage-open');
+        await openTotpSetup();
         await page.click('#auth-enroll-start');
         await change.authorize(page, { password }, () => mail.at(-1));
-        await page.waitForFunction(() => !document.getElementById('auth-enroll-qr').hidden);
+        try {
+          await page.waitForFunction(() => !document.getElementById('auth-enroll-qr').hidden);
+        } catch (error) {
+          // Fixed classifications and booleans only: never emit credentials,
+          // enrollment URI, QR pixels, response bodies or private DOM text.
+          const state = await page.evaluate(() => {
+            const get = id => document.getElementById(id);
+            const status = get('wallet-login-status').textContent;
+            const known = ['LOGIN_CANCELLED', 'LOGIN_EXPIRED', 'AUTH_SETUP_EXPIRED',
+              'AUTH_SETUP_UNAVAILABLE', 'AUTH_CHANGE_REFUSED', 'AUTH_REFUSED'];
+            return { code: known.find(value => status === value) ?? 'UNCLASSIFIED',
+              sessionVisible: !get('wallet-private').hidden,
+              enrollmentVisible: !get('auth-enrollment').hidden,
+              secretPresent: get('auth-enroll-secret').textContent.length > 0,
+              qrWidthPositive: get('auth-enroll-qr').width > 0,
+              startDisabled: get('auth-enroll-start').disabled,
+              confirmDisabled: get('auth-enroll-confirm').disabled };
+          });
+          console.error(JSON.stringify({ error: 'AUTH_ENROLLMENT_DISPLAY_STATE', ...state }));
+          throw error;
+        }
       };
       const passwordAgain = async () => {
         await page.waitForLoadState('networkidle');
+        // Account/chain changes intentionally return management to its menu.
+        // Select the real operation again before using its verification form;
+        // do not force hidden controls or weaken the lifecycle assertions.
+        if (await page.locator('#auth-management').isVisible() && await page.locator('#auth-setup-menu').isVisible()) {
+          await page.click('#auth-setup-totp-open');
+        }
         await page.selectOption('#wallet-login-method', 'password');
         await page.fill('#auth-username', 'tester'); await page.fill('#auth-password', password);
         await page.click('#wallet-login'); await unlocked(); await idle();
@@ -102,6 +133,7 @@ async function main() {
       await page.click('#auth-enroll-cancel'); await cancelResponse; await qrEmpty();
       change.checkpoint('setup-expiry'); await startSetup(); time += 300001; await page.clock.fastForward(300001); await qrEmpty();
       // Enrollment expiry also ages out the five-minute independent-login prerequisite.
+      await page.click('#auth-reauthenticate');
       await passwordAgain();
       change.checkpoint('setup-pagehide'); await startSetup(); await page.evaluate(() => dispatchEvent(new Event('pagehide'))); await qrEmpty();
       assert.equal(await page.locator('#wallet-private').isVisible(), false); await passwordAgain();
@@ -115,7 +147,7 @@ async function main() {
       await page.route('**/auth/account/change/confirm', async route => {
         const response = await route.fetch(); startReceived(); await gate; await route.fulfill({ response });
       });
-      await page.click('#auth-manage-open'); await page.click('#auth-enroll-start');
+      await openTotpSetup(); await page.click('#auth-enroll-start');
       assert.equal((await change.identity(page, { password })).status, 200);
       const pendingEmail = change.email(page, mail.at(-1).code); await held;
       await page.click('#wallet-logout'); await qrEmpty();
@@ -146,6 +178,7 @@ async function main() {
       assert.equal(await page.evaluate(() => { const canvas = document.getElementById('auth-enroll-qr'); return canvas.hidden && canvas.width === 0 && canvas.height === 0; }), true);
       const recovery = (await page.textContent('#auth-recovery-codes')).split('\n'); assert.equal(recovery.length, 8);
       await page.click('#auth-recovery-dismiss'); assert.equal(await page.textContent('#auth-recovery-codes'), '');
+      await page.locator('#auth-management-close').click();
       time += 30000; await page.clock.fastForward(30000);
       change.checkpoint('totp-login');
       await page.selectOption('#wallet-login-method', 'totp'); await page.fill('#auth-code', hotp(secret, Math.floor(time / 30000)));

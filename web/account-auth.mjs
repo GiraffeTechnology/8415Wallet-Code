@@ -1,6 +1,7 @@
 /** Same-origin account login client. Passwords/codes are never persisted. */
 import { WalletLoginError } from './login-core.mjs';
 import { forwardProgressRequest, validateForwardProgress } from './forward-progress-client.mjs';
+import { loginIdentifier, walletPath, authenticatedRoute } from './wallet-entry.mjs';
 const policyActions = new Set(['status', 'prepare', 'verify', 'confirm', 'cancel']);
 const policyRoute = path => /^account\/task-verification\/(?:status|prepare|verify|confirm|cancel)$/.test(path);
 function policyRequestBody(action, input) {
@@ -37,8 +38,15 @@ function policyRequestBody(action, input) {
   return Object.fromEntries(keys.map(key => [key, properties[key].value]));
 }
 export class AccountAuthClient {
-  #tenant; #fetch; #csrf = null; #session = null; #origin; #registrationEpoch = 0; #capabilities = null; #taskPolicyChange = null; #policyEpoch = 0;
-  constructor({ tenant, origin = globalThis.location.origin, fetcher = globalThis.fetch.bind(globalThis) }) { this.#tenant = tenant; this.#fetch = fetcher; this.#origin = origin; }
+  #tenant; #fetch; #csrf = null; #session = null; #origin; #registrationEpoch = 0; #capabilities = null; #taskPolicyChange = null; #policyEpoch = 0; #loginEntry = null;
+  constructor({ tenant, origin = globalThis.location.origin, fetcher = globalThis.fetch.bind(globalThis), loginEntry = null }) {
+    this.#tenant = tenant; this.#fetch = fetcher; this.#origin = origin;
+    if (loginEntry !== null) {
+      const identifier = loginIdentifier(loginEntry.identifier), requestedWalletPath = loginEntry.requestedWalletPath ?? null;
+      if (!identifier || requestedWalletPath !== null && walletPath(requestedWalletPath) !== requestedWalletPath) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+      this.#loginEntry = Object.freeze({ identifier, requestedWalletPath });
+    }
+  }
   async request(path, body, { keepalive = false, signal } = {}) {
     const response = await this.#fetch(new URL(`/auth/${path}`, this.#origin), { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', keepalive, ...(signal === undefined ? {} : { signal }),
       headers: { 'X-Wallet-Tenant': this.#tenant, ...(this.#csrf ? { 'X-Wallet-CSRF': this.#csrf } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
@@ -125,11 +133,12 @@ export class AccountAuthClient {
         const bootstrap = await this.request('bootstrap'); this.#csrf = bootstrap.csrf;
         let session;
         if (['password', 'totp'].includes(method)) {
-          try { session = await this.request(method, { ...credentials, ...identity }); }
+          try { session = await this.request(method, { ...credentials, ...identity,
+            ...(this.#loginEntry ? { ...this.#loginEntry, username: this.#loginEntry.identifier } : {}) }); }
           finally { credentials.password = ''; credentials.code = ''; }
         }
         else {
-          const challenge = await this.request('challenge', { ...identity, method });
+          const challenge = await this.request('challenge', { ...identity, method, ...(this.#loginEntry ?? {}) });
           if (challenge.tenant !== this.#tenant || challenge.origin !== this.#origin || challenge.account !== identity.account || challenge.chainId !== identity.chainId || challenge.method !== method)
             throw new WalletLoginError('LOGIN_CHALLENGE_BINDING_REFUSED');
           let proof;
@@ -146,6 +155,14 @@ export class AccountAuthClient {
           session = await this.request('proof', { ...identity, id: challenge.id, ...proof });
         }
         if (session.tenant !== this.#tenant || session.origin !== this.#origin) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+        if (this.#loginEntry) {
+          const route = authenticatedRoute(session.walletRoute);
+          if (!route || this.#loginEntry.requestedWalletPath !== null && route.walletPath !== this.#loginEntry.requestedWalletPath) {
+            this.#csrf = session.csrf;
+            await this.logout();
+            throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+          }
+        }
         this.#csrf = session.csrf; this.#session = session; return session;
       },
       check: async () => this.request('session'),

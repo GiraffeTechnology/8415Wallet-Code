@@ -64,8 +64,14 @@ async function run() {
       page.on('pageerror', error => errors.push(error.message)); await page.clock.install({ time });
       const idle = () => page.waitForFunction(() => !document.getElementById('wallet-login').disabled);
       const signedOut = () => page.waitForFunction(() => document.getElementById('wallet-private').hidden);
-      const settings = async () => { await page.click('#auth-manage-open'); await page.waitForFunction(() => !document.getElementById('auth-password-fields').hidden); };
+      const chooseSetup = async step => {
+        if (!await page.locator('#auth-management').isVisible()) await page.click('#auth-manage-open');
+        if (!await page.locator('#auth-setup-menu').isVisible()) await page.click('#auth-management-back');
+        await page.click(`#auth-setup-${step}-open`);
+      };
+      const settings = async () => { await chooseSetup('password'); await page.locator('#auth-password-fields').waitFor({ state: 'visible' }); };
       const login = async (value = password, method = 'password') => {
+        if (await page.locator('#wallet-private').evaluate(node => node.hidden) && await page.locator('#auth-management-view').isVisible()) await page.locator('#auth-management-close').click();
         await page.selectOption('#wallet-login-method', method);
         if (method === 'password') { await page.fill('#auth-username', 'tester'); await page.fill('#auth-password', value); }
         await page.click('#wallet-login'); await page.waitForFunction(() => !document.getElementById('wallet-private').hidden); await idle(); await settings();
@@ -76,12 +82,15 @@ async function run() {
       assert.deepEqual(requests, []); assert.deepEqual(await page.evaluate(() => globalThis.__passwordCalls), []);
       await page.selectOption('#wallet-login-method', 'password');
       await page.click('#auth-initial-open');
+      await page.click('#auth-setup-password-open');
       assert.equal(await page.inputValue('#wallet-login-method'), 'wallet');
       assert.deepEqual(await page.evaluate(() => globalThis.__passwordCalls), []);
       await login(password, 'wallet');
       assert.equal(await page.locator('#auth-existing-fields').isVisible(), false);
+      await chooseSetup('methods');
       assert.equal(await page.isChecked('#auth-enable-wallet'), true);
       assert.equal(await page.isDisabled('#auth-enable-password'), true);
+      await settings();
       const beforeMismatch = requests.filter(p => p === '/auth/account/change/start').length;
       await fillPassword(password, 'different-synthetic-password'); await page.click('#auth-password-save');
       assert.equal(requests.filter(p => p === '/auth/account/change/start').length, beforeMismatch);
@@ -89,9 +98,12 @@ async function run() {
       await fillPassword(password); const first = await save(); assert.equal(first.status, 200); assert.equal(first.body.loggedOut, true); await signedOut(); await idle();
       assert.equal(await page.inputValue('#auth-new-password'), ''); assert.equal(await page.inputValue('#auth-new-password-confirm'), '');
       await login();
+      await chooseSetup('methods');
       assert.equal(await page.isChecked('#auth-enable-password'), true); assert.equal(await page.isChecked('#auth-enable-wallet'), true);
+      await settings();
       await page.locator('#auth-password-settings').screenshot({ path: path.join(out, `${profile}-${width}-password-settings.png`) });
       // An existing authenticator remains required for password changes.
+      await chooseSetup('totp');
       await page.click('#auth-enroll-start');
       await change.authorize(page, { password }, () => mail.at(-1));
       await page.waitForFunction(() => document.getElementById('auth-enroll-secret').textContent.includes('otpauth://'));
@@ -103,7 +115,8 @@ async function run() {
       assert.equal(await page.inputValue('#auth-new-password'), ''); assert.equal(await page.inputValue('#auth-new-password-confirm'), '');
       await fillPassword(replacement);
       const changed = await save({ password, existingCode: recovery[0], recovery: true }); assert.equal(changed.status, 200); await signedOut(); await idle();
-      await login(replacement); assert.equal(await page.isChecked('#auth-enable-wallet'), true); assert.equal(await page.isChecked('#auth-enable-totp'), true);
+      await login(replacement); await chooseSetup('methods'); assert.equal(await page.isChecked('#auth-enable-wallet'), true); assert.equal(await page.isChecked('#auth-enable-totp'), true);
+      await settings();
       // Cancel a pending request before it reaches the HTTP service. It cannot alter the credential.
       let release, entered;
       const gate = new Promise(resolve => { release = resolve; }), held = new Promise(resolve => { entered = resolve; });
@@ -121,7 +134,7 @@ async function run() {
         await route.fulfill({ response, json: value });
       });
       await page.reload(); await page.waitForFunction(() => document.getElementById('release-profile').textContent.includes('8415wallet'));
-      await page.click('#auth-initial-open'); await page.waitForLoadState('networkidle');
+      await page.click('#auth-initial-open'); await page.click('#auth-setup-password-open'); await page.waitForLoadState('networkidle');
       assert.match(await page.textContent('#auth-password-state'), /update|upgrade/i);
       assert.equal(await page.locator('#auth-password-fields').isVisible(), false);
       assert.deepEqual(errors, []); assert.deepEqual(offOrigin, []);
