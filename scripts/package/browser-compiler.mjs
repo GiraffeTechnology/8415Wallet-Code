@@ -4,7 +4,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 const SNAPSHOT = 'WALLET_DAPP_COMPILE_SNAPSHOT';
@@ -44,7 +43,10 @@ export function compileBrowser(root, { source, entry, args, configPath, profile 
   if (process.env[TOKEN] !== undefined) refuse();
   // Clear only this build's output before compilation, never in the continuation.
   rmSync(join(root, 'dist/browser'), { recursive: true, force: true });
-  const directory = mkdtempSync(join(tmpdir(), 'wallet-browser-compile-'));
+  // Keep the private compiler stage on the output filesystem. TMPDIR may be
+  // backed by another device; rename promotion must remain within dist.
+  mkdirSync(join(root, 'dist'), { recursive: true });
+  const directory = mkdtempSync(join(root, 'dist', '.wallet-browser-compile-'));
   const snapshot = join(directory, 'snapshot.json'), log = join(directory, 'compiler.stdout.raw'), outputDirectory = join(directory, 'browser');
   const token = randomBytes(32).toString('hex');
   writeFileSync(snapshot, JSON.stringify({ token, binding }) + '\n', { mode: 0o600, flag: 'wx' });
