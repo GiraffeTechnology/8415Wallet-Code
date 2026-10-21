@@ -93,12 +93,15 @@ test('browser compilation refuses source changed during compiler handoff', t => 
 
 test('browser compilation stages on the output filesystem without requiring ambient temporary storage', t => {
   const { root, run } = fixture(t);
-  const externalTemporary = join(root, 'external temporary location does not exist');
-  assert.equal(existsSync(externalTemporary), false);
+  // A CLI may create its own harmless cache under a valid temporary folder.
+  // Make the ambient path unusable as a directory so the compiler stage must
+  // use the output filesystem without assuming anything about cache contents.
+  const externalTemporary = join(root, 'external temporary location is a file');
+  writeFileSync(externalTemporary, 'retained ambient path');
   const result = run({ TMPDIR: externalTemporary, TMP: externalTemporary, TEMP: externalTemporary });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.equal(existsSync(externalTemporary), false);
+  assert.equal(readFileSync(externalTemporary, 'utf8'), 'retained ambient path');
   assert.equal(readFileSync(join(root, 'completed'), 'utf8'), 'checked');
   assert.match(readFileSync(join(root, 'dist/browser/main.js'), 'utf8'), /value = 42/);
 });
