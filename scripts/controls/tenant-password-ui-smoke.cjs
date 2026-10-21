@@ -387,7 +387,7 @@ async function run() {
       } finally { await f.close(); }
     });
 
-    await scenario('platform existing-wallet hierarchy stays unresolved', async () => {
+    await scenario('platform identifier reaches local Login without anonymous membership lookup', async () => {
       const url = 'https://8415wallet.com:9446/v3/web/index.html';
       const f = await fixture({ url, config: profile('default', url), automaticNavigation: false });
       try {
@@ -396,19 +396,29 @@ async function run() {
         assert.equal(await f.page.locator('#existing-user-panel').isVisible(), true);
         assert.equal(await f.page.locator('#password-tenant-select').isVisible(), true);
         const responses = [];
-        for (const tenant of [...tenants, 'unknown-wallet']) {
-          await f.page.locator('#password-tenant-select').fill(tenant);
-          assert.equal(await f.page.locator('#password-tenant-continue').getAttribute('href'), null, 'Missing secure resolver must not construct a destination');
-          assert.equal(await f.page.locator('#password-tenant-continue').getAttribute('aria-disabled'), 'true');
-          assert.equal(await f.page.locator('#existing-login-open').isEnabled(), false, 'Unresolved platform context must not enable local Login');
-          await f.page.dispatchEvent('#existing-login-open', 'click');
-          await f.page.dispatchEvent('#password-tenant-continue', 'click'); await settle(f.page);
-          responses.push(await f.page.locator('#existing-user-panel').textContent());
-          check((await f.state()).closed, 'Unknown platform identity must not open local management');
-          assert.equal(await f.page.locator('#login-panel').isVisible(), false);
+        assert.equal(await f.page.locator('#existing-login-open').isEnabled(), false, 'Empty intent must not open Login');
+        assert.equal(await f.page.locator('#password-tenant-continue').isEnabled(), false);
+        await f.page.dispatchEvent('#existing-login-open', 'click');
+        await f.page.dispatchEvent('#password-tenant-continue', 'click'); await settle(f.page);
+        assert.equal(await f.page.locator('#login-panel').isVisible(), false);
+        for (const identifier of [...tenants, 'unknown-wallet', 'reader@example.invalid', '0x' + '1'.repeat(40)]) {
+          await f.page.locator('#password-tenant-select').fill(identifier);
+          assert.equal(await f.page.locator('#password-tenant-continue').getAttribute('href'), null, 'Public intent cannot construct an authenticated destination');
+          assert.equal(await f.page.locator('#password-tenant-continue').getAttribute('aria-disabled'), 'false');
+          assert.equal(await f.page.locator('#existing-login-open').isEnabled(), true, 'Valid public intent must reach the real local Login surface');
+          responses.push(await f.page.locator('#password-tenant-status').textContent());
+          await f.page.locator('#password-tenant-continue').click(); await settle(f.page);
+          assert.equal(await f.page.locator('#login-panel').isVisible(), true, 'Continue must open the real Login surface');
+          check((await f.state()).closed, 'Login entry must not open credential management');
           assert.equal(await f.page.locator('#auth-setup-menu').isVisible(), false);
+          assert.equal(f.page.url(), url, 'No navigation before authenticated identity supplies a canonical wallet path');
+          assert.deepEqual(f.auth, [], 'Opening Login must not query membership, bootstrap authentication or write');
+          await f.safety(); await returnHome(f); await visibleHome(f);
+          await f.page.locator('#public-home [data-public-route="existing"]').click();
         }
-        assert.equal(new Set(responses).size, 1, 'Known and unknown names must not disclose membership');
+        assert.equal(new Set(responses).size, 1, 'Known names, unknown names, emails and addresses must not disclose membership');
+        await f.page.locator('#password-tenant-select').fill('');
+        assert.equal(await f.page.locator('#existing-login-open').isEnabled(), false, 'Cleared intent disables continuation again');
         await f.page.locator('#auth-initial-open').click();
         assert.equal(await f.page.locator('#auth-management-view').isVisible(), true, 'Platform may expose the neutral management menu');
         const unavailable = (await f.page.locator('#auth-management-status').textContent()).trim();
@@ -425,7 +435,7 @@ async function run() {
         assert.equal(f.page.url(), url, 'Identifier entry must not synthesize a tenant destination');
         assert.ok(!f.requests.some(request => /8415wallet-password-routing|tenant-password-routing\.json/.test(request)), 'No anonymous tenant-directory request');
         assert.deepEqual(f.auth, []); await f.safety(); await returnHome(f); await visibleHome(f);
-        return { automaticNavigation: false, noResolverInvented: true, noDirectoryRequests: true, noMembershipDisclosure: true };
+        return { automaticNavigation: false, localLoginAvailable: true, noAnonymousResolution: true, noDirectoryRequests: true, noMembershipDisclosure: true };
       } finally { await f.close(); }
     });
 
@@ -560,10 +570,13 @@ async function run() {
               node.value = value; node.dispatchEvent(new Event('change', { bubbles: true }));
             }, action);
             assert.equal(await f.page.getAttribute('#password-tenant-continue', 'href'), null);
-            assert.equal(await f.page.getAttribute('#password-tenant-continue', 'aria-disabled'), 'true');
+            assert.equal(await f.page.getAttribute('#password-tenant-continue', 'aria-disabled'), 'false', 'Valid public intent enables only local Login, not a directory destination');
             responses.push(await f.page.textContent('#password-tenant-status'));
           }
           assert.equal(new Set(responses).size, 1, 'Known/unknown/action variants must have indistinguishable results');
+          await f.page.locator('#password-tenant-continue').click(); await settle(f.page);
+          assert.equal(await f.page.locator('#login-panel').isVisible(), true);
+          assert.equal(f.page.url(), url, 'Anonymous directory variations cannot supply navigation authority');
           assert.ok(!f.requests.some(request => /8415wallet-password-routing|tenant-password-routing\\.json/.test(request)));
           assert.deepEqual(f.auth, []); await f.safety(); return { namesNotResolved: true, noDirectoryRequests: true };
         } finally { await f.close(); }
@@ -591,14 +604,18 @@ async function run() {
       hash: 'https://synthetic-beta.8415wallet.com:9446/web/index.html#auth-initial',
       credentials: 'https://user:synthetic@synthetic-beta.8415wallet.com:9446/web/index.html',
       insecure: 'http://synthetic-beta.8415wallet.com:9446/web/index.html',
-    })) await scenario(`platform refuses ${name}`, async () => {
+    })) await scenario(`platform ignores untrusted directory ${name}`, async () => {
       const url = 'https://8415wallet.com:9446/v3/web/index.html', routing = routes(); routing.entries[1].url = bad;
       const f = await fixture({ url, config: profile('default', url), routing });
       try {
         await f.releaseConfig(); await f.page.fill('#password-tenant-select', 'synthetic-beta');
         assert.equal(await f.page.getAttribute('#password-tenant-continue', 'href'), null);
-        assert.equal(await f.page.getAttribute('#password-tenant-continue', 'aria-disabled'), 'true');
-        assert.deepEqual(f.auth, []); await f.safety(); return { navigationRefused: true };
+        assert.equal(await f.page.getAttribute('#password-tenant-continue', 'aria-disabled'), 'false', 'Valid public intent enables only local Login, not a directory destination');
+        await f.page.locator('#password-tenant-continue').click(); await settle(f.page);
+        assert.equal(await f.page.locator('#login-panel').isVisible(), true, 'Untrusted directory data cannot block owner-entered local Login');
+        assert.equal(f.page.url(), url, 'No navigation to an untrusted directory endpoint');
+        assert.ok(!f.requests.some(request => /8415wallet-password-routing|tenant-password-routing\\.json/.test(request)), 'No anonymous directory lookup');
+        assert.deepEqual(f.auth, []); await f.safety(); return { navigationRefused: true, localLoginAvailable: true };
       } finally { await f.close(); }
     });
 

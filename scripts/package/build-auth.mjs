@@ -7,6 +7,14 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, authSourcePolicy, verifyAuthSourcePolicy, TASK_RUNTIME_SOURCE_PATHS, jsonBytes, packagePathAllowed, runtimePackage, safePath, sha256, sourcePathAllowed, sourceTree, verifyAuthDirectory, verifyTaskListingArtifact, verifyInstalledTaskListingPackage, walkAuth } from './verify-auth.mjs';
 
+/** Packaging must not run npm's unrelated background version lookup.
+ * Keep caller runtime/cache/integrity settings and private per-attempt logs.
+ */
+export function authNpmEnvironment(environment, logsDirectory) {
+  return { ...environment, npm_config_logs_dir: logsDirectory, NPM_CONFIG_LOGS_DIR: logsDirectory,
+    npm_config_update_notifier: 'false', NPM_CONFIG_UPDATE_NOTIFIER: 'false' };
+}
+
 /** Private, per-attempt diagnostics, outside the runtime/archive allowlist.
  * Synchronous timeouts are signal requests, not a hard elapsed-time bound.
  * A start without an end is incomplete evidence, never a successful exit. */
@@ -218,8 +226,8 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
       // Keep npm's own logs private and outside the packaged runtime. Do not publish them.
       const npmLogs = join(temporary, 'npm-logs'); mkdirSync(npmLogs, { mode: 0o700 });
       diagnostics.phase('npm-ci', () => execFileSync('npm', npmArgs, { cwd: stage, stdio: 'inherit', timeout: 180000,
-        env: { ...process.env, npm_config_logs_dir: npmLogs, NPM_CONFIG_LOGS_DIR: npmLogs } }),
-        { child: true, timeoutMs: 180000, timeoutSignal: 'SIGTERM', hardDeadline: false, offline });
+        env: authNpmEnvironment(process.env, npmLogs) }),
+        { child: true, timeoutMs: 180000, timeoutSignal: 'SIGTERM', hardDeadline: false, offline, updateNotifier: false });
       diagnostics.phase('normalize-runtime', () => {
         rmSync(join(stage, 'node_modules/.package-lock.json'), { force: true }); normalizeTree(stage);
       });
@@ -231,7 +239,7 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
       }
       diagnostics.phase('runtime-imports', () => verifyTaskRuntimeImports(stage), { child: true, timeoutMs: 30000, timeoutSignal: 'SIGTERM', hardDeadline: false });
       const files = diagnostics.phase('runtime-inventory', () => Object.fromEntries(walkAuth(stage).map(file => [file, sha256(readFileSync(join(stage, file)))])));
-      const npmVersion = diagnostics.phase('npm-version', () => execFileSync('npm', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(), { child: true });
+      const npmVersion = diagnostics.phase('npm-version', () => execFileSync('npm', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: authNpmEnvironment(process.env, npmLogs) }).trim(), { child: true });
       const release = { schema: AUTH_SCHEMA, name: '8415wallet-auth-runtime', version: runtime.manifest.version, status: AUTH_STATUS,
         source, runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, entry: 'server/runtime-entry.mjs', tenantArgumentRequired: true, credentialStoreFormat: 1, legacyImportProtocol: 1, authStateSemantics: AUTH_STATE_SEMANTICS, openssl: 'External OpenSSL 3 required only for configured hardware CA verification' },
         build: { node: process.version, npm: npmVersion,

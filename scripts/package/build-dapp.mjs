@@ -1,13 +1,14 @@
 /** Build distinct static Beta artifacts; SDK npm tarballs use separate commands. */
-import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { RELEASE_PROFILES, RELEASE_STATUS, resolveReleaseProfile } from '../../web/release-profile.mjs';
 import { captureSource, deterministicArchive, exportSource, sha256, stagePublicWeb, validateStaticTree, walk } from './dapp-release.mjs';
 
 import { LEGAL_FILES } from './verify-auth.mjs';
 
 import { buildLoginVendor } from './build-login-vendor.mjs';
+import { compileBrowser } from './browser-compiler.mjs';
 
 const root = process.cwd();
 const options = {};
@@ -31,9 +32,7 @@ for (const tree of ['src', 'web']) {
 for (const file of [...LEGAL_FILES, 'docs/BETA-DAPP-DELIVERY.md', 'docs/BETA-PRD-COVERAGE.md', 'docs/STANDARDS-COMPATIBILITY.md', 'docs/WALLET-LOGIN.md', 'docs/ACCOUNT-AUTHENTICATION.md', 'docs/APPROVED-UI-IMPLEMENTATION.md', 'docs/TENANT-AVATAR.md', 'docs/stages/LEGACY-CLEARING-BETA-DAPP.md']) {
   if (!Object.hasOwn(source.files, file)) throw new Error(`DAPP_UNTRACKED_SOURCE_STAGE_REQUIRED: ${file}`);
 }
-// Clear output first: removed source modules must never survive a prior emit.
-rmSync(join(root, 'dist/browser'), { recursive: true, force: true });
-execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.browser.json'], { cwd: root, stdio: 'inherit' });
+compileBrowser(root, { source, entry: fileURLToPath(import.meta.url), args: process.argv.slice(2), configPath, profile: id });
 buildLoginVendor(root);
 const stage = join(root, 'dist', `package-dapp-${id}`);
 rmSync(stage, { recursive: true, force: true });
