@@ -1,4 +1,5 @@
 import { isPlatformPasswordProfile, passwordPanelAction } from '../web/tenant-password-routing.mjs';
+import { loginIdentifier, requestedWalletPath } from '../web/wallet-entry.mjs';
 import * as uiI18n from '../web/i18n.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -134,7 +135,7 @@ function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 
     `${changeSource}\nreturn { authorizeMethodChange, commitMethodChange, cancelMethodChangeUi };`)(document, setTimer, clearTimer, uiI18n.msg, uiI18n.paint, WalletLoginError);
   const sdk = { ...uiI18n, ...changeUi, WalletLogin, WalletLoginError, AccountAuthClient: BoundClient, verifyMessage, getAddress, hashMessage, Interface,
     clearEnrollmentQr, renderEnrollmentQr,
-    isPlatformPasswordProfile, passwordPanelAction, getReleaseProfile: () => profile, acquireWalletUi: () => Symbol(), releaseWalletUi() {} };
+    isPlatformPasswordProfile, passwordPanelAction, loginIdentifier, requestedWalletPath, getReleaseProfile: () => profile, acquireWalletUi: () => Symbol(), releaseWalletUi() {} };
   const settingsEntry = new Function('document', 'globalThis', 'setTimeout', 'clearTimeout', ...Object.keys(sdk), `${source}\nreturn { walletLogin, subscribeAccountSettings, subscribeAgentPolicySettings };`)(
     document, { ethereum: provider, location: { origin }, addEventListener(event: string, handler: (event?: any) => unknown) { windowEvents.set(event, handler); } },
     (handler: () => void) => { timers.set(++timerId, handler); return timerId; }, (id: number) => timers.delete(id), ...Object.values(sdk));

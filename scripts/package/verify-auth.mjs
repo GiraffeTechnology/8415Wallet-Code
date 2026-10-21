@@ -74,7 +74,6 @@ export function validateAuthStateTransition(current, candidate, { rollback = fal
   fail(!rollback, 'STATE_SEMANTICS_TRANSITION_REFUSED');
 }
 export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
-  'server/login-identifier.mjs', 'web/wallet-entry.mjs',
   'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
   'server/forward-progress-reader.mjs', 'src/controls/detachedHistoryLocator.ts', 'src/controls/historyView.ts',
   'src/controls/historyEntitlement.ts', 'src/controls/historyMilestone.ts', 'src/controls/historyDiscovery.ts', 'src/sdk/conformance.ts',

@@ -25,7 +25,7 @@ const requestWithExactHost = (url: string, options: any) => new Promise<Response
         if (Array.isArray(value)) for (const item of value) headers.append(name, item);
         else if (value !== undefined) headers.set(name, value);
       }
-      resolve(new Response(Buffer.concat(chunks), { status: response.statusCode, headers }));
+      resolve(new Response(Buffer.concat(chunks), { status: response.statusCode ?? 500, headers }));
     });
   });
   request.on('error', reject); if (options.body !== undefined) request.write(options.body); request.end();
