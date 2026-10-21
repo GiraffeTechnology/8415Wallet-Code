@@ -813,8 +813,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "ce9865ecfc36ae5dfabfba8ebbf5b5611f385b01",
-      "sha256": "102ff2fe1cecd2682427ae9e0c654075b82350b7a183189d9ae900a5b9da7ce9"
+      "git_blob_sha1": "c23afc95155158828a8c41f30ad690df61cb22a2",
+      "sha256": "c40d51d42a20a3e7f3637e8cd43c859aba272e84f76264c07844b7ae028f5e4e"
     },
     {
       "path": "scripts/package/build-auth.mjs",
