@@ -813,14 +813,14 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "c23afc95155158828a8c41f30ad690df61cb22a2",
-      "sha256": "c40d51d42a20a3e7f3637e8cd43c859aba272e84f76264c07844b7ae028f5e4e"
+      "git_blob_sha1": "dd0ee7ff41b43a839608d21eee5a736cd86b32dd",
+      "sha256": "16b8eb158845b875ed160dc0f96111bd3a4258ada1b596b2ae003801e5fa8d86"
     },
     {
       "path": "scripts/package/build-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "eb999f63e2c60c02e71a902e38bab9fab301e647",
-      "sha256": "8eefae2c06972611cc3c42d00ba72d595ee37713f7b526014bde5ff0162e38c8"
+      "git_blob_sha1": "2c063aa6b4af381f8fe5655decf4a81415847627",
+      "sha256": "4cb4cc60510424d61e43abb3f5630d423ca6247123c83244c7487885ae02162f"
     },
     {
       "path": "scripts/package/build-dapp.mjs",
