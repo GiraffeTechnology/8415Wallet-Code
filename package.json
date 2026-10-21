@@ -29,7 +29,7 @@
     "pack:dapp:v3": "node scripts/package/build-dapp.mjs --profile v3",
     "pack:dapp:all": "npm run pack:dapp:v2 && npm run pack:dapp:v3",
     "pack:dapp:verify": "node scripts/package/verify-dapp.mjs",
-    "test:package:dapp": "node --test tests/dapp-release.test.mjs",
+    "test:package:dapp": "node --test tests/dapp-release.test.mjs tests/dapp-release-lazy-parser.test.mjs",
     "wallet:auth:serve": "node server/main.mjs",
     "wallet:auth:operator": "node server/operator-init.mjs",
     "test:auth": "node --test tests/auth-password.test.ts tests/auth-service.test.ts tests/auth-recovery.test.ts tests/auth-registration.test.ts tests/auth-crypto.test.ts tests/ca-verifier.test.ts tests/account-login.test.ts tests/account-login-ui.test.ts tests/auth-provisioning.test.mjs tests/auth-qr.test.mjs tests/auth-activation.test.mjs tests/auth-install.test.mjs tests/auth-mail-config.test.mjs tests/auth-legacy-migration.test.mjs",
