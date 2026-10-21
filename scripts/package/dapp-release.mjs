@@ -3,7 +3,9 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, relative, resolve } from 'node:path';
-import ts from 'typescript';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 export function walk(root, directory = '') {
@@ -81,6 +83,9 @@ export function stagePublicWeb(root, source, stage) {
 }
 
 export function validateStaticTree(root) {
+  // Load the parser only after the separate browser compiler has exited.
+  // Keeping both TypeScript runtimes resident needlessly doubles build pressure.
+  const ts = require('typescript');
   const files = walk(root).filter(file => file.startsWith('web/') || file.startsWith('dist/browser/'));
   const present = new Set(files);
   const target = (file, specifier) => {

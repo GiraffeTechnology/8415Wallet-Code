@@ -813,8 +813,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "ce9865ecfc36ae5dfabfba8ebbf5b5611f385b01",
-      "sha256": "102ff2fe1cecd2682427ae9e0c654075b82350b7a183189d9ae900a5b9da7ce9"
+      "git_blob_sha1": "c23afc95155158828a8c41f30ad690df61cb22a2",
+      "sha256": "c40d51d42a20a3e7f3637e8cd43c859aba272e84f76264c07844b7ae028f5e4e"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -855,8 +855,8 @@
     {
       "path": "scripts/package/dapp-release.mjs",
       "mode": "100644",
-      "git_blob_sha1": "245c1d6c2f7bd2bc87c0104555d1d3b4fc4ee5b3",
-      "sha256": "e55375bdd9143594d9bdc9ab43b261f33124eec3747b3b901a9d5eaf2219eaf4"
+      "git_blob_sha1": "1b48036140865089431b6ebc3e380a043ff05d10",
+      "sha256": "2c7e23b9251c3d4bc5faa48b498dd405a75f69e7e9f95cb6c9ecd4fa395ca4d9"
     },
     {
       "path": "scripts/package/release-contract.mjs",
