@@ -90,9 +90,9 @@ test('actual checked-in source inspection resolves the installed runtime import 
     assert.equal(graph.files.includes(path), false);
   }
   assert.deepEqual(graph.files, [...new Set([...TASK_RUNTIME_SOURCE_PATHS.filter(path => !typeOnlyInputs.includes(path)), ...TASK_RECEIPT_RUNTIME_FILES,
-    ...['account-directory', 'auth-service', 'ca-verifier', 'config-validation', 'crypto', 'mail-config', 'mail-otp', 'main',
+    ...['account-directory', 'auth-service', 'ca-verifier', 'config-validation', 'crypto', 'login-identifier', 'mail-config', 'mail-otp', 'main',
       'method-change-service', 'recovery-service', 'registration-service', 'socket-path', 'store',
-      'task-authorization', 'task-background-runner', 'task-verification-policy'].map(name => `server/${name}.mjs`), 'web/login-core.mjs'])].sort());
+      'task-authorization', 'task-background-runner', 'task-verification-policy'].map(name => `server/${name}.mjs`), 'web/login-core.mjs', 'web/wallet-entry.mjs'])].sort());
   assert.deepEqual(graph.dependencies, ['@artfi/task-listing-runtime/server', 'ethers']);
 });
 
