@@ -69,7 +69,7 @@ test('real decoder plus new reader accepts a valid canonical pending list',async
 // Evaluate the unchanged development handler with an inert HTTP capability: listen is NEVER called on a real server.
 function developmentHandler(){
  const path='scripts/controls/serve-browser.cjs', source=readFileSync(join(ROOT,path));
- let handler; const require=createRequire(import.meta.url);
+ let handler; const require=createRequire(join(ROOT,path));
  const fakeServer={listen(){},close(){}};
  vm.runInNewContext(source.toString(),{URL,require:p=>p==='node:http'?{createServer(fn){handler=fn;return fakeServer;}}:require(p),__dirname:join(ROOT,'scripts/controls'),process:{env:{},on(){},stdout:{write(){}}}});
  return url=>{let code;const response={setHeader(){},writeHead(n){code=n;},end(){}};handler({url,method:'GET',headers:{host:'127.0.0.1:8415'}},response);return code;};
