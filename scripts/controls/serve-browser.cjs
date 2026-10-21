@@ -42,6 +42,7 @@ web.add('task-observer-context.mjs'); web.add('observation-source-contract.mjs')
 web.add('observation-details-flow.mjs'); web.add('observation-details-ui.mjs');
 web.add('task-verification-policy-startup.mjs'); web.add('task-verification-policy-entry.mjs');
 web.add('task-verification-policy-client.mjs'); web.add('task-verification-policy-wire.mjs');
+web.add('task-verification-policy-pending.mjs');
 web.add('task-verification-policy-ceremony.mjs'); web.add('task-verification-policy-ui.mjs');
 web.add('wallet-identity-display.mjs');
 const mime={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8'};
