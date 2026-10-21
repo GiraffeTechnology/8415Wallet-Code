@@ -21,9 +21,9 @@ async function setup(t) {
   const store=new MemoryCredentialStore({'fixture:alice':{registration},'@registration:fixture':{version:1,records:[{username:'alice',email:registration.email,verifiedAt:1}]}});
   // Reserve a free loopback port, then start the real process-level runtime.
   const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');
-  const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
-  const origin=`http://127.0.0.1:${port}`;
-  const runtime=await createAuthRuntime({config:{origin,tenant:'fixture',port,
+  const listenerPort=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
+  const origin=`http://127.0.0.1:${listenerPort}`;
+  const runtime=await createAuthRuntime({config:{origin,tenant:'fixture',port:listenerPort,
     statePath:'/synthetic-policy-runtime/credentials.enc',
     accounts:[{username:'alice',passwordHash,wallets:[{account:wallet.address,chainId:'560048'}]}]},store,
     sendOtp:async message=>deliveries.push(message),
