@@ -12,7 +12,7 @@ function fixture(t, text = 'export const value: number = 42;', patch = {}) {
   mkdirSync(join(root, 'src'));
   writeFileSync(join(root, 'src/main.ts'), text);
   writeFileSync(join(root, 'tsconfig.browser.json'), JSON.stringify({
-    compilerOptions: { target: 'ES2023', module: 'NodeNext', strict: true,
+    compilerOptions: { target: 'ES2023', lib: ['ES2023'], module: 'NodeNext', strict: true,
       noUnusedLocals: true, types: [], rootDir: './src', outDir: './out', ...patch },
     include: ['src/**/*.ts'],
   }));
