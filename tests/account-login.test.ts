@@ -86,3 +86,23 @@ test('server login accepts a delayed final identity read while its original sess
   assert.equal(f.login.assert().id, session.id);
   assert.equal(f.state.revoked, 0);
 });
+
+
+test('server-authenticated canonical route is retained and rechecked with the session', async () => {
+  const f = fixture();
+  (f.session as any).walletRoute = { walletName: 'example-one', walletPath: '/example-one' };
+  const session = await f.login.signIn(f.provider, f.server);
+  assert.deepEqual((session as any).walletRoute, { walletName: 'example-one', walletPath: '/example-one' });
+  (f.session as any).walletRoute = { walletName: 'example-two', walletPath: '/example-two' };
+  await assert.rejects(f.login.check(), /LOGIN_SERVER_SESSION_CHANGED/);
+  assert.throws(() => f.login.assert(), /LOGIN_REQUIRED/);
+});
+test('server login rejects malformed or external canonical navigation', async () => {
+  for (const walletRoute of [{ walletName: 'example-one', walletPath: '//other.invalid' },
+    { walletName: 'example-one', walletPath: '/example-two' },
+    { walletName: 'auth', walletPath: '/auth' }]) {
+    const f = fixture(); (f.session as any).walletRoute = walletRoute;
+    await assert.rejects(f.login.signIn(f.provider, f.server), /LOGIN_SERVER_SESSION_REFUSED/);
+    assert.throws(() => f.login.assert(), /LOGIN_REQUIRED/);
+  }
+});

@@ -2,6 +2,7 @@
 import { msg, paint } from './i18n.mjs';
 import { walletLogin } from './wallet-auth.mjs';
 import { getReleaseProfile } from './release-profile.mjs';
+import { loginIdentifier, requestedWalletPath, authenticatedRoute } from './wallet-entry.mjs';
 import { isPlatformPasswordProfile } from './tenant-password-routing.mjs';
 import { walletUiBusy } from './ui-lock.mjs';
 import { TenantAvatarController } from './tenant-avatar.mjs';
@@ -99,7 +100,12 @@ for (const button of document.querySelectorAll('[data-route]')) button.addEventL
 });
 function openPublicPage(next, { history = true, cancelledManagement = false } = {}) {
   if (!foundationOnly || authenticated || (walletUiBusy() && !cancelledManagement) || !publicPages.has(next)) return;
-  if (next === 'login' && (!profile || isPlatformPasswordProfile(profile))) return;
+  if (next === 'login' && !profile) return;
+  if (next === 'login' && isPlatformPasswordProfile(profile)) {
+    const identifier = loginIdentifier(el('password-tenant-select').value);
+    if (!identifier) { el('password-tenant-select').focus?.(); return; }
+    el('auth-username').value = identifier;
+  }
   if (next === managementPage) {
     restoringPublicHistory = !history;
     try { el('auth-initial-open').click(); } finally { restoringPublicHistory = false; }
@@ -113,11 +119,21 @@ function openPublicPage(next, { history = true, cancelledManagement = false } = 
     if (!cancelledManagement) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
     if (next === 'register') el('auth-registration-open').click();
   } finally { publicEntryTransition = false; }
-  if (history) globalThis.history.pushState({ ...(globalThis.history.state ?? {}), walletPage: next }, '');
+  let publicDestination;
+  if (history && profile && isPlatformPasswordProfile(profile) && ['home', 'register'].includes(next)) {
+    publicDestination = new URL(profile.deployment.url).pathname;
+    el('password-tenant-select').value = ''; el('auth-username').value = '';
+    el('existing-login-open').disabled = true; el('password-tenant-continue').disabled = true;
+  }
+  if (history) globalThis.history.pushState({ ...(globalThis.history.state ?? {}), walletPage: next }, '', publicDestination);
   route(next, { history: false });
 }
 for (const button of document.querySelectorAll('[data-public-route]')) button.addEventListener('click', () => openPublicPage(button.dataset.publicRoute));
 el('auth-registration-open').addEventListener('click', () => {
+  if (profile && isPlatformPasswordProfile(profile) && !authenticated && requestedWalletPath(globalThis.location)) {
+    globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: 'register' }, '', new URL(profile.deployment.url).pathname);
+    el('password-tenant-select').value = ''; el('auth-username').value = '';
+  }
   if (foundationOnly && !publicEntryTransition && !authenticated) route('register', { history: false });
 });
 el('auth-registration-close').addEventListener('click', () => {
@@ -126,6 +142,13 @@ el('auth-registration-close').addEventListener('click', () => {
 el('skip-content').addEventListener('click', () => el('page-title').focus());
 globalThis.addEventListener('keydown', event => { if (event.key !== 'Escape' || walletUiBusy()) return; if (foundationOnly && !authenticated && page === 'register') { openPublicPage('existing', { history: false }); globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; } if (page === 'review') el('asset-dismiss').click(); else if (page === 'settings') { avatarGeneration++; avatar.cancel(); el('tenant-avatar-file').value = ''; renderAvatar(); } });
 globalThis.addEventListener('popstate', event => {
+  try {
+    const session = walletLogin.assert();
+    if (profile && isPlatformPasswordProfile(profile) && session.walletRoute && session.walletRoute.walletPath !== globalThis.location.pathname) {
+      document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
+      walletLogin.logout('LOGIN_CONTEXT_CHANGED');
+    }
+  } catch { /* No authenticated route to retain across navigation. */ }
   const cancelledManagement = page === managementPage || (foundationOnly && !authenticated && (page === 'login' || page === 'register'));
   if (cancelledManagement) document.dispatchEvent(new CustomEvent('wallet:authentication-leaving'));
   else if (walletUiBusy()) { globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; }
@@ -201,6 +224,19 @@ document.addEventListener('wallet:native-view', event => {
   paint(el('native-status'), standing.note ? msg(standing.note) : msg('design.snapshot', { instant: view.observedAt }));
 });
 walletLogin.subscribe(session => {
+  if (session && profile && isPlatformPasswordProfile(profile)) {
+    const destination = authenticatedRoute(session.walletRoute);
+    const requested = requestedWalletPath(globalThis.location);
+    if (!session.serverId || !destination || requested !== null && requested !== destination.walletPath) {
+      walletLogin.logout('LOGIN_SERVICE_BINDING_REFUSED'); return;
+    }
+    globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: 'overview' }, '', destination.walletPath);
+    // Keep only authenticated canonical intent in memory for later reauth.
+    // Do not dispatch input: this is not a new user attempt or a lookup.
+    el('password-tenant-select').value = destination.walletName;
+    el('auth-username').value = destination.walletName;
+    paint(el('tenant-label'), destination.walletName);
+  }
   authenticated = !!session;
   // A new authenticated context must not inherit another account's summary.
   resetNative();
@@ -251,14 +287,18 @@ getReleaseProfile().then(async value => {
   const platform = isPlatformPasswordProfile(value);
   for (const id of ['existing-tenant-context', 'login-tenant-context']) paint(el(id), msg(platform ? 'entry.platformContext' : 'entry.currentWallet', { wallet: value.tenant.label }));
   // A configured current wallet is usable. An arbitrary public identifier is not a resolver.
-  el('existing-login-open').disabled = platform;
+  if (platform) {
+    const requested = requestedWalletPath(globalThis.location);
+    if (requested && !el('password-tenant-select').value) el('password-tenant-select').value = requested.slice(1);
+  }
+  el('existing-login-open').disabled = platform && !loginIdentifier(el('password-tenant-select').value);
   // Release identity belongs to the shared shell, not an optional business module.
   paint(el('release-profile'), msg('status.profile', { product: value.product, version: value.version, platform: value.platform, tenant: value.tenant.label }));
   el('profile-name').value = value.tenant.label; el('profile-tenant').value = value.tenant.id; el('profile-version').value = value.id.toUpperCase();
   paint(el('tenant-context'), msg('design.workspace', { profile: value.id.toUpperCase() }));
   document.querySelector('.nav-item[data-route="linked"]').hidden = !value.features.linkedResponsibilities;
   try { avatar.setContext(value, globalThis.location); await avatar.load(); } catch { /* Storage unavailable is a visible local preference failure only. */ }
-  renderAvatar(); route(page, { focus: false });
+  renderAvatar(); route(platform && requestedWalletPath(globalThis.location) && !authenticated ? 'existing' : page, { focus: false });
 }).catch(() => { paint(el('release-profile'), msg('message.000')); for (const button of document.querySelectorAll('[data-route]')) button.disabled = true; });
 el('wallet-login-method').addEventListener('change', () => {
   if (foundationOnly && !authenticated && page !== managementPage) route('login', { history: false });

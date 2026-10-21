@@ -11,6 +11,7 @@ import { createTaskVerificationPolicyService, TaskVerificationPolicyError } from
 import { createMethodChangeService, MethodChangeError } from './method-change-service.mjs';
 import { createAccountDirectory } from './account-directory.mjs';
 import { createRegistrationService, RegistrationError } from './registration-service.mjs';
+import { normalizeLoginIdentifier, resolveLoginIdentifier, authenticatedWalletRoute, validWalletName } from './login-identifier.mjs';
 const LIFE = 15 * 60_000, CHALLENGE = 2 * 60_000, ENROLL = 5 * 60_000;
 const accountMethods = ['password', 'wallet', 'ca', 'totp'];
 const chains = new Set(['1', '8453', '11155111', '84532', '560048', '31337']);
@@ -44,7 +45,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       'AUTH_CONFIG_REFUSED', 500);
     requireThat(input.passwordHash === undefined || /^scrypt-v1\$[a-f0-9]{32}\$[a-f0-9]{64}$/.test(input.passwordHash), 'AUTH_CONFIG_REFUSED', 500);
     requireThat(input.caFingerprints === undefined || (Array.isArray(input.caFingerprints) && input.caFingerprints.every(v => /^[a-f0-9]{64}$/.test(v))), 'AUTH_CONFIG_REFUSED', 500);
-    users.set(input.username, Object.freeze({ username: input.username, passwordHash: input.passwordHash,
+    users.set(input.username, Object.freeze({ username: input.username, passwordHash: input.passwordHash, ...(input.walletName === undefined ? {} : { walletName: input.walletName }),
       wallets: input.wallets.map(identity), caFingerprints: input.caFingerprints ?? [] }));
   }
   const directory = createAccountDirectory({ tenant, accounts, store, users });
@@ -73,12 +74,28 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
   const cookie = (name, value, seconds) => `${name}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${seconds}${secure ? '; Secure' : ''}`;
   function publicSession(session) {
     return { id: session.id, tenant, origin, username: session.username, account: session.account, chainId: session.chainId,
-      kind: session.kind, issuedAt: session.issuedAt, expiresAt: session.expiresAt, csrf: session.csrf };
+      kind: session.kind, issuedAt: session.issuedAt, expiresAt: session.expiresAt, csrf: session.csrf,
+      ...(session.walletRoute ? { walletRoute: session.walletRoute } : {}) };
   }
   const boundUser = (name, selected) => {
-    const user = users.get(validUsername(name) ? name : directory.alias(name));
-    return user?.wallets.some(wallet => wallet.account === selected.account && wallet.chainId === selected.chainId) ? user : null;
+    return resolveLoginIdentifier({ identifier: name, users, emailAlias: directory.alias, selected });
   };
+  const platformEntry = tenant === 'default' && url.hostname === '8415wallet.com';
+  function loginContext(body) {
+    const supplied = Object.hasOwn(body, 'identifier');
+    const identifier = supplied ? normalizeLoginIdentifier(body.identifier) : null;
+    requireThat(!supplied || identifier !== null);
+    requireThat(!platformEntry || identifier !== null);
+    const requestedPath = body.requestedWalletPath ?? null;
+    requireThat(requestedPath === null || typeof requestedPath === 'string' && requestedPath.startsWith('/') && validWalletName(requestedPath.slice(1)));
+    return { identifier, requestedPath };
+  }
+  function authorizeRequestedWallet(user, context) {
+    const route = authenticatedWalletRoute(user);
+    requireThat(!platformEntry || route !== null);
+    requireThat(context.requestedPath === null || route?.walletPath === context.requestedPath);
+    return route;
+  }
   function localSession(req) {
     sweep(); const token = cookies(req).get(sessionName), session = token ? sessions.get(digest(token)) : null;
     requireThat(session && equal(req.headers['x-wallet-csrf'], session.csrf));
@@ -128,15 +145,16 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     requireThat(state && equal(req.headers['x-wallet-csrf'], state.csrf), 'AUTH_CSRF_REFUSED', 403);
     return state;
   }
-  async function issue(req, res, user, selected, kind, expectedRevision, signup = null) {
+  async function issue(req, res, user, selected, kind, expectedRevision, signup = null, requestedContext = null) {
     const credential = await store.read(`${tenant}:${user.username}`), time = stamp(), token = randomToken(); capacity(sessions);
     directory.checkCredential(user.username, credential);
     preauthFor(req); // Logout/cancellation also revokes an in-flight login.
     requireThat(expectedRevision === undefined || expectedRevision === (credential?.revision ?? 0));
     requireThat(methodStates(user, credential)[kind === 'recovery' ? 'totp' : kind]?.enabled);
+    const walletRoute = requestedContext ? authorizeRequestedWallet(user, requestedContext) : authenticatedWalletRoute(user);
     const prior = sessions.get(digest(cookies(req).get(sessionName) ?? '')); if (prior) revokeSession(prior);
     signup?.authorizeSession();
-    const session = { ...selected, ...(signup ? { registrationBootstrapId: signup.bootstrapId } : {}), username: user.username, id: randomToken(), csrf: randomToken(), kind,
+    const session = { ...selected, ...(walletRoute ? { walletRoute } : {}), ...(signup ? { registrationBootstrapId: signup.bootstrapId } : {}), username: user.username, id: randomToken(), csrf: randomToken(), kind,
       key: digest(token), issuedAt: time, expiresAt: time + LIFE, revision: credential?.revision ?? 0 };
     sessions.set(session.key, session); res.setHeader('Set-Cookie', cookie(sessionName, token, LIFE / 1000));
     return publicSession(session);
@@ -306,16 +324,14 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       // Owner settings are not task grants. Two established factors are bound
       // to each exact ON/OFF revision; an existing OFF or Agent grant never saves.
       if (path === 'account/task-verification/status') {
-        requireThat(Object.keys(body).length === 0, 'AUTH_REQUEST_REFUSED', 400);
-        return publicVerificationPolicy(await verificationPolicyService.status(session));
+        return publicVerificationPolicy(await verificationPolicyService.status(session, body));
       }
       if (path === 'account/task-verification/prepare') return verificationPolicyService.prepare(session, body);
       if (path === 'account/task-verification/verify') return verificationPolicyService.verify(session, body);
       if (path === 'account/task-verification/confirm') return publicVerificationPolicy(await verificationPolicyService.confirm(session, body));
       if (path === 'account/task-verification/on') return publicVerificationPolicy(await verificationPolicyService.enable(session, body));
       if (path === 'account/task-verification/cancel') {
-        requireThat(Object.keys(body).length === 0, 'AUTH_REQUEST_REFUSED', 400);
-        verificationPolicyService.cancel(session); return { cancelled: true };
+        return verificationPolicyService.cancelChange(session, body);
       }
       throw new AuthError('AUTH_ROUTE_REFUSED', 404);
     }
@@ -356,7 +372,9 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     limit(`ip:${ip}`, 100); // Proxy headers are intentionally not trusted.
     if (path === 'password' || path === 'totp') {
       requireThat(typeof body.username === 'string' && body.username.length <= 254);
-      const user = boundUser(body.username, selected);
+      const context = loginContext(body);
+      const user = boundUser(context.identifier ?? body.username, selected);
+      requireThat(context.identifier === null || normalizeLoginIdentifier(body.username) === context.identifier);
       limit(`account:${user?.username ?? digest(body.username.toLowerCase())}`, 10); let revision;
       if (path === 'password') {
         const credential = user ? await store.read(`${tenant}:${user.username}`) : null;
@@ -369,16 +387,19 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       } else {
         requireThat(user); revision = await consumeCode(user.username, body.code, body.recovery === true, { login: true });
       }
-      return issue(req, res, user, selected, path === 'totp' && body.recovery === true ? 'recovery' : path, revision);
+      return issue(req, res, user, selected, path === 'totp' && body.recovery === true ? 'recovery' : path, revision, null, context);
     }
     if (path === 'challenge') {
       requireThat(['wallet', 'ca'].includes(body.method) && (body.method !== 'ca' || verifyCa));
+      const requested = loginContext(body);
       capacity(challenges); const id = randomToken(), time = stamp(), nonce = randomToken().replace(/[-_]/g, '');
       const context = { ...selected, origin, nonce, issuedAt: time, expiresAt: time + CHALLENGE };
       const message = body.method === 'wallet' ? loginMessage(context) + `\nResources:\n- urn:8415wallet:tenant:${tenant}\n- urn:8415wallet:purpose:login\n- urn:8415wallet:request:${id}` :
         `8415wallet hardware CA login\nOrigin: ${origin}\nTenant: ${tenant}\nAccount: ${selected.account}\nChain ID: ${selected.chainId}\nPurpose: login only; no transaction authority\nRequest: ${id}\nNonce: ${nonce}\nIssued At: ${new Date(time).toISOString()}\nExpiration Time: ${new Date(time + CHALLENGE).toISOString()}`;
-      challenges.set(id, { ...context, id, method: body.method, bootstrapId: bootstrap.id, message });
-      return { ...context, id, tenant, method: body.method, message };
+      const boundMessage = requested.identifier === null && requested.requestedPath === null ? message :
+        `${message}\nRequested wallet context: ${digest(JSON.stringify([requested.identifier, requested.requestedPath]))}`;
+      challenges.set(id, { ...context, id, method: body.method, bootstrapId: bootstrap.id, message: boundMessage, requested });
+      return { ...context, id, tenant, method: body.method, message: boundMessage };
     }
     if (path === 'proof') {
       sweep(); const challenge = typeof body.id === 'string' ? challenges.get(body.id) : null;
@@ -400,7 +421,8 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
         requireThat(matches.length === 1); user = matches[0];
       }
       requireThat(stamp() >= challenge.issuedAt && stamp() < challenge.expiresAt);
-      return issue(req, res, user, selected, challenge.method);
+      if (challenge.requested.identifier !== null) requireThat(boundUser(challenge.requested.identifier, selected) === user);
+      return issue(req, res, user, selected, challenge.method, undefined, null, challenge.requested);
     }
     throw new AuthError('AUTH_ROUTE_REFUSED', 404);
   }

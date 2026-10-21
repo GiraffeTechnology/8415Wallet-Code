@@ -5,16 +5,21 @@ import { loginOrigin } from '../web/login-core.mjs';
 import { validateMailConfig } from './mail-config.mjs';
 import { validateTaskListingConfig } from './task-listing-config.mjs';
 import { validateTaskExactConfig } from './task-exact-config.mjs';
+import { validWalletName } from './login-identifier.mjs';
 const chains = new Set(['1', '8453', '11155111', '84532', '560048', '31337']);
 const fail = code => { throw new Error(code); };
 export function validateAccountBindings(accounts) {
   if (!Array.isArray(accounts) || accounts.length > 10000) fail('AUTH_ACCOUNTS_REQUIRED');
-  const names = new Set(), pairs = new Set();
+  const names = new Set(), pairs = new Set(), walletNames = new Set();
   for (const user of accounts) {
-    if (user && Object.keys(user).some(key => !['username', 'wallets', 'passwordHash', 'caFingerprints'].includes(key))) fail('AUTH_ACCOUNT_FIELD_REFUSED');
+    if (user && Object.keys(user).some(key => !['username', 'wallets', 'passwordHash', 'caFingerprints', 'walletName'].includes(key))) fail('AUTH_ACCOUNT_FIELD_REFUSED');
     if (!user || typeof user.username !== 'string' || !/^[a-z0-9][a-z0-9._-]{2,63}$/.test(user.username) ||
       ['__proto__', 'constructor', 'prototype'].includes(user.username) || names.has(user.username)) fail('AUTH_USERNAME_REFUSED');
     names.add(user.username);
+    if (user.walletName !== undefined) {
+      if (!validWalletName(user.walletName) || walletNames.has(user.walletName)) fail('AUTH_WALLET_NAME_REFUSED');
+      walletNames.add(user.walletName);
+    }
     if (!Array.isArray(user.wallets) || !user.wallets.length || user.wallets.length > 64) fail('AUTH_WALLET_BINDING_REQUIRED');
     for (const wallet of user.wallets) {
       if (wallet && Object.keys(wallet).some(key => !['account', 'chainId'].includes(key))) fail('AUTH_WALLET_FIELD_REFUSED');
@@ -29,6 +34,8 @@ export function validateAccountBindings(accounts) {
     if (user.caFingerprints !== undefined && (!Array.isArray(user.caFingerprints) ||
       !user.caFingerprints.every(value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)))) fail('AUTH_CA_BINDING_REFUSED');
   }
+  // A name may be an alias of its own account, never a different account.
+  for (const user of accounts) if (user.walletName !== undefined && names.has(user.walletName) && user.walletName !== user.username) fail('AUTH_WALLET_NAME_REFUSED');
   return Object.freeze({ accountCount: names.size, bindingCount: pairs.size });
 }
 export function validateAuthConfig(config) {

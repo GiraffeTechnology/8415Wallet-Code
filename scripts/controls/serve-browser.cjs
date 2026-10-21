@@ -1,6 +1,7 @@
 const http=require('node:http');
 const fs=require('node:fs');
 const path=require('node:path');
+const {isCanonicalWalletRequest,canonicalEntryHtml}=require('./canonical-entry.cjs');
 
 // Development-only server: loopback, GET/HEAD and two public static trees only.
 // It has no RPC forwarding, signing, secret loading, upload or write endpoint.
@@ -42,8 +43,10 @@ web.add('task-observer-context.mjs'); web.add('observation-source-contract.mjs')
 web.add('observation-details-flow.mjs'); web.add('observation-details-ui.mjs');
 web.add('task-verification-policy-startup.mjs'); web.add('task-verification-policy-entry.mjs');
 web.add('task-verification-policy-client.mjs'); web.add('task-verification-policy-wire.mjs');
+web.add('task-verification-policy-pending.mjs');
 web.add('task-verification-policy-ceremony.mjs'); web.add('task-verification-policy-ui.mjs');
 web.add('wallet-identity-display.mjs');
+web.add('wallet-entry.mjs');
 const mime={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8'};
 const server=http.createServer((req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cache-Control','no-store');
@@ -54,10 +57,12 @@ const server=http.createServer((req,res)=>{
   if(testFixture && testFixture.serveEnabledComposition(req,res,{root,composition:testComposition})) return;
   if(req.url==='/'){res.writeHead(302,{Location:'/web/index.html'});res.end();return;}
   let relative;
+  const canonicalEntry=isCanonicalWalletRequest(req.url);
   try{
     const url=new URL(req.url,'http://localhost');
     if(url.search||url.hash)throw new Error();
     relative=decodeURIComponent(url.pathname).slice(1);
+    if(canonicalEntry)relative='web/index.html';
     if(relative==='')relative='web/index.html';
     if(relative.includes('\\')||relative.split('/').some(s=>s==='..'||s==='.'||s===''))throw new Error();
     if(!(relative.startsWith('web/')&&(web.has(relative.slice(4))||/^web\/locales\/[A-Za-z0-9-]+\.mjs$/.test(relative)||/^web\/assets\/[A-Za-z0-9-]+\.(?:jpg|jpeg|png|webp|svg|woff2|ttf|txt)$/.test(relative)))&&
@@ -66,7 +71,8 @@ const server=http.createServer((req,res)=>{
     for(const segment of segments){at=path.join(at,segment);if(fs.lstatSync(at).isSymbolicLink())throw new Error();}
     const stat=fs.lstatSync(full);if(!stat.isFile()||stat.nlink!==1||stat.size>2000000)throw new Error();
     res.setHeader('Content-Type',mime[path.extname(full)]??'application/octet-stream');
-    res.writeHead(200);res.end(req.method==='HEAD'?undefined:fs.readFileSync(full));
+    const bytes=fs.readFileSync(full);
+    res.writeHead(200);res.end(req.method==='HEAD'?undefined:canonicalEntry?canonicalEntryHtml(bytes.toString('utf8')):bytes);
   }catch{res.writeHead(404);res.end();}
 });
 server.listen(port,'127.0.0.1',()=>process.stdout.write(`8415Wallet browser available on loopback port ${port}; development-only\n`));

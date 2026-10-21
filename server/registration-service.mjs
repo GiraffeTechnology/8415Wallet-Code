@@ -117,7 +117,10 @@ export function createRegistrationService({ origin, tenant, store, directory, se
       }
       current(context, slot);
       const username = `user-${digest(randomToken()).slice(0, 24)}`, registration = { version: 1, email: slot.email, verifiedAt: stamp() };
-      const user = { username, wallets: [selected], caFingerprints: [], ...(passwordHash ? { passwordHash } : {}) };
+      // New ordinary accounts receive an explicit opaque route name at the
+      // same atomic registration commit. Existing usernames are not migrated
+      // or published implicitly, and the credential-store tenant stays fixed.
+      const user = { username, walletName: username, wallets: [selected], caFingerprints: [], ...(passwordHash ? { passwordHash } : {}) };
       await directory.commit(username, registration, user, prior => {
         current(context, slot); requireThat(stamp() < challenge.expiresAt && prior === null); slot.committing = true;
         return { revision: 1, enabledMethods: [...(passwordHash ? ['password'] : []), 'wallet'] };

@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import * as i18n from '../web/i18n.mjs';
 import { walletIdentityStateDisplay } from '../web/wallet-identity-display.mjs';
 import { isPlatformPasswordProfile } from '../web/tenant-password-routing.mjs';
+import { loginIdentifier, requestedWalletPath, authenticatedRoute } from '../web/wallet-entry.mjs';
 const text = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const html = text('../web/index.html');
 const source = text('../web/wallet-shell.mjs').replace(/^import[^\n]*\n/gm, '');
@@ -70,14 +71,14 @@ function fixture(initialEntry = null, platform = false) {
     querySelectorAll: selector => nodes.filter(node => match(node, selector)), querySelector: selector => nodes.find(node => match(node, selector)),
     addEventListener: events.addEventListener.bind(events), dispatchEvent: events.dispatchEvent.bind(events) };
   const counters = { requests: 0, signatures: 0, sends: 0, avatarWrites: 0, registrationOpens: 0, registrationCloses: 0 };
-  let subscriber, busy = false;
+  let subscriber, busy = false, currentSession = null;
   const historyCalls = [], history = { state: initialEntry ? { walletPage: initialEntry } : null,
-    pushState(state, title, url) { this.state = state; historyCalls.push(['push', state, url]); },
-    replaceState(state, title, url) { this.state = state; historyCalls.push(['replace', state, url]); } };
-  const window = { location: { origin: 'https://wallet.example', href: 'https://wallet.example/web/index.html' }, history,
+    pushState(state, title, url) { this.state = state; historyCalls.push(['push', state, url]); if (url !== undefined && url !== '') window.location = new URL(url, window.location.href); },
+    replaceState(state, title, url) { this.state = state; historyCalls.push(['replace', state, url]); if (url !== undefined && url !== '') window.location = new URL(url, window.location.href); } };
+  const window = { location: new URL(platform ? 'https://8415wallet.com/v3/web/index.html' : 'https://wallet.example/web/index.html'), history,
     addEventListener: windowEvents.addEventListener.bind(windowEvents) };
   const el = id => ids.get(id);
-  const login = session => { el('wallet-private').hidden = !session; subscriber?.(session); };
+  const login = session => { currentSession = session; el('wallet-private').hidden = !session; subscriber?.(session); };
   // Minimal existing-auth navigation contract. Real auth is covered by its own
   // retained suites, plus the exact reviewed-source identity assertion below.
   el('wallet-login-method').value = 'wallet-local';
@@ -91,12 +92,15 @@ function fixture(initialEntry = null, platform = false) {
     cancel() {} setContext() {} async load() {} dispose() {}
     async select() { counters.avatarWrites++; } async save() { counters.avatarWrites++; } async remove() { counters.avatarWrites++; }
   }
-  const sdk = { ...i18n, walletIdentityStateDisplay, isPlatformPasswordProfile, walletLogin: { subscribe(fn) { subscriber = fn; login(null); } },
+  const sdk = { ...i18n, walletIdentityStateDisplay, isPlatformPasswordProfile, loginIdentifier, requestedWalletPath, authenticatedRoute, walletLogin: {
+    subscribe(fn) { subscriber = fn; login(null); },
+    assert() { if (!currentSession) throw Error('LOGIN_REQUIRED'); return currentSession; },
+    logout() { login(null); } },
     getReleaseProfile: async () => ({ id: 'v3', tenant: { id: platform ? 'default' : 'example', label: platform ? '8415wallet' : 'Example' },
       deployment: { url: platform ? 'https://8415wallet.com/v3/web/index.html' : null }, features: { linkedResponsibilities: true } }),
     walletUiBusy: () => busy, TenantAvatarController: Avatar };
   new Function('document', 'globalThis', ...Object.keys(sdk), source)(document, window, ...Object.values(sdk));
-  return { el, nodes, events, windowEvents, counters, historyCalls, history, login, setBusy(value) { busy = value; },
+  return { el, nodes, events, windowEvents, window, counters, historyCalls, history, login, setBusy(value) { busy = value; },
     publicRoute(name) { nodes.find(node => node.dataset.publicRoute === name).click(); },
     route(name) { nodes.find(node => node.dataset.route === name && !node.attributes.has('data-foundation-placeholder')).click(); } };
 }
@@ -208,15 +212,15 @@ test('six existing locale choices remain ordered and every new label is authored
   for (const locale of i18n.LOCALES) for (const key of keys) assert.equal(typeof i18n.CATALOGS[locale.id][`foundation.${key}`], 'string');
 });
 
-test('reviewed progressive authentication source has an exact identity, with retained security modules', () => {
-  // This pin identifies reviewed source; it does not assert runtime acceptance.
+test('platform authentication candidate has an exact identity, with retained security modules', () => {
+  // This pin identifies the candidate source; it does not assert runtime acceptance.
   // Account-login, method-change and raw-page browser suites retain behavioral
   // proof/cancellation/replay tests for this changed presentation.
   const auth = text('../web/wallet-auth.mjs');
-  assert.equal(createHash('sha256').update(auth).digest('hex'), '4c90a394037ad3d1d5491d62ec6ae43274191c217622b0986a1c549053f6e3ef');
+  assert.equal(createHash('sha256').update(auth).digest('hex'), 'b150b8f0a2897ca7c8aab854ac3e105a07a4fa9f92a9ab6f1283c96f07bf5846');
   for (const [path, expected] of [
-    ['web/login-core.mjs', 'fa7c752bb73e7ad658cba67486c1599bada50c0b63336b0ee92007c8912aef57'],
-    ['web/account-auth.mjs', '05353729b2033396627abee77acadf7312301d74b71caa787bc6989ff84f03cc'],
+    ['web/login-core.mjs', '2b6da6cdc97ccf7ca53aaa41c25b15b8482d29c604ecd5d76ce4bf9ba31c73d8'],
+    ['web/account-auth.mjs', '6f7f5c59a5ad0f1511e002d2fcffb5d2e88fa23b57540ef5280db9d0f5e34edc'],
     ['web/method-change-ui.mjs', '31119a18fbf541cb588b9daf531dc0e75ca46f25d8d7340e7e65d89728d209fe'],
   ]) assert.equal(createHash('sha256').update(text('../' + path)).digest('hex'), expected, path);
 });
@@ -234,12 +238,24 @@ test('home has only Register/Login and management is a separate DOM branch', () 
   }
 });
 
-test('platform entry cannot select a default tenant or open login without resolution', async () => {
+test('platform entry requires an identifier and never performs an anonymous lookup', async () => {
   const f = fixture(null, true); await new Promise(resolve => setImmediate(resolve));
   f.publicRoute('existing');
   assert.equal(f.el('existing-user-panel').hidden, false);
   assert.equal(f.el('existing-login-open').disabled, true);
   f.publicRoute('login'); assert.equal(f.el('login-panel').hidden, true);
+  assert.equal(f.counters.requests + f.counters.signatures + f.counters.sends, 0);
+  assert.ok(f.historyCalls.every(([, , url]) => url === undefined));
+});
+test('platform identifier opens real authentication without claiming wallet membership', async () => {
+  const f = fixture(null, true); await new Promise(resolve => setImmediate(resolve));
+  f.publicRoute('existing'); f.el('password-tenant-select').value = 'owner@example.invalid';
+  // The UI button's input controller is separate; this calls the guarded route.
+  f.el('existing-login-open').disabled = false;
+  f.publicRoute('login');
+  assert.equal(f.el('login-panel').hidden, false);
+  assert.equal(f.el('auth-username').value, 'owner@example.invalid');
+  assert.equal(f.el('wallet-private').hidden, true);
   assert.equal(f.counters.requests + f.counters.signatures + f.counters.sends, 0);
   assert.ok(f.historyCalls.every(([, , url]) => url === undefined));
 });
@@ -298,4 +314,32 @@ test('registration Escape returns to existing-wallet choices without opening Log
     assert.equal(f.counters.requests, 0); assert.equal(f.counters.signatures, 0); assert.equal(f.counters.sends, 0);
     assert.equal(f.history.state.walletPage, 'existing');
   }
+});
+
+
+const routedSession = name => ({ account: '0x' + '1'.repeat(40), chainId: '1', serverId: 'synthetic-session', walletRoute: { walletName: name, walletPath: '/' + name } });
+test('platform Home clears a former authenticated wallet path before another login', async () => {
+  const f = fixture(null, true); await new Promise(resolve => setImmediate(resolve));
+  f.login(routedSession('example-one'));
+  assert.equal(f.window.location.pathname, '/example-one');
+  assert.equal(f.el('password-tenant-select').value, 'example-one');
+  f.login(null); f.publicRoute('home');
+  assert.equal(f.window.location.pathname, '/v3/web/index.html');
+  assert.equal(f.el('password-tenant-select').value, '');
+  f.login(routedSession('example-two'));
+  assert.equal(f.window.location.pathname, '/example-two');
+  assert.equal(f.el('wallet-private').hidden, false);
+});
+test('intentional registration leaves a previous wallet path before authenticating the new account', async () => {
+  const f = fixture(null, true); await new Promise(resolve => setImmediate(resolve));
+  f.window.location = new URL('https://8415wallet.com/example-one');
+  f.publicRoute('register');
+  assert.equal(f.window.location.pathname, '/v3/web/index.html');
+  f.login(routedSession('user-new-account'));
+  assert.equal(f.window.location.pathname, '/user-new-account');
+  assert.equal(f.el('password-tenant-select').value, 'user-new-account');
+  assert.equal(f.el('auth-username').value, 'user-new-account');
+  f.login(null);
+  assert.equal(f.window.location.pathname, '/user-new-account');
+  assert.equal(f.el('password-tenant-select').value, 'user-new-account');
 });

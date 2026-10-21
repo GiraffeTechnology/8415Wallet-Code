@@ -371,6 +371,7 @@
       "web/task-verification-policy-ceremony.mjs",
       "web/task-verification-policy-client.mjs",
       "web/task-verification-policy-entry.mjs",
+      "web/task-verification-policy-pending.mjs",
       "web/task-verification-policy-startup.mjs",
       "web/task-verification-policy-ui.mjs",
       "web/task-verification-policy-wire.mjs",
@@ -812,8 +813,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "fa76c7a1f21f83381494596a392f191bfb89f8b6",
-      "sha256": "3bf7533b31b1ebef57018d4790f33fc6bb549e3085592b613932522f0c0cb284"
+      "git_blob_sha1": "1a27e745bb37befdf3fbcc8182dc35c50af95ad1",
+      "sha256": "5e858967e13490eaf191b3f352a68afec36246efb4437b064d78459776acec73"
     },
     {
       "path": "scripts/package/build-auth.mjs",
@@ -854,8 +855,8 @@
     {
       "path": "scripts/package/dapp-release.mjs",
       "mode": "100644",
-      "git_blob_sha1": "245c1d6c2f7bd2bc87c0104555d1d3b4fc4ee5b3",
-      "sha256": "e55375bdd9143594d9bdc9ab43b261f33124eec3747b3b901a9d5eaf2219eaf4"
+      "git_blob_sha1": "1b48036140865089431b6ebc3e380a043ff05d10",
+      "sha256": "2c7e23b9251c3d4bc5faa48b498dd405a75f69e7e9f95cb6c9ecd4fa395ca4d9"
     },
     {
       "path": "scripts/package/release-contract.mjs",
@@ -884,8 +885,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "edbb66b0e7f773e78b1dbfb3d1f6876e1321fdc1",
-      "sha256": "6892bc8713429007d42dc0f2f59894bd5edf2cf25acc400a7a520f9b4fc952ed"
+      "git_blob_sha1": "f9fa73ea2bf884d107c2bc2e7db609d693ec3bc3",
+      "sha256": "14545d00a13589a829363cd78c7de269e7077db211570e3e293e93a370ac1257"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -896,8 +897,8 @@
     {
       "path": "scripts/package/verify-delivery.mjs",
       "mode": "100644",
-      "git_blob_sha1": "6492e394794e4f4d745c9e1342121eddd8812954",
-      "sha256": "548ab05ea23697b2e3e15b3b025eb5d01da50ee820c0a4ddba6dcc29d624dc0d"
+      "git_blob_sha1": "52915d7a0f95ee25157f859a99ce4351f2d97211",
+      "sha256": "2e60bc03561e6833596b50cee398d5fbd09dead2632d0e16efc5ce56264106ae"
     },
     {
       "path": "scripts/package/verify-install-v3.mjs",
@@ -914,8 +915,8 @@
     {
       "path": "server/account-directory.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e75ff75158c3da51391bf5d59aaeb1b129ebfae4",
-      "sha256": "e1ded7d056541da348d4da68cbaac0dfea3315a8241797dca410109244e546d0"
+      "git_blob_sha1": "d0ccdd1f3ee5ec24c3a51c611f8955f7a8d0775c",
+      "sha256": "87882e1d00754babc207574adb3de06bd36cc1965117f69e736f2911f029b9f5"
     },
     {
       "path": "server/agent-api-session.mjs",
@@ -926,8 +927,8 @@
     {
       "path": "server/auth-service.mjs",
       "mode": "100644",
-      "git_blob_sha1": "62d2edf13f20245a29f6f7e809e1a29e9559bf5d",
-      "sha256": "34b3f1239e8402e8f604342a88bf98cd6ffa12d06166fea2cce0e77fe1f31808"
+      "git_blob_sha1": "fcb43cb428b6bc467f76e0a7bb5fd4cf00f96529",
+      "sha256": "b02dcb14c11c5dc517d8d4b9a672b71ad96d9854bedb7ba8b68c73c1e954b8d5"
     },
     {
       "path": "server/ca-verifier.mjs",
@@ -938,8 +939,8 @@
     {
       "path": "server/config-validation.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e60bee2e482a1b12e62d4bcb8440563fcdef1280",
-      "sha256": "2207ee4d0d0296c39b0acb2bf2eab6591b222758a613480e51bd19b0adea6d7a"
+      "git_blob_sha1": "72b1f202299d14720e774d6d77f44dabeaa2681e",
+      "sha256": "ac2a1826d3674cb668db3c269cce1afd3f03837ce255c590bce16378e5865ed1"
     },
     {
       "path": "server/credential-instance.mjs",
@@ -980,8 +981,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "bf3964bc1875cfe79172e172adf6483f2fbf7df1",
-      "sha256": "d12f30dfe298e3813a79864e188b9cb665519566056f78b7613f84313afb995c"
+      "git_blob_sha1": "d014254d1ef5282cf8e92d02296858a46cfcb9c7",
+      "sha256": "8d94b61ab68a5f657daff32a939d774221b61b27a08be0dcda827251e4d9fb79"
     },
     {
       "path": "server/method-change-service.mjs",
@@ -1022,8 +1023,8 @@
     {
       "path": "server/registration-service.mjs",
       "mode": "100644",
-      "git_blob_sha1": "a753762588ad754b1423963848051cffc666c6ea",
-      "sha256": "75c9615c5245ca99767b7ec9972d8f35a58733e89ecca01c3f9997b9bcdd92a7"
+      "git_blob_sha1": "08081f0127d9ca96dbf8703649e968d1cb04cd1c",
+      "sha256": "b84b3b74128df07809921da7fd2b7246641c96c5dfddca6420f72e7571da7e63"
     },
     {
       "path": "server/runtime-entry.mjs",
@@ -1244,8 +1245,8 @@
     {
       "path": "server/task-verification-policy.mjs",
       "mode": "100644",
-      "git_blob_sha1": "122bdb712487b75e973b320061837d9cebc1719a",
-      "sha256": "92e59a782bc7be448115c7a4774d05b9bff0221872f01d244cf3ce46923f2e72"
+      "git_blob_sha1": "00ce7c36a9c7d59e7a3aeadd66baf7395b3fd04f",
+      "sha256": "3492c574191a2bdd3fe80fb5fdedac28251c91fbe655564911e95bb8d391887b"
     },
     {
       "path": "server/task-verification-state.mjs",
@@ -2144,8 +2145,8 @@
     {
       "path": "web/account-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f63de039b73e2d3f3e5f958bf6ad35b0028d6f74",
-      "sha256": "05353729b2033396627abee77acadf7312301d74b71caa787bc6989ff84f03cc"
+      "git_blob_sha1": "dd1dcaa236708a7ff66bc6d9824f57930299bd27",
+      "sha256": "6e7021fbe19738a0cffc5fdb5a7a809b67419bfd54e59f44d2e66a6caa5e4f80"
     },
     {
       "path": "web/app.mjs",
@@ -2312,8 +2313,8 @@
     {
       "path": "web/index.html",
       "mode": "100644",
-      "git_blob_sha1": "2f189f3933121ff4affe94bce8a2c5f06ef810ab",
-      "sha256": "b8c05a1404fcef942cda35bd44062f98b946a74b9fc1047dc9c3fd5c030c67f4"
+      "git_blob_sha1": "074febe929bf973803beb7b3324047122fed122a",
+      "sha256": "a3e5354cc2915eb21600484fe9a45fff45c18e109a6166bce68c661ac2ffcdec"
     },
     {
       "path": "web/kit-read-panel.mjs",
@@ -2450,8 +2451,8 @@
     {
       "path": "web/locales/task-verification-policy.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e8116f0cd121adfdf450715527c98a7449bf583f",
-      "sha256": "30f2cb4e63a4e0c483679800abaf0a9acb0890e77d60fe2f24b20af889756f51"
+      "git_blob_sha1": "5543037f749efbf2da24599c93a64ed6bcaba062",
+      "sha256": "2852298261c0f70ffec0bf55c803cf052f0256a57f2f49e1b6b6b4444f5fbcb8"
     },
     {
       "path": "web/locales/trading-observation.mjs",
@@ -2474,8 +2475,8 @@
     {
       "path": "web/login-core.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e8d36a4c90e76a77065a16799fe46ecffcffabd0",
-      "sha256": "fa7c752bb73e7ad658cba67486c1599bada50c0b63336b0ee92007c8912aef57"
+      "git_blob_sha1": "1ed5035293f117fe8403ff8663487b9d50ea7437",
+      "sha256": "2b6da6cdc97ccf7ca53aaa41c25b15b8482d29c604ecd5d76ce4bf9ba31c73d8"
     },
     {
       "path": "web/method-change-ui.mjs",
@@ -2534,8 +2535,8 @@
     {
       "path": "web/release-profile.mjs",
       "mode": "100644",
-      "git_blob_sha1": "ababb08fa238d9c08dc934bbe0d1324fc6caa7bb",
-      "sha256": "66906778d5d6a852fd751d54e3d04cfbe78054a60adb242dadd8d4447ba8eeed"
+      "git_blob_sha1": "b40b273417bac0e32eeaf6f372daad580c1911c6",
+      "sha256": "f728f315e413c1f228cab9d7a6df06200c5ddafe396c4a9b81e9b65a5b7f9fe8"
     },
     {
       "path": "web/settlement-store.mjs",
@@ -2588,20 +2589,26 @@
     {
       "path": "web/task-verification-policy-ceremony.mjs",
       "mode": "100644",
-      "git_blob_sha1": "520eb3ffeadcf0daedc4d502c508dba5d93af6b5",
-      "sha256": "eff8635da9087275ecd507c84c344d099b506b0f68f3f3b3d414634c660a9c8e"
+      "git_blob_sha1": "63425067cd41045bdbfe7cc8ef632649b6fdeb35",
+      "sha256": "43f37c5dc17ef4fbe891deadfa729695d252946ab7c48cac4377267e914ba1a4"
     },
     {
       "path": "web/task-verification-policy-client.mjs",
       "mode": "100644",
-      "git_blob_sha1": "abc2473f183e1db1d5a2ab8cbab318451ec585ff",
-      "sha256": "380d89daff92d810414cb7c69c9537b8e49bc2fbf365b4a5e129684dccb7745e"
+      "git_blob_sha1": "07bc9bab7069bf6b92c333626a2fcbbffc2800b6",
+      "sha256": "56474301eda1c4586a3f0b193e83624d024437e91356b25a3b69d1a8441f2cd6"
     },
     {
       "path": "web/task-verification-policy-entry.mjs",
       "mode": "100644",
       "git_blob_sha1": "4adfe7eabca7353a4c2b53162cba16bd7fe3bc70",
       "sha256": "8dfe62ba6861ea215b8fcf58889734c281ba883779ee74e5fa7821562c9db2c0"
+    },
+    {
+      "path": "web/task-verification-policy-pending.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "fda7d9094410523d0371e22cfd27ceb5ba90c252",
+      "sha256": "8d99990b5965a18b0501c17e62aeba1286ccad18d2bf6a9cd8b2ed2e89763b6d"
     },
     {
       "path": "web/task-verification-policy-startup.mjs",
@@ -2612,14 +2619,14 @@
     {
       "path": "web/task-verification-policy-ui.mjs",
       "mode": "100644",
-      "git_blob_sha1": "7050bede19739c504e9834e554872ad0eeb4b122",
-      "sha256": "766344ba9dfd1fc705ca7796c45808e759cb2e53be27c5f59649462b626fe0bc"
+      "git_blob_sha1": "41408b78c8b2f60dfb2c9a58c8e48940156febc2",
+      "sha256": "b7a547be9589fc28613da64353d6f6a67ac7932940b2d22283911f289a62471b"
     },
     {
       "path": "web/task-verification-policy-wire.mjs",
       "mode": "100644",
-      "git_blob_sha1": "211eca2c6de464c34cd984c2a4178cd2bedf6020",
-      "sha256": "bc32921b9a2c2bddefb5b534ae76b9c5c81009a2eb087f66b72a88b5462a1f9f"
+      "git_blob_sha1": "b85a4bb39f3529c81236f29d3210668660d4b676",
+      "sha256": "516c474053517d6488a9cf3045519668ad636f233e39131a67dac22178627d9a"
     },
     {
       "path": "web/tenant-avatar.mjs",
@@ -2642,8 +2649,8 @@
     {
       "path": "web/tenant-password-ui.mjs",
       "mode": "100644",
-      "git_blob_sha1": "899af51eb43709cb07adb9c3b31f6ab89494117d",
-      "sha256": "965ce37e6d75a5f70c153e076a74dd956345486dad1282c2d3560b2999956b6f"
+      "git_blob_sha1": "a4ed97845573d10dcb5917b28cd1dda8a249151b",
+      "sha256": "f036d6401bb7ce22695702b9dc4b263ff81cade79f5cdcdba1864df320346b48"
     },
     {
       "path": "web/trading-observation.mjs",
@@ -2660,8 +2667,8 @@
     {
       "path": "web/wallet-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "c868ec76410ef957481ee600217460a9c7de7b80",
-      "sha256": "4c90a394037ad3d1d5491d62ec6ae43274191c217622b0986a1c549053f6e3ef"
+      "git_blob_sha1": "4760495885e4e2c257b0a3722941330decb787c1",
+      "sha256": "b150b8f0a2897ca7c8aab854ac3e105a07a4fa9f92a9ab6f1283c96f07bf5846"
     },
     {
       "path": "web/wallet-identity-display.mjs",
@@ -2672,8 +2679,8 @@
     {
       "path": "web/wallet-shell.mjs",
       "mode": "100644",
-      "git_blob_sha1": "dde9e3f6af872c94e1a754c771dfce6396e98cda",
-      "sha256": "67c2bab969b2e62147e4ccc458877b597807a2a480ff8d3f221b7daa5b67b98b"
+      "git_blob_sha1": "9cb6e87875663bf96e616c698629231cd83ce5a5",
+      "sha256": "6f87b13d5dc1fd0915457b46f31fbf566c5b9d354681bcfee7f9f4662d5cf229"
     },
     {
       "path": "web/wallet.css",
@@ -2692,6 +2699,72 @@
       "mode": "100644",
       "git_blob_sha1": "eaa99afc3ff705faf5dbc5b7d28cf034e1c51757",
       "sha256": "17f27cc7faaa00395ed6cc111f10e6457219d39b9727aa211de096e017f2f1c8"
+    },
+    {
+      "path": "scripts/controls/serve-browser.cjs",
+      "mode": "100644",
+      "git_blob_sha1": "0fd23ab44576f5ed7ef20ff69754b9f3e5041f5c",
+      "sha256": "b1495d3a7223eaa9fd4ad2a0da8aa618e555a76152ab13ee08f2a7d5021f13a8"
+    },
+    {
+      "path": "tests/auth-service.test.ts",
+      "mode": "100644",
+      "git_blob_sha1": "fd7b0a01defdd9d4cb7edfc8eedda0c410319e55",
+      "sha256": "79756baa061924345e4f81b427e255a14032d4926c1a66847302f455e5a9a3f5"
+    },
+    {
+      "path": "tests/auth-registration.test.ts",
+      "mode": "100644",
+      "git_blob_sha1": "8cd2b6d295bbad4291b525711233d476fa055f34",
+      "sha256": "6784c2ceff955cab2e1d62a2e787a95a749eccbb0dc28084ae0d6d73368ef1e7"
+    },
+    {
+      "path": "tests/foundation-ui.test.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "5f072cf993d1f81413ac78ea6f57c3ed19f8dbe8",
+      "sha256": "9f47278400a73e0e6106b11c3705b989b172ac918f1c36b8a90b0803a90df125"
+    },
+    {
+      "path": "tests/tenant-password-routing.test.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "eba686fb866d6e01a2b5fe51dcae0f751adddc8e",
+      "sha256": "867fcbc0c51573d9fdb8512d078ab6b43a97f557a771ed32716996ec4c02d9ce"
+    },
+    {
+      "path": "tests/account-login.test.ts",
+      "mode": "100644",
+      "git_blob_sha1": "a916578679b7f7a36425771d6f030a5a546ccad7",
+      "sha256": "c9d6ebc2e247d0fd103046fe61c5f86bf73e1d8414fa0e5e07ed884b514886c1"
+    },
+    {
+      "path": "server/login-identifier.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "9475a603cda44869ddae5ddd30a12d85dcd797cb",
+      "sha256": "7a0611dffd031b89799c1bc65816f0080176b776d716048a7f725d65a503f4f7"
+    },
+    {
+      "path": "web/wallet-entry.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "615e5bf489f08f95e76eee810da78a3d9aefbb10",
+      "sha256": "93609179d6edf05e08fa3ee13a2d484c074ac88bda24fc8380c31f52f7841b3b"
+    },
+    {
+      "path": "scripts/controls/canonical-entry.cjs",
+      "mode": "100644",
+      "git_blob_sha1": "4f3fd8a409d38255b21ca8d225412e583535a683",
+      "sha256": "19d66b37c8910089bdbe3d7a18d68ac16342f6a51c8a27fc5ff2c01021d6cf3d"
+    },
+    {
+      "path": "tests/login-identifier.test.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "c6f489e59a322c3a35364574bb4785d7daf42489",
+      "sha256": "660755828b341c6d726d8ac75c51ebeaf3bdc6e9d04ba81993215aace3cd5b93"
+    },
+    {
+      "path": "tests/canonical-wallet-entry.test.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "1ac2c2898544c305cf696313582984b891fce1cf",
+      "sha256": "d426547de9e2906d0dd55bd64320d91353e5472f7a1dfe5a0901056e5061bf94"
     }
   ]
 }

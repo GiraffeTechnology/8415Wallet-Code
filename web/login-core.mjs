@@ -1,4 +1,5 @@
 /** In-memory proof-of-account login for the static DApp. Not an API access token. */
+import { authenticatedRoute } from './wallet-entry.mjs';
 export class WalletLoginError extends Error {
   constructor(code) { super(code); this.name = 'WalletLoginError'; this.code = code; }
 }
@@ -79,6 +80,8 @@ export class WalletLogin {
         const current = await this.#server.check(); this.assert(binding);
         insist(current.id === session.serverId && current.origin === session.origin && current.tenant === session.tenant &&
           current.account === session.account && current.chainId === session.chainId && current.expiresAt === session.expiresAt && current.kind === session.kind, 'LOGIN_SERVER_SESSION_CHANGED');
+        const route = current.walletRoute === undefined ? null : authenticatedRoute(current.walletRoute);
+        insist((current.walletRoute === undefined || route !== null) && JSON.stringify(route) === JSON.stringify(session.walletRoute ?? null), 'LOGIN_SERVER_SESSION_CHANGED');
       }
       if (this.#contractProof) {
         const proof = this.#contractProof;
@@ -110,6 +113,8 @@ export class WalletLogin {
       if (server) {
         insist(typeof server.authenticate === 'function' && typeof server.check === 'function' && typeof server.logout === 'function', 'LOGIN_SERVER_REQUIRED');
         const verified = await server.authenticate(identity, provider); current();
+        const walletRoute = verified?.walletRoute === undefined ? null : authenticatedRoute(verified.walletRoute);
+        insist(verified?.walletRoute === undefined || walletRoute !== null, 'LOGIN_SERVER_SESSION_REFUSED');
         const time = this.#now();
         insist(verified && typeof verified.id === 'string' && /^[A-Za-z0-9_-]{43}$/.test(verified.id) &&
           verified.origin === origin && verified.account === identity.account && verified.chainId === identity.chainId &&
@@ -125,7 +130,8 @@ export class WalletLogin {
         insist(commitTime >= time && commitTime < verified.expiresAt && this.#origin() === origin, 'LOGIN_SERVER_SESSION_REFUSED');
         this.#abort = new AbortController(); this.#provider = provider; this.#server = server;
         this.#session = Object.freeze({ id: epoch, serverId: verified.id, tenant: verified.tenant, ...identity, origin,
-          issuedAt: verified.issuedAt, expiresAt: verified.expiresAt, kind: verified.kind });
+          issuedAt: verified.issuedAt, expiresAt: verified.expiresAt, kind: verified.kind,
+          ...(walletRoute ? { walletRoute } : {}) });
         this.#notify('LOGIN_VERIFIED'); return this.#session;
       }
       const nonce = Array.from(this.#random(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');

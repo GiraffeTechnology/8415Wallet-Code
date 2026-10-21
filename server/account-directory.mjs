@@ -35,7 +35,7 @@ export function createAccountDirectory({ tenant, accounts, store, users }) {
       if (emails.has(emailKey(record.email))) fail(); names.add(record.username); emails.set(emailKey(record.email), record.username);
       if (record.ordinaryAccount !== undefined) {
         const user = record.ordinaryAccount;
-        if (!exact(user, ['username', 'wallets', 'passwordHash', 'caFingerprints']) || user.username !== record.username ||
+        if (!exact(user, ['username', 'wallets', 'passwordHash', 'caFingerprints', 'walletName']) || user.username !== record.username ||
           !Array.isArray(user.caFingerprints) || user.caFingerprints.length !== 0 || user.wallets?.length !== 1) fail();
         ordinary.push(user);
       } else if (!configured.some(user => user.username === record.username)) fail();

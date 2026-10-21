@@ -7,6 +7,7 @@ import { getReleaseProfile } from './release-profile.mjs';
 import { acquireWalletUi, releaseWalletUi } from './ui-lock.mjs';
 import { clearEnrollmentQr, renderEnrollmentQr } from './enrollment-qr.mjs';
 import { authorizeMethodChange, commitMethodChange, cancelMethodChangeUi } from './method-change-ui.mjs';
+import { loginIdentifier, requestedWalletPath } from './wallet-entry.mjs';
 
 export { WalletLoginError, currentAccountClient, currentAccountFeatures, subscribeAccountSettings, subscribeAgentPolicySettings };
 function currentAccountFeatures() { return currentSession()?.serverId ? { forwardProgressAvailable: accountState?.forwardProgressAvailable === true } : null; }
@@ -16,6 +17,7 @@ function currentAccountClient() { return walletLogin.assert().serverId ? account
 const el = id => document.getElementById(id);
 let timer = null, signing = false, attemptRevision = 0, accountClient = null, enrollmentTimer = null;
 let managementProfile = null, managementStep = null, managementContext = null, managementReauthStep = null;
+let platformRelease = false, releaseManagementContext = null;
 let moduleOpen = false, accountState = null, managementTimer = null, enrollmentId = null, enrollmentRevision = 0, enrollmentProof = null;
 const accountSettingsListeners = new Set();
 const agentPolicySettingsListeners = new Set();
@@ -148,6 +150,13 @@ async function loadAccount() {
   }
 }
 walletLogin.subscribe((session, reason) => {
+  if (platformRelease) {
+    const requested = requestedWalletPath(globalThis.location);
+    // A known path keeps the verification form reachable during reauthentication;
+    // it never supplies verified/fresh account state or method-change authority.
+    managementProfile = session?.serverId && session.walletRoute || moduleOpen && requested ? 'local' : 'platform';
+    managementContext = session?.walletRoute?.walletName ?? requested?.slice(1) ?? releaseManagementContext;
+  }
   if (!session) {
     const continuingReauthentication = managementReauthStep && moduleOpen && ['LOGIN_REQUIRED', 'LOGIN_STARTING'].includes(reason);
     if (continuingReauthentication) managementStep = managementReauthStep;
@@ -187,9 +196,13 @@ el('wallet-login').addEventListener('click', async () => {
     paint(el('wallet-login-status'), msg('message.018'));
     const method = el('wallet-login-method').value || 'wallet-local';
     const credentials = { username: el('auth-username').value, password: el('auth-password').value, code: el('auth-code').value, recovery: el('auth-recovery').checked === true };
+    const platform = isPlatformPasswordProfile(profile);
+    const identifier = platform ? loginIdentifier(el('password-tenant-select').value) : null;
+    if (platform && (!identifier || method === 'wallet-local')) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
     if (method === 'wallet-local') { accountClient = null; await walletLogin.signIn(globalThis.ethereum); }
     else {
-      accountClient = new AccountAuthClient({ tenant: profile.tenant.id });
+      accountClient = new AccountAuthClient({ tenant: profile.tenant.id,
+        ...(platform ? { loginEntry: { identifier, requestedWalletPath: requestedWalletPath(globalThis.location) } } : {}) });
       const adapter = accountClient.adapter(method, credentials);
       el('auth-password').value = ''; el('auth-code').value = '';
       await walletLogin.signIn(globalThis.ethereum, adapter);
@@ -692,6 +705,15 @@ renderLoginMethod(); renderManagement();
 /** Fixed fragment opens a local panel only; it is not login or change authority. */
 getReleaseProfile().then(profile => {
   managementProfile = isPlatformPasswordProfile(profile) ? 'platform' : 'local';
+  platformRelease = managementProfile === 'platform';
+  releaseManagementContext = profile.tenant.label;
+  if (managementProfile === 'platform') {
+    const localOption = el('wallet-login-method').querySelector('option[value="wallet-local"]');
+    if (localOption) { localOption.disabled = true; localOption.hidden = true; }
+    if (el('wallet-login-method').value === 'wallet-local') el('wallet-login-method').value = 'wallet';
+    el('auth-username').readOnly = true;
+    renderLoginMethod();
+  }
   managementContext = profile.tenant.label;
   renderManagement();
   if (managementProfile !== 'local') return;
@@ -700,3 +722,10 @@ getReleaseProfile().then(profile => {
   globalThis.history.replaceState(globalThis.history.state, '', profile.deployment.url);
   return openManagement({ initial: action === 'initial' });
 }).catch(() => { /* Invalid location/config stays closed. */ });
+// Editing intent invalidates any in-flight proof, without querying membership.
+el('password-tenant-select').addEventListener('input', () => {
+  if (platformRelease) {
+    cancelLogin();
+    el('auth-username').value = loginIdentifier(el('password-tenant-select').value) ?? '';
+  }
+});

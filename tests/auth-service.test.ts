@@ -18,13 +18,14 @@ async function fixture(options: any = {}) {
   let handler: any;
   const server = createServer((req, res) => handler(req, res)); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address() as { port: number }, origin = `http://127.0.0.1:${address.port}`;
-  const account = { username: 'tester', ...(options.withoutPassword ? {} : { passwordHash: hash }), wallets: [{ account: signer.address, chainId: '1' }], caFingerprints: options.fingerprints ?? [] };
+  const account = { username: 'tester', ...(options.walletName ? { walletName: options.walletName } : {}), ...(options.withoutPassword ? {} : { passwordHash: hash }), wallets: [{ account: signer.address, chainId: '1' }], caFingerprints: options.fingerprints ?? [] };
   handler = createAuthService({ origin, tenant: 'xiongan', accounts: [account, ...(options.additionalAccounts ?? [])], store, now: () => state.now, sendOtp: async (message: any) => { mailbox.push(message); }, ...options });
   const client = () => {
     const jar = new Map<string, string>(); let csrf = '';
     const call = async (path: string, body?: any, headers: Record<string, string> = {}) => {
       const response = await fetch(`${origin}/auth/${path}`, { method: body === undefined ? 'GET' : 'POST',
-        headers: { 'X-Wallet-Tenant': 'xiongan', 'X-Wallet-CSRF': csrf, Origin: origin, Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '),
+        headers: { 'X-Wallet-Tenant': options.tenant ?? 'xiongan', 'X-Wallet-CSRF': csrf, Origin: options.origin ?? origin,
+          Host: new URL(options.origin ?? origin).host, Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '),
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
       for (const cookie of response.headers.getSetCookie()) { const [name, value] = cookie.split(';')[0]!.split('='); if (value) jar.set(name!, value); else jar.delete(name!); }
       const data = await response.json() as any; if (response.ok && data.csrf) csrf = data.csrf;
@@ -493,4 +494,111 @@ test('reserved answer and prior verified email join exact identity and authentic
   assert.equal((await c.call('account/change/commit', { changeProof: 'generic-reset-proof', code: hotp(replacement.data.secret, Math.floor(f.state.now / 30000)) })).status, 403);
   assert.equal((await c.confirmSetup(confirmation(replacement.data, f.state.now))).status, 200);
   const after = await f.store.read('xiongan:tester'); assert.equal(after.recoveryProfile.email, registration.email); assert.equal(after.secret, replacement.data.secret);
+});
+
+
+for (const kind of ['name', 'email', 'address']) test(`bound ${kind} login returns only its authenticated canonical wallet`, async t => {
+  const f = await fixture({ walletName: 'example-one' }); t.after(f.close);
+  const c = f.client();
+  const bootstrap = await c.bootstrap();
+  assert.equal(bootstrap.data.walletRoute, undefined);
+  const identifier = kind === 'name' ? 'example-one' : kind === 'email' ? registration.email : f.signer.address;
+  const result = await c.login({ username: identifier, identifier, requestedWalletPath: '/example-one' });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data.walletRoute, { walletName: 'example-one', walletPath: '/example-one' });
+  assert.deepEqual((await c.call('session')).data.walletRoute, result.data.walletRoute);
+});
+
+test('a correct password cannot authorize a different requested wallet path', async t => {
+  const f = await fixture({ walletName: 'example-one' }); t.after(f.close);
+  const c = f.client(); await c.bootstrap();
+  const refused = await c.login({ identifier: 'tester', requestedWalletPath: '/example-two' });
+  assert.equal(refused.status, 401); assert.deepEqual(refused.data, { error: 'AUTH_REFUSED' });
+  assert.equal((await c.call('session')).status, 401);
+});
+
+test('wallet proof binds the original identifier, not a replacement at confirmation', async t => {
+  const f = await fixture({ walletName: 'example-one' }); t.after(f.close);
+  const c = f.client(); await c.bootstrap();
+  const selected = { account: f.signer.address, chainId: '1' };
+  const challenge = await c.call('challenge', { ...selected, method: 'wallet', identifier: 'unknown', requestedWalletPath: '/example-one' });
+  assert.equal(challenge.status, 200);
+  assert.equal(challenge.data.walletRoute, undefined);
+  assert.equal(challenge.data.message.includes('example-one'), false);
+  const signature = await f.signer.signMessage(challenge.data.message);
+  const refused = await c.call('proof', { ...selected, id: challenge.data.id, signature, identifier: 'tester' });
+  assert.equal(refused.status, 401); assert.deepEqual(refused.data, { error: 'AUTH_REFUSED' });
+  assert.equal((await c.call('session')).status, 401);
+});
+
+test('wallet proof authenticates the requested account before returning its canonical path', async t => {
+  const f = await fixture({ walletName: 'example-one' }); t.after(f.close);
+  const c = f.client(); await c.bootstrap();
+  const selected = { account: f.signer.address, chainId: '1' };
+  const challenge = await c.call('challenge', { ...selected, method: 'wallet', identifier: registration.email, requestedWalletPath: '/example-one' });
+  assert.equal(challenge.status, 200);
+  const signature = await f.signer.signMessage(challenge.data.message);
+  const result = await c.call('proof', { ...selected, id: challenge.data.id, signature });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data.walletRoute, { walletName: 'example-one', walletPath: '/example-one' });
+  assert.equal((await c.call('proof', { ...selected, id: challenge.data.id, signature })).status, 401);
+});
+
+test('the platform entry requires a bound identifier and an explicit private route mapping', async t => {
+  const store = new MemoryCredentialStore({
+    'default:tester': initialCredential,
+    '@registration:default': { version: 1, records: [{ username: 'tester', email: registration.email, verifiedAt: 1 }] },
+  });
+  const f = await fixture({ origin: 'https://8415wallet.com', tenant: 'default', walletName: 'example-one', store }); t.after(f.close);
+  const c = f.client(), headers = { Host: '8415wallet.com', Origin: 'https://8415wallet.com', 'X-Wallet-Tenant': 'default' };
+  await c.call('bootstrap', undefined, headers);
+  const body = { username: 'tester', password, account: f.signer.address, chainId: '1' };
+  assert.equal((await c.call('password', body, headers)).status, 401);
+  const result = await c.call('password', { ...body, identifier: 'tester', requestedWalletPath: '/example-one' }, headers);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.tenant, 'default');
+  assert.deepEqual(result.data.walletRoute, { walletName: 'example-one', walletPath: '/example-one' });
+});
+
+const platformStore = () => new MemoryCredentialStore({
+  'default:tester': initialCredential,
+  '@registration:default': { version: 1, records: [{ username: 'tester', email: registration.email, verifiedAt: 1 }] },
+});
+test('platform rejects an unmapped account without silently using its username as a route', async t => {
+  const f = await fixture({ origin: 'https://8415wallet.com', tenant: 'default', store: platformStore() }); t.after(f.close);
+  const c = f.client(); await c.bootstrap();
+  const result = await c.login({ identifier: 'tester' });
+  assert.equal(result.status, 401); assert.deepEqual(result.data, { error: 'AUTH_REFUSED' });
+  assert.equal((await c.call('session')).status, 401);
+});
+for (const method of ['wallet', 'ca']) test(`platform ${method} proof binds identifier and requested path`, async t => {
+  const fingerprint = 'a'.repeat(64);
+  const f = await fixture({ origin: 'https://8415wallet.com', tenant: 'default', walletName: 'example-one', store: platformStore(),
+    fingerprints: [fingerprint], verifyCa: async () => ({ fingerprint }) }); t.after(f.close);
+  const selected = { account: f.signer.address, chainId: '1' };
+  for (const identifier of ['unknown', 'example-one']) {
+    const c = f.client(); await c.bootstrap();
+    const challenge = await c.call('challenge', { ...selected, method, identifier, requestedWalletPath: '/example-one' });
+    assert.equal(challenge.status, 200);
+    assert.equal(challenge.data.walletRoute, undefined);
+    const proof = method === 'wallet' ? { signature: await f.signer.signMessage(challenge.data.message) } :
+      { signature: 'synthetic-proof', certificateChain: ['synthetic-certificate'], algorithm: 'synthetic-test-adapter' };
+    const result = await c.call('proof', { ...selected, id: challenge.data.id, ...proof });
+    assert.equal(result.status, identifier === 'unknown' ? 401 : 200);
+    if (identifier === 'unknown') assert.deepEqual(result.data, { error: 'AUTH_REFUSED' });
+    else assert.deepEqual(result.data.walletRoute, { walletName: 'example-one', walletPath: '/example-one' });
+  }
+});
+test('platform TOTP uses the same identifier and canonical-path authorization', async t => {
+  const f = await fixture({ origin: 'https://8415wallet.com', tenant: 'default', walletName: 'example-one', store: platformStore() }); t.after(f.close);
+  const c = f.client(); await c.bootstrap();
+  assert.equal((await c.login({ identifier: 'tester' })).status, 200);
+  const setup = await c.startSetup({}); assert.equal(setup.status, 200);
+  const code = hotp(setup.data.secret, Math.floor(f.state.now / 30000));
+  assert.equal((await c.confirmSetup({ code })).status, 200);
+  f.state.now += 30000; await c.bootstrap();
+  const result = await c.call('totp', { username: registration.email, identifier: registration.email, requestedWalletPath: '/example-one',
+    account: f.signer.address, chainId: '1', code: hotp(setup.data.secret, Math.floor(f.state.now / 30000)) });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data.walletRoute, { walletName: 'example-one', walletPath: '/example-one' });
 });
