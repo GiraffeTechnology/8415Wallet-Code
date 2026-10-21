@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,23 @@ const password = 'synthetic-account-password', hash = await hashPassword(passwor
 const registration = { version: 1, email: 'synthetic@example.invalid', verifiedAt: 1 };
 const initialCredential = { registration };
 const initialStore = () => ({ 'xiongan:tester': initialCredential, '@registration:xiongan': { version: 1, records: [{ username: 'tester', email: registration.email, verifiedAt: 1 }] } });
+// Synthetic loopback transport keeps an explicit configured Host header; no TLS or live endpoint is asserted.
+const requestWithExactHost = (url: string, options: any) => new Promise<Response>((resolve, reject) => {
+  const request = httpRequest(url, { method: options.method, headers: options.headers }, response => {
+    const chunks: Buffer[] = [];
+    response.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    response.on('error', reject);
+    response.on('end', () => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(response.headers)) {
+        if (Array.isArray(value)) for (const item of value) headers.append(name, item);
+        else if (value !== undefined) headers.set(name, value);
+      }
+      resolve(new Response(Buffer.concat(chunks), { status: response.statusCode, headers }));
+    });
+  });
+  request.on('error', reject); if (options.body !== undefined) request.write(options.body); request.end();
+});
 async function fixture(options: any = {}) {
   const signer = Wallet.createRandom(), state = { now: Math.floor(Date.now() / 30000) * 30000 }, store = options.store ?? new MemoryCredentialStore(initialStore()), mailbox: any[] = [];
   let handler: any;
@@ -23,7 +40,7 @@ async function fixture(options: any = {}) {
   const client = () => {
     const jar = new Map<string, string>(); let csrf = '';
     const call = async (path: string, body?: any, headers: Record<string, string> = {}) => {
-      const response = await fetch(`${origin}/auth/${path}`, { method: body === undefined ? 'GET' : 'POST',
+      const response = await (options.origin ? requestWithExactHost : fetch)(`${origin}/auth/${path}`, { method: body === undefined ? 'GET' : 'POST',
         headers: { 'X-Wallet-Tenant': options.tenant ?? 'xiongan', 'X-Wallet-CSRF': csrf, Origin: options.origin ?? origin,
           Host: new URL(options.origin ?? origin).host, Cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '),
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -541,6 +558,7 @@ test('wallet proof authenticates the requested account before returning its cano
   const result = await c.call('proof', { ...selected, id: challenge.data.id, signature });
   assert.equal(result.status, 200);
   assert.deepEqual(result.data.walletRoute, { walletName: 'example-one', walletPath: '/example-one' });
+  await c.bootstrap(); // A fresh preauth context isolates challenge replay from the CSRF transition.
   assert.equal((await c.call('proof', { ...selected, id: challenge.data.id, signature })).status, 401);
 });
 

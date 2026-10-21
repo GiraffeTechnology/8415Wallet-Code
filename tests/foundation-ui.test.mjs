@@ -220,7 +220,7 @@ test('platform authentication candidate has an exact identity, with retained sec
   assert.equal(createHash('sha256').update(auth).digest('hex'), 'b150b8f0a2897ca7c8aab854ac3e105a07a4fa9f92a9ab6f1283c96f07bf5846');
   for (const [path, expected] of [
     ['web/login-core.mjs', '2b6da6cdc97ccf7ca53aaa41c25b15b8482d29c604ecd5d76ce4bf9ba31c73d8'],
-    ['web/account-auth.mjs', '6f7f5c59a5ad0f1511e002d2fcffb5d2e88fa23b57540ef5280db9d0f5e34edc'],
+    ['web/account-auth.mjs', '6e7021fbe19738a0cffc5fdb5a7a809b67419bfd54e59f44d2e66a6caa5e4f80'],
     ['web/method-change-ui.mjs', '31119a18fbf541cb588b9daf531dc0e75ca46f25d8d7340e7e65d89728d209fe'],
   ]) assert.equal(createHash('sha256').update(text('../' + path)).digest('hex'), expected, path);
 });

@@ -111,7 +111,8 @@ function openPublicPage(next, { history = true, cancelledManagement = false } = 
     try { el('auth-initial-open').click(); } finally { restoringPublicHistory = false; }
     return;
   }
-  if (page === next && (next !== 'register' || !el('auth-registration').hidden)) return;
+  if (page === next && (next !== 'register' || !el('auth-registration').hidden) &&
+      !(history && profile && isPlatformPasswordProfile(profile) && ['home', 'register'].includes(next) && requestedWalletPath(globalThis.location))) return;
   publicEntryTransition = true;
   try {
     // Real auth cancellation remains owned by wallet-auth, including late-result

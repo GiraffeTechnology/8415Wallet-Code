@@ -41,7 +41,7 @@ function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 
   const session = { id: 'a'.repeat(43), csrf: 'b'.repeat(43), tenant: 'example', origin, username: 'tester', account: signer.address, chainId: '1', kind: method, issuedAt, expiresAt: issuedAt + 900000 };
   const element = (id: string) => {
     if (!elements.has(id)) elements.set(id, { hidden: true, inert: true, textContent: '', value: '', checked: false, disabled: false,
-      handlers: new Map(), addEventListener(event: string, handler: () => unknown) { this.handlers.set(event, handler); } });
+      querySelector() { return null; }, handlers: new Map(), addEventListener(event: string, handler: () => unknown) { this.handlers.set(event, handler); } });
     return elements.get(id);
   };
   // Match the two unhidden choices in real index.html; optional management

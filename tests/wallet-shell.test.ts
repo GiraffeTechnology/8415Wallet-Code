@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as i18n from '../web/i18n.mjs';
+import { isPlatformPasswordProfile } from '../web/tenant-password-routing.mjs';
+import { loginIdentifier, requestedWalletPath, authenticatedRoute } from '../web/wallet-entry.mjs';
 import { walletIdentityStateDisplay, privateNativeSummary } from '../web/wallet-identity-display.mjs';
 const source = readFileSync(new URL('../web/wallet-shell.mjs', import.meta.url), 'utf8').replace(/^import[^\n]*\n/gm, '');
 const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
@@ -41,7 +43,7 @@ function fixture(linked = false) {
     state = { status: 'empty', savedUrl: null, previewUrl: null, errorCode: null, hasDraft: false, hasSaved: false };
     snapshot() { return this.state; } cancel() { this.state.hasDraft = false; return this.state; } setContext() {} async load() {} async select() {} async save() { avatarSaves++; } async remove() {} dispose() {}
   }
-  const sdk = { ...i18n, walletIdentityStateDisplay, walletLogin: { subscribe(fn: Function) { subscriber = fn; } }, getReleaseProfile: async () => profile, walletUiBusy: () => busy, TenantAvatarController: Avatar };
+  const sdk = { ...i18n, walletIdentityStateDisplay, isPlatformPasswordProfile, loginIdentifier, requestedWalletPath, authenticatedRoute, walletLogin: { subscribe(fn: Function) { subscriber = fn; } }, getReleaseProfile: async () => profile, walletUiBusy: () => busy, TenantAvatarController: Avatar };
   const window = { location: { origin: 'http://localhost:18428', href: 'http://localhost:18428/web/index.html' }, history: { replaceState(s: any) { history.push(['replace', s]); }, pushState(s: any) { history.push(['push', s]); } }, addEventListener: windowEvents.addEventListener.bind(windowEvents) };
   new Function('document', 'globalThis', ...Object.keys(sdk), source)(document, window, ...Object.values(sdk));
   const el = (id: string) => ids.get(id)!;
