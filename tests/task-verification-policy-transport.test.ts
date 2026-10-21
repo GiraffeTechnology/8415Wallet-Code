@@ -68,7 +68,16 @@ async function fixture({ login = true } = {}) {
           lastChange = { revision, previousRevision, mode, changeId: prepared.changeId, changeDigest, scopeDigest: digest(scope),
             credentialRevision: 0, verifiedFactors: [preparedMethod, 'verified-email'], changedAt: Date.now() };
           value = statusValue();
-        } else if (action === 'cancel') value = { cancelled: true };
+        } else if (action === 'cancel') {
+          assert.ok(body); assert.ok(prepared);
+          assert.equal(body.protocol, '8415-task-policy-change-wire/1');
+          assert.equal(body.changeId, prepared.changeId); assert.equal(body.changeDigest, changeDigest);
+          assert.equal(body.expectedRevision, prepared.expectedRevision);
+          value = { changeProtocol: body.protocol, cancelled: true, reconciliation: {
+            changeId: body.changeId, changeDigest: body.changeDigest, expectedRevision: body.expectedRevision,
+            state: 'not-committed', reason: 'cancelled', automaticRetryAllowed: false, committedChange: null } };
+          prepared = null;
+        }
         else value = statusValue();
         if (state.transform) value = state.transform(action, value as Record<string, unknown>);
       }
@@ -108,8 +117,14 @@ test('documented policy routes retain prepared binding and use same-origin POST 
     const committed = await send('confirm', { ...proof, code: '01234567' });
     assert.equal(committed.mode, mode); revision = committed.revision;
   }
-  assert.deepEqual(await send('cancel', {}), { cancelled: true });
-  assert.equal(f.policyRequests().length, 8);
+  const pending = await send('prepare', { mode: 'OFF', identityMethod: 'password', expectedRevision: revision });
+  const reference = { protocol: '8415-task-policy-change-wire/1', changeId: pending.request.changeId,
+    changeDigest: pending.changeDigest, expectedRevision: pending.request.expectedRevision };
+  assert.deepEqual(await send('cancel', reference), { changeProtocol: reference.protocol, cancelled: true,
+    reconciliation: { changeId: reference.changeId, changeDigest: reference.changeDigest,
+      expectedRevision: reference.expectedRevision, state: 'not-committed', reason: 'cancelled',
+      automaticRetryAllowed: false, committedChange: null } });
+  assert.equal(f.policyRequests().length, 9);
 });
 
 test('policy transport rejects no-session, retired route, malformed fields and omitted mode without sending', async () => {
@@ -120,7 +135,7 @@ test('policy transport rejects no-session, retired route, malformed fields and o
     await assert.rejects(f.client.taskVerification(action, {}), { code: 'AUTH_ROUTE_REFUSED' });
   }
   const invalid: Array<[string, unknown]> = [
-    ['status', { mode: 'OFF' }], ['cancel', { changeId: 'unexpected' }], ['status', []], ['status', null],
+    ['status', { mode: 'OFF' }], ['cancel', {}], ['cancel', { changeId: 'unexpected' }], ['status', []], ['status', null],
     ['prepare', { expectedRevision: '0', identityMethod: 'password' }],
     ['prepare', { mode: 'OFF', expectedRevision: '00', identityMethod: 'password' }],
     ['prepare', { mode: 'OFF', expectedRevision: '-1', identityMethod: 'password' }],

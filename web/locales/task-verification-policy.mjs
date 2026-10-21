@@ -216,12 +216,12 @@ const ceremonyCatalogs = {
   },
 };
 const sourceScopeCatalogs = {
-  en: { permissionsUnavailable: 'The server describes applicability to existing valid authorizations, but does not provide their permission inventory. Permission details and policy changes are unavailable.' },
-  'zh-Hans': { permissionsUnavailable: '服务器仅说明策略适用于现有有效授权，未提供权限清单。权限详情和策略更改当前不可用。' },
-  'zh-Hant': { permissionsUnavailable: '伺服器僅說明策略適用於現有有效授權，未提供權限清單。權限詳情與策略變更目前無法使用。' },
-  fr: { permissionsUnavailable: 'Le serveur indique les autorisations existantes encore valides auxquelles la règle s’applique, mais ne fournit pas leur inventaire de permissions. Les détails et les modifications de la règle sont indisponibles.' },
-  es: { permissionsUnavailable: 'El servidor indica que la política se aplica a las autorizaciones existentes y válidas, pero no proporciona su inventario de permisos. Los detalles y los cambios de política no están disponibles.' },
-  ja: { permissionsUnavailable: 'サーバーは既存の有効な承認への適用範囲を示していますが、権限の一覧は提供していません。権限の詳細表示とポリシー変更は利用できません。' },
+  en: { permissionsUnavailable: 'The server describes applicability to existing valid authorizations but does not enumerate permissions. Changing this setting grants no new authority.', cancelPending: 'Cancel the matching pending draft' },
+  'zh-Hans': { permissionsUnavailable: '服务器说明策略仅适用于现有有效授权，但未枚举权限。修改本设置不会授予新权限。', cancelPending: '取消匹配的待处理草稿' },
+  'zh-Hant': { permissionsUnavailable: '伺服器說明策略僅適用於現有有效授權，但未列舉權限。修改本設定不會授予新權限。', cancelPending: '取消相符的待處理草稿' },
+  fr: { permissionsUnavailable: 'La règle concerne les autorisations existantes valides sans en énumérer les permissions. Ce réglage ne confère aucune nouvelle autorisation.', cancelPending: 'Annuler le brouillon en attente correspondant' },
+  es: { permissionsUnavailable: 'La política se aplica a autorizaciones existentes válidas sin enumerar sus permisos. Este ajuste no otorga nueva autoridad.', cancelPending: 'Cancelar el borrador pendiente correspondiente' },
+  ja: { permissionsUnavailable: '既存の有効な承認への適用範囲を示しますが、権限一覧は提供されません。この設定変更は新しい権限を付与しません。', cancelPending: '一致する保留中の下書きを取り消す' },
 };
 export const POLICY_LOCALES = Object.freeze(['en', 'zh-Hans', 'zh-Hant', 'fr', 'es', 'ja']);
 export const POLICY_CATALOGS = Object.freeze(Object.fromEntries(

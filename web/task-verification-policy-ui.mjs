@@ -52,7 +52,7 @@ export function validateTaskVerificationPolicyView(raw, session) {
     context.account.toLowerCase() === session.account.toLowerCase());
   requireValue(MODES.includes(raw.mode) && typeof raw.canChange === 'boolean' &&
     ['settled', 'unknown'].includes(raw.changeState));
-  requireValue(raw.permissions === null ? raw.canChange === false :
+  requireValue(raw.permissions === null ? true :
     Array.isArray(raw.permissions) && Object.getPrototypeOf(raw.permissions) === Array.prototype && raw.permissions.length <= 128);
   const arrayFields = raw.permissions === null ? null : Object.getOwnPropertyDescriptors(raw.permissions);
   if (arrayFields) requireValue(Reflect.ownKeys(arrayFields).length === raw.permissions.length + 1);
@@ -191,6 +191,28 @@ export class TaskVerificationPolicyController {
     this.#publish('checking', { view: reviewed, draftMode: mode, busy: true });
     this.#pending = this.#save(ticket, reviewed, mode); return this.#pending;
   }
+  cancelPending() {
+    if (this.#destroyed || !this.#visible || !this.#isVisible() || this.#state.busy ||
+      this.#state.view?.changeState !== 'unknown' || this.#mutation) return Promise.resolve();
+    const prior = this.#state.view, ticket = this.#reset();
+    this.#publish('reconciling', { view: prior, busy: true });
+    this.#pending = this.#cancelPending(ticket, prior); return this.#pending;
+  }
+  async #cancelPending(ticket, prior) {
+    try {
+      const connection = await this.#connect(ticket);
+      const fresh = await this.#read(ticket, connection, prior);
+      if (fresh.changeState !== 'unknown' || typeof connection.client.cancelPending !== 'function') {
+        this.#accept(fresh); return;
+      }
+      await connection.client.cancelPending({ binding: connection.binding, signal: ticket.signal,
+        expectedScopeKey: fresh.scopeKey });
+      this.#current(ticket, connection.binding, connection.client);
+      this.#accept(await this.#read(ticket, connection, fresh));
+    } catch {
+      if (ticket.epoch === this.#epoch && this.#visible && !this.#destroyed) this.#publish('unknown', { view: prior });
+    }
+  }
   async #save(ticket, reviewed, mode) {
     let changeStarted = false;
     try {
@@ -218,7 +240,8 @@ export class TaskVerificationPolicyController {
       this.#current(ticket, connection.binding, connection.client);
       const applied = saved.scopeKey === fresh.scopeKey && saved.mode === mode &&
         BigInt(saved.revision) > BigInt(fresh.revision) && saved.changeState === 'settled';
-      this.#accept(saved, saved.changeState === 'unknown' ? null : applied ? 'saved' : failed ? 'notSaved' : 'changed');
+      this.#accept(saved, saved.changeState === 'unknown' ? null : !failed && applied ? 'saved' :
+        failed && saved.revision === fresh.revision && saved.mode === fresh.mode ? 'notSaved' : 'changed');
     } catch {
       if (ticket.epoch === this.#epoch && this.#visible && !this.#destroyed) {
         this.#publish(changeStarted ? 'unknown' : 'unavailable');
@@ -264,6 +287,8 @@ export function mountTaskVerificationPolicy({ document, window, walletLogin, get
   const save = node('button', actions, 'task-verification-policy-save'); save.type = 'button'; localized(save, 'save');
   const cancel = node('button', actions, 'task-verification-policy-cancel'); cancel.type = 'button'; localized(cancel, 'cancel');
   const refresh = node('button', actions, 'task-verification-policy-refresh'); refresh.type = 'button'; localized(refresh, 'refresh');
+  const cancelPending = node('button', actions, 'task-verification-policy-cancel-pending');
+  cancelPending.type = 'button'; localized(cancelPending, 'cancelPending');
   const notice = node('p', section); notice.setAttribute('role', 'status');
   const boundary = node('p', section); localized(boundary, 'boundary');
   function render(state) {
@@ -305,6 +330,7 @@ export function mountTaskVerificationPolicy({ document, window, walletLogin, get
     save.disabled = !editable || state.phase !== 'review';
     cancel.disabled = !state.busy && !state.draftMode;
     refresh.disabled = state.busy || !open;
+    cancelPending.hidden = view?.changeState !== 'unknown'; cancelPending.disabled = state.busy || !open;
     if (state.notice) localized(notice, `notice.${state.notice}`); else paint(notice, '');
   }
   controller = new TaskVerificationPolicyController({ walletLogin, getPolicyClient, onChange: render,
@@ -318,6 +344,7 @@ export function mountTaskVerificationPolicy({ document, window, walletLogin, get
   listen(save, 'click', () => { void controller.save(); });
   listen(cancel, 'click', () => { void controller.cancel(); });
   listen(refresh, 'click', () => { void controller.refresh(); });
+  listen(cancelPending, 'click', () => { void controller.cancelPending(); });
   listen(document, 'visibilitychange', () => {
     if (document.visibilityState === 'hidden') controller.hide(); else if (open) void controller.show();
   });

@@ -23,7 +23,7 @@ const localized = (element, key, parameters = {}) => paint(element,
  */
 export async function runTaskVerificationPolicyChange({ document, window, walletLogin,
   client, binding, signal, reviewed, mode, decoders, now = Date.now,
-  onConfirmDispatch = () => {}, onCommitted = () => {}, onCancelled = () => {} }) {
+  onPrepared = () => {}, onConfirmDispatch = () => {}, onCommitted = () => {}, onCancelled = () => {} }) {
   insist(document && window && client && typeof client.taskVerification === 'function' &&
     ['prepared', 'verified', 'committed'].every(name => typeof decoders?.[name] === 'function'));
   insist(['ON', 'OFF'].includes(mode) && reviewed && reviewed.mode !== mode && signal && !signal.aborted);
@@ -152,7 +152,7 @@ export async function runTaskVerificationPolicyChange({ document, window, wallet
     input = await prompt('identity', account); await recheck();
     needsCancel = true;
     const raw = await client.taskVerification('prepare', { expectedRevision: reviewed.revision,
-      identityMethod: input.identityMethod, mode }, { signal });
+      identityMethod: input.identityMethod, mode, protocol: '8415-task-policy-change-wire/1' }, { signal });
     await recheck();
     flow.prepared = await decoders.prepared(raw, { session, account, reviewed, mode,
       identityMethod: input.identityMethod, now: now() });
@@ -169,6 +169,7 @@ export async function runTaskVerificationPolicyChange({ document, window, wallet
       flow.prepared.issuedAt >= 0 && flow.prepared.expiresAt > flow.prepared.issuedAt &&
       flow.prepared.expiresAt - flow.prepared.issuedAt <= 5 * 60_000);
     flow.issuedAt = flow.prepared.issuedAt; flow.expiresAt = flow.prepared.expiresAt; current();
+    await onPrepared(flow.prepared); await recheck();
     await prompt('review'); await recheck();
     verificationBody = { changeId: flow.prepared.changeId, changeDigest: flow.prepared.changeDigest };
     if (input.identityMethod === 'password') {
@@ -202,15 +203,15 @@ export async function runTaskVerificationPolicyChange({ document, window, wallet
     flow.dismiss?.(fail('TASK_POLICY_CHANGE_CANCELLED')); signal.removeEventListener('abort', abort);
     // A single best-effort cancellation, bound to the original session. It never
     // retries confirm or claims rollback, and it cannot cancel a new account's draft.
-    // RELEASE BLOCKER: cancel {} is session-wide, not challenge-qualified. The
-    // source-bound bridge stays unavailable until replacement-draft/cross-tab
-    // cancellation safety has been established by the authoritative implementation.
-    if (needsCancel && !completed) {
+    // An unobserved prepare is UNKNOWN: never cancel an unidentified/newer slot.
+    if (needsCancel && !completed && flow.prepared) {
       try {
         walletLogin.assert(binding);
-        const result = await client.taskVerification('cancel', {});
+        const result = await client.taskVerification('cancel', {
+          protocol: '8415-task-policy-change-wire/1', changeId: flow.prepared.changeId,
+          changeDigest: flow.prepared.changeDigest, expectedRevision: reviewed.revision });
         walletLogin.assert(binding);
-        if (result?.cancelled === true) onCancelled({ confirmDispatched: flow.confirmDispatched });
+        await onCancelled(result, flow.prepared);
       } catch { /* The adapter must preserve unresolved outcome state. */ }
     }
     if (active.get(document) === flow) active.delete(document);
