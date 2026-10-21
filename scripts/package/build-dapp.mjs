@@ -1,5 +1,4 @@
 /** Build distinct static Beta artifacts; SDK npm tarballs use separate commands. */
-import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { RELEASE_PROFILES, RELEASE_STATUS, resolveReleaseProfile } from '../../web/release-profile.mjs';
@@ -8,6 +7,7 @@ import { captureSource, deterministicArchive, exportSource, sha256, stagePublicW
 import { LEGAL_FILES } from './verify-auth.mjs';
 
 import { buildLoginVendor } from './build-login-vendor.mjs';
+import { compileBrowser } from './browser-compiler.mjs';
 
 const root = process.cwd();
 const options = {};
@@ -33,7 +33,7 @@ for (const file of [...LEGAL_FILES, 'docs/BETA-DAPP-DELIVERY.md', 'docs/BETA-PRD
 }
 // Clear output first: removed source modules must never survive a prior emit.
 rmSync(join(root, 'dist/browser'), { recursive: true, force: true });
-execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.browser.json'], { cwd: root, stdio: 'inherit' });
+compileBrowser(root);
 buildLoginVendor(root);
 const stage = join(root, 'dist', `package-dapp-${id}`);
 rmSync(stage, { recursive: true, force: true });
