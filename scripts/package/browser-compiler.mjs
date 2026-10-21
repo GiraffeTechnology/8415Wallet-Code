@@ -1,43 +1,75 @@
-/** Compile the configured browser graph in the packaging process itself.
- * Keep the lockfile-pinned TypeScript checks without retaining a second Node
- * process while its compiler is live. Static validation remains a later step.
+/** Run the pinned CLI without retaining a Node packaging parent on POSIX.
+ * The continuation is private, exact-source-bound and reached only on CLI exit 0.
  */
-import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
-const require = createRequire(import.meta.url);
+const SNAPSHOT = 'WALLET_DAPP_COMPILE_SNAPSHOT';
+const TOKEN = 'WALLET_DAPP_COMPILE_TOKEN';
+const hash = value => createHash('sha256').update(value).digest('hex');
+const refuse = () => { throw new Error('DAPP_BROWSER_CONTINUATION_REFUSED'); };
 
-export function compileBrowser(root = process.cwd()) {
-  const ts = require('typescript');
-  const directory = resolve(root);
-  const formatHost = {
-    getCanonicalFileName: path => path,
-    getCurrentDirectory: () => directory,
-    getNewLine: () => ts.sys.newLine,
-  };
-  const refuse = diagnostics => {
-    throw new Error(`DAPP_BROWSER_COMPILE_FAILED\n${ts.formatDiagnostics(diagnostics, formatHost)}`);
-  };
-  const fatal = [];
-  const parsed = ts.getParsedCommandLineOfConfigFile(resolve(directory, 'tsconfig.browser.json'), {}, {
-    ...ts.sys,
-    onUnRecoverableConfigFileDiagnostic: diagnostic => fatal.push(diagnostic),
-  });
-  if (fatal.length || !parsed) refuse(fatal);
-  if (parsed.errors.length) refuse(parsed.errors);
-  if (parsed.options.noEmit) throw new Error('DAPP_BROWSER_EMIT_REQUIRED');
-  const input = {
-    rootNames: parsed.fileNames,
-    options: parsed.options,
-    projectReferences: parsed.projectReferences,
-    configFileParsingDiagnostics: parsed.errors,
-  };
-  const builder = parsed.options.incremental || parsed.options.composite ? ts.createIncrementalProgram(input) : null;
-  const program = builder ? builder.getProgram() : ts.createProgram(input);
-  const diagnostics = ts.getPreEmitDiagnostics(program);
-  if (diagnostics.length) refuse(diagnostics);
-  const emitted = builder ? builder.emit() : program.emit();
-  if (emitted.diagnostics.length) refuse(emitted.diagnostics);
-  if (emitted.emitSkipped) throw new Error('DAPP_BROWSER_EMIT_SKIPPED');
-  return { typescript: ts.version, inputFiles: parsed.fileNames.length };
+function emitted(directory, log) {
+  const files = log.split(/\r?\n/).filter(line => line.startsWith('TSFILE: ')).map(line => line.slice(8));
+  if (!files.length) throw new Error('DAPP_BROWSER_EMIT_REQUIRED');
+  for (const file of files) {
+    const path = relative(directory, resolve(file));
+    if (!path || path.startsWith('..') || isAbsolute(path) || !lstatSync(file).isFile() || lstatSync(file).isSymbolicLink()) refuse();
+  }
+}
+
+export function compileBrowser(root, { source, entry, args, configPath, profile }) {
+  root = resolve(root); entry = resolve(entry);
+  const binding = { root, entry, args, profile, configPath: resolve(configPath), configSha256: hash(readFileSync(configPath)),
+    commit: source.commit, commitTree: source.commitTree, indexTree: source.indexTree, tree: source.tree };
+  const previous = process.env[SNAPSHOT];
+  if (previous !== undefined) {
+    if (!isAbsolute(previous)) refuse();
+    const stat = lstatSync(previous);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o077)
+      || (process.getuid && stat.uid !== process.getuid())) refuse();
+    const snapshot = JSON.parse(readFileSync(previous, 'utf8'));
+    if (!/^[a-f0-9]{64}$/.test(snapshot.token ?? '') || process.env[TOKEN] !== snapshot.token
+      || JSON.stringify(snapshot.binding) !== JSON.stringify(binding)) refuse();
+    const directory = resolve(previous, '..');
+    emitted(join(directory, 'browser'), readFileSync(join(directory, 'compiler.stdout.raw'), 'utf8'));
+    mkdirSync(join(root, 'dist'), { recursive: true });
+    renameSync(join(directory, 'browser'), join(root, 'dist/browser'));
+    delete process.env[SNAPSHOT]; delete process.env[TOKEN];
+    return;
+  }
+  if (process.env[TOKEN] !== undefined) refuse();
+  // Clear only this build's output before compilation, never in the continuation.
+  rmSync(join(root, 'dist/browser'), { recursive: true, force: true });
+  const directory = mkdtempSync(join(tmpdir(), 'wallet-browser-compile-'));
+  const snapshot = join(directory, 'snapshot.json'), log = join(directory, 'compiler.stdout.raw'), outputDirectory = join(directory, 'browser');
+  const token = randomBytes(32).toString('hex');
+  writeFileSync(snapshot, JSON.stringify({ token, binding }) + '\n', { mode: 0o600, flag: 'wx' });
+  const compiler = join(root, 'node_modules/typescript/bin/tsc');
+  // Retain the original CLI's complete diagnostics and nonzero-error exit.
+  // Partial output stays private on failure; only exit 0 may promote it.
+  const compilerArgs = [compiler, '-p', join(root, 'tsconfig.browser.json'), '--outDir', outputDirectory, '--listEmittedFiles'];
+  if (process.platform !== 'win32' && typeof process.execve === 'function') {
+    // All variable data is positional, never interpolated into shell syntax.
+    // execve releases the packaging Node heap before the CLI starts. The shell
+    // keeps only a tiny supervisor and cannot continue after compiler failure.
+    const script = 'node=$1; compiler=$2; project=$3; log=$4; entry=$5; token=$6; output=$7; shift 7; '
+      + '"$node" "$compiler" -p "$project" --outDir "$output" --listEmittedFiles > "$log"; code=$?; '
+      + 'cat "$log" >&2; if [ "$code" -ne 0 ]; then exit "$code"; fi; '
+      + 'export WALLET_DAPP_COMPILE_TOKEN="$token"; exec "$node" "$entry" "$@"';
+    const env = Object.fromEntries(Object.entries({ ...process.env, [SNAPSHOT]: snapshot }).filter(([, value]) => typeof value === 'string'));
+    process.execve('/bin/sh', ['sh', '-c', script, 'wallet-browser-compile', process.execPath, compiler,
+      join(root, 'tsconfig.browser.json'), log, entry, token, outputDirectory, ...args], env);
+    throw new Error('DAPP_BROWSER_EXECVE_RETURNED');
+  }
+  // Preserve portability where process replacement is unavailable. No checks
+  // are skipped; this path only retains the original higher-memory parent.
+  const output = execFileSync(process.execPath, compilerArgs, { cwd: root, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+  writeFileSync(log, output, { mode: 0o600, flag: 'wx' });
+  emitted(outputDirectory, output);
+  mkdirSync(join(root, 'dist'), { recursive: true });
+  renameSync(outputDirectory, join(root, 'dist/browser'));
 }
