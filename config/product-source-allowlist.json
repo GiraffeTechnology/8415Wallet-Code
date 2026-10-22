@@ -69,6 +69,7 @@
       "config/releases/xiongan-v2.json"
     ],
     "packaging": [
+      "scripts/package/auth-npm-continuation.mjs",
       "scripts/package/browser-compiler.mjs",
       "scripts/package/build-auth.mjs",
       "scripts/package/build-dapp.mjs",
@@ -816,8 +817,14 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "9ac43315f08981235fdb9fb1233af20cba462a7b",
-      "sha256": "5819edfa869273fe9ab73ee9376ce0c69007a9bb6078e957cbd69c674029457f"
+      "git_blob_sha1": "2d2b933fbc217c8a87f21413d4aea636c18848cd",
+      "sha256": "7462fd85f37885746cc57236c9e5796263bf8d79afaba37999dbcca7ada801bd"
+    },
+    {
+      "path": "scripts/package/auth-npm-continuation.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "f4c0851dcaa2718b63fee0fb5bea3aff6f178375",
+      "sha256": "2e4af7c25d128fad1bdb73d8c40565dea5f7a313a246e09aeda76dd11bbaf384"
     },
     {
       "path": "scripts/package/browser-compiler.mjs",
@@ -828,8 +835,8 @@
     {
       "path": "scripts/package/build-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "2c063aa6b4af381f8fe5655decf4a81415847627",
-      "sha256": "4cb4cc60510424d61e43abb3f5630d423ca6247123c83244c7487885ae02162f"
+      "git_blob_sha1": "f8ef5e86bac709ef750653e580d45a6e1749848c",
+      "sha256": "490a836fa761f8b3266d262d3433ff21eabd23ab3e71dea74855464ef2097c1c"
     },
     {
       "path": "scripts/package/build-dapp.mjs",
