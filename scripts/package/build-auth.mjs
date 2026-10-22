@@ -5,6 +5,7 @@ import { appendFileSync, chmodSync, closeSync, cpSync, lstatSync, mkdirSync, mkd
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupNpmContinuation, consumeNpmContinuation, prepareOrRestoreNpmCLI } from './auth-npm-continuation.mjs';
 import { AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, authSourcePolicy, verifyAuthSourcePolicy, TASK_RUNTIME_SOURCE_PATHS, jsonBytes, packagePathAllowed, runtimePackage, safePath, sha256, sourcePathAllowed, sourceTree, verifyAuthDirectory, verifyTaskListingArtifact, verifyInstalledTaskListingPackage, walkAuth } from './verify-auth.mjs';
 
 /** Packaging must not run npm's unrelated background version lookup.
@@ -14,6 +15,10 @@ export function authNpmEnvironment(environment, logsDirectory) {
   return { ...environment, npm_config_logs_dir: logsDirectory, NPM_CONFIG_LOGS_DIR: logsDirectory,
     npm_config_update_notifier: 'false', NPM_CONFIG_UPDATE_NOTIFIER: 'false' };
 }
+
+// Only the real CLI can establish this private, source-bound installation.
+// Library callers retain the original synchronous implementation.
+let npmContinuation = null;
 
 /** Private, per-attempt diagnostics, outside the runtime/archive allowlist.
  * Synchronous timeouts are signal requests, not a hard elapsed-time bound.
@@ -180,7 +185,7 @@ export function verifyTaskRuntimeImports(directory) {
 export function buildAuthPackage({ root = process.cwd(), offline = false, output = join(root, 'dist'), release = false, expectedCommit, expectedTree } = {}) {
   const sourcePolicy = authSourcePolicy({ release, expectedCommit, expectedTree });
   root = resolve(root); output = resolve(output);
-  const temporary = mkdtempSync(join(tmpdir(), 'wallet-auth-package-'));
+  const temporary = mkdtempSync(join(npmContinuation?.directory ?? tmpdir(), 'wallet-auth-package-'));
   const diagnostics = createAuthBuildDiagnostics(temporary);
   let complete = false;
   try {
@@ -203,7 +208,7 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
         }
         for (const path of TASK_RUNTIME_SOURCE_PATHS) if (!staged.has(path)) throw new Error(`AUTH_PACKAGE_TRACKED_SOURCE_REQUIRED: ${path}`);
         // Ensure the executing build/verification code is the recorded input, not an untracked local substitute.
-        for (const path of ['scripts/package/build-auth.mjs', 'scripts/package/verify-auth.mjs']) {
+        for (const path of ['scripts/package/build-auth.mjs', 'scripts/package/verify-auth.mjs', 'scripts/package/auth-npm-continuation.mjs']) {
           if (!sourceBytes(path).equals(readFileSync(join(root, path)))) throw new Error('AUTH_PACKAGE_BUILD_INPUT_MISMATCH');
         }
       });
@@ -225,9 +230,15 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
       // npm owns lockfile integrity verification. Never copy a developer node_modules tree.
       // Keep npm's own logs private and outside the packaged runtime. Do not publish them.
       const npmLogs = join(temporary, 'npm-logs'); mkdirSync(npmLogs, { mode: 0o700 });
-      diagnostics.phase('npm-ci', () => execFileSync('npm', npmArgs, { cwd: stage, stdio: 'inherit', timeout: 180000,
-        env: authNpmEnvironment(process.env, npmLogs) }),
-        { child: true, timeoutMs: 180000, timeoutSignal: 'SIGTERM', hardDeadline: false, offline, updateNotifier: false });
+      if (npmContinuation) {
+        diagnostics.phase('npm-ci-continuation', () => consumeNpmContinuation(npmContinuation,
+          { root, source, runtime, destination: stage }),
+          { npmExit: 0, installation: 'fresh source-bound CLI npm phase, not a developer dependency tree' });
+      } else {
+        diagnostics.phase('npm-ci', () => execFileSync('npm', npmArgs, { cwd: stage, stdio: 'inherit', timeout: 180000,
+          env: authNpmEnvironment(process.env, npmLogs) }),
+          { child: true, timeoutMs: 180000, timeoutSignal: 'SIGTERM', hardDeadline: false, offline, updateNotifier: false });
+      }
       diagnostics.phase('normalize-runtime', () => {
         rmSync(join(stage, 'node_modules/.package-lock.json'), { force: true }); normalizeTree(stage);
       });
@@ -284,6 +295,22 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = buildAuthPackage(parseAuthBuildArguments(process.argv.slice(2)));
+  const args = process.argv.slice(2), options = parseAuthBuildArguments(args), root = process.cwd();
+  npmContinuation = prepareOrRestoreNpmCLI({ root, entry: fileURLToPath(import.meta.url), args,
+    capture: () => {
+      const source = captureAuthSource(root); validateAuthReleaseCheckout(root, source, options);
+      const entries = new Map(source.entries.map(entry => [entry.path, entry]));
+      const readSource = path => {
+        const entry = entries.get(path); if (!entry) throw new Error(`AUTH_PACKAGE_TRACKED_SOURCE_REQUIRED: ${path}`);
+        return execFileSync('git', ['cat-file', 'blob', entry.object], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
+      };
+      for (const path of ['scripts/package/build-auth.mjs', 'scripts/package/verify-auth.mjs', 'scripts/package/auth-npm-continuation.mjs']) {
+        if (!readSource(path).equals(readFileSync(join(root, path)))) throw new Error('AUTH_PACKAGE_BUILD_INPUT_MISMATCH');
+      }
+      return { source, runtime: runtimePackage(JSON.parse(readSource('package.json')), JSON.parse(readSource('package-lock.json'))), readSource };
+    } });
+  const result = buildAuthPackage(options);
+  if (npmContinuation) cleanupNpmContinuation(npmContinuation);
   console.log(`${result.artifact}\nsha256 ${result.sha256}\nsource tree ${result.source.tree}${result.source.dirty ? ' (uncommitted tracked/staged changes included)' : ''}\n${result.status}`);
 }
+
