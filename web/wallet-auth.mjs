@@ -89,7 +89,22 @@ function clearEnrollment() {
   clearTimeout(enrollmentTimer); enrollmentTimer = null; enrollmentId = null; enrollmentProof = null;
   hideEnrollmentSecret(); el('auth-enroll-code').value = ''; enrollmentControls();
 }
+function syncManagementIntent() {
+  if (!platformRelease) return;
+  const session = currentSession(), requested = requestedWalletPath(globalThis.location);
+  const entered = loginIdentifier(el('password-tenant-select').value);
+  // A route or entered identifier supplies intent, never authenticated identity.
+  // Only the existing resolver and a verified session can bind an account.
+  const intent = entered ?? (requested ? loginIdentifier(requested.slice(1)) : null);
+  if (!entered && intent) {
+    el('password-tenant-select').value = intent;
+    el('auth-username').value = intent;
+  }
+  managementProfile = session?.serverId && session.walletRoute || moduleOpen && intent ? 'local' : 'platform';
+  managementContext = session?.walletRoute?.walletName ?? intent ?? releaseManagementContext;
+}
 function renderManagement() {
+  syncManagementIntent();
   el('auth-management').hidden = !moduleOpen;
   for (const id of ['auth-initial-open', 'auth-manage-open']) {
     el(id).disabled = managementProfile === null;
@@ -151,11 +166,7 @@ async function loadAccount() {
 }
 walletLogin.subscribe((session, reason) => {
   if (platformRelease) {
-    const requested = requestedWalletPath(globalThis.location);
-    // A known path keeps the verification form reachable during reauthentication;
-    // it never supplies verified/fresh account state or method-change authority.
-    managementProfile = session?.serverId && session.walletRoute || moduleOpen && requested ? 'local' : 'platform';
-    managementContext = session?.walletRoute?.walletName ?? requested?.slice(1) ?? releaseManagementContext;
+    syncManagementIntent();
   }
   if (!session) {
     const continuingReauthentication = managementReauthStep && moduleOpen && ['LOGIN_REQUIRED', 'LOGIN_STARTING'].includes(reason);
@@ -251,6 +262,11 @@ function verifyAgain() {
   document.dispatchEvent?.(new CustomEvent('wallet:authentication-method'));
 }
 async function loadManagementCapabilities() {
+  // Platform intent cannot select an account-scoped service before login.
+  // The authenticated client will load the real capabilities after resolution.
+  if (platformRelease && !currentSession()?.serverId) {
+    managementCapabilities = null; passwordControls(); return;
+  }
   const revision = ++capabilityRevision;
   try {
     const profile = await getReleaseProfile();
