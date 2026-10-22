@@ -55,7 +55,7 @@ const methods = ['password', 'wallet', 'ca', 'totp'];
 const currentSession = () => { try { return walletLogin.assert(); } catch { return null; } };
 const freshManagement = () => accountState?.management.freshIndependentLogin === true && Date.now() < accountState.management.reauthenticateBy;
 function enrollmentControls() {
-  el('auth-enroll-start').disabled = signing || !freshManagement() || !!enrollmentId;
+  el('auth-enroll-start').disabled = signing || !freshManagement() || !!enrollmentId || managementCapabilities !== true || accountState?.methodChange?.available !== true;
   el('auth-enroll-confirm').disabled = signing || !enrollmentId;
   el('auth-confirm-fields').hidden = !enrollmentId;
   el('auth-methods-save').disabled = signing || !freshManagement();
@@ -112,6 +112,7 @@ function renderManagement() {
     el(id).setAttribute?.('aria-expanded', String(moduleOpen));
   }
   const session = currentSession(), verified = !!session?.serverId && !!accountState, fresh = verified && freshManagement();
+  const changeUnavailable = verified && fresh && managementStep === 'totp' && (managementCapabilities === false || managementCapabilities === 'unavailable' || accountState?.methodChange?.available !== true);
   el('auth-method-states').hidden = !verified || managementStep !== 'methods';
   el('auth-enrollment').hidden = !verified || !fresh || managementStep !== 'totp';
   el('auth-existing-fields').hidden = true;
@@ -122,7 +123,7 @@ function renderManagement() {
     el(`auth-enable-${method}`).checked = verified && accountState.methods[method].enabled;
     el(`auth-enable-${method}`).disabled = !fresh || !accountState?.methods[method].bound || accountState?.methods[method].available === false;
   }
-  paint(el('auth-management-status'), managementStep === 'policy' ? '' : msg(managementProfile === 'platform' ? 'entry.resolverUnavailable' : !managementStep ? 'entry.chooseSetup' : verified ? fresh ? 'change.combined' : 'account.freshRequired' : 'entry.verifyHelp'));
+  paint(el('auth-management-status'), managementStep === 'policy' ? '' : msg(managementProfile === 'platform' ? 'entry.resolverUnavailable' : changeUnavailable ? 'change.serviceUnavailable' : !managementStep ? 'entry.chooseSetup' : verified ? fresh ? 'change.combined' : 'account.freshRequired' : 'entry.verifyHelp'));
   paint(el('auth-enrollment-title'), msg(accountState?.authenticator.enrolled ? 'account.reset' : 'ui.020'));
   paint(el('auth-enroll-start'), msg(accountState?.authenticator.enrolled ? 'account.reset' : 'ui.024'));
   el('auth-initial-guide').hidden = managementStep !== 'totp' || !verified || accountState.authenticator.enrolled;
@@ -279,7 +280,7 @@ async function loadManagementCapabilities() {
     if (!moduleOpen || revision !== capabilityRevision) return;
     managementCapabilities = 'unavailable';
   }
-  passwordControls();
+  renderManagement();
 }
 async function openManagement({ initial = false } = {}) {
   // Pre-profile events are ignored, never queued for later execution.
@@ -439,6 +440,7 @@ el('auth-password-cancel').addEventListener('click', () => {
   else { clearPassword(); el('auth-existing-code').value = ''; void cancelRecovery(); paint(el('auth-password-status'), msg('account.passwordCancelled')); }
 });
 async function enroll(action) {
+  if (action === 'start' && (managementCapabilities !== true || accountState?.methodChange?.available !== true)) { renderManagement(); return; }
   if (signing || !accountClient || !freshManagement() || (action === 'start' && enrollmentId) || (action === 'confirm' && !enrollmentId)) return;
   const lock = acquireWalletUi(); if (lock === null) return;
   signing = true; const currentAttempt = attemptRevision, revision = ++enrollmentRevision, client = accountClient;
