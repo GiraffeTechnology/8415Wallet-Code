@@ -224,7 +224,8 @@ el('wallet-login').addEventListener('click', async () => {
     if (moduleOpen && currentAttempt === attemptRevision) document.dispatchEvent?.(new CustomEvent('wallet:authentication-settings'));
   } catch (error) {
     if (currentAttempt !== attemptRevision) return;
-    paint(el('wallet-login-status'), error instanceof WalletLoginError && error.code === 'LOGIN_REJECTED' ? msg('message.019') :
+    paint(el('wallet-login-status'), error instanceof WalletLoginError && error.code === 'LOGIN_PROVIDER_REQUIRED' ? msg('account.providerRequired') :
+      error instanceof WalletLoginError && error.code === 'LOGIN_REJECTED' ? msg('message.019') :
       error instanceof WalletLoginError ? error.code : 'LOGIN_SERVICE_OR_CONFIG_UNAVAILABLE');
   } finally {
     signing = false; el('wallet-login').disabled = false; releaseWalletUi(lock); enrollmentControls();
