@@ -2713,8 +2713,8 @@
     {
       "path": "web/wallet.css",
       "mode": "100644",
-      "git_blob_sha1": "110c61ee7a4a36e495e8feb04c16df30c407f97c",
-      "sha256": "69d85d74e8a55fcea54b4af767e1976c4e904f14b16d0659e2c29badaa349e18"
+      "git_blob_sha1": "71e5dde30e7ae629e47c2be8b13a7aa1eee8085a",
+      "sha256": "419add1c4de491ba75f52578aed223a4340c0319733df33cea56d8e6fabdde40"
     },
     {
       "path": "web/watchtower-read-panel.mjs",
