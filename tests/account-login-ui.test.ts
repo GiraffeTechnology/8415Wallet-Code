@@ -916,7 +916,7 @@ for (const leave of ['escape', 'close', 'navigation']) test(`pending registratio
   assert.equal(f.requests.some(row => row.path === 'registration/verify' || row.path === 'registration/confirm'), false);
 });
 
-for (const operation of ['password', 'totp']) {
+for (const operation of ['password', 'totp'] as const) {
   for (const entry of ['identifier', 'direct-path']) test(`platform setup exposes independent verification for ${operation} from ${entry} without resolving identity`, async () => {
     const profile = Promise.resolve<any>({ tenant: { id: 'default', label: 'Wallet' }, deployment: { url: 'https://8415wallet.com/web/index.html' } });
     const f = fixture('totp', profile, entry === 'direct-path' ? '/synthetic-owner' : '/web/index.html');
