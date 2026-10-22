@@ -946,7 +946,7 @@ for (const operation of ['password', 'totp']) {
 }
 test('platform setup with an invalid identifier remains neutral and cannot authenticate a guessed account', async () => {
   const f = fixture('password', Promise.resolve<any>({ tenant: { id: 'default', label: 'Wallet' }, deployment: { url: 'https://8415wallet.com/web/index.html' } }), '/web/index.html');
-  f.element('password-tenant-select').value = '../not-an-identity';
+  f.element('password-tenant-select').value = 'synthetic\u0000owner';
   await f.ready; await f.click('auth-initial-open'); await chooseOperation(f, 'password');
   assert.equal(f.element('auth-management-verification').hidden, true);
   assert.equal(f.element('auth-management-status').textContent, uiI18n.t('entry.resolverUnavailable'));
