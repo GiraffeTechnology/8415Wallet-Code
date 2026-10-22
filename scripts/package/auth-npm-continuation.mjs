@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 const SNAPSHOT = 'WALLET_AUTH_NPM_SNAPSHOT';
 const TOKEN = 'WALLET_AUTH_NPM_TOKEN';
@@ -13,6 +13,10 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const json = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
 const refuse = () => { throw new Error('AUTH_PACKAGE_NPM_CONTINUATION_REFUSED'); };
 const identity = source => hash(JSON.stringify(source));
+const minted = new WeakSet(), consumed = new WeakSet();
+function arenaPath(directory) {
+  if (dirname(directory) !== resolve(tmpdir()) || !/^wallet-auth-npm-[A-Za-z0-9]{6}$/.test(basename(directory))) refuse();
+}
 
 function protectedFile(path, privateOnly = false) {
   const stat = lstatSync(path);
@@ -28,7 +32,7 @@ function protectedDirectory(path, privateOnly = false) {
 function binding(root, entry, args, prepared) {
   return { root, entry, args, source: identity(prepared.source),
     manifest: hash(json(prepared.runtime.manifest)), lock: hash(json(prepared.runtime.lock)),
-    node: process.execPath, nodeVersion: process.version };
+    node: process.execPath, nodeVersion: process.version, execArgv: process.execArgv };
 }
 function matchesRuntime(directory, prepared) {
   for (const [name, key] of [['package.json', 'manifest'], ['package-lock.json', 'lock']]) {
@@ -37,13 +41,14 @@ function matchesRuntime(directory, prepared) {
   }
 }
 
-export function prepareOrRestoreNpmCLI({ root, entry, args, capture }) {
+export function prepareOrRestoreNpmCLI({ root, entry, args, capture, verifyPrepared }) {
+  if (typeof verifyPrepared !== 'function') refuse();
   root = resolve(root); entry = resolve(entry);
   const previous = process.env[SNAPSHOT], suppliedToken = process.env[TOKEN];
   if (previous !== undefined || suppliedToken !== undefined) {
     if (!previous || !isAbsolute(previous) || resolve(previous) !== previous || !suppliedToken) refuse();
+    const directory = dirname(previous); arenaPath(directory); protectedDirectory(directory, true);
     if (protectedFile(previous, true).size > 16384) refuse();
-    const directory = dirname(previous); protectedDirectory(directory, true);
     if (join(directory, 'snapshot.json') !== previous) refuse();
     const state = JSON.parse(readFileSync(previous, 'utf8'));
     if (state.schema !== 'wallet-auth-npm-continuation/1' || !/^[a-f0-9]{64}$/.test(state.token ?? '')
@@ -51,12 +56,14 @@ export function prepareOrRestoreNpmCLI({ root, entry, args, capture }) {
     const prepared = capture();
     if (JSON.stringify(state.binding) !== JSON.stringify(binding(root, entry, args, prepared))) refuse();
     const runtime = join(directory, 'runtime'); protectedDirectory(runtime); matchesRuntime(runtime, prepared);
+    verifyPrepared(runtime, prepared);
     protectedDirectory(join(runtime, 'node_modules'));
     delete process.env[SNAPSHOT]; delete process.env[TOKEN];
     writeFileSync(join(directory, 'npm-completed.json'), json({ npmExit: 0,
       source: state.binding.source, observedAt: new Date().toISOString(),
       evidence: 'Continuation reachable only after the bounded npm command exits zero' }), { mode: 0o600, flag: 'wx' });
-    return { directory, runtime, binding: state.binding, consumed: false };
+    const result = Object.freeze({ directory, runtime, binding: Object.freeze(state.binding) });
+    minted.add(result); return result;
   }
   if (process.platform === 'win32' || typeof process.execve !== 'function') return null;
   // Do not introduce a new build-tool requirement where GNU timeout is absent.
@@ -77,6 +84,9 @@ export function prepareOrRestoreNpmCLI({ root, entry, args, capture }) {
     const destination = join(runtime, path); mkdirSync(dirname(destination), { recursive: true, mode: 0o755 });
     writeFileSync(destination, prepared.readSource(path), { mode: 0o644, flag: 'wx' });
   }
+  // Verify original artifact pins before npm can extract any dependency bytes,
+  // and again on reentry before accepting its completed installation.
+  verifyPrepared(runtime, prepared);
   const token = randomBytes(32).toString('hex'), snapshot = join(directory, 'snapshot.json');
   writeFileSync(snapshot, json({ schema: 'wallet-auth-npm-continuation/1', token,
     binding: binding(root, entry, args, prepared) }), { mode: 0o600, flag: 'wx' });
@@ -84,22 +94,23 @@ export function prepareOrRestoreNpmCLI({ root, entry, args, capture }) {
   // --foreground keeps npm in this build's owned group. External supervision
   // still proves the entire descendant tree has ended before accepting a pack.
   const offline = args.includes('--offline') ? ' --offline' : '';
-  const script = 'node=$1; entry=$2; root=$3; token=$4; shift 4; '
+  const script = 'root=$1; token=$2; shift 2; '
     + 'timeout --foreground --signal=TERM --kill-after=2s 180s npm ci --omit=dev --ignore-scripts --no-audit --no-fund --bin-links=false'
     + offline + '; code=$?; if [ "$code" -ne 0 ]; then exit "$code"; fi; '
-    + 'export WALLET_AUTH_NPM_TOKEN="$token"; cd "$root" || exit 71; exec "$node" "$entry" "$@"';
+    + 'export WALLET_AUTH_NPM_TOKEN="$token"; cd "$root" || exit 71; exec "$@"';
   const env = Object.fromEntries(Object.entries({ ...process.env, [SNAPSHOT]: snapshot,
     npm_config_logs_dir: logs, NPM_CONFIG_LOGS_DIR: logs,
     npm_config_update_notifier: 'false', NPM_CONFIG_UPDATE_NOTIFIER: 'false' }).filter(([, value]) => typeof value === 'string'));
   process.chdir(runtime);
-  process.execve('/bin/sh', ['sh', '-c', script, 'wallet-auth-npm', process.execPath, entry, root, token, ...args], env);
+  process.execve('/bin/sh', ['sh', '-c', script, 'wallet-auth-npm', root, token,
+    process.execPath, ...process.execArgv, entry, ...args], env);
   throw new Error('AUTH_PACKAGE_NPM_EXECVE_RETURNED');
 }
 
 export function consumeNpmContinuation(state, { root, source, runtime, destination }) {
-  if (!state || state.consumed || resolve(root) !== state.binding.root || identity(source) !== state.binding.source
+  if (!minted.has(state) || consumed.has(state) || resolve(root) !== state.binding.root || identity(source) !== state.binding.source
     || hash(json(runtime.manifest)) !== state.binding.manifest || hash(json(runtime.lock)) !== state.binding.lock) refuse();
-  protectedDirectory(state.directory, true); protectedDirectory(state.runtime);
+  arenaPath(state.directory); protectedDirectory(state.directory, true); protectedDirectory(state.runtime);
   matchesRuntime(state.runtime, { runtime }); protectedDirectory(join(state.runtime, 'node_modules'));
   // The destination is an attempt directory beneath the same private arena,
   // so atomic promotion cannot cross filesystems or overwrite prior outputs.
@@ -107,11 +118,12 @@ export function consumeNpmContinuation(state, { root, source, runtime, destinati
   try { lstatSync(join(destination, 'node_modules')); refuse(); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   renameSync(join(state.runtime, 'node_modules'), join(destination, 'node_modules'));
-  state.consumed = true;
+  consumed.add(state);
 }
 
 export function cleanupNpmContinuation(state) {
-  if (!state?.consumed) refuse();
-  protectedDirectory(state.directory, true); rmSync(state.directory, { recursive: true });
+  if (!minted.has(state) || !consumed.has(state)) refuse();
+  arenaPath(state.directory); protectedDirectory(state.directory, true);
+  rmSync(state.directory, { recursive: true }); consumed.delete(state); minted.delete(state);
 }
 

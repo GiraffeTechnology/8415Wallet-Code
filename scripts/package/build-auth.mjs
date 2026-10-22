@@ -20,6 +20,19 @@ export function authNpmEnvironment(environment, logsDirectory) {
 // Library callers retain the original synchronous implementation.
 let npmContinuation = null;
 
+function validateBuildInputs(root, staged, sourceBytes) {
+  for (const folder of ['server', 'deploy/auth-runtime']) {
+    for (const name of readdirSync(join(root, folder))) {
+      const path = `${folder}/${name}`;
+      if (sourcePathAllowed(path) && !staged.has(path)) throw new Error(`AUTH_PACKAGE_UNTRACKED_SOURCE_STAGE_REQUIRED: ${path}`);
+    }
+  }
+  for (const path of TASK_RUNTIME_SOURCE_PATHS) if (!staged.has(path)) throw new Error(`AUTH_PACKAGE_TRACKED_SOURCE_REQUIRED: ${path}`);
+  for (const path of ['scripts/package/build-auth.mjs', 'scripts/package/verify-auth.mjs', 'scripts/package/auth-npm-continuation.mjs']) {
+    if (!sourceBytes(path).equals(readFileSync(join(root, path)))) throw new Error('AUTH_PACKAGE_BUILD_INPUT_MISMATCH');
+  }
+}
+
 /** Private, per-attempt diagnostics, outside the runtime/archive allowlist.
  * Synchronous timeouts are signal requests, not a hard elapsed-time bound.
  * A start without an end is incomplete evidence, never a successful exit. */
@@ -199,19 +212,7 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
         const entry = staged.get(path); if (!entry) throw new Error(`AUTH_PACKAGE_TRACKED_SOURCE_REQUIRED: ${path}`);
         return execFileSync('git', ['cat-file', 'blob', entry.object], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
       };
-      diagnostics.phase('source-validation', () => {
-        for (const folder of ['server', 'deploy/auth-runtime']) {
-          for (const name of readdirSync(join(root, folder))) {
-            const path = `${folder}/${name}`;
-            if (sourcePathAllowed(path) && !staged.has(path)) throw new Error(`AUTH_PACKAGE_UNTRACKED_SOURCE_STAGE_REQUIRED: ${path}`);
-          }
-        }
-        for (const path of TASK_RUNTIME_SOURCE_PATHS) if (!staged.has(path)) throw new Error(`AUTH_PACKAGE_TRACKED_SOURCE_REQUIRED: ${path}`);
-        // Ensure the executing build/verification code is the recorded input, not an untracked local substitute.
-        for (const path of ['scripts/package/build-auth.mjs', 'scripts/package/verify-auth.mjs', 'scripts/package/auth-npm-continuation.mjs']) {
-          if (!sourceBytes(path).equals(readFileSync(join(root, path)))) throw new Error('AUTH_PACKAGE_BUILD_INPUT_MISMATCH');
-        }
-      });
+      diagnostics.phase('source-validation', () => validateBuildInputs(root, staged, sourceBytes));
       const [sourcePackageBytes, sourceLockBytes] = diagnostics.phase('package-inputs', () => [sourceBytes('package.json'), sourceBytes('package-lock.json')]);
       const runtime = diagnostics.phase('runtime-manifest', () => runtimePackage(JSON.parse(sourcePackageBytes), JSON.parse(sourceLockBytes)));
       diagnostics.phase('stage-source', () => {
@@ -304,10 +305,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         const entry = entries.get(path); if (!entry) throw new Error(`AUTH_PACKAGE_TRACKED_SOURCE_REQUIRED: ${path}`);
         return execFileSync('git', ['cat-file', 'blob', entry.object], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
       };
-      for (const path of ['scripts/package/build-auth.mjs', 'scripts/package/verify-auth.mjs', 'scripts/package/auth-npm-continuation.mjs']) {
-        if (!readSource(path).equals(readFileSync(join(root, path)))) throw new Error('AUTH_PACKAGE_BUILD_INPUT_MISMATCH');
-      }
+      validateBuildInputs(root, entries, readSource);
       return { source, runtime: runtimePackage(JSON.parse(readSource('package.json')), JSON.parse(readSource('package-lock.json'))), readSource };
+    }, verifyPrepared: (directory, prepared) => {
+      if (prepared.runtime.manifest.dependencies['@artfi/task-listing-runtime']) verifyTaskListingArtifact(directory);
     } });
   const result = buildAuthPackage(options);
   if (npmContinuation) cleanupNpmContinuation(npmContinuation);
