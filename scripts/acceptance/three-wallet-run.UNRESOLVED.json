@@ -3,14 +3,15 @@
   "taskId": "WALLET-3W-HOODI-20261015-01",
   "promptVersion": "1.2",
   "runId": "UNRESOLVED",
+  "requirementsStatus": "HISTORICAL_NONCURRENT_NOT_CURRENT_PRD_ACCEPTANCE",
   "prompt": {
-    "fileId": "1NvTIC0hnoc9xCRt50zALq0z5qIJAC3kz",
+    "fileId": "SYNTHETIC_PROMPT_DOCUMENT_ID",
     "sha256": "16693ee8e14ff50d9b3a082f0335e3814b4186407323ba988015267d1fa0ebf3",
     "bytes": 49956,
     "modifiedTime": "2026-10-16T08:06:53.184Z"
   },
   "prd": {
-    "fileId": "1v-9sLNAldySXuMK-xjaG7qaMNpcftIjv",
+    "fileId": "SYNTHETIC_HISTORICAL_PRD_DOCUMENT_ID",
     "sha256": "f4fd311e5f23e1bdb294e07d304ad3495387bdda6785c993a60e52740a9d6a2c",
     "hashMeaning": "SHA256 of complete fetched UTF-8 text; not a Drive revision id or deployed code hash"
   },
@@ -31,7 +32,7 @@
       "pr": 101,
       "commit": "bd0bc0913b5231ba8aff2bd12bcf89a0e3fa4e7f",
       "tree": "5c1ceac49dc3ae8a391db9c94ad1c04339bc0c58",
-      "relationship": "Own initial-development stack via PR100/98; not automatically combined with PR99"
+      "relationship": "Initial-development stack via PR100/98; not automatically combined with PR99"
     }
   ],
   "opsReady": { "file": "UNRESOLVED", "sha256": "UNRESOLVED" },
@@ -42,9 +43,9 @@
   "projectPrefix": "UNRESOLVED",
   "rpcEnv": "HOODI_RPC_URL",
   "wallets": [
-    { "name": "Xiongan", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" },
-    { "name": "Giraffe", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" },
-    { "name": "Lala", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" }
+    { "name": "A", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" },
+    { "name": "B", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" },
+    { "name": "C", "address": "UNRESOLVED", "controlProof": "UNRESOLVED", "signerRoute": "UNRESOLVED" }
   ],
   "contracts": [],
   "transactionApproval": {
@@ -60,12 +61,12 @@
   "threeWalletAcceptance": "NOT_RUN",
   "fullPrdDelivery": "NOT_ACCEPTED",
   "productionReady": false,
-  "deliveryResponsibilities": {
-    "pm": "ArtFi control 2: sole original FINAL update and unified result email",
-    "wallet2": "116 business tests, Wallet-scope repairs, Linux regressions and real SIN UI/Agent/Hoodi evidence",
-    "operations": "Actual deployment, exact READY and repair redeployment",
-    "authority": "Descriptive inventory only; not approval, READY or a new grant"
-  },
-  "sequence": ["preflight", "approved-linux-regression-and-fix-cycle", "supervised-real-ui-agent-and-hoodi-evidence", "exact-source-ci-review-deployment-acceptance", "pm-unified-final-and-email-with-other-prd-owners-retained"],
-  "notice": "Input inventory only. Not runnable approval, not an acceptance report and not the FINAL deliverable. Do not guess missing values."
+  "remainingAcceptance": [
+    "exact-source regression results",
+    "genuine UI and agent journeys",
+    "on-chain receipt and state evidence",
+    "version-bound deployment and complete PRD acceptance"
+  ],
+  "sequence": ["preflight", "approved-linux-regression-and-fix-cycle", "supervised-real-ui-agent-and-hoodi-evidence", "exact-source-ci-review-deployment-acceptance", "version-bound-complete-acceptance-evidence"],
+  "notice": "Historical input inventory only; document locators and wallet display labels are synthetic examples. Content hashes describe historical inputs, not the current complete PRD. Reconcile current PRD/source identity for a new run. Not runnable approval, acceptance or the FINAL deliverable. Do not guess unresolved values."
 }
