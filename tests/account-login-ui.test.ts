@@ -33,7 +33,7 @@ class DialogElement {
   remove() { this.isConnected = false; if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); }
 }
 const descendants = (root: DialogElement): DialogElement[] => [root, ...root.children.flatMap(descendants)];
-function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 'example' } }), pathname = '') {
+function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 'example' } }), pathname = '', providerAvailable = true) {
   const signer = Wallet.createRandom(), origin = 'https://wallet.example.invalid:18443', elements = new Map<string, any>(), requests: any[] = [], calls: string[] = [];
   const state = { hold: null as null | Promise<void>, accountHold: null as null | Promise<void>, fail: false, revoked: false, enrolled: false, cancelled: false, badAccount: false, mailAvailable: true, reserved: false, rejectPath: '', rejectCode: 'AUTH_REFUSED', recoveryHold: null as null | Promise<void>, registrationHold: null as null | Promise<void>, registrationConfirmHold: null as null | Promise<void>, registeredEmail: 'tester@example.invalid' as string | null, registrationCancelled: false, signatureHold: null as null | Promise<void>, passwordManagement: true, passwordBound: true, passwordEnabled: true, stale: false, passwordHold: null as null | Promise<void>, capabilitiesHold: null as null | Promise<void>, sessionHold: null as null | Promise<void>, passwordBadResponse: false, passwordNetworkFailure: false, changeCode: 'synthetic-recovery', changeRecovery: true, changeAnswer: 'synthetic private recovery phrase', changeIdentity: '', dialogHold: false };
   const timers = new Map<number, () => void>(), windowEvents = new Map<string, (event?: any) => unknown>();
@@ -137,7 +137,7 @@ function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 
     clearEnrollmentQr, renderEnrollmentQr,
     isPlatformPasswordProfile, passwordPanelAction, loginIdentifier, requestedWalletPath, getReleaseProfile: () => profile, acquireWalletUi: () => Symbol(), releaseWalletUi() {} };
   const settingsEntry = new Function('document', 'globalThis', 'setTimeout', 'clearTimeout', ...Object.keys(sdk), `${source}\nreturn { walletLogin, subscribeAccountSettings, subscribeAgentPolicySettings };`)(
-    document, { ethereum: provider, location: { origin, pathname }, addEventListener(event: string, handler: (event?: any) => unknown) { windowEvents.set(event, handler); } },
+    document, { ethereum: providerAvailable ? provider : undefined, location: { origin, pathname }, addEventListener(event: string, handler: (event?: any) => unknown) { windowEvents.set(event, handler); } },
     (handler: () => void) => { timers.set(++timerId, handler); return timerId; }, (id: number) => timers.delete(id), ...Object.values(sdk));
   const login = settingsEntry.walletLogin;
   return { ready: profile, element, state, dialogFields, document, session, login, subscribeAccountSettings: settingsEntry.subscribeAccountSettings, subscribeAgentPolicySettings: settingsEntry.subscribeAgentPolicySettings, requests, calls, timers, windowEvents,
@@ -971,6 +971,26 @@ for (const locale of uiI18n.LOCALES.map(item => item.id)) {
       assert.equal(f.element('auth-enroll-secret').textContent, '');
       assert.equal(f.requests.some(item => item.path.startsWith('account/change/')), false);
       assert.equal(f.login.assert().kind, 'wallet', 'Existing login is not revoked by unavailable change service');
+    } finally { uiI18n.setLocale('en', { persist: false }); }
+  });
+}
+
+for (const locale of uiI18n.LOCALES.map(item => item.id)) {
+  for (const method of ['password', 'totp']) test(`provider-free account sign-in explains the current ${method} prerequisite in ${locale} without sending credentials`, async () => {
+    uiI18n.setLocale(locale, { persist: false });
+    try {
+      const f = fixture(method, Promise.resolve<any>({ tenant: { id: 'example' } }), '', false);
+      await f.ready; await f.click('wallet-login');
+      assert.equal(f.element('wallet-login-status').textContent, uiI18n.t('account.providerRequired'));
+      assert.ok(f.element('wallet-login-status').textContent.length > 30);
+      assert.equal(f.element('auth-password').value, '');
+      assert.equal(f.element('auth-code').value, '');
+      assert.equal(f.element('wallet-private').hidden, true);
+      assert.equal(f.element('auth-enroll-start').disabled, true);
+      assert.throws(() => f.login.assert(), /LOGIN_REQUIRED/);
+      assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []);
+      assert.equal(f.element('wallet-login').disabled, false);
+      assert.equal(f.element('wallet-logout').hidden, true);
     } finally { uiI18n.setLocale('en', { persist: false }); }
   });
 }
