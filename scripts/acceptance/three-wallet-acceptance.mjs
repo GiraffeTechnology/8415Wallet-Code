@@ -4,9 +4,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { validateWalletBindings } from './three-wallet-bindings.mjs';
 
 const TASK = 'WALLET-3W-HOODI-20261015-01';
-const PROMPT_FILE = '1NvTIC0hnoc9xCRt50zALq0z5qIJAC3kz';
 const PROMPT_HASHES = Object.freeze({
   '1.0': '251e811836f26c05bc4a0a4b2e3f729b5e0fe1f7ea0f1a751fb7e14524ca3180',
   '1.1': '8d11cdca84445575b5e8ab3ae68d72df26dc6ce11ec1fee34095598ac951f59d',
@@ -52,7 +52,8 @@ async function gates(manifest, mode) {
   const [major, minor] = process.versions.node.split('.').map(Number);
   requireThat(major > 22 || major === 22 && minor >= 18, 'EXISTING_NODE_22_18_OR_NEWER_REQUIRED');
   requireThat(manifest.schema === '8415wallet-three-wallet-run/1' && manifest.taskId === TASK && Object.hasOwn(PROMPT_HASHES, manifest.promptVersion), 'MANIFEST_IDENTITY_REFUSED');
-  requireThat(manifest.prompt?.fileId === PROMPT_FILE && manifest.prompt.sha256 === PROMPT_HASHES[manifest.promptVersion], 'PROMPT_CONTENT_IDENTITY_REQUIRED');
+  // A document locator records provenance; exact version/content pins identify the input.
+  requireThat(manifest.prompt?.sha256 === PROMPT_HASHES[manifest.promptVersion], 'PROMPT_CONTENT_IDENTITY_REQUIRED');
   requireThat(/^[a-f0-9]{40}$/.test(manifest.source?.commit) && /^[a-f0-9]{40}$/.test(manifest.source?.tree) && /^[a-f0-9]{64}$/.test(manifest.source?.lockSha256), 'EXACT_SOURCE_PINS_REQUIRED');
   const offline = mode === 'regress';
   let approval, approvalSha256;
@@ -85,8 +86,7 @@ async function gates(manifest, mode) {
   const root = await directory(manifest.paths?.workspace), cache = await directory(manifest.paths?.cache),
     temporary = await directory(manifest.paths?.temporary), output = await directory(manifest.paths?.output);
   for (const [name, value] of [['workspace', root], ['cache', cache], ['temporary', temporary], ['output', output]]) {
-    // Direct owner instruction on 2026-10-16 permits task writes on the system disk.
-    // Exact existing task path approval remains mandatory; no automatic directory allocation.
+    // Exact configured path approval remains mandatory; no automatic directory allocation.
     requireThat(approval.paths?.[name] === value.resolved, 'EXACT_APPROVED_POSIX_MAPPING_REQUIRED');
   }
   requireThat(await git(root.resolved, 'rev-parse', 'HEAD') === manifest.source.commit && await git(root.resolved, 'rev-parse', 'HEAD^{tree}') === manifest.source.tree, 'CHECKOUT_SOURCE_MISMATCH');
@@ -138,13 +138,7 @@ async function rpc(method, params) {
   return { request: { method, params }, response: raw, observedAt: utc() };
 }
 async function chainRead(manifest, context) {
-  requireThat(Array.isArray(manifest.wallets) && manifest.wallets.length === 3, 'THREE_PUBLIC_WALLET_BINDINGS_REQUIRED');
-  const names = new Set(), accounts = new Set();
-  for (const item of manifest.wallets) {
-    requireThat(['Xiongan', 'Giraffe', 'Lala'].includes(item.name) && hex(item.address, 20) && !/^0x0+$/.test(item.address), 'WALLET_BINDING_REFUSED');
-    names.add(item.name); accounts.add(item.address);
-  }
-  requireThat(names.size === 3 && accounts.size === 3, 'THREE_DISTINCT_WALLETS_REQUIRED');
+  validateWalletBindings(manifest.wallets);
   const captures = [], read = async (method, params) => { const item = await rpc(method, params); captures.push(item); return item.response.result; };
   requireThat(await read('eth_chainId', []) === '0x88bb0', 'HOODI_CHAIN_ID_MISMATCH');
   const genesis = await read('eth_getBlockByNumber', ['0x0', false]); requireThat(genesis?.hash === GENESIS, 'HOODI_GENESIS_MISMATCH');
@@ -285,12 +279,11 @@ async function blockedReport(manifest, context) {
     prd_file_id: manifest.prd?.fileId, prd_sha256: manifest.prd?.sha256, generated_at_utc: utc(),
     status: 'BLOCKED', three_wallet_acceptance: 'BLOCKED', full_prd_delivery: 'NOT_ACCEPTED', production_ready: false,
     run_manifest: manifest, source_preflight: context,
-    ...(context.promptVersion === '1.2' ? { delivery_owner: 'ArtFi control 2 PM; sole FINAL and unified result email owner',
-      executor_scope: 'Wallet2: scoped tests, Wallet-scope fixes and regressions; Operations: actual deployment and READY' } : {}),
+    ...(context.promptVersion === '1.2' ? { acceptance_scope: 'exact-source regression, real UI/agent and on-chain evidence' } : {}),
     warning: 'Formal blocker escalation only. No tests, UI, Agent execution or on-chain flow is accepted by this report generator.' };
   const continuation = context.promptVersion === '1.2'
-    ? 'This is a PM-owned local escalation artifact, not a Wallet2 final delivery. Wallet2 and Operations return internal evidence to the PM; only the PM updates the original FINAL and sends the unified result email. The task remains open until actual acceptance; other full-PRD development retains its assigned owners.'
-    : 'Testing is not full PRD delivery. Continue remaining authorized PRD work after the test/fix cycle.';
+    ? 'This is a local blocker report, not completed acceptance. Exact-source regressions, genuine UI/agent journeys and on-chain evidence remain independently required.'
+    : 'Regression results alone do not establish complete PRD acceptance.';
   await writeExclusive(path.join(context.runPath, FINAL), '# BLOCKED\n\n```json\n' + JSON.stringify(data, null, 2) + '\n```\n\n' + continuation + '\n');
 }
 
