@@ -33,7 +33,7 @@ class DialogElement {
   remove() { this.isConnected = false; if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); }
 }
 const descendants = (root: DialogElement): DialogElement[] => [root, ...root.children.flatMap(descendants)];
-function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 'example' } })) {
+function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 'example' } }), pathname = '') {
   const signer = Wallet.createRandom(), origin = 'https://wallet.example.invalid:18443', elements = new Map<string, any>(), requests: any[] = [], calls: string[] = [];
   const state = { hold: null as null | Promise<void>, accountHold: null as null | Promise<void>, fail: false, revoked: false, enrolled: false, cancelled: false, badAccount: false, mailAvailable: true, reserved: false, rejectPath: '', rejectCode: 'AUTH_REFUSED', recoveryHold: null as null | Promise<void>, registrationHold: null as null | Promise<void>, registrationConfirmHold: null as null | Promise<void>, registeredEmail: 'tester@example.invalid' as string | null, registrationCancelled: false, signatureHold: null as null | Promise<void>, passwordManagement: true, passwordBound: true, passwordEnabled: true, stale: false, passwordHold: null as null | Promise<void>, capabilitiesHold: null as null | Promise<void>, sessionHold: null as null | Promise<void>, passwordBadResponse: false, passwordNetworkFailure: false, changeCode: 'synthetic-recovery', changeRecovery: true, changeAnswer: 'synthetic private recovery phrase', changeIdentity: '', dialogHold: false };
   const timers = new Map<number, () => void>(), windowEvents = new Map<string, (event?: any) => unknown>();
@@ -137,7 +137,7 @@ function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 
     clearEnrollmentQr, renderEnrollmentQr,
     isPlatformPasswordProfile, passwordPanelAction, loginIdentifier, requestedWalletPath, getReleaseProfile: () => profile, acquireWalletUi: () => Symbol(), releaseWalletUi() {} };
   const settingsEntry = new Function('document', 'globalThis', 'setTimeout', 'clearTimeout', ...Object.keys(sdk), `${source}\nreturn { walletLogin, subscribeAccountSettings, subscribeAgentPolicySettings };`)(
-    document, { ethereum: provider, location: { origin }, addEventListener(event: string, handler: (event?: any) => unknown) { windowEvents.set(event, handler); } },
+    document, { ethereum: provider, location: { origin, pathname }, addEventListener(event: string, handler: (event?: any) => unknown) { windowEvents.set(event, handler); } },
     (handler: () => void) => { timers.set(++timerId, handler); return timerId; }, (id: number) => timers.delete(id), ...Object.values(sdk));
   const login = settingsEntry.walletLogin;
   return { ready: profile, element, state, dialogFields, document, session, login, subscribeAccountSettings: settingsEntry.subscribeAccountSettings, subscribeAgentPolicySettings: settingsEntry.subscribeAgentPolicySettings, requests, calls, timers, windowEvents,
@@ -914,4 +914,41 @@ for (const leave of ['escape', 'close', 'navigation']) test(`pending registratio
   assert.equal(f.element('auth-registration').hidden, true); assert.equal(f.element('auth-registration-start').disabled, false);
   assert.equal(f.element('auth-registration-code-fields').hidden, true); assert.equal(f.element('wallet-private').hidden, true);
   assert.equal(f.requests.some(row => row.path === 'registration/verify' || row.path === 'registration/confirm'), false);
+});
+
+for (const operation of ['password', 'totp']) {
+  for (const entry of ['identifier', 'direct-path']) test(`platform setup exposes independent verification for ${operation} from ${entry} without resolving identity`, async () => {
+    const profile = Promise.resolve<any>({ tenant: { id: 'default', label: 'Wallet' }, deployment: { url: 'https://8415wallet.com/web/index.html' } });
+    const f = fixture('totp', profile, entry === 'direct-path' ? '/synthetic-owner' : '/web/index.html');
+    if (entry === 'identifier') f.element('password-tenant-select').value = 'synthetic-owner';
+    await f.ready; await f.click('auth-initial-open'); await chooseOperation(f, operation);
+    assert.equal(f.element('auth-management-verification').hidden, false);
+    assert.equal(f.element('wallet-login-method').value, 'wallet');
+    assert.equal(f.element('password-tenant-select').value, 'synthetic-owner');
+    assert.equal(f.element('auth-password-fields').hidden, true);
+    assert.equal(f.element('auth-enrollment').hidden, true);
+    assert.equal(f.element('wallet-private').hidden, true);
+    assert.equal(f.element('auth-enroll-start').disabled, true);
+    assert.equal(f.element('auth-password-save').disabled, true);
+    assert.throws(() => f.login.assert(), /LOGIN_REQUIRED/);
+    assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []);
+    f.element('auth-password').value = 'synthetic-unsent-password';
+    await f.click('auth-management-back');
+    assert.equal(f.element('auth-management-verification').hidden, true);
+    assert.equal(f.element('auth-password').value, '');
+    await chooseOperation(f, operation);
+    assert.equal(f.element('auth-management-verification').hidden, false);
+    await f.click('auth-management-close');
+    assert.equal(f.element('auth-management').hidden, true);
+    assert.equal(f.element('auth-enroll-secret').textContent, '');
+    assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []);
+  });
+}
+test('platform setup with an invalid identifier remains neutral and cannot authenticate a guessed account', async () => {
+  const f = fixture('password', Promise.resolve<any>({ tenant: { id: 'default', label: 'Wallet' }, deployment: { url: 'https://8415wallet.com/web/index.html' } }), '/web/index.html');
+  f.element('password-tenant-select').value = '../not-an-identity';
+  await f.ready; await f.click('auth-initial-open'); await chooseOperation(f, 'password');
+  assert.equal(f.element('auth-management-verification').hidden, true);
+  assert.equal(f.element('auth-management-status').textContent, uiI18n.t('entry.resolverUnavailable'));
+  assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []);
 });
