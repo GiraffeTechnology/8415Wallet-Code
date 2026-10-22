@@ -952,3 +952,25 @@ test('platform setup with an invalid identifier remains neutral and cannot authe
   assert.equal(f.element('auth-management-status').textContent, uiI18n.t('entry.resolverUnavailable'));
   assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []);
 });
+
+for (const locale of uiI18n.LOCALES.map(item => item.id)) {
+  for (const unavailable of ['mail', 'combined-protocol']) test(`authenticator setup explains ${unavailable} unavailability in ${locale} before requesting a change`, async () => {
+    uiI18n.setLocale(locale, { persist: false });
+    try {
+      const f = fixture('wallet');
+      if (unavailable === 'mail') f.state.mailAvailable = false;
+      else f.state.passwordManagement = false;
+      await f.click('wallet-login'); await openOperation(f, 'totp');
+      assert.equal(f.element('auth-enroll-start').disabled, true);
+      assert.equal(f.element('auth-management-status').textContent, uiI18n.t('change.serviceUnavailable'));
+      assert.ok(f.element('auth-management-status').textContent.length > 20);
+      const calls = f.calls.length, requests = f.requests.length;
+      await f.click('auth-enroll-start');
+      assert.equal(f.calls.length, calls);
+      assert.equal(f.requests.length, requests);
+      assert.equal(f.element('auth-enroll-secret').textContent, '');
+      assert.equal(f.requests.some(item => item.path.startsWith('account/change/')), false);
+      assert.equal(f.login.assert().kind, 'wallet', 'Existing login is not revoked by unavailable change service');
+    } finally { uiI18n.setLocale('en', { persist: false }); }
+  });
+}
