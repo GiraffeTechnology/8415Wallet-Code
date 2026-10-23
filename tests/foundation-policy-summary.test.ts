@@ -15,7 +15,7 @@ class Node {
 }
 
 type View = { mode: string; revision: string } | null;
-function fixture({ view = { mode: 'OFF', revision: '7' } as View, adapter = true, fails = false } = {}) {
+function fixture({ view = { mode: 'OFF', revision: '7' } as View, adapter = true, fails = false, defer = false } = {}) {
   const nodes = new Map<string, Node>();
   for (const id of ['foundation-humanVerification-switch', 'foundation-humanVerification-value',
     'foundation-policy-saved-note']) nodes.set(id, new Node());
@@ -35,7 +35,13 @@ function fixture({ view = { mode: 'OFF', revision: '7' } as View, adapter = true
     assert(value: unknown) { if (!valid || value !== binding) throw Error('LOGIN_SESSION_CHANGED'); return binding; },
     subscribe(handler: () => void) { logins.push(handler); return () => {}; },
   };
-  const policyClient = { async read(request: unknown) { reads.push(request); if (fails) throw Error('TASK_POLICY_ADAPTER_UNAVAILABLE'); return view; } };
+  let release = () => {};
+  const policyClient = { async read(request: unknown) {
+    reads.push(request);
+    if (defer) await new Promise<void>(resolve => { release = resolve; });
+    if (fails) throw Error('TASK_POLICY_ADAPTER_UNAVAILABLE');
+    return view;
+  } };
   const connection = connectFoundationPolicySummary({ document, walletLogin, getPolicyClient: () => adapter ? policyClient : null });
   assert.ok(connection);
   return { connection, reads, logins, nodes,
@@ -44,6 +50,7 @@ function fixture({ view = { mode: 'OFF', revision: '7' } as View, adapter = true
     note: nodes.get('foundation-policy-saved-note')!,
     page(detail: string) { for (const handler of listeners.get('wallet:page') ?? []) handler({ detail }); },
     invalidate() { valid = false; },
+    release() { release(); },
     signOut() { binding = null; for (const handler of logins) handler(); },
   };
 }
@@ -116,4 +123,18 @@ test('one connection per document, and destroy stops reading and restores the de
   f.connection.destroy(); unconnected(f);
   f.page('settings'); await f.connection.read();
   assert.equal(f.reads.length, 1); unconnected(f);
+});
+
+
+test('a read answered after an adopted management view cannot overwrite it', async () => {
+  // The owner saves OFF in sign-in method management while a settings-page read
+  // is still in flight. Its older response must not restore the previous mode.
+  const f = fixture({ defer: true, view: { mode: 'ON', revision: '7' } });
+  const pending = f.connection.read();
+  assert.deepEqual(f.reads.length, 1);
+  f.connection.observe({ view: { mode: 'OFF', revision: '9' } });
+  f.release(); await pending;
+  assert.equal(f.control.dataset.displayMode, 'OFF');
+  assert.equal(f.control.dataset.savedRevision, '9');
+  assert.equal(f.value.textContent, 'OFF');
 });

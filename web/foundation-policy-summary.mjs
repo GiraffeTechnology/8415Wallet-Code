@@ -30,6 +30,10 @@ export function connectFoundationPolicySummary({ document, walletLogin, getPolic
   }
   function show(view) {
     if (view?.mode !== 'ON' && view?.mode !== 'OFF') return false;
+    // Displaying an authoritative view also invalidates any read still in
+    // flight: that response predates this one and must never put the previous
+    // mode and revision back after a saved change.
+    epoch++;
     control.dataset.policySource = SAVED;
     control.dataset.displayMode = view.mode;
     control.dataset.savedRevision = view.revision;

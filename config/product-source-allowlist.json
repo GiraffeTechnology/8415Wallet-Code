@@ -2331,8 +2331,8 @@
     {
       "path": "web/foundation-policy-summary.mjs",
       "mode": "100644",
-      "git_blob_sha1": "2019b5dd652677af3efe0d7641f7ac65f61d25eb",
-      "sha256": "031adc67162e72b72fabb380be0e677d71e9c85264c0358249da572e2e26249d"
+      "git_blob_sha1": "801ec0b713dda269fd79a6165733f0a169744b40",
+      "sha256": "79fa6e9fe0671f8758b10d15f06850d0d164d4291ad47717b9d5a7e7cd481e97"
     },
     {
       "path": "web/hoodi-journey-panel.mjs",
