@@ -343,3 +343,12 @@ test('intentional registration leaves a previous wallet path before authenticati
   assert.equal(f.window.location.pathname, '/user-new-account');
   assert.equal(f.el('password-tenant-select').value, 'user-new-account');
 });
+
+
+test('brand marks composite without a white tile and preserve surrounding images', () => {
+  const css = text('../web/wallet.css');
+  assert.match(css, /\.brand-logo,\.login-intro>img\{background:transparent;mix-blend-mode:multiply\}/);
+  assert.equal((html.match(/src="assets\/giraffe-original\.jpg"/g) ?? []).length, 2);
+  assert.doesNotMatch(css, /(?:^|\})\s*img\s*\{[^}]*mix-blend-mode/);
+  assert.doesNotMatch(css, /\.tenant-avatar(?:\s+img)?\{[^}]*mix-blend-mode/);
+});
