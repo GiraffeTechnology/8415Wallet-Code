@@ -55,7 +55,7 @@ const methods = ['password', 'wallet', 'ca', 'totp'];
 const currentSession = () => { try { return walletLogin.assert(); } catch { return null; } };
 const freshManagement = () => accountState?.management.freshIndependentLogin === true && Date.now() < accountState.management.reauthenticateBy;
 function enrollmentControls() {
-  el('auth-enroll-start').disabled = signing || !freshManagement() || !!enrollmentId;
+  el('auth-enroll-start').disabled = signing || !freshManagement() || !!enrollmentId || managementCapabilities !== true || accountState?.methodChange?.available !== true;
   el('auth-enroll-confirm').disabled = signing || !enrollmentId;
   el('auth-confirm-fields').hidden = !enrollmentId;
   el('auth-methods-save').disabled = signing || !freshManagement();
@@ -89,7 +89,22 @@ function clearEnrollment() {
   clearTimeout(enrollmentTimer); enrollmentTimer = null; enrollmentId = null; enrollmentProof = null;
   hideEnrollmentSecret(); el('auth-enroll-code').value = ''; enrollmentControls();
 }
+function syncManagementIntent() {
+  if (!platformRelease) return;
+  const session = currentSession(), requested = requestedWalletPath(globalThis.location);
+  const entered = loginIdentifier(el('password-tenant-select').value);
+  // A route or entered identifier supplies intent, never authenticated identity.
+  // Only the existing resolver and a verified session can bind an account.
+  const intent = entered ?? (requested ? loginIdentifier(requested.slice(1)) : null);
+  if (!entered && intent) {
+    el('password-tenant-select').value = intent;
+    el('auth-username').value = intent;
+  }
+  managementProfile = session?.serverId && session.walletRoute || moduleOpen && intent ? 'local' : 'platform';
+  managementContext = session?.walletRoute?.walletName ?? intent ?? releaseManagementContext;
+}
 function renderManagement() {
+  syncManagementIntent();
   el('auth-management').hidden = !moduleOpen;
   for (const id of ['auth-initial-open', 'auth-manage-open']) {
     el(id).disabled = managementProfile === null;
@@ -97,6 +112,7 @@ function renderManagement() {
     el(id).setAttribute?.('aria-expanded', String(moduleOpen));
   }
   const session = currentSession(), verified = !!session?.serverId && !!accountState, fresh = verified && freshManagement();
+  const changeUnavailable = verified && fresh && managementStep === 'totp' && (managementCapabilities === false || managementCapabilities === 'unavailable' || accountState?.methodChange?.available !== true);
   el('auth-method-states').hidden = !verified || managementStep !== 'methods';
   el('auth-enrollment').hidden = !verified || !fresh || managementStep !== 'totp';
   el('auth-existing-fields').hidden = true;
@@ -107,7 +123,7 @@ function renderManagement() {
     el(`auth-enable-${method}`).checked = verified && accountState.methods[method].enabled;
     el(`auth-enable-${method}`).disabled = !fresh || !accountState?.methods[method].bound || accountState?.methods[method].available === false;
   }
-  paint(el('auth-management-status'), managementStep === 'policy' ? '' : msg(managementProfile === 'platform' ? 'entry.resolverUnavailable' : !managementStep ? 'entry.chooseSetup' : verified ? fresh ? 'change.combined' : 'account.freshRequired' : 'entry.verifyHelp'));
+  paint(el('auth-management-status'), managementStep === 'policy' ? '' : msg(managementProfile === 'platform' ? 'entry.resolverUnavailable' : changeUnavailable ? 'change.serviceUnavailable' : !managementStep ? 'entry.chooseSetup' : verified ? fresh ? 'change.combined' : 'account.freshRequired' : 'entry.verifyHelp'));
   paint(el('auth-enrollment-title'), msg(accountState?.authenticator.enrolled ? 'account.reset' : 'ui.020'));
   paint(el('auth-enroll-start'), msg(accountState?.authenticator.enrolled ? 'account.reset' : 'ui.024'));
   el('auth-initial-guide').hidden = managementStep !== 'totp' || !verified || accountState.authenticator.enrolled;
@@ -151,11 +167,7 @@ async function loadAccount() {
 }
 walletLogin.subscribe((session, reason) => {
   if (platformRelease) {
-    const requested = requestedWalletPath(globalThis.location);
-    // A known path keeps the verification form reachable during reauthentication;
-    // it never supplies verified/fresh account state or method-change authority.
-    managementProfile = session?.serverId && session.walletRoute || moduleOpen && requested ? 'local' : 'platform';
-    managementContext = session?.walletRoute?.walletName ?? requested?.slice(1) ?? releaseManagementContext;
+    syncManagementIntent();
   }
   if (!session) {
     const continuingReauthentication = managementReauthStep && moduleOpen && ['LOGIN_REQUIRED', 'LOGIN_STARTING'].includes(reason);
@@ -212,7 +224,8 @@ el('wallet-login').addEventListener('click', async () => {
     if (moduleOpen && currentAttempt === attemptRevision) document.dispatchEvent?.(new CustomEvent('wallet:authentication-settings'));
   } catch (error) {
     if (currentAttempt !== attemptRevision) return;
-    paint(el('wallet-login-status'), error instanceof WalletLoginError && error.code === 'LOGIN_REJECTED' ? msg('message.019') :
+    paint(el('wallet-login-status'), error instanceof WalletLoginError && error.code === 'LOGIN_PROVIDER_REQUIRED' ? msg('account.providerRequired') :
+      error instanceof WalletLoginError && error.code === 'LOGIN_REJECTED' ? msg('message.019') :
       error instanceof WalletLoginError ? error.code : 'LOGIN_SERVICE_OR_CONFIG_UNAVAILABLE');
   } finally {
     signing = false; el('wallet-login').disabled = false; releaseWalletUi(lock); enrollmentControls();
@@ -251,6 +264,11 @@ function verifyAgain() {
   document.dispatchEvent?.(new CustomEvent('wallet:authentication-method'));
 }
 async function loadManagementCapabilities() {
+  // Platform intent cannot select an account-scoped service before login.
+  // The authenticated client will load the real capabilities after resolution.
+  if (platformRelease && !currentSession()?.serverId) {
+    managementCapabilities = null; passwordControls(); return;
+  }
   const revision = ++capabilityRevision;
   try {
     const profile = await getReleaseProfile();
@@ -263,7 +281,7 @@ async function loadManagementCapabilities() {
     if (!moduleOpen || revision !== capabilityRevision) return;
     managementCapabilities = 'unavailable';
   }
-  passwordControls();
+  renderManagement();
 }
 async function openManagement({ initial = false } = {}) {
   // Pre-profile events are ignored, never queued for later execution.
@@ -423,6 +441,7 @@ el('auth-password-cancel').addEventListener('click', () => {
   else { clearPassword(); el('auth-existing-code').value = ''; void cancelRecovery(); paint(el('auth-password-status'), msg('account.passwordCancelled')); }
 });
 async function enroll(action) {
+  if (action === 'start' && (managementCapabilities !== true || accountState?.methodChange?.available !== true)) { renderManagement(); return; }
   if (signing || !accountClient || !freshManagement() || (action === 'start' && enrollmentId) || (action === 'confirm' && !enrollmentId)) return;
   const lock = acquireWalletUi(); if (lock === null) return;
   signing = true; const currentAttempt = attemptRevision, revision = ++enrollmentRevision, client = accountClient;

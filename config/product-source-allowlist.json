@@ -2371,8 +2371,8 @@
     {
       "path": "web/locales/auth-management.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b99de0d1531fbfe3d8b543c0a7cfd8c5e9da1fa7",
-      "sha256": "5197016182b14e7bae1f3a855957f549259330ce314d985bb1423cf3a6d6ab56"
+      "git_blob_sha1": "6f217ec6a11917967d836146ef1a680fe4272c31",
+      "sha256": "3f0bc46f361003b6d81a8f916b99e5031fb7fa0b821a164fb9f894f485e092ce"
     },
     {
       "path": "web/locales/custody-panels.mjs",
@@ -2689,8 +2689,8 @@
     {
       "path": "web/wallet-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "4760495885e4e2c257b0a3722941330decb787c1",
-      "sha256": "b150b8f0a2897ca7c8aab854ac3e105a07a4fa9f92a9ab6f1283c96f07bf5846"
+      "git_blob_sha1": "2d6bfa34958eab006ffb415dae58725334362632",
+      "sha256": "fa09a78f97da746761523d8c48fdaf03975bb5b0fcb451c15fd5c8205d94b3b7"
     },
     {
       "path": "web/wallet-entry.mjs",
