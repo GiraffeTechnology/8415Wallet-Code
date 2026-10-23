@@ -13,7 +13,7 @@ const retainedPublicModules = [
   'task-verification-policy-startup.mjs', 'task-verification-policy-entry.mjs',
   'task-verification-policy-client.mjs', 'task-verification-policy-wire.mjs',
   'task-verification-policy-ceremony.mjs', 'task-verification-policy-ui.mjs',
-  'wallet-identity-display.mjs',
+  'foundation-policy-summary.mjs', 'wallet-identity-display.mjs',
 ];
 
 // Source-only closure assertions: runtime policy enforcement and deployed UI
@@ -63,6 +63,8 @@ test('foundation page mounts authenticated read-only policy but leaves task exec
   assert.equal(reached.has('web/task-verification-policy-entry.mjs'), true);
   assert.equal(reached.has('web/task-verification-policy-client.mjs'), true);
   assert.equal(reached.has('web/task-verification-policy-startup.mjs'), true);
+  // The Agent settings row reads the saved policy through the same adapter.
+  assert.equal(reached.has('web/foundation-policy-summary.mjs'), true);
   assert.equal(reached.has('web/task-ui.mjs'), false);
   assert.ok(reached.has('web/wallet-auth.mjs'));
   assert.ok(reached.has('web/about-entry.mjs'));

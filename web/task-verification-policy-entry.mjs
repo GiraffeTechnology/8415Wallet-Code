@@ -5,35 +5,42 @@
 const connections = new WeakMap();
 
 export function connectTaskVerificationPolicySettings({ document, window, walletLogin,
-  currentAccountClient, subscribeAccountSettings, mountTaskVerificationPolicy, createTaskVerificationPolicyClient }) {
+  currentAccountClient, subscribeAccountSettings, mountTaskVerificationPolicy, createTaskVerificationPolicyClient,
+  connectFoundationPolicySummary = null }) {
   if (connections.has(document)) return connections.get(document);
   const host = document.getElementById('task-verification-policy-settings');
   if (!host || !document.getElementById('auth-management')) return null;
 
   const adapters = new WeakMap();
+  const getPolicyClient = () => {
+    // Only the current server-authenticated client may supply the adapter.
+    // Local wallet login, missing contracts and stale sessions stay unavailable.
+    try {
+      const client = currentAccountClient();
+      if (!client || typeof client.taskVerification !== 'function' || typeof client.account !== 'function' ||
+        typeof createTaskVerificationPolicyClient !== 'function') return null;
+      if (!adapters.has(client)) {
+        let adapter = null;
+        try { adapter = createTaskVerificationPolicyClient({ client, walletLogin, document, window }); }
+        catch { /* An unbound or unsupported wire contract remains unavailable. */ }
+        adapters.set(client, adapter);
+      }
+      return adapters.get(client);
+    } catch { return null; }
+  };
+  // The Agent settings row reads the same authoritative policy through the same
+  // adapter. It displays the saved setting only; operating it stays here.
+  let summary = null;
+  try { summary = connectFoundationPolicySummary?.({ document, walletLogin, getPolicyClient }) ?? null; }
+  catch { summary = null; }
   const controller = mountTaskVerificationPolicy({ document, window, walletLogin, host,
-    getPolicyClient() {
-      // Only the current server-authenticated client may supply the adapter.
-      // Local wallet login, missing contracts and stale sessions stay unavailable.
-      try {
-        const client = currentAccountClient();
-        if (!client || typeof client.taskVerification !== 'function' || typeof client.account !== 'function' ||
-          typeof createTaskVerificationPolicyClient !== 'function') return null;
-        if (!adapters.has(client)) {
-          let adapter = null;
-          try { adapter = createTaskVerificationPolicyClient({ client, walletLogin, document, window }); }
-          catch { /* An unbound or unsupported wire contract remains unavailable. */ }
-          adapters.set(client, adapter);
-        }
-        return adapters.get(client);
-      } catch { return null; }
-    },
-  });
+    getPolicyClient, onState: state => summary?.observe(state) });
   let unsubscribe = null, destroyed = false;
   const connection = Object.freeze({
     destroy() {
       if (destroyed) return;
-      destroyed = true; unsubscribe?.(); connections.delete(document); host.hidden = true; controller.destroy();
+      destroyed = true; unsubscribe?.(); connections.delete(document); host.hidden = true;
+      summary?.destroy(); controller.destroy();
     },
   });
   connections.set(document, connection);
