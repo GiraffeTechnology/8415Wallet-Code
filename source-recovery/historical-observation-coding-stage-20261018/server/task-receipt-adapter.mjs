@@ -1,0 +1,322 @@
+import { normalizeTestNFT721Bindings, verifyTestNFT721OperationPreflight, readTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
+import { captureTestNFT721MetadataVerifier } from './task-test-nft721-metadata.mjs';
+import { verifyTaskExactChain } from './task-exact-chain-state.mjs';
+/** Read-only receipt observation for the existing bounded operations. No keys,
+ * signing, transaction submission, market execution or budget mutation. */
+import { createHash } from 'node:crypto';
+import { normalizeTestAssetPins, testAssetPinForTask } from './task-test-asset-authorization.mjs';
+import { readFileSync } from 'node:fs';
+import { encodeCall } from '../src/codec/abi.ts';
+import { encodeExactTaskOperation } from './task-operation-encoding.mjs';
+import { freezeTaskPolicy, freezeChildOperation } from '../src/agent/taskContract.ts';
+import { TaskObservationError, freezeTaskObservationPolicy, normalizeObservationAttempt,
+  normalizeObservationVerifier, bindTaskObservation } from '../src/agent/receiptObservation.ts';
+import { hashControlBytes } from '../src/controls/authorization.ts';
+import { ResponsibilityControlClient, decodeControlSequence } from '../src/controls/client.ts';
+import { ControlledAccountClient } from '../src/controls/accounts.ts';
+import { receiptFixed, proveSupersededNonce, wordAddress, wordUint } from '../src/controls/execution.ts';
+import { receiptAssetTransaction, proveAssetReplacement } from '../src/xiongan/externalAssets.ts';
+import { testSeriesMintRequest, verifyTestSeriesMintPreflight, readTestSeriesMintResult } from './task-test-mint-contract.mjs';
+
+// Exact runtime closure, also used as the implementation identity. Type-only
+// modules are compiler inputs, not executed dependencies. Packagers rewrite the
+// .ts suffixes together with imports when emitting the same closure to JavaScript.
+export const TASK_RECEIPT_RUNTIME_FILES = Object.freeze([
+  // Approval selection, channel isolation, and the shared-store constructor
+  // affect this port's trusted runtime; UI/build/test code does not.
+  'server/task-authorization.mjs', 'server/task-runtime-composition.mjs', 'server/task-exact-runtime.mjs',
+  'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-listing-transport.mjs',
+  'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
+  'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs', 'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs', 'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
+  'src/codec/abi.ts', 'src/codec/keccak.ts', 'src/controls/accounts.ts', 'src/controls/authorization.ts',
+  'src/controls/client.ts', 'src/controls/execution.ts', 'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
+]);
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const implementationDigest = `0x${sha256(JSON.stringify(TASK_RECEIPT_RUNTIME_FILES.map(path => ({ path,
+  sha256: sha256(readFileSync(new URL(`../${path}`, import.meta.url))) }))))}`;
+
+const check = (ok, code) => { if (!ok) throw new TaskObservationError(code); };
+function fields(value, names) {
+  check(value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value)), 'TASK_RECEIPT_INPUT_REFUSED');
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  check(Reflect.ownKeys(descriptors).length === names.length && names.every(key =>
+    Object.hasOwn(descriptors, key) && Object.hasOwn(descriptors[key], 'value')), 'TASK_RECEIPT_INPUT_REFUSED');
+}
+const hex = value => `0x${BigInt(value).toString(16)}`;
+const quantity = value => { check(typeof value === 'string' && /^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(value) && value.length <= 66, 'TASK_RECEIPT_QUANTITY_REFUSED'); return BigInt(value); };
+const pin = (value, chainId) => ({ chainId: BigInt(chainId), controller: value.contract, runtimeCodeHash: value.runtimeCodeHash });
+/** Server-owned provider and policy are captured once. Browser JSON cannot
+ * select an endpoint, reduce depth or replace verifier methods. */
+export function createTaskReceiptAdapter({ provider, observationPolicy, testAssetPins = [], testMint721Bindings = [], testNFT721Metadata = null, now = Date.now }) {
+  const pins = normalizeTestAssetPins(testAssetPins);
+  const mint721Bindings=normalizeTestNFT721Bindings(testMint721Bindings), metadata=captureTestNFT721MetadataVerifier(testNFT721Metadata);
+  const identity = normalizeObservationVerifier({ verifierId: '8415wallet:task-receipt', verifierVersion: '1',
+    verifierImplementationDigest: '0x' + sha256(JSON.stringify({ sourceDigest: implementationDigest, testAssetPins: pins, mint721Bindings, metadataIdentity: metadata?.identity ?? null })) });
+  check(provider && typeof provider.request === 'function' && typeof now === 'function', 'TASK_RECEIPT_CONFIG_REFUSED');
+  const request = provider.request.bind(provider), policy = freezeTaskObservationPolicy(observationPolicy);
+  const allowed = new Set(['eth_chainId', 'eth_getTransactionReceipt', 'eth_getTransactionByHash', 'eth_getBlockByNumber',
+    'eth_blockNumber', 'eth_getCode', 'eth_call', 'eth_getTransactionCount']);
+  const readonlyProvider = Object.freeze({ async request({ method, params = [] }) {
+    check(allowed.has(method), 'TASK_RECEIPT_RPC_WRITE_REFUSED');
+    const result = structuredClone(await request({ method, params: structuredClone(params) }));
+    if (method === 'eth_getTransactionReceipt' && result !== null) {
+      check(Array.isArray(result.logs), 'TASK_RECEIPT_LOGS_REFUSED');
+      const index = quantity(result.transactionIndex), number = quantity(result.blockNumber);
+      for (const log of result.logs) check(log.removed === false && log.transactionHash?.toLowerCase() === result.transactionHash?.toLowerCase() &&
+        log.blockHash?.toLowerCase() === result.blockHash?.toLowerCase() && quantity(log.blockNumber) === number && quantity(log.transactionIndex) === index,
+        'TASK_RECEIPT_LOG_BINDING_REFUSED');
+    }
+    return result;
+  } });
+  function assessmentContext(input, historical = false) {
+    fields(input, ['task', 'child', 'executor', 'observationPolicy']);
+    const task = freezeTaskPolicy(input.task.policy), child = freezeChildOperation(input.child.child);
+    const suppliedPolicy = freezeTaskObservationPolicy(input.observationPolicy), executorDigest = input.executor?.digest;
+    check(typeof executorDigest === 'string' && /^0x[0-9a-f]{64}$/.test(executorDigest) && !/^0x0+$/.test(executorDigest), 'TASK_RECEIPT_BINDING_REFUSED');
+    check(task.digest === input.task.digest && child.digest === input.child.digest && child.child.taskDigest === task.digest &&
+      child.child.operation.chainId === task.policy.chainId && child.child.operation.actor === task.policy.actor, 'TASK_RECEIPT_BINDING_REFUSED');
+    check(historical || suppliedPolicy.digest === policy.digest, 'TASK_OBSERVATION_POLICY_MISMATCH');
+    check(task.policy.intent.kind === 'exact-operation', 'TASK_ATOMIC_SALE_VERIFIER_NOT_CONNECTED');
+    check(JSON.stringify(task.policy.intent.operation) === JSON.stringify(child.child.operation) && child.child.market === null,
+      'TASK_RECEIPT_BINDING_REFUSED');
+    return { task, child, executorDigest, observationPolicy: suppliedPolicy.policy };
+  }
+  function context(input, historical = false) {
+    fields(input, ['task', 'child', 'executor', 'attempt', 'observationPolicy']);
+    const { executorDigest, ...c } = assessmentContext({ task: input.task, child: input.child, executor: input.executor,
+      observationPolicy: input.observationPolicy }, historical);
+    const attempt = normalizeObservationAttempt(input.attempt);
+    check(executorDigest === attempt.executorDigest, 'TASK_RECEIPT_BINDING_REFUSED');
+    return { ...c, attempt };
+  }
+  // A null hash is used only while assessing an unsent child. It is never
+  // returned as an observation or passed to a receipt verifier.
+  async function submission(c, transactionHash) {
+    const child = c.child.child, op = child.operation;
+    const base = { from: op.actor, chainId: hex(op.chainId), nonce: hex(child.nonce) };
+    const account = ['deposit', 'standalone-withdraw'].includes(op.kind)
+      ? await new ControlledAccountClient(readonlyProvider, pin(op.controller, op.chainId)).account(op.actor) : null;
+    if (['deposit', 'standalone-withdraw'].includes(op.kind)) check(account !== null, 'TASK_RECEIPT_ACCOUNT_NOT_ESTABLISHED');
+    const { to, data, value } = encodeExactTaskOperation(c.child, account?.account ?? null);
+    if (['create-account', 'complete', 'return-hop'].includes(op.kind)) {
+      const deployment = pin(op.controller, op.chainId);
+      return { kind: 'control', record: { schema: '8415-control-submission/1', deployment, kind: op.kind, transactionHash,
+        actor: op.actor, nonce: BigInt(child.nonce), calldataHash: hashControlBytes(data),
+        sequenceId: op.kind === 'create-account' ? null : op.sequenceId, legId: op.kind === 'return-hop' ? op.legId : null,
+        expectedRevision: op.kind === 'create-account' ? null : BigInt(op.expectedRevision), acceptanceHash: null } };
+    }
+    if (op.kind === 'deposit' || op.kind === 'standalone-withdraw') {
+      const controller = pin(op.controller, op.chainId), token = pin(op.token, op.chainId), deposit = op.kind === 'deposit';
+      return { kind: 'fixed', record: { schema: '8415-fixed-submission/1', pin: deposit ? token : account.pin,
+        guards: deposit ? [controller, account.pin] : [controller, token], actor: op.actor, value: 0n,
+        nonce: BigInt(child.nonce), transactionHash, calldataHash: hashControlBytes(data),
+        event: { address: token.controller, signature: 'Transfer(address,address,uint256)',
+          indexed: [wordAddress(deposit ? op.actor : account.account), wordAddress(deposit ? account.account : op.destination), wordUint(BigInt(op.tokenId))],
+          dataHash: hashControlBytes('0x') } } };
+    }
+    return { kind: ['artfi-test-series-mint','artfi-test-nft721-mint'].includes(op.kind) ? 'test-mint' : 'asset', record: { ...base, to, data, value: hex(value) } };
+  }
+  function output(c, observed, replacementHash = null, historical = false) {
+    const time = now(); check(Number.isSafeInteger(time) && time >= 0, 'TASK_RECEIPT_CLOCK_REFUSED');
+    const state = observed.state === 'confirmed' ? 'confirmed-at-depth' : observed.state === 'reverted' ? 'reverted-at-depth' : observed.state;
+    const originalPolicy = freezeTaskObservationPolicy(c.observationPolicy);
+    check(!historical || !['confirmed-at-depth', 'reverted-at-depth', 'superseded-at-depth'].includes(state) ||
+      BigInt(observed.confirmations) >= BigInt(policy.policy.minimumConfirmations), 'TASK_HISTORICAL_OBSERVATION_DEPTH_REQUIRED');
+    return bindTaskObservation({ schema: '8415-task-observation/1', taskDigest: c.task.digest, childDigest: c.child.digest,
+      chainId: c.task.policy.chainId, actor: c.task.policy.actor, nonce: c.child.child.nonce,
+      attemptExecutorDigest: c.attempt.executorDigest, attemptGrantPolicyVersion: c.attempt.grantPolicyVersion,
+      originalTransactionHash: c.attempt.transactionHash, observationPolicy: originalPolicy.policy, observationPolicyDigest: originalPolicy.digest,
+      state, blockNumber: observed.blockNumber === null ? null : String(observed.blockNumber), blockHash: observed.blockHash,
+      confirmations: state === 'reorged' ? '0' : String(observed.confirmations), replacementHash, observedAt: String(Math.floor(time / 1000)),
+      effect: state === 'confirmed-at-depth' && observed.executionEventObserved ? 'exact-operation-observed' : 'not-established',
+      protocolFinality: 'not-evaluated', economicFinality: 'not-evaluated', ...identity }, { ...c, verifier: identity });
+  }
+  async function nativeEoaBinding(op, block) {
+    const code = address => readonlyProvider.request({ method: 'eth_getCode', params: [address, block] });
+    check(await code(op.actor) === '0x' && await code(op.recipient) === '0x', 'TASK_RECEIPT_NATIVE_EOA_REQUIRED');
+  }
+  async function assessNativeEoa(op) {
+    const rpc = (method, params) => readonlyProvider.request({ method, params });
+    check(quantity(await rpc('eth_chainId', [])) === BigInt(op.chainId), 'TASK_RECEIPT_CHAIN_MISMATCH');
+    const header = await rpc('eth_getBlockByNumber', ['latest', false]);
+    check(header && typeof header.hash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(header.hash) && !/^0x0+$/i.test(header.hash),
+      'TASK_RECEIPT_SNAPSHOT_REFUSED');
+    const blockNumber = quantity(header.number), blockHash = header.hash.toLowerCase();
+    await nativeEoaBinding(op, { blockHash, requireCanonical: true });
+    check(quantity(await rpc('eth_chainId', [])) === BigInt(op.chainId), 'TASK_RECEIPT_CHAIN_MISMATCH');
+    const canonical = await rpc('eth_getBlockByNumber', [hex(blockNumber), false]);
+    check(canonical && canonical.hash?.toLowerCase() === blockHash && quantity(canonical.number) === blockNumber,
+      'TASK_RECEIPT_SNAPSHOT_REORGED');
+  }
+  async function operationBinding(c, observed) {
+    if (observed.state !== 'confirmed') return observed;
+    const op = c.child.child.operation, block = { blockHash: observed.blockHash, requireCanonical: true };
+    const rpc = (method, params) => readonlyProvider.request({ method, params });
+    const actual = await rpc('eth_getTransactionByHash', [c.attempt.transactionHash]);
+    check(actual?.hash?.toLowerCase() === c.attempt.transactionHash && actual.blockHash?.toLowerCase() === observed.blockHash &&
+      quantity(actual.blockNumber) === BigInt(observed.blockNumber), 'TASK_RECEIPT_BINDING_REFUSED');
+    const maximumFee = actual.maxFeePerGas === undefined ? actual.gasPrice : actual.maxFeePerGas;
+    check(quantity(actual.gas) <= BigInt(c.child.child.fees.gasLimit) && quantity(maximumFee) <= BigInt(c.child.child.fees.maxFeePerGasWei),
+      'TASK_RECEIPT_FEE_BOUND_EXCEEDED');
+    const testPin = testAssetPinForTask(pins, c.task);
+    if (testPin) check(hashControlBytes(await rpc('eth_getCode', [testPin.contract, block])) === testPin.runtimeCodeHash, 'TASK_RECEIPT_TEST_ASSET_CODE_REFUSED');
+    if (op.kind === 'native-transfer') {
+      await nativeEoaBinding(op, block);
+    } else if (op.kind === 'complete' || op.kind === 'return-hop') {
+      const sequence = decodeControlSequence(await rpc('eth_call', [{ to: op.controller.contract,
+        data: encodeCall('sequence(bytes32)', ['bytes32'], [op.sequenceId]) }, block]));
+      check(sequence.token === op.token.contract && sequence.tokenCodeHash === op.token.runtimeCodeHash,
+        'TASK_RECEIPT_SEQUENCE_TOKEN_MISMATCH');
+      for (const deployed of [op.controller, op.token]) check(hashControlBytes(await rpc('eth_getCode', [deployed.contract, block])) === deployed.runtimeCodeHash,
+        'TASK_RECEIPT_RUNTIME_PIN_MISMATCH');
+    } else if (op.kind === 'create-account') {
+      check(hashControlBytes(await rpc('eth_getCode', [op.controller.contract, block])) === op.controller.runtimeCodeHash,
+        'TASK_RECEIPT_RUNTIME_PIN_MISMATCH');
+    }
+    // Any extra binding reads above must remain anchored to this same chain and
+    // canonical block. They are not a new projection or commercial-finality proof.
+    check(BigInt(await rpc('eth_chainId', [])) === BigInt(op.chainId), 'TASK_RECEIPT_CHAIN_MISMATCH');
+    const canonical = await rpc('eth_getBlockByNumber', [hex(observed.blockNumber), false]);
+    if (canonical === null || canonical.hash?.toLowerCase() !== observed.blockHash)
+      return { ...observed, state: 'reorged', confirmations: 0n, executionEventObserved: false };
+    return observed;
+  }
+  /** Pre-send capability check, called by the service's captured trusted method.
+   * Reconstruct the same supported encoding as observe; no receipt, signer or
+   * send is invoked. Dynamic account binding uses existing read-only checks.
+   * This establishes observability, not authorization or a predicted result. */
+  async function assessChild(input) {
+    const c = assessmentContext(input);
+    await submission(c, null);
+    if (c.child.child.operation.kind === 'native-transfer') await assessNativeEoa(c.child.child.operation);
+    const testPin = testAssetPinForTask(pins, c.task);
+    if (testPin) check(hashControlBytes(await readonlyProvider.request({ method: 'eth_getCode', params: [testPin.contract, 'latest'] })) === testPin.runtimeCodeHash,
+      'TASK_RECEIPT_TEST_ASSET_CODE_REFUSED');
+    if (c.child.child.operation.kind === 'artfi-test-series-mint') {
+      const op = c.child.child.operation;
+      await verifyTestSeriesMintPreflight({ request: testSeriesMintRequest(op), provider: readonlyProvider,
+        allowedWallets: [op.actor, op.distributionWallet] });
+    }
+    if(c.child.child.operation.kind==='artfi-test-nft721-mint') {
+      check(metadata!==null,'TASK_TEST_721_METADATA_NOT_ADMITTED');await metadata.verify(c.child.child.operation);
+      await verifyTestNFT721OperationPreflight({operation:c.child.child.operation,bindings:mint721Bindings,provider:readonlyProvider});
+    }
+    return Object.freeze({ taskDigest: c.task.digest, childDigest: c.child.digest, executorDigest: c.executorDigest,
+      observationPolicyDigest: policy.digest, ...identity, capability: 'exact-operation-observable' });
+  }
+  async function observe(input, historical = false) {
+    const c = context(input, historical);
+    await verifyTaskExactChain(readonlyProvider, c.task.policy.chainId);
+    const submitted = await submission(c, c.attempt.transactionHash), depth = BigInt(c.observationPolicy.minimumConfirmations);
+    let observed;
+    if (submitted.kind === 'test-mint') observed = await observeMintTransaction(c, submitted.record, depth);
+    else if (submitted.kind === 'asset') observed = await receiptAssetTransaction(readonlyProvider, submitted.record, c.attempt.transactionHash, depth);
+    else if (submitted.kind === 'fixed') observed = await receiptFixed(readonlyProvider, submitted.record, depth);
+    else observed = await new ResponsibilityControlClient(readonlyProvider, submitted.record.deployment).receipt(submitted.record, depth);
+    return output(c, await operationBinding(c, observed), null, historical);
+  }
+  async function readMint(c) {
+    const operation=c.child.child.operation;
+    return operation.kind==='artfi-test-nft721-mint' ? readTestNFT721OperationResult({operation,bindings:mint721Bindings,
+      provider:readonlyProvider,transactionHash:c.attempt.transactionHash}) : readTestSeriesMintResult({request:testSeriesMintRequest(operation),
+      provider:readonlyProvider,transactionHash:c.attempt.transactionHash});
+  }
+  async function observeMintTransaction(c, expected, depth) {
+    const rpc = (method, params) => readonlyProvider.request({ method, params });
+    check(quantity(await rpc('eth_chainId', [])) === BigInt(c.task.policy.chainId), 'TASK_RECEIPT_CHAIN_MISMATCH');
+    const receipt = await rpc('eth_getTransactionReceipt', [c.attempt.transactionHash]);
+    if (receipt === null) return { state: 'pending', blockNumber: null, blockHash: null, confirmations: 0n, executionEventObserved: false };
+    const number = quantity(receipt.blockNumber), blockHash = receipt.blockHash?.toLowerCase();
+    check(/^0x[0-9a-f]{64}$/.test(blockHash ?? '') && receipt.transactionHash?.toLowerCase() === c.attempt.transactionHash,
+      'TASK_RECEIPT_BINDING_REFUSED');
+    const transaction = await rpc('eth_getTransactionByHash', [c.attempt.transactionHash]);
+    check(transaction?.hash?.toLowerCase() === c.attempt.transactionHash && transaction.blockHash?.toLowerCase() === blockHash &&
+      quantity(transaction.blockNumber) === number && quantity(transaction.transactionIndex) === quantity(receipt.transactionIndex) &&
+      receipt.from?.toLowerCase() === expected.from && receipt.to?.toLowerCase() === expected.to &&
+      transaction.from?.toLowerCase() === expected.from && transaction.to?.toLowerCase() === expected.to &&
+      quantity(transaction.nonce) === quantity(expected.nonce) && quantity(transaction.value) === 0n &&
+      transaction.input?.toLowerCase() === expected.data && (transaction.chainId === undefined || quantity(transaction.chainId) === BigInt(c.task.policy.chainId)),
+      'TASK_RECEIPT_BINDING_REFUSED');
+    const result = (state, confirmations = 0n) => ({ state, blockNumber: number.toString(), blockHash,
+      confirmations, executionEventObserved: state === 'confirmed' });
+    const canonical = await rpc('eth_getBlockByNumber', [hex(number), false]);
+    const head = quantity(await rpc('eth_blockNumber', []));
+    if (canonical?.hash?.toLowerCase() !== blockHash || head < number) return result('reorged');
+    const confirmations = head - number + 1n, status = quantity(receipt.status);
+    check(status === 0n || status === 1n, 'TASK_RECEIPT_STATUS_REFUSED');
+    if (confirmations < depth) return result('confirming', confirmations);
+    if (status === 0n) {
+      check((await rpc('eth_getBlockByNumber', [hex(number), false]))?.hash?.toLowerCase() === blockHash, 'TASK_RECEIPT_SNAPSHOT_REORGED');
+      return result('reverted', confirmations);
+    }
+    const mint = await readMint(c);
+    check(mint.blockHash === blockHash && BigInt(mint.blockNumber) === number, 'TASK_RECEIPT_MINT_BINDING_REFUSED');
+    return result('confirmed', confirmations);
+  }
+  async function observeMintResult(input, observation, historical = false) {
+    const c = context(input, historical);
+    check(['artfi-test-series-mint','artfi-test-nft721-mint'].includes(c.child.child.operation.kind), 'TASK_RECEIPT_MINT_KIND_REFUSED');
+    const checked = bindTaskObservation(observation, { ...c, verifier: identity });
+    check(checked.state === 'confirmed-at-depth' && checked.effect === 'exact-operation-observed', 'TASK_RECEIPT_MINT_DEPTH_REQUIRED');
+    check(!historical || BigInt(checked.confirmations) >= BigInt(policy.policy.minimumConfirmations), 'TASK_HISTORICAL_OBSERVATION_DEPTH_REQUIRED');
+    if(c.child.child.operation.kind==='artfi-test-nft721-mint') {
+      check(metadata!==null,'TASK_TEST_721_METADATA_NOT_ADMITTED');await metadata.verify(c.child.child.operation);
+    }
+    const mint = await readMint(c);
+    check(mint.blockHash === checked.blockHash && BigInt(mint.blockNumber) === BigInt(checked.blockNumber), 'TASK_RECEIPT_MINT_BINDING_REFUSED');
+    return mint;
+  }
+  async function verifyMintInventoryRecord(record) {
+    try {
+      const observation = await observe(record.input);
+      const mint = await observeMintResult(record.input, observation);
+      return record.schema === '8415-task-test-mint-inventory/1' && record.available === true &&
+        record.sourceTaskDigest === record.input.task.digest && record.sourceChildDigest === record.input.child.digest &&
+        Object.keys(record.result).sort().join(',') === Object.keys(mint).sort().join(',') &&
+        Object.keys(mint).every(key => record.result[key] === mint[key]);
+    } catch { return false; }
+  }
+  async function observeReplacement(input, replacementHash, historical = false) {
+    const c = context(input, historical), submitted = await submission(c, c.attempt.transactionHash), depth = BigInt(c.observationPolicy.minimumConfirmations);
+    check(typeof replacementHash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(replacementHash) && !/^0x0+$/i.test(replacementHash) &&
+      replacementHash.toLowerCase() !== c.attempt.transactionHash, 'TASK_REPLACEMENT_HASH_REFUSED');
+    replacementHash = replacementHash.toLowerCase();
+    const original = await observe({ ...c, executor: { digest: c.attempt.executorDigest } }, historical);
+    check(original.state === 'pending' || original.state === 'reorged', 'TASK_ORIGINAL_MINED_REPLACEMENT_REFUSED');
+    const locatorReceipt = await readonlyProvider.request({ method: 'eth_getTransactionReceipt', params: [replacementHash] });
+    if (locatorReceipt === null) return output(c, { state: 'pending', blockNumber: null, blockHash: null, confirmations: 0n, executionEventObserved: false }, null, historical);
+    let proof;
+    try {
+    if (submitted.kind === 'asset' || submitted.kind === 'test-mint') proof = await proveAssetReplacement(readonlyProvider, submitted.record, c.attempt.transactionHash, replacementHash, depth);
+    else {
+      const r = submitted.record;
+      proof = await proveSupersededNonce(readonlyProvider, { pin: submitted.kind === 'fixed' ? r.pin : r.deployment,
+        actor: r.actor, nonce: r.nonce, value: submitted.kind === 'fixed' ? r.value : 0n,
+        calldataHash: r.calldataHash, transactionHash: r.transactionHash }, replacementHash, depth);
+    }
+    } catch (error) {
+      if (['ASSET_REPLACEMENT_REORGED', 'CONTROL_REPLACEMENT_REORGED'].includes(error?.code))
+        return output(c, { state: 'reorged', blockNumber: null, blockHash: null, confirmations: 0n, executionEventObserved: false }, null, historical);
+      if (['ASSET_REPLACEMENT_CONFIRMATIONS_REQUIRED', 'CONTROL_REPLACEMENT_CONFIRMATIONS_REQUIRED'].includes(error?.code))
+        return output(c, { state: 'pending', blockNumber: null, blockHash: null, confirmations: 0n, executionEventObserved: false }, null, historical);
+      throw error;
+    }
+    return output(c, { state: 'superseded-at-depth', blockNumber: proof.blockNumber, blockHash: proof.blockHash,
+      confirmations: proof.confirmations, executionEventObserved: false }, proof.replacementHash, historical);
+  }
+  return Object.freeze({ identity, observationPolicy: policy, assessChild,
+    observe: input => observe(input, false),
+    observeReplacement: (input, replacementHash) => observeReplacement(input, replacementHash, false),
+    observeMintResult: (input, observation) => observeMintResult(input, observation, false),
+    // Explicit trusted read-only compatibility. Inputs still bind the original
+    // exact task/child/wire/attempt and policy. No assessment, grant, send or
+    // budget method accepts a historical-mode argument.
+    observeHistorical: input => observe(input, true),
+    observeReplacementHistorical: (input, replacementHash) => observeReplacement(input, replacementHash, true),
+    observeMintResultHistorical: (input, observation) => observeMintResult(input, observation, true),
+    verifyMintInventoryRecord });
+}
+
+
+

@@ -1,0 +1,167 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { AbiCoder, keccak256 } from 'ethers';
+import { encodeCall, REGISTER_ENTRY_TYPES } from '../src/codec/abi.ts';
+import { ResponsibilityControlClient } from '../src/controls/client.ts';
+import { RpcResponsibilityControlReader } from '../src/controls/view.ts';
+import type { Eip1193Provider } from '../src/adapters/signing/eip1193Signer.ts';
+
+// Synthetic RPC definitions only; not archived-node, chain or deployment evidence.
+const a = (n: string) => '0x' + n.repeat(40), h = (n: string) => '0x' + n.repeat(64);
+const abi = AbiCoder.defaultAbiCoder(), code = '0x60006000', tokenCode = '0x60006001';
+const sequenceId = h('1'), blockHash = h('b'), latestHash = h('c');
+const pin = { chainId: 560048n, controller: a('1'), runtimeCodeHash: keccak256(code) };
+const token = a('2'), first = a('3'), second = a('4');
+const sequenceTypes = ['address', 'uint256', 'address', 'address', 'address', 'bytes32', 'bytes32', 'bytes32',
+  'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'bytes32', 'bool'];
+const legTypes = ['bytes32', 'address', 'address', 'bytes32', 'bytes32', 'address', 'bytes32', 'uint8'];
+function fixture(repeated = false) {
+  const calls: { method: string; params: readonly unknown[] }[] = [];
+  const flags = { headerHash: blockHash, headerNumber: '0x10', missing: false, endHash: blockHash, endNumber: '0x10',
+    reorgAtRead: Infinity, chainSwitchAt: Infinity, controllerCode: code, tokenCode,
+    archiveUnavailable: false, badAdmission: false, bindingAvailable: true, wrongRegister: false };
+  let blockReads = 0, chains = 0, latestSelected = false;
+  const current = first, occurrence = repeated ? 2n : 0n;
+  const entry = [h('5'), h('6'), h('7'), first, 1n, 64n, 0n];
+  const provider: Eip1193Provider = { async request({ method, params = [] }) {
+    calls.push({ method, params: structuredClone(params) });
+    if (method === 'eth_chainId') return ++chains >= flags.chainSwitchAt ? '0x1' : '0x88bb0';
+    if (method === 'eth_getCode') {
+      if (params[1] !== 'latest') assert.deepEqual(params[1], { blockHash: latestSelected ? latestHash : flags.headerHash.toLowerCase(), requireCanonical: true });
+      return params[0] === pin.controller ? flags.controllerCode : flags.tokenCode;
+    }
+    if (method === 'eth_getBlockByNumber') {
+      if (params[0] === 'latest') { latestSelected = true; return { number: '0x20', timestamp: '0x100', hash: latestHash }; }
+      assert.equal(params[0], latestSelected ? '0x20' : '0x10');
+      blockReads++;
+      if (flags.missing) return null;
+      if (latestSelected) return { number: '0x20', timestamp: '0x100', hash: latestHash };
+      return { number: blockReads >= flags.reorgAtRead ? flags.endNumber : flags.headerNumber,
+        timestamp: '0x80', hash: blockReads >= flags.reorgAtRead ? flags.endHash : flags.headerHash };
+    }
+    if (method === 'eth_call') {
+      const block = params[1] as { blockHash: string; requireCanonical: boolean };
+      assert.deepEqual(block, { blockHash: latestSelected ? latestHash : flags.headerHash.toLowerCase(), requireCanonical: true });
+      if (flags.archiveUnavailable) throw Error('synthetic missing archive state');
+      const tx = params[0] as { to: string; data: string };
+      const is = (signature: string, types: readonly string[], values: readonly any[]) =>
+        tx.data === encodeCall(signature, types as any, values);
+      if (tx.to === pin.controller && is('sequence(bytes32)', ['bytes32'], [sequenceId])) return abi.encode(sequenceTypes,
+        [token, 7n, first, current, a('5'), h('8'), h('9'), keccak256(tokenCode), 2n, occurrence, 0n, 0n, occurrence, h('0'), false]);
+      if (is('legCount(bytes32)', ['bytes32'], [sequenceId])) return abi.encode(['uint256'], [occurrence]);
+      for (let i = 0n; i < occurrence; i++) {
+        if (is('legAt(bytes32,uint256)', ['bytes32', 'uint256'], [sequenceId, i])) return abi.encode(legTypes,
+          [h(i === 0n ? 'a' : 'd'), i === 0n ? first : second, i === 0n ? second : first,
+            h('2'), h('3'), a('5'), h('4'), 0n]);
+      }
+      if (is('inheritedHash(bytes32)', ['bytes32'], [sequenceId])) return abi.encode(['bytes32'], [h('e')]);
+      if (tx.to === token && is('registerId()', [], [])) return abi.encode(['bytes32'], [flags.wrongRegister ? h('f') : h('8')]);
+      if (tx.to === token && is('verificationProfile()', [], [])) return abi.encode(['bytes32'], [h('9')]);
+      if (tx.to === token && is('ownerOf(uint256)', ['uint256'], [7n])) return abi.encode(['address'], [current]);
+      const instant = latestSelected ? 256n : 128n;
+      if (tx.to === token && is('entryAsOf(uint256,uint64)', ['uint256', 'uint64'], [7n, instant])) return abi.encode([...REGISTER_ENTRY_TYPES], entry);
+      if (tx.to === token && is('holderAsOf(uint256,uint64)', ['uint256', 'uint64'], [7n, instant])) return abi.encode(['address'], [first]);
+      if (tx.to === token && is('isFinalAsOf(uint256,uint64)', ['uint256', 'uint64'], [7n, instant])) return abi.encode(['bool'], [false]);
+      if (tx.to === token && is('openGapOf(uint256)', ['uint256'], [7n])) return abi.encode(['bytes32'], [h('0')]);
+      if (tx.to === pin.controller && is('admissionBinding(bytes32,uint64)', ['bytes32', 'uint64'], [sequenceId, 1n])) {
+        const immutableHash = keccak256(abi.encode([...REGISTER_ENTRY_TYPES].slice(0, 6), entry.slice(0, 6)));
+        return abi.encode(['bool', 'uint256', 'bytes32'], [flags.bindingAvailable, occurrence, flags.badAdmission ? h('f') : immutableHash]);
+      }
+    }
+    throw Error('UNEXPECTED_READ_ONLY_RPC');
+  } };
+  return { calls, flags, client: new ResponsibilityControlClient(provider, pin),
+    reader: new RpcResponsibilityControlReader(provider, pin) };
+}
+test('explicit historical snapshot binds the requested height/hash and never substitutes latest', async () => {
+  const f = fixture(true), result = await f.client.snapshotAt(sequenceId, 16n, blockHash);
+  assert.equal(result.blockNumber, 16n); assert.equal(result.blockHash, blockHash);
+  assert.equal(result.timestamp, 128n); assert.equal(result.legs.length, 2);
+  assert.deepEqual(f.calls.filter(c => c.method === 'eth_getBlockByNumber').map(c => c.params), [['0x10', false], ['0x10', false]]);
+  assert.ok(f.calls.every(c => ['eth_chainId', 'eth_getCode', 'eth_getBlockByNumber', 'eth_call'].includes(c.method)));
+});
+test('ordinary snapshot and projection retain explicit latest reads', async () => {
+  const f = fixture(), snapshot = await f.client.snapshot(sequenceId);
+  assert.equal(snapshot.blockNumber, 32n); assert.equal(snapshot.blockHash, latestHash);
+  assert.deepEqual(f.calls.filter(c => c.method === 'eth_getBlockByNumber').map(c => c.params), [['latest', false], ['0x20', false]]);
+  const g = fixture(), observed = await g.reader.observe(sequenceId);
+  assert.equal(observed.snapshot.blockNumber, 32n); assert.equal(observed.projection.instant, 256n);
+  assert.equal(g.calls.filter(c => c.method === 'eth_chainId').length, 1);
+});
+test('malformed historical anchors are refused before any provider call', async () => {
+  for (const [number, hash] of [[-1n, blockHash], [1n << 256n, blockHash], [16, blockHash], ['16', blockHash],
+    [16n, h('0')], [16n, 'latest'], [16n, null]] as const) {
+    const f = fixture();
+    await assert.rejects(f.client.snapshotAt(sequenceId, number as bigint, hash as string), /CONTROL_HISTORICAL_ANCHOR_REFUSED/);
+    assert.equal(f.calls.length, 0);
+  }
+});
+test('historical snapshot refuses missing, wrong-height and wrong-hash initial headers', async () => {
+  for (const change of [{ missing: true }, { headerNumber: '0x11' }, { headerHash: h('f') }]) {
+    const f = fixture(); Object.assign(f.flags, change);
+    await assert.rejects(f.client.snapshotAt(sequenceId, 16n, blockHash));
+    assert.ok(!f.calls.some(c => c.method === 'eth_call'));
+  }
+});
+test('historical snapshot refuses a late canonical hash or height change', async () => {
+  for (const change of [{ endHash: h('f') }, { endNumber: '0x11' }]) {
+    const f = fixture(); Object.assign(f.flags, change, { reorgAtRead: 2 });
+    await assert.rejects(f.client.snapshotAt(sequenceId, 16n, blockHash), /CONTROL_SNAPSHOT_REORGED/);
+  }
+});
+test('historical snapshot rechecks the actual chain after all sequence reads', async () => {
+  const f = fixture(); f.flags.chainSwitchAt = 2;
+  await assert.rejects(f.client.snapshotAt(sequenceId, 16n, blockHash), /CONTROL_CHAIN_MISMATCH/);
+});
+test('an unavailable archive state cannot fall back to a current snapshot', async () => {
+  const f = fixture(); f.flags.archiveUnavailable = true;
+  await assert.rejects(f.client.snapshotAt(sequenceId, 16n, blockHash), /CONTROL_RPC_REFUSED/);
+  assert.ok(!f.calls.some(c => c.method === 'eth_getBlockByNumber' && c.params[0] === 'latest'));
+});
+test('historical projection independently reads protocol answers at the exact historical timestamp', async () => {
+  const f = fixture(), result = await f.reader.observeAt(sequenceId, 16n, blockHash);
+  assert.equal(result.snapshot.blockNumber, 16n); assert.equal(result.snapshot.blockHash, blockHash);
+  assert.equal(result.projection.instant, 128n); assert.equal(result.projection.protocolFinality, false);
+  assert.equal(result.evidence.kind, 'bound');
+  const blockCalls = f.calls.filter(c => c.method === 'eth_call' || c.method === 'eth_getCode' && c.params[1] !== 'latest');
+  assert.ok(blockCalls.length > 6);
+  for (const c of blockCalls) assert.deepEqual(c.params[1], { blockHash, requireCanonical: true });
+  assert.deepEqual(f.calls.at(-1), { method: 'eth_getBlockByNumber', params: ['0x10', false] });
+});
+test('repeated accounts remain distinct occurrences at the historical block', async () => {
+  const f = fixture(true), { snapshot, evidence } = await f.reader.observeAt(sequenceId, 16n, blockHash);
+  assert.equal(snapshot.initialHolder, snapshot.legs[1]!.buyer);
+  assert.notEqual(snapshot.initialOccurrenceId, snapshot.legs[1]!.buyerOccurrenceId);
+  assert.equal(evidence.kind, 'bound');
+  if (evidence.kind !== 'bound') assert.fail('synthetic canonical binding expected');
+  assert.equal(evidence.admittedHolder.occurrenceId, snapshot.legs[1]!.buyerOccurrenceId);
+  assert.notEqual(evidence.admittedHolder.occurrenceId, snapshot.initialOccurrenceId);
+});
+test('historical projection refuses a mismatched register or admitted entry binding', async () => {
+  for (const change of [{ badAdmission: true }, { wrongRegister: true }]) {
+    const f = fixture(); Object.assign(f.flags, change);
+    await assert.rejects(f.reader.observeAt(sequenceId, 16n, blockHash));
+  }
+});
+test('no historical admission proof means unavailable evidence, never guessed holder position', async () => {
+  const f = fixture(); f.flags.bindingAvailable = false;
+  const result = await f.reader.observeAt(sequenceId, 16n, blockHash);
+  assert.deepEqual(result.evidence, { kind: 'unavailable' });
+  assert.equal(result.projection.holder, first);
+});
+test('historical projection refuses token runtime drift despite a bound controller', async () => {
+  const f = fixture(); f.flags.tokenCode = '0x6001';
+  await assert.rejects(f.reader.observeAt(sequenceId, 16n, blockHash), /CONTROL_TOKEN_IDENTITY_CHANGED/);
+});
+test('historical projection catches chain switch or reorg after the later protocol reads', async () => {
+  for (const change of [{ chainSwitchAt: 3 }, { reorgAtRead: 3, endHash: h('f') }, { reorgAtRead: 3, endNumber: '0x11' }]) {
+    const f = fixture(); Object.assign(f.flags, change);
+    await assert.rejects(f.reader.observeAt(sequenceId, 16n, blockHash));
+  }
+});
+test('historical reads never acquire accounts, sign, broadcast or evaluate commercial completion', async () => {
+  const f = fixture(), result = await f.reader.observeAt(sequenceId, 16n, blockHash);
+  assert.ok(f.calls.every(c => ['eth_chainId', 'eth_getCode', 'eth_getBlockByNumber', 'eth_call'].includes(c.method)));
+  assert.equal(result.projection.freshness, 'not-evaluated');
+  assert.equal(result.evidence.kind === 'bound' && result.evidence.protocolFinality, false);
+});
