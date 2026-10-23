@@ -578,7 +578,7 @@ const retainedCiCommands = new Map([
   ['Account authentication browser journeys', 'node scripts/controls/login-methods-ui-smoke.cjs'],
   ['Multilingual wallet browser privacy and review invariants', 'node scripts/controls/i18n-ui-smoke.cjs'],
   ['Approved wallet UI browser journeys', 'node scripts/controls/approved-ui-smoke.cjs'],
-  ['Xiongan synthetic browser recovery', 'npm run wallet:xiongan:smoke'], ['ERC20 browser recovery', 'node scripts/controls/erc20-ui-smoke.cjs'],
+  ['Synthetic browser recovery', 'npm run wallet:xiongan:smoke'], ['ERC20 browser recovery', 'node scripts/controls/erc20-ui-smoke.cjs'],
   ['Contracts', 'run: npm run test:evm'], ['Reference client', 'run: npm run wallet > /dev/null'],
   ['V2 package', 'run: npm run pack:v2'], ['V2 external install', 'run: npm run pack:v2:verify'],
   ['V3 package', 'run: npm run pack:v3'], ['V3 external install', 'run: npm run pack:v3:verify'],
@@ -591,7 +591,7 @@ const retainedCiCommands = new Map([
 ]);
 const retainedCiEvidence = [
   'Verified wallet login browser evidence', 'Account authentication browser evidence', 'Multilingual wallet browser evidence',
-  'Approved wallet UI browser evidence', 'Xiongan synthetic browser evidence', 'ERC20 browser evidence', 'Standalone settlement browser evidence',
+  'Approved wallet UI browser evidence', 'Synthetic browser evidence', 'ERC20 browser evidence', 'Standalone settlement browser evidence',
 ];
 function assertCiContract(text) {
   const jobs = new Map([...text.split(/^jobs:\n/m)[1].matchAll(/^  ([a-z][a-z-]*):\n([\s\S]*?)(?=^  [a-z][a-z-]*:\n|$(?![\s\S]))/gm)].map(match => [match[1], match[2]]));

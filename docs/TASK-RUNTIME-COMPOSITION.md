@@ -166,13 +166,12 @@ and never authorizes automatic broadcast/retry. No funding, fee reduction, quant
 change or new budget is introduced. External chain state can still change after a
 read; these checks do not promise atomic balance or economic finality.
 
-All new chain/funding regressions are authored, NOT_RUN until approved Linux execution.
+All new chain/funding regressions are authored, NOT_RUN until exact-candidate execution.
 
 
 ## Candidate verification boundary
 
-The ERC721 successor is authored source, NOT_RUN. Ordinary QA and post-submit fixes
-remain Bear-owned. Seven test-only changes between a8fa61f9 and d55c5237 are retained
+The ERC721 successor is authored source, NOT_RUN. Seven test-only changes between a8fa61f9 and d55c5237 are retained
 from the selected parent, not edited by this overlay. No parent CI result is
 inherited. No build, deployment, credential configuration, signature or chain
 broadcast is performed by this source composition.

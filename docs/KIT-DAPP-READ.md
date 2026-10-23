@@ -10,6 +10,6 @@ Display reads are sequential current reads, not atomic execution or historical-c
 
 ## Validation handoff
 
-Focused regression source: tests/kit-dapp-read.test.mjs; proposed existing authorized Linux command `node --test tests/kit-dapp-read.test.mjs`. It is not added automatically to the current npm test list. This development task has executed no syntax/test/typecheck/build/package/provider/chain command. Bear owns ordinary verification/CI/merge. Include exact-tree browser emit, packaging closure, synthetic DOM late-response/session tests and actual backend observations before any acceptance claim. Private backend configuration, new routes, credentials or infrastructure are not created here.
+Focused regression source: tests/kit-dapp-read.test.mjs; focused regression command `node --test tests/kit-dapp-read.test.mjs`. It is not added automatically to the current npm test list. This development task has executed no syntax/test/typecheck/build/package/provider/chain command. Include exact-tree browser emit, packaging closure, synthetic DOM late-response/session tests and actual backend observations before any acceptance claim. Private backend configuration, new routes, credentials or infrastructure are not created here.
 
-This PR is an independent initial Stage 5 increment after the watchtower consumer. It is not completion of Stage 5 or the full PRD. The transferred three-wallet test task and frozen PR102 remain untouched.
+This PR is an independent initial Stage 5 increment after the watchtower consumer. It is not completion of Stage 5 or the full PRD.

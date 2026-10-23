@@ -56,10 +56,9 @@ and tree externally, avoiding a self-referential commit hash in this file.
    merge the five overlapping input branches; retain their history and close
    them as superseded only after the integration is accepted. If main changes,
    rebase/integrate explicitly and record the resulting new commit/tree.
-2. Current P0 requires every new commit to remain CI-eligible. Never add CI-skip
+2. Every new commit must remain CI-eligible. Never add CI-skip
    directives to commit messages or PR metadata, including when a runner or
-   required check is blocked. Continue independent development without waiting
-   for CI; the assigned CI owner handles exact-head validation. Do not call an
+   required check is blocked. Retain exact-head validation. Do not call an
    absent or skipped run green and do not disable workflow/security checks.
 3. Run clean locked install, typecheck, Node suites, browser compilation, EVM
    suites and reference client per the existing Node 22/24 CI matrix. Add actual
@@ -69,10 +68,8 @@ and tree externally, avoiding a self-referential commit hash in this file.
 4. Integration-specific focus: detach observations, signer account/wire binding,
    browser connection and collision boundaries, holder views and package document
    inventory. New cases in this closure were authored but not executed here.
-5. CI/merge actions belong to the release owner. Managed CTYun/SIN Linux hosts
-   own deployment and functional testing; this development handoff performed no
-   tests or deployment. No Windows runtime substitute is permitted. Existing CI
-   configuration was not changed by this handoff.
+5. This development increment performed no tests or deployment. Existing CI
+   configuration was unchanged; deployed functional acceptance remains separate.
 6. Merge only the reviewed, passing exact candidate. CI failure or review
    finding is a repair request, not permission to label source or release PASS.
 
@@ -83,8 +80,7 @@ and tree externally, avoiding a self-referential commit hash in this file.
   W-01–W-24 reconciliation, receipt/readback/recovery and package evidence.
 - Genuine functional desktop/mobile wallet journeys; emulation and handler
   fixtures are not physical-device or wallet-session acceptance.
-- Environment, version and source-bound delivery report with no keys, secrets,
-  raw signatures, private endpoints or infrastructure identifiers.
+- Environment, version and source-bound delivery evidence.
 
 These are validation/release gates, not invented new features. A finding may
 require further code repair. CI and merging alone never satisfy them.

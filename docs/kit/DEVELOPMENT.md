@@ -2,8 +2,7 @@
 
 This guide covers the retained embedded Kit. The sole current complete product
 requirements are the [Wallet PRD](../ERC-8415-Wallet-PRD.md); the current
-[execution rules](../../AGENTS.md) also apply. The commands below are reference
-instructions, not permission to execute them on an unapproved host.
+[engineering requirements](../../AGENTS.md) also apply.
 
 ## Requirements
 
@@ -17,7 +16,7 @@ Keccak implementation, not `ethereum-cryptography`. Python 3 is needed for the S
 
 ```sh
 npm install
-npm run verify      # typecheck + tests + EVM tests; approved execution environment only
+npm run verify      # typecheck + tests + EVM tests
 npm run typecheck   # tsc --noEmit
 npm test            # node --test
 ```

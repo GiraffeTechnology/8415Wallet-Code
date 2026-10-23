@@ -68,10 +68,7 @@ Status: SOURCE_ONLY; tests, typecheck, syntax checks, build, runtime, UI and
 on-chain acceptance for this increment are NOT_RUN. New mock-only definitions
 cover the five recognized networks, wrong-chain and mid-read changes,
 revert/error precedence, immutable source, shared-transport isolation,
-paginated logs, provider reads and CLI provenance. Run the affected checks only
-on the existing authorized non-Windows Linux QA environment. No network calls,
-deployment, signing, transaction submission or expanded execution permission
-are implied by this source increment.
+paginated logs, provider reads and CLI provenance. Validate affected checks against the exact candidate and record the runtime. Source inspection does not establish deployment, signing or transaction-submission evidence.
 
 ## Deliberate limits and remaining integrations
 

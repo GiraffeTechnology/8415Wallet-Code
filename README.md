@@ -12,7 +12,7 @@ The sole current complete requirements are [the Wallet PRD](docs/ERC-8415-Wallet
 - **V3 Beta:** the same standalone foundation plus wallet PRD v3.0 section 9 and the shared Beta 2.0 requirements in section 10: accepted linked responsibilities, permanent completed-prefix detachment, bounded returns, separate optional payments and committed detached history. The acceptance matrix includes W-01 through W-24.
 - **Product and platform:** the product is 8415wallet and its UI platform domain is 8415wallet.com. Wallet-specific deployment bindings remain private; tenant configurations are not separate products.
 
-Both DApp profiles remain functional-testing Betas. Installation/product downloads remain withdrawn; do not restore or publish packages before the current privacy and profile-specific online/on-chain acceptance, fixes and successful retests required by PRD §10.8. Only the CI installer/product-kit upload is temporarily suppressed; tests, builds and validations remain required. Genuine wallet/public-testnet, physical-device and W-20 deployment evidence is collected after deployment; it is not silently supplied by local tests. The code is not independently audited. SDK tarballs are separate integration artifacts and do not replace either DApp.
+Both DApp profiles remain functional-testing Betas. Downloadable packages require the privacy and profile-specific online/on-chain acceptance, fixes and successful retests in PRD §10.8. The current CI workflow disables installer/product-kit uploads; tests, builds and validations remain required. Genuine wallet/public-testnet, physical-device and W-20 deployment evidence is collected after deployment; it is not silently supplied by local tests. The code is not independently audited. SDK tarballs are separate integration artifacts and do not replace either DApp.
 
 See [DApp packaging and deployment](docs/BETA-DAPP-DELIVERY.md), [PRD coverage](docs/BETA-PRD-COVERAGE.md), and [the current package publication hold](docs/INSTALLATION-ASSET-PUBLICATION.md).
 
@@ -35,7 +35,7 @@ archive is unchanged and does not contain these new login methods.
 
 ## Build and verify
 
-Use Node 22.18 or newer and the committed lockfile. Product execution uses only the already authorized non-Windows server environment; these command examples do not authorize local/workstation execution or package publication. Existing CI requirements remain active and their exact runner/results are reported separately.
+Use Node 22.18 or newer and the committed lockfile. Existing CI requirements remain active and their exact runner/results are reported separately.
 
 ```sh
 npm ci

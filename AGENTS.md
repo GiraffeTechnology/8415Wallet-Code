@@ -4,9 +4,9 @@
 
 The sole current complete product requirements are `docs/ERC-8415-Wallet-PRD.md`:
 - Release label: **Beta 2.0**; V2 standalone and V3 linked runtime profiles remain distinct.
-- Requirements revision: **2026-10-19 HKT multichain core requirement**, matching `config/current-prd.json`.
-- Exact UTF-8 bytes: **111167**.
-- SHA-256: **3a4ac57c8cfec42b51799a26cf89ac91bc7218a14265c95e62493d5d6a95a39f**.
+- Requirements revision: **2026-10-19 HKT product requirements and engineering-document cleanup**, matching `config/current-prd.json`.
+- Exact UTF-8 bytes: **110356**.
+- SHA-256: **40d750fb5c50b199de6fa900c19e84a92e4eaff1a9ea2cfc8563c1551e273783**.
 - Includes the full retained foundation, all stages, §9 linked requirements, §10 UI/API requirements, and §§6.5.1 / 10.7.1 historical-observation identity and UI contract.
 - Foundational multichain-wallet requirement: multiple networks are a core product property, not an optional extension. Read the complete Multichain compatibility and acceptance section (MC-01–MC-08). Keep network identity, asset/history/grant isolation, RPC and signer verification, capability declarations and actual tested coverage consistent across UI, API and CLI. A bounded single-network execution profile does not redefine the product. Preserve Ethereum (chain ID 1) as the default network and label. Explicit selection may choose another supported chain; verify the actual provider against the default or selected chain, and do not silently auto-switch to a mismatching RPC. Do not claim unsupported chain families.
 - Foundational agentic-wallet requirement: support full owner-granted authority. ALL ON permits the agent to sign and execute within that authority without per-operation human approval/signature prompts. This is a product capability, not a test-only exception or UI-only state. Preserve explicit revocations, granted scope and actual chain validity.
@@ -17,27 +17,25 @@ The 70,422-byte PRD with SHA-256 `f8e62a6e3fa014b8b5f8b67949309eef3876e7d0a1c4ca
 
 Replace the old PRD at that same canonical path with the complete current document. Do not install an amendment-only file, keep an older PRD as a parallel active source, or update a hash while retaining old bytes. Current coverage summaries, release-profile metadata, README links and this execution entry must agree with the exact canonical document. If a provenance manifest is introduced by retained work, its path and hashes must match the final canonical bytes; do not invent a second active PRD. A source or interface partial increment is not a substitute for that document.
 
-On every resume/reconnection and before changing behavior, read this file and the complete canonical PRD. Apply the latest direct authorized instructions to execution ownership and release actions; historical task prose, prior installation permission, earlier green results and old package records grant no current authority. Superseded instructions remain in version history only, not as active execution rules in this file.
+Read this file and the complete canonical PRD before changing product behavior. Superseded requirements remain in version history rather than as parallel active requirements.
 
 Read in order:
 1. This current AGENTS.md.
 2. The complete `docs/ERC-8415-Wallet-PRD.md`, including its profile-specific acceptance and security requirements.
 3. The applicable immutable ERC-8415 specification and interfaces from GiraffeTechnology/ERC-8415.
-4. The relevant Ethereum Magicians discussion and separate forum-priority test checklist. Forum suggestions are context, not permission to change protocol semantics or publish private implementation.
+4. The relevant Ethereum Magicians discussion and separate forum-priority test checklist. Forum suggestions are context, not permission to change protocol semantics.
 
 For protocol semantics, the ERC is authoritative; application authorization, accepted responsibility flows, user-specific DONE and rollback rules are governed by the current PRD. Do not invent extra completion gates or overwrite the protocol with application terminology. The interface identifiers remain `0x6309e170` for `IRegisterProjection` and `0xf4a7d71b` for `IProjectionSettlement`.
 
 ## Execution, evidence and publication rules
 
-- Current P0 execution restriction: hosts prohibited by the private execution policy must never perform on-chain actions, including test networks. Do not use transaction signing, broadcast, sends, contract deployment or proxy execution to evade that restriction. Pure offline source work and synthetic QA remain separate. This rule authorizes no new host, credentials or transaction scope; actual host identities remain private.
-- GitHub Actions is permitted for CI and its applicable automated tests, typechecks, syntax checks and builds. Other product execution and runtime/UI acceptance use existing approved non-Windows environments. Do not execute on a local workstation, Windows or an unrelated sandbox. Record the actual runner and exact source; GitHub CI does not establish deployment, live-chain or physical-device acceptance.
-- Reuse accurate immutable-source results; rerun affected checks when the source or relevant environment changes. Do not repeat capability probes or green suites without a change requiring them. A single blocked path does not stop independent authorized work.
-- Do not retry denied publication, credentials, deployment or other specifically refused actions without the required targeted authorization. Source editing does not authorize credentials, permission expansion, deployment, real-value transactions or protection bypasses.
-- CI and merge actions follow the currently assigned owner. Before merge, re-read the current head/base, required checks and real jobs/steps, review state and repository rules. Use the exact expected head and an allowed merge method. No checks, queued/cancelled runs, historical green results or source-only models are not a pass. Draft or outdated-base status alone does not establish requirements conflict.
+- GitHub Actions is permitted for CI and its applicable automated tests, typechecks, syntax checks and builds. Record the actual runner and exact source; GitHub CI does not establish deployment, live-chain or physical-device acceptance.
+- Reuse accurate immutable-source results; rerun affected checks when the source or relevant environment changes. Avoid redundant validation when neither the source nor relevant environment has changed.
+- Before merge, re-read the current head/base, required checks and real jobs/steps, review state and repository rules. Use the exact expected head and an allowed merge method. No checks, queued/cancelled runs, historical green results or source-only models are not a pass. Draft or outdated-base status alone does not establish requirements conflict.
 - A merge or report is not delivery. Keep author reports, independent source review, actual execution, deployed/served version, real transaction receipts and final acceptance separately labelled and version-bound.
-- **Installation/product packages remain withdrawn. Do not restore or publish them now.** Temporarily suppress only the CI installer/product-kit upload step while retaining all tests, builds and validations. Final distributable packages are rebuilt from the final integrated version only after all applicable valid PRs are merged; download publication additionally requires the existing privacy, online UI, V2/V3 chain testing, fixes and retest acceptance. Do not reintroduce old archives or infer a release from an incidental CI artifact.
-- Changing future workflow source does not cancel a workflow already running with an old snapshot. Report any resulting artifact accurately. Deletion is limited to the specifically authorized targets and does not delete branches, ordinary source, audit history or unrelated evidence.
-- Public GitHub technical prose is English. Public source, documentation, bundles, logs and examples must not disclose real usernames, account identities, wallet addresses, tenant/server names, infrastructure IPs, private operational paths, credentials or private third-party design-reference names. This applies to commit messages, issues and comments as well. Keep necessary actual values only in the existing authorized private channel. Use synthetic examples and generic mainstream-wallet wording. Preserve necessary third-party license notices. Do not change repository visibility, licensing or access settings through an inferred instruction.
+- The current CI workflow disables installer/product-kit artifact uploads while retaining all tests, builds and validations. Final distributable packages are rebuilt from the final integrated version only after all applicable valid PRs are merged; download publication additionally requires the existing privacy, online UI, V2/V3 chain testing, fixes and retest acceptance. Do not reintroduce old archives or infer a release from an incidental CI artifact.
+- Changing future workflow source does not cancel a workflow already running with an old snapshot. Report any resulting artifact accurately.
+- Public GitHub technical prose is English. Preserve necessary third-party copyright and license notices.
 - The full implementation belongs in this code repository. The separate distribution/excerpt repository contains only accepted installation packages and approved source excerpts; it is not the EX engine. Wallet requirements do not import EX-only gas, payment-currency or matching restrictions into ordinary wallet operations.
 
 ## Product Boundary
@@ -60,7 +58,7 @@ not redefine them. Existing-standard asset flows retain their own interfaces
 and must not be required to advertise ERC-8415 support.
 
 Product identity is **8415wallet**; its UI platform domain is
-**8415wallet.com**. Tenant deployments are configurations, not separate products. Do not publish real tenant identities.
+**8415wallet.com**. Tenant deployments are configurations, not separate products.
 V2 and V3 are versioned DApp Beta deliveries mapped to the retained v2.2
 foundation and additive v3.0 requirements. SDK packages are separate integration
 artifacts and do not replace either DApp. Keep the exact implemented/tested
@@ -100,7 +98,7 @@ PRD §§6.5.1 and 10.7.1 are mandatory for both server and UI integration:
 - Atomically revalidate attempt, source-capability and observation revisions before persistence. Save evidence and its actual source together across status/list/resume/reload. An unavailable refresh retains old evidence with its old source and time, never a new source stamped onto stale evidence.
 - Display Approved verifier and Observed by separately. Keep evidence freshness/availability, operation outcome and grant authority distinct. Loading retains old evidence only within the same authenticated account and operation; logout/account/operation changes clear the previous view/cache and discard late responses. First load without accepted evidence displays No verified observation available, with no invented observer, timestamp or result.
 - Refresh is an authenticated read only. Compatibility inspection cannot renew a grant, sign, send, retry, release a nonce/reserved budget or alter agreed DONE/rollback semantics. No verifier selector, trust override or recurring human approval is added. The human UI never becomes an agent execution prerequisite.
-- Cover strict legacy matching, admitted newer source, tuple/source/schema/revision attacks, stale replay, reorg/replacement/unavailable data, restart, concurrency, logout/context switching and zero write-side effects in actual approved-server tests. Source/design changes are not test results.
+- Cover strict legacy matching, admitted newer source, tuple/source/schema/revision attacks, stale replay, reorg/replacement/unavailable data, restart, concurrency, logout/context switching and zero write-side effects in actual runtime tests. Source/design changes are not test results.
 
 ---
 

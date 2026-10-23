@@ -25,7 +25,7 @@ documentation and evidence. Stages are defined in
 
 ## Independent escrow-free controls increment — 2026-09-25
 
-Owner clarification: responsibility depends on independent controls, not escrow.
+Responsibility depends on independent controls, not escrow.
 PRD/AGENTS/README now reflect this and require a version-bound independent
 security audit. Optional payment adapters cannot authorize or revive obligations.
 
@@ -1160,10 +1160,10 @@ tsc --noEmit            (clean)
 
 ## The first real network
 
-Sepolia, 2026-09-19. The ERC-8415 reference implementation at
-`0xaeeb157f40ffdad51693275258a465763be66cd8` and `ProjectionEscrow` at
-`0x50299e4d454fc9ec788f735e004d1ec537767934`, chain 11155111, fourteen
-transactions, both clearing paths driven end to end. Test-only, no real value.
+Sepolia, 2026-09-19. The ERC-8415 reference implementation and
+`ProjectionEscrow`, chain 11155111, fourteen transactions, both clearing paths
+driven end to end. Test-only, no real value. Deployment bindings are omitted
+here; this record does not provide a verified transaction link for those bindings.
 
 Everything before this was an in-memory contract model, a fake JSON-RPC node,
 or a local EVM. Three predictions were written down in
@@ -1185,8 +1185,8 @@ Read from the live deployment:
 token 841501, admitted entry v2, effectiveAt 1789840680
   isFinalAsOf(1789840680)  false     <- the admitting instant, not final
   isFinalAsOf(1789833540)  true      <- v1's instant, closed by v2
-  holderAsOf(1789833540)   0x75f6…3089   (the seller)
-  ownerOf(841501)          0xde3c…ec2b   (the buyer)
+  holderAsOf(1789833540)   seller account (address omitted)
+  ownerOf(841501)          buyer account (address omitted)
 ```
 
 Release happened while that was false and it is false still. The last two
@@ -1261,7 +1261,7 @@ deployment, through the client itself:
 |---|---|
 | a port with nothing listening | `Could not reach the JSON-RPC endpoint: eth_call: did not complete` |
 | a live host that is not a node | `eth_call: HTTP 404` |
-| a real node, an address with no contract | `no contract at 0x75f6…3089: supportsInterface(bytes4) returned no data` |
+| a real node, an address with no contract | `no contract at <account address omitted>: supportsInterface(bytes4) returned no data` |
 
 The first two are what the fix above was for. The third was not: it used to
 say `return payload for 1 word(s) (got 0 bytes) out of range: 0`.
@@ -1365,11 +1365,11 @@ written to rule the thing out. The assertions now check for the denial.
 
 This project made the same mistake once before, on the same kind of copy.
 
-### Still open — handed to Codex
+### Still open — on-chain validation
 
 `docs/issues/001-asynchronous-registrar-on-chain.md`. The simulator is
 in-process; the same shape on a real chain with real elapsed time needs a
-signing key, which this session does not have. The issue covers a registrar
+signing capability that was unavailable for this validation. The issue covers a registrar
 that is **not** a counterparty, three hops 30 seconds apart, sampling the
 divergence while it is open, finality arriving in arrears, a clearing trade
 whose deadline the backlog misses, and release called by a fourth party.

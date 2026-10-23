@@ -427,8 +427,8 @@
     {
       "path": "PACKAGE-V3.md",
       "mode": "100644",
-      "git_blob_sha1": "920d7abd5b041245ac7e6a1523d1ea4c0c1a9198",
-      "sha256": "ec7ae3849f61c805d50f1648c76fdcd30b81d7500404a2cb80f76e027ab51762"
+      "git_blob_sha1": "a2812742ab5525f4e9bbf9b9d88ac22e455a66aa",
+      "sha256": "8812bef92c18eabad74ba15b4336473a3eb7d0a335a91d5379d1e87aae4866a5"
     },
     {
       "path": "PACKAGE.md",
@@ -445,8 +445,8 @@
     {
       "path": "README.md",
       "mode": "100644",
-      "git_blob_sha1": "a602159dec0b5ea44a6bd6dedd5dfe055aeefdfc",
-      "sha256": "60b5f01e9c2dd37ac53cc1e561ea4e3d6c5e4e7b2b8b3e505e85f2207695b920"
+      "git_blob_sha1": "1de669fd17f477f1c51237a59262d47d828de6a2",
+      "sha256": "10fce62309d9984ba932985133b4b8f2cf893168a15a3a79fa008a91785fd4f0"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -457,8 +457,8 @@
     {
       "path": "config/current-prd.json",
       "mode": "100644",
-      "git_blob_sha1": "2bf5a946fa4288936329c20c18ce23642d9b42aa",
-      "sha256": "bf08798934101960da54c54fd5e9926481cff782600137f120faa58e46af3dcb"
+      "git_blob_sha1": "4187ccef0a8eb938a2fa84f69598937866e69bce",
+      "sha256": "c7ec288c58f40f4bff2a4b272f5d0f640e8e4e2ba7c05a17aab6661c36edfe18"
     },
     {
       "path": "config/releases/v2.json",
@@ -619,8 +619,8 @@
     {
       "path": "docs/AUTH-INSTALL.md",
       "mode": "100644",
-      "git_blob_sha1": "f38177f6b344622ddf7d9372c49e4505814afef2",
-      "sha256": "e8417b50668c4870a9e00f9dc5bb85e27e336244621c3aec70eea18b8be56210"
+      "git_blob_sha1": "a3a3e023e3dc3080a49047b21556662cba9cb6fb",
+      "sha256": "571ef1f78607d268f5292c5ab2ed380351a5d3dff1ffe438d2d5c99143c307e1"
     },
     {
       "path": "docs/AUTH-METHOD-CHANGES.md",
@@ -631,38 +631,38 @@
     {
       "path": "docs/BETA-DAPP-DELIVERY.md",
       "mode": "100644",
-      "git_blob_sha1": "e46ea3efe16add3860382f25cc70e2773bbdfdfe",
-      "sha256": "a4d2af818e111de8abae8ed9fc0562f642bb31fb992ed2cae662549bb9f307c5"
+      "git_blob_sha1": "8dd5d371cb8142399a734e0bbb7f18e5fcd2f855",
+      "sha256": "c8b1d611e2f5b7f87ca5d2fa3899ccc85501ac5b4b726f8ded8dd9751958535f"
     },
     {
       "path": "docs/BETA-PRD-COVERAGE.md",
       "mode": "100644",
-      "git_blob_sha1": "07026126431aa840f02bb9e8fe9bb1adc1ba8d8e",
-      "sha256": "cad7d0e23af1ad2087501574cf3ca091817a0aea22b2cc4943f0ef1b2a9b3129"
+      "git_blob_sha1": "ff39fef30016c18976015a81b8e1f02e6d209b4a",
+      "sha256": "5d370aa7711099ba6a84ba19b3a23b9a8970c280bee7621467d244cf7cef49b2"
     },
     {
       "path": "docs/DAPP-INSTALL.md",
       "mode": "100644",
-      "git_blob_sha1": "8f7e087662a44e02725312b08018fe2e7234a695",
-      "sha256": "ac6309607c4e5c58cb4ea24da3c2c1fbdd57be85a0e7b8b5bd1874d588b1e7a8"
+      "git_blob_sha1": "5f1e57f3048f5df46172cce6ae996fd94f8a0308",
+      "sha256": "414ff21eb58bcbbe4e565ff90f04804025e588f379c2eb2261db462c7be3a3e4"
     },
     {
       "path": "docs/ERC-8415-Wallet-PRD.md",
       "mode": "100644",
-      "git_blob_sha1": "8b502f59da4981ffd824757a9220559a191e2750",
-      "sha256": "3a4ac57c8cfec42b51799a26cf89ac91bc7218a14265c95e62493d5d6a95a39f"
+      "git_blob_sha1": "feaae65e819345663765c8c580027f25ea2ae083",
+      "sha256": "40d750fb5c50b199de6fa900c19e84a92e4eaff1a9ea2cfc8563c1551e273783"
     },
     {
       "path": "docs/FORWARD-PROGRESS-API.md",
       "mode": "100644",
-      "git_blob_sha1": "f2f7dba1b6cd98a37936fec7094d376319f6b2c8",
-      "sha256": "ba87779edeb1af9122ddb352da2665e77814f9e628c6be4dd964f59d82fdb2a2"
+      "git_blob_sha1": "232a00cb1eebe089b6b223943139944519d3cd99",
+      "sha256": "a881eeb87246205c9ab9455e13ac84d1a9f60ddb39b4eced036ae82707a352b1"
     },
     {
       "path": "docs/INSTALLATION-ASSET-PUBLICATION.md",
       "mode": "100644",
-      "git_blob_sha1": "1e6d29d4f04d24da079629c2e0e554a744f84299",
-      "sha256": "613676a7327e48769f3909e016a156935d83fda396d49001da325f4ca422d47a"
+      "git_blob_sha1": "9cfff8a28d63fc3735f3295eaee75b5fd357db59",
+      "sha256": "f435faae81e32e8d5557919318f110dcdc5538fce9b44710c1a83c64860178fc"
     },
     {
       "path": "docs/INTEGRATION-BOUNDARIES.md",
@@ -685,8 +685,8 @@
     {
       "path": "docs/STANDARDS-COMPATIBILITY.md",
       "mode": "100644",
-      "git_blob_sha1": "0d4a0c36b0f6972bbca279d25323ad6325dca94b",
-      "sha256": "e5f16be66d734f129a81d7d097fd1d9101acf8037eb2ce93eaee7ed16b7d76af"
+      "git_blob_sha1": "4c2e3b7aac56baa82c6290bc2023ad97bbd42edb",
+      "sha256": "fbf65fb833de631b8f8d5e6d1ee003399fe50b7c23d33d8e0587fe9d81788ae3"
     },
     {
       "path": "docs/TASK-AUTHORIZATION.md",
@@ -751,8 +751,8 @@
     {
       "path": "docs/TASK-RUNTIME-COMPOSITION.md",
       "mode": "100644",
-      "git_blob_sha1": "19513cf21540d50034c6828f7dd2355c2b6fcb73",
-      "sha256": "1a5d0ef3996aee05331981f148d8fbf257405ca603b8852c7923496fd46cc939"
+      "git_blob_sha1": "ea59e5eed844f6de005730fb93d9e913de4d0ea7",
+      "sha256": "1309d9f1d55833710b8c3da4ecee0d9be387567e660ab2d4769e590477d7b6fa"
     },
     {
       "path": "docs/TENANT-AVATAR.md",
@@ -775,14 +775,14 @@
     {
       "path": "docs/V3-DEVELOPMENT-CLOSURE.md",
       "mode": "100644",
-      "git_blob_sha1": "354ad716b27826a4cc274c39be2a21c7d9bef7a9",
-      "sha256": "f6659d071aa0b6794dc791e5c4f7c2e96fa299de39b261b2b0f44cb21a11647f"
+      "git_blob_sha1": "27a7e93f586b6e2448854e76aa8b88f42890db5a",
+      "sha256": "bbe46bd348a6929b22f74e26fac7ee4c80a7708379b90c54e8ec87eeab46d16f"
     },
     {
       "path": "docs/V3-REVIEW-AND-VALIDATION.md",
       "mode": "100644",
-      "git_blob_sha1": "25a1e9fe314c2fa63ade0cddc17fd23177b22f03",
-      "sha256": "f1a198f41331f3e130582d2b4faf450db1b88d61ee9a61fce127c77e8945f757"
+      "git_blob_sha1": "deaac61a410b25832a854ce72f0f8be1b68cb302",
+      "sha256": "c7fc8291741b41ad38aa3d0edd60342cc01a0c28d5f7629d1e26167f50a27a5b"
     },
     {
       "path": "docs/WALLET-LOGIN.md",
@@ -847,8 +847,8 @@
     {
       "path": "scripts/package/build-delivery.mjs",
       "mode": "100644",
-      "git_blob_sha1": "4735d089761bed97bb0e752c06248a4fcfadbeaf",
-      "sha256": "60f919efa1f08e0c0a5367a81d1ea87661d73d633e6fbf7ae24b22da4548cf0b"
+      "git_blob_sha1": "b03adeb7798ad130ef98c67e3fc1a91d1945c538",
+      "sha256": "bbd2808ddf508baa4ce256ad602e6140b22659c4d145045305ea8a16fb92aa9b"
     },
     {
       "path": "scripts/package/build-login-vendor.mjs",

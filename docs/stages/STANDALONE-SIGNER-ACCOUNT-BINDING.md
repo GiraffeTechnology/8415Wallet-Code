@@ -17,5 +17,4 @@ replace the reviewed recipient/calldata/account/chain while discovery is pending
 
 Six focused regression cases accompany this change. They have not been run by
 this development slice. No public-chain transaction, deployment or UI acceptance
-is claimed. CI and merge remain a separate release-owner step; deployment and
-test execution are limited to CTYun/SIN Linux, not Windows.
+is claimed. CI and deployed acceptance remain separately evidenced.

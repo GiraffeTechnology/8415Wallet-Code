@@ -19,8 +19,7 @@ selectors are unchanged. No provider authentication or chain truth is establishe
 
 Twelve regression cases are AUTHORED_NOT_RUN, including a mocked RPC read consumer.
 No compiler, syntax check, tests, build, UI, provider or chain execution here.
-Bear owns exact-candidate approved-Linux QA, including existing codec/RPC/Kit,
-event and signer consumers. This file also contributes to the server exact-signer
-source digest: the integration owner must rebuild and review the changed runtime
+Exact-candidate validation includes existing codec/RPC/Kit, event and signer consumers. This file also contributes to the server exact-signer
+source digest: rebuild and review the changed runtime
 identity and source-closure pins before any deployment/acceptance. Do not silently
-replace an approved executor or a frozen specialist test input.
+replace an approved executor or the exact input tied to prior test evidence.

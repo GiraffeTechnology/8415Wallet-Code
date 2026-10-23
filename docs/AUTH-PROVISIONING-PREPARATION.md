@@ -13,32 +13,29 @@ current package or test receipt. Exact-source CI evidence is recorded separately
 Status: SOURCE_PREPARED_NOT_TESTED_NOT_ACTIVATED. This is not a deployment or
 acceptance certificate. Existing merged UI remains deployed unchanged.
 
-## Source and execution ownership
+## Source provenance
 
 Base main: `2fb99c5275a4cc5ed692982498d397ec49fb902d`.
 Base tree: `514900f10f3edf6a4b2eb23435b8b3ab41f39564`.
-Repair branch: `fix/example-tenant-a-auth-provisioning-qr-20261006`.
-Control owns managed CTYun/SIN Linux test execution, review, merge and activation.
 No application, test, listener, operator identity or credential has been created
-by preparing these files. Windows is source/report preparation only.
+by preparing these files.
 
 ## Concrete, inactive service proposal
 
-Read-only SIN inventory on 2026-10-06 observed systemd 252, free port 18417,
-the existing example-tenant-a vhost without `/auth/`, and the proposed service/config/state
-paths absent. Recheck ownership, free port and path absence immediately before
-installation. Do not replace any unrelated service or shared bridge.
+The following tenant and host values are synthetic configuration examples.
+Recheck service ownership, an available loopback port and target path absence
+before installation. Do not replace any unrelated service or shared bridge.
 
-- Origin: `https://example-tenant-a.8415wallet.com:9446` (existing UI path `/web/index.html`).
+- Origin: `https://example-tenant-a.invalid:8443` (existing UI path `/web/index.html`).
 - Runtime source: `/opt/8415wallet-auth-example-tenant-a/current`; immutable release beneath
-  the task-owned runtime root, root-owned and not writable by web clients.
+  the configured runtime root, root-owned and not writable by web clients.
 - Account configuration: `/etc/8415wallet-auth-example-tenant-a/auth.json`, root:root 0600;
   parent root:root 0700.
 - Operator-owned independent key source: fixed private `store-key` under that
   same directory, root:root 0600, never in source, web, arguments or logs.
 - Encrypted state: `/var/lib/8415wallet-auth-example-tenant-a/credentials.enc`, single writer.
 - Unit candidate: `deploy/auth-runtime/8415wallet-auth.service`.
-- Loopback: `127.0.0.1:18417`, no public auth listener and no changes to 443.
+- Loopback: `127.0.0.1:<configured-port>`; no public auth listener.
 - Proxy snippet: `deploy/auth-runtime/auth-location.nginx.conf`, included ONLY
   within existing example-tenant-a TLS server, never the platform tenant's server.
 
@@ -48,9 +45,9 @@ template deliberately fails validation. No fixture wallet may be used to make
 production startup pass. `/auth/capabilities` reports protocol support, not each
 account's configured login methods; `/auth/bootstrap` is only CSRF preauth.
 
-Before activation Control must verify the actual Node 22/24 executable against
+Before activation, verify the actual Node 22/24 executable against
 the candidate `/usr/bin/node`, dependency installation, service hardening and
-systemd credential mount identity/modes. Do not create a new runner or SSH key.
+systemd credential mount identity/modes.
 The fixed service entry supplies the operator-created key in process memory only
 and removes the environment entry after opening the encrypted store. It logs no
 key. The credential store still enforces its existing single-writer lock; never
@@ -64,21 +61,18 @@ Linux terminal, after the authorized operator verifies the existing tenant's pri
 parent and protected ownership/mode, the approved operator runs
 `node server/operator-init.mjs --initialize --tenant EXISTING_TENANT` as root from
 the verified runtime. `EXISTING_TENANT` is an unresolved documentation placeholder,
-not a default or permission to create another deployment. The tool asks for the
+not a configured default. The tool asks for the
 confirmed public username, complete canonical origin, existing listener port,
 controlled EOA, Ethereum/Base scope and explicit binding approval, then creates
 config once. No live deployment value is supplied by the public template.
-No secret is prompted for, generated, read or passed to the assistant. Existing
+The command does not prompt for, generate or read secret values. Existing
 config is never overwritten. `--check --tenant EXISTING_TENANT` emits only counts and configuration validity,
 never addresses, password hashes or credentials, and does not check or activate keys.
 
-The user-confirmed account and Base mainnet binding are recorded separately in
-the private operational handoff, outside this source repository. Do not publish
-that binding in GitHub or request these same values again. This is not proof of wallet ownership,
-an activated account, or authorization for a mainnet transaction or transfer.
-The empty preparation template remains a separate negative-validation fixture.
-Control may use the confirmed public configuration after the required Linux
-verification and secure credential provisioning; no activation occurred here.
+Account bindings do not prove wallet ownership, activate an account or authorize
+a mainnet transaction or transfer. The empty preparation template remains a
+separate negative-validation fixture. Configuration requires Linux verification
+and secure credential provisioning; no activation occurred in this snapshot.
 The unique address/chain-pair validator runs before the credential store opens
 and in the actual service constructor, rejecting ambiguity across usernames.
 Optional password hashes and CA fingerprints remain independently provisioned;
@@ -126,8 +120,8 @@ confirm/cancel/logout/timeout/identity/pagehide pixel and text erasure, stale re
 refusal, replay/recovery, unchanged review and no secret screenshot/trace/artifact.
 The public static resource list must include `enrollment-qr.mjs` and
 `qr-generator.mjs`; stagePublicWeb already stages tracked `.mjs` files. The
-development server's explicit list is updated. Control must update its generated
-nginx resource map from the NEW release manifest rather than silently trusting
+development server's explicit list is updated. Update the generated
+nginx resource map from the new release manifest rather than silently trusting
 old deployed allowlists. No new data/image/CDN CSP allowance is needed.
 
 Exercise synthetic isolated HTTP Host/Origin/tenant/CSRF negatives, duplicate and
@@ -138,8 +132,8 @@ credential/hardening behavior require Linux evidence. No test result is inferred
 
 ## Activation and rollback after review
 
-Control validates/installs immutable source and lock dependencies, then the
-approved operator confirms public bindings and separately provisions secrets.
+Validate and install immutable source and lock dependencies, then confirm
+public bindings and separately provision secrets through the operator flow.
 Validate fixed config, start the unit and only then enable the Host-specific proxy
 after `nginx -t`. Correct HTTP probes include `X-Wallet-Tenant:example-tenant-a`; POST also
 requires exact Origin, JSON, cookie and CSRF. No `/auth/health` shortcut exists.

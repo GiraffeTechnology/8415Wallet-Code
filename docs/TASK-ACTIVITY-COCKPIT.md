@@ -1,6 +1,6 @@
 # Read-only task activity and recovery cockpit
 
-Initial development batch for CMD-ARTFI-FULL-DEV-20261016-0011-002. This adds a consumer entry beside the existing task authorization form, not a replacement for its authorization, continuation or recovery writer.
+Initial development. This adds a consumer entry beside the existing task authorization form, not a replacement for its authorization, continuation or recovery writer.
 
 ## User journey
 
@@ -21,6 +21,6 @@ Existing authorization/producer/receipt/lease modules are not changed. No signin
 
 ## Delivery status and independent verification
 
-Source-only initial development, stacked on PR97. Eight regression cases are authored, NOT_RUN. No tests, typecheck, build, browser run, CI inspection, deployment or chain read was performed by the developer. Bear/Xiongan owns testing, post-submission corrections, integration acceptance and merge.
+Source-only initial development, stacked on PR97. Eight regression cases are authored, NOT_RUN. No tests, typecheck, build, browser run, CI inspection, deployment or chain read was performed by the developer.
 
 Review should include served-module packaging, real authenticated tenant/origin/account/chain boundaries, session expiry/revocation during each await, late response suppression, cursor revision conflict, page-local filtering and text-only rendering. Authored decoder-injection tests exercise consumer boundaries, not the real server/client, provider or browser. No full-product acceptance is claimed.

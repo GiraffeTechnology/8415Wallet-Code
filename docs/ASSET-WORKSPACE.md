@@ -1,6 +1,6 @@
 # Asset workspace: standalone and optional linked records
 
-Initial product development, CMD-ARTFI-FULL-DEV-20261016-0011-002. Preserves original PRD §§1–8 plus §9; does not replace W-01–24.
+Initial product development. Preserves original PRD §§1–8 plus §9; does not replace W-01–24.
 
 The existing DApp had separate read buttons and raw linked/payment output, but no unified, navigable asset workspace. This addition composes existing read surfaces rather than reimplementing projection, kernel or payment execution. No earlier submitted implementation is repaired here.
 
@@ -22,6 +22,6 @@ Standalone reads retain existing display-read semantics and are NOT claimed atom
 
 ## Delivery boundary
 
-Eight synthetic tests authored, not executed. Bear owns Linux tests/typecheck/CI, submitted-code modifications, audit/integration and merge. Development does not inspect CI, deploy, sign or broadcast. Source-delivery readback is not compilation, browser observation, provider acceptance or product PASS.
+Eight synthetic tests authored, not executed. This increment did not inspect CI, deploy, sign or broadcast. Source-delivery readback is not compilation, browser observation, provider acceptance or product PASS.
 
-Manual Linux/UI acceptance: existing login and connection required; missing sequence/unsupported controls; no-payment versus configured payment; failed payment; detached prefix and active tail; version pagination; unavailable entries; logout/expiry/account/chain change during reads; canonical block changes; mobile layout and full labels. Real provider/receipt/authorized execution evidence stays with the designated executor after Ops READY.
+Manual Linux/UI acceptance: existing login and connection required; missing sequence/unsupported controls; no-payment versus configured payment; failed payment; detached prefix and active tail; version pagination; unavailable entries; logout/expiry/account/chain change during reads; canonical block changes; mobile layout and full labels. Real provider and receipt evidence remains necessary for runtime acceptance.

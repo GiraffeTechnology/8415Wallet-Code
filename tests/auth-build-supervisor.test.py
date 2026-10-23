@@ -1,6 +1,5 @@
 """Synthetic Linux-only owned-process fixtures. No npm/network/credentials.
-Run only on approved Linux execution (SIN or the exact-head GitHub CI).
-No local/container/Windows syntax/import/test run.
+The process-group and signal fixtures require Linux; exact-head GitHub CI runs them.
 """
 import importlib.util
 import json
@@ -19,7 +18,7 @@ supervisor = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(supervisor)
 
 
-@unittest.skipUnless(sys.platform == 'linux', 'approved Linux only')
+@unittest.skipUnless(sys.platform == 'linux', 'Linux process groups and signals required')
 class SupervisorTests(unittest.TestCase):
     def test_release_command_preserves_external_identity_for_both_phases(self):
         commit, tree = '1' * 40, '2' * 40
