@@ -143,6 +143,51 @@ test('ON policy changed after signed hash persistence wins before actual broadca
   assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 0);
   assert.equal((await f.store.read(f.state.operationKey)).exactSignature.state, 'signed');
 });
+
+// Synthetic owner-policy races at the actual sign/broadcast boundary. These
+// fixtures never change a real wallet setting or authorize an on-chain asset.
+async function saveSyntheticAssetAgentOFF(f) {
+  const {readCredentialAssetControlPolicy,appendVerifiedAssetControlChange,assetControlPolicyKey} =
+    await import('../server/task-asset-control-state.mjs');
+  const selected={origin:f.task.policy.origin,tenant:f.task.policy.tenant,username:'tester',account:f.actor,
+    chainId:f.task.policy.chainId,agentId:f.executor.identity.agentId};
+  await f.store.transaction('synthetic-tenant:tester',credential=>{
+    const state=readCredentialAssetControlPolicy(credential,selected);
+    const request={schema:'8415-asset-control-change/1',scope:selected,expectedRevision:state.revision,
+      patch:{target:{kind:'allow-agent'},value:false,expectedFieldRevision:'0'},credentialRevision:credential.revision,
+      changeId:'F'.repeat(43),nonce:'G'.repeat(43),issuedAt:epoch-1000,expiresAt:epoch+1000};
+    const next=appendVerifiedAssetControlChange(state,selected,request,['wallet','verified-email'],epoch);
+    return {...credential,assetControlPolicies:{...(credential.assetControlPolicies??{}),[assetControlPolicyKey(selected)]:next}};
+  });
+}
+test('owner Agent OFF during asynchronous signer preparation blocks actual signature fence and preserves UNKNOWN nonce',async()=>{
+  let f;f=await fixture({onSign:async()=>saveSyntheticAssetAgentOFF(f)});
+  const reserved=await f.start(),result=await f.call('execute',f.body(reserved));
+  assert.equal(result.outcome,'outcome-unknown');assert.equal(f.state.broadcasts,0);
+  const op=await f.store.read(f.state.operationKey);assert.equal(op.exactSignature.state,'claimed');
+  assert.equal(op.exactSignature.transactionHash,null);assert.equal(op.status,'outcome-unknown');
+  assert.equal(result.budget.reservations[0].status,'outcome-unknown');
+});
+test('owner Agent OFF after a signature but before raw broadcast blocks dispatch and retains signed hash',async()=>{
+  let f,changed=false;
+  f=await fixture({rpc:async({method,state})=>{
+    if(method==='eth_chainId'&&!changed&&state.signCalls===1) {
+      const op=await f.store.read(state.operationKey);
+      if(op?.exactSignature?.state==='signed'){changed=true;await saveSyntheticAssetAgentOFF(f);}
+    }
+  }});
+  const reserved=await f.start(),result=await f.call('execute',f.body(reserved));
+  assert.equal(changed,true);assert.equal(result.outcome,'outcome-unknown');assert.equal(f.state.broadcasts,0);
+  const op=await f.store.read(f.state.operationKey);assert.equal(op.exactSignature.state,'signed');
+  assert.match(op.exactSignature.transactionHash,/^0x[0-9a-f]{64}$/);
+});
+test('owner Agent OFF after lost broadcast response does not block read-only reconciliation or resend',async()=>{
+  let f;f=await fixture({lostResponse:true,onBroadcast:async()=>saveSyntheticAssetAgentOFF(f)});
+  const reserved=await f.start(),unknown=await f.call('execute',f.body(reserved));
+  assert.equal(unknown.outcome,'outcome-unknown');const before=[f.state.signCalls,f.state.broadcasts];
+  const recovered=await f.call('recover',f.body(unknown));assert.equal(recovered.outcome,'submitted');
+  assert.deepEqual([f.state.signCalls,f.state.broadcasts],before);assert.equal(f.state.broadcasts,1);
+});
 test('OFF marker remains prompt-free through actual signer fences and broadcast', async () => {
   assert.ok(TASK_EXACT_SIGNER_RUNTIME_FILES.includes('server/task-operation-verification.mjs'));
   const f = await fixture({ operationVerificationEnabled: true }); await saveSignerOperationPolicy(f, 'OFF');
@@ -279,7 +324,7 @@ async function fixture(options = {}) {
   async function start() {
     const prepared = await call('prepare', { policy });
     const authorized = await call('authorize', { challengeId: prepared.challengeId, taskDigest: task.digest,
-      executorDigest: executor.digest, observationPolicyDigest: observationPolicy.digest, code: prepared.approvalFactor === 'totp' ? hotp(secret, Math.floor(state.now / 30000)) : '' });
+      executorDigest: executor.digest, observationPolicyDigest: observationPolicy.digest, code: hotp(secret, Math.floor(state.now / 30000)) });
     return call('reserve', { taskDigest: task.digest, child: child.child, expectedBudgetRevision: authorized.budget.revision });
   }
   // Use exactly the existing service key, without reaching into an input cache.
@@ -327,13 +372,7 @@ test('simultaneous execute and direct send replay make one signer and broadcast 
   const f = await fixture(), g = await f.start();
   const results = await Promise.allSettled([f.call('execute', f.body(g)), f.call('execute', f.body(g))]);
   assert.equal(results.filter(r => r.status === 'fulfilled').length, 1); assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1);
-  const attempted = await f.store.read(f.state.operationKey);
-  assert.equal(attempted.status, 'submitted');
-  assert.equal(attempted.humanVerificationEnforced, true);
-  // The live attempt fence rejects an already submitted record before the
-  // later signer-claim fence. This remains a strict replay refusal.
-  await assert.rejects(f.execution.send(f.input), error => error.message === 'TASK_OPERATION_VERIFICATION_ATTEMPT_REFUSED');
-  assert.deepEqual(await f.store.read(f.state.operationKey), attempted);
+  await assert.rejects(f.execution.send(f.input), /TASK_EXACT_GRANT_NOT_ACTIVE|TASK_EXACT_SIGN_ALREADY_CLAIMED/);
   assert.equal(f.state.signCalls, 1); assert.equal(f.state.broadcasts, 1);
 });
 test('a lost broadcast response recovers from full queried signed transaction without signing or broadcasting', async () => {

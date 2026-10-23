@@ -8,10 +8,12 @@ import { createTaskAuthorizationService, TaskAuthorizationError } from './task-a
 import { createForwardProgressService, ForwardProgressError } from './forward-progress-service.mjs';
 import { createRpcForwardProgressReader } from './forward-progress-reader.mjs';
 import { createTaskVerificationPolicyService, TaskVerificationPolicyError } from './task-verification-policy.mjs';
+import { createAssetControlPolicyService } from './task-asset-control-policy.mjs';
+import { AssetControlStateError, normalizeAssetControlPatch } from './task-asset-control-state.mjs';
+import { createAssetControlCatalog } from './task-asset-control-catalog.mjs';
 import { createMethodChangeService, MethodChangeError } from './method-change-service.mjs';
 import { createAccountDirectory } from './account-directory.mjs';
 import { createRegistrationService, RegistrationError } from './registration-service.mjs';
-import { normalizeLoginIdentifier, resolveLoginIdentifier, authenticatedWalletRoute, validWalletName } from './login-identifier.mjs';
 const LIFE = 15 * 60_000, CHALLENGE = 2 * 60_000, ENROLL = 5 * 60_000;
 const accountMethods = ['password', 'wallet', 'ca', 'totp'];
 const chains = new Set(['1', '8453', '11155111', '84532', '560048', '31337']);
@@ -34,10 +36,10 @@ function cookies(request) {
   }
   return result;
 }
-export function createAuthService({ origin, tenant, accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null, taskReceiptHandlerId = null, taskChannelBindings = null, taskTestAuthorization = null, forwardProgressReader = null, forwardProgressSource = null, taskVerificationPolicyEnabled = false }) {
+export function createAuthService({ origin, tenant, accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null, taskReceiptHandlerId = null, taskChannelBindings = null, taskTestAuthorization = null, forwardProgressReader = null, forwardProgressSource = null, taskVerificationPolicyEnabled = false, assetControlCatalogReader = null }) {
   const url = loginOrigin(origin);
   requireThat(typeof tenant === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(tenant), 'AUTH_CONFIG_REFUSED', 500);
-  requireThat(Array.isArray(accounts) && accounts.length <= 10000 && store, 'AUTH_CONFIG_REFUSED', 500);
+  requireThat(Array.isArray(accounts) && accounts.length > 0 && accounts.length <= 10000 && store, 'AUTH_CONFIG_REFUSED', 500);
   try { validateAccountBindings(accounts); } catch { throw new AuthError('AUTH_CONFIG_REFUSED', 500); }
   const users = new Map();
   for (const input of accounts) {
@@ -45,14 +47,14 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       'AUTH_CONFIG_REFUSED', 500);
     requireThat(input.passwordHash === undefined || /^scrypt-v1\$[a-f0-9]{32}\$[a-f0-9]{64}$/.test(input.passwordHash), 'AUTH_CONFIG_REFUSED', 500);
     requireThat(input.caFingerprints === undefined || (Array.isArray(input.caFingerprints) && input.caFingerprints.every(v => /^[a-f0-9]{64}$/.test(v))), 'AUTH_CONFIG_REFUSED', 500);
-    users.set(input.username, Object.freeze({ username: input.username, passwordHash: input.passwordHash, ...(input.walletName === undefined ? {} : { walletName: input.walletName }),
+    users.set(input.username, Object.freeze({ username: input.username, passwordHash: input.passwordHash,
       wallets: input.wallets.map(identity), caFingerprints: input.caFingerprints ?? [] }));
   }
   const directory = createAccountDirectory({ tenant, accounts, store, users });
   const secure = url.protocol === 'https:', sessionName = secure ? '__Host-8415session' : '8415session-local', preauthName = secure ? '__Host-8415preauth' : '8415preauth-local';
   const sessions = new Map(), preauth = new Map(), challenges = new Map(), limits = new Map();
   let expensive = 0;
-  let recoveryService = null, registrationService = null, methodChangeService = null, taskService = null, verificationPolicyService = null;
+  let recoveryService = null, registrationService = null, methodChangeService = null, taskService = null, verificationPolicyService = null, assetControlService = null;
   const stamp = () => { const time = now(); requireThat(Number.isSafeInteger(time) && time >= 0, 'AUTH_CLOCK_REFUSED', 503); return time; };
   function sweep() {
     const time = stamp();
@@ -74,28 +76,12 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
   const cookie = (name, value, seconds) => `${name}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${seconds}${secure ? '; Secure' : ''}`;
   function publicSession(session) {
     return { id: session.id, tenant, origin, username: session.username, account: session.account, chainId: session.chainId,
-      kind: session.kind, issuedAt: session.issuedAt, expiresAt: session.expiresAt, csrf: session.csrf,
-      ...(session.walletRoute ? { walletRoute: session.walletRoute } : {}) };
+      kind: session.kind, issuedAt: session.issuedAt, expiresAt: session.expiresAt, csrf: session.csrf };
   }
   const boundUser = (name, selected) => {
-    return resolveLoginIdentifier({ identifier: name, users, emailAlias: directory.alias, selected });
+    const user = users.get(validUsername(name) ? name : directory.alias(name));
+    return user?.wallets.some(wallet => wallet.account === selected.account && wallet.chainId === selected.chainId) ? user : null;
   };
-  const platformEntry = tenant === 'default' && url.hostname === '8415wallet.com';
-  function loginContext(body) {
-    const supplied = Object.hasOwn(body, 'identifier');
-    const identifier = supplied ? normalizeLoginIdentifier(body.identifier) : null;
-    requireThat(!supplied || identifier !== null);
-    requireThat(!platformEntry || identifier !== null);
-    const requestedPath = body.requestedWalletPath ?? null;
-    requireThat(requestedPath === null || typeof requestedPath === 'string' && requestedPath.startsWith('/') && validWalletName(requestedPath.slice(1)));
-    return { identifier, requestedPath };
-  }
-  function authorizeRequestedWallet(user, context) {
-    const route = authenticatedWalletRoute(user);
-    requireThat(!platformEntry || route !== null);
-    requireThat(context.requestedPath === null || route?.walletPath === context.requestedPath);
-    return route;
-  }
   function localSession(req) {
     sweep(); const token = cookies(req).get(sessionName), session = token ? sessions.get(digest(token)) : null;
     requireThat(session && equal(req.headers['x-wallet-csrf'], session.csrf));
@@ -105,7 +91,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     sweep(); requireThat(sessions.get(session.key) === session);
   }
   function revokeSession(session) {
-    sessions.delete(session.key); recoveryService?.cancel(session); registrationService?.cancel(session, true); methodChangeService?.cancel(session); taskService?.cancel(session); verificationPolicyService?.cancel(session);
+    sessions.delete(session.key); recoveryService?.cancel(session); registrationService?.cancel(session, true); methodChangeService?.cancel(session); taskService?.cancel(session); verificationPolicyService?.cancel(session); assetControlService?.cancel(session);
   }
   function revokeAccount(username) {
     for (const current of sessions.values()) if (current.username === username) revokeSession(current);
@@ -145,16 +131,15 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     requireThat(state && equal(req.headers['x-wallet-csrf'], state.csrf), 'AUTH_CSRF_REFUSED', 403);
     return state;
   }
-  async function issue(req, res, user, selected, kind, expectedRevision, signup = null, requestedContext = null) {
+  async function issue(req, res, user, selected, kind, expectedRevision, signup = null) {
     const credential = await store.read(`${tenant}:${user.username}`), time = stamp(), token = randomToken(); capacity(sessions);
     directory.checkCredential(user.username, credential);
     preauthFor(req); // Logout/cancellation also revokes an in-flight login.
     requireThat(expectedRevision === undefined || expectedRevision === (credential?.revision ?? 0));
     requireThat(methodStates(user, credential)[kind === 'recovery' ? 'totp' : kind]?.enabled);
-    const walletRoute = requestedContext ? authorizeRequestedWallet(user, requestedContext) : authenticatedWalletRoute(user);
     const prior = sessions.get(digest(cookies(req).get(sessionName) ?? '')); if (prior) revokeSession(prior);
     signup?.authorizeSession();
-    const session = { ...selected, ...(walletRoute ? { walletRoute } : {}), ...(signup ? { registrationBootstrapId: signup.bootstrapId } : {}), username: user.username, id: randomToken(), csrf: randomToken(), kind,
+    const session = { ...selected, ...(signup ? { registrationBootstrapId: signup.bootstrapId } : {}), username: user.username, id: randomToken(), csrf: randomToken(), kind,
       key: digest(token), issuedAt: time, expiresAt: time + LIFE, revision: credential?.revision ?? 0 };
     sessions.set(session.key, session); res.setHeader('Set-Cookie', cookie(sessionName, token, LIFE / 1000));
     return publicSession(session);
@@ -209,6 +194,45 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
   if (taskVerificationPolicyEnabled === true && policyAgents.size <= 1) verificationPolicyService = createTaskVerificationPolicyService({ origin, tenant,
     agentId: [...policyAgents][0] ?? '8415wallet:local-task-service',
     store, directory, users, sendOtp, now, assertSession: activeSession, credentialFor, passwordFor, methodStates });
+  // Source-owned readers and configured executor identities, never HTTP flags.
+  requireThat(assetControlCatalogReader === null || typeof assetControlCatalogReader === 'function',
+    'AUTH_ASSET_CATALOG_CONFIG_REFUSED',500);
+  const readAssetSubjects=assetControlCatalogReader;
+  if(policyAgents.size<=1) assetControlService=createAssetControlPolicyService({origin,tenant,
+    agentId:[...policyAgents][0]??'8415wallet:local-task-service',store,directory,users,sendOtp,now,
+    assertSession:activeSession,credentialFor,passwordFor,methodStates});
+  const publicAssetControl=value=>{
+    const {changes,...status}=value;
+    return {...status,changeCount:changes.length,lastChange:changes.at(-1)??null,
+      canSave:policyAgents.size===1,executionScope:'supported-actual-task-bindings'};
+  };
+  async function currentAssetCatalog(session) {
+    requireThat(assetControlService!==null,'AUTH_POLICY_AGENT_SCOPE_UNAVAILABLE',503);
+    const credential=await credentialFor(session);
+    const state=await assetControlService.status(session);
+    let subjects=[{chainId:session.chainId,standard:'native',contract:null,tokenId:null}];
+    // Native denotes the configured chain's native asset, not a claim of funds.
+    // A missing NFT inventory stays explicitly incomplete; it is never empty PASS.
+    if(readAssetSubjects!==null) {
+      const observed=await readAssetSubjects(Object.freeze({origin,tenant,username:session.username,
+        account:session.account,chainId:session.chainId,agentId:state.scope.agentId}));
+      await credentialFor(session);
+      requireThat(Array.isArray(observed),'AUTH_ASSET_CATALOG_SOURCE_REFUSED',503);
+      const supplement=createAssetControlCatalog(state.scope,observed);
+      subjects=subjects.concat(supplement.entries.filter(e=>e.subject.standard!=='native').map(e=>e.subject));
+    }
+    // Reader/session/credential changes cannot return a different wallet's data.
+    activeSession(session);requireThat((credential?.revision??0)===session.revision);
+    return {...createAssetControlCatalog(state.scope,subjects),
+      inventoryComplete:readAssetSubjects!==null};
+  }
+  async function assertAssetControlSaveTarget(session,body) {
+    requireThat(policyAgents.size===1,'AUTH_POLICY_AGENT_SCOPE_UNAVAILABLE',503);
+    const patch=normalizeAssetControlPatch(body.patch),catalog=await currentAssetCatalog(session);
+    const target=patch.target;
+    requireThat(target.kind==='allow-agent'||catalog.entries.some(entry=>
+      target.path.every((id,i)=>entry.path[i]===id)),'AUTH_ASSET_CATALOG_TARGET_REFUSED',403);
+  }
   const publicVerificationPolicy = value => {
     const { changes, ...status } = value;
     return { ...status, changeCount: changes.length, lastChange: changes.at(-1) ?? null };
@@ -221,8 +245,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       requireThat(user && user.wallets.some(wallet => wallet.account.toLowerCase() === principal.account && wallet.chainId === principal.chainId),
         'TASK_BACKGROUND_PRINCIPAL_REFUSED', 403);
       if (credential !== undefined) {
-        // Configured wallet-only accounts can legitimately have no credential
-        // record. The directory still rejects missing registered-account state.
+        requireThat(credential !== null, 'TASK_BACKGROUND_CREDENTIAL_REQUIRED', 403);
         directory.checkCredential(principal.username, credential);
       }
     },
@@ -318,20 +341,44 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       if (path === 'tasks/authorize') limit(`task-approval:${session.username}`, 10);
       return taskService.handler(path, body, session);
     }
+    if(path.startsWith('account/asset-controls/')) {
+      const session=await sessionFor(req);limit(`asset-policy:${session.username}`,30);
+      requireThat(assetControlService!==null,'AUTH_POLICY_AGENT_SCOPE_UNAVAILABLE',503);
+      if(path==='account/asset-controls/status') {
+        requireThat(Object.keys(body).length===0,'AUTH_REQUEST_REFUSED',400);
+        return publicAssetControl(await assetControlService.status(session));
+      }
+      if(path==='account/asset-controls/catalog') {
+        requireThat(Object.keys(body).length===0,'AUTH_REQUEST_REFUSED',400);
+        return currentAssetCatalog(session);
+      }
+      if(path==='account/asset-controls/prepare') {
+        await assertAssetControlSaveTarget(session,body);return assetControlService.prepare(session,body);
+      }
+      if(path==='account/asset-controls/verify')return assetControlService.verify(session,body);
+      if(path==='account/asset-controls/confirm')return publicAssetControl(await assetControlService.confirm(session,body));
+      if(path==='account/asset-controls/cancel') {
+        requireThat(Object.keys(body).length===0,'AUTH_REQUEST_REFUSED',400);
+        assetControlService.cancel(session);return {cancelled:true};
+      }
+      throw new AuthError('AUTH_ROUTE_REFUSED',404);
+    }
     if (path.startsWith('account/task-verification/')) {
       const session = await sessionFor(req); limit(`task-policy:${session.username}`, 30);
       requireThat(verificationPolicyService !== null, 'AUTH_POLICY_AGENT_SCOPE_UNAVAILABLE', 503);
       // Owner settings are not task grants. Two established factors are bound
       // to each exact ON/OFF revision; an existing OFF or Agent grant never saves.
       if (path === 'account/task-verification/status') {
-        return publicVerificationPolicy(await verificationPolicyService.status(session, body));
+        requireThat(Object.keys(body).length === 0, 'AUTH_REQUEST_REFUSED', 400);
+        return publicVerificationPolicy(await verificationPolicyService.status(session));
       }
       if (path === 'account/task-verification/prepare') return verificationPolicyService.prepare(session, body);
       if (path === 'account/task-verification/verify') return verificationPolicyService.verify(session, body);
       if (path === 'account/task-verification/confirm') return publicVerificationPolicy(await verificationPolicyService.confirm(session, body));
       if (path === 'account/task-verification/on') return publicVerificationPolicy(await verificationPolicyService.enable(session, body));
       if (path === 'account/task-verification/cancel') {
-        return verificationPolicyService.cancelChange(session, body);
+        requireThat(Object.keys(body).length === 0, 'AUTH_REQUEST_REFUSED', 400);
+        verificationPolicyService.cancel(session); return { cancelled: true };
       }
       throw new AuthError('AUTH_ROUTE_REFUSED', 404);
     }
@@ -372,9 +419,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     limit(`ip:${ip}`, 100); // Proxy headers are intentionally not trusted.
     if (path === 'password' || path === 'totp') {
       requireThat(typeof body.username === 'string' && body.username.length <= 254);
-      const context = loginContext(body);
-      const user = boundUser(context.identifier ?? body.username, selected);
-      requireThat(context.identifier === null || normalizeLoginIdentifier(body.username) === context.identifier);
+      const user = boundUser(body.username, selected);
       limit(`account:${user?.username ?? digest(body.username.toLowerCase())}`, 10); let revision;
       if (path === 'password') {
         const credential = user ? await store.read(`${tenant}:${user.username}`) : null;
@@ -387,19 +432,16 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
       } else {
         requireThat(user); revision = await consumeCode(user.username, body.code, body.recovery === true, { login: true });
       }
-      return issue(req, res, user, selected, path === 'totp' && body.recovery === true ? 'recovery' : path, revision, null, context);
+      return issue(req, res, user, selected, path === 'totp' && body.recovery === true ? 'recovery' : path, revision);
     }
     if (path === 'challenge') {
       requireThat(['wallet', 'ca'].includes(body.method) && (body.method !== 'ca' || verifyCa));
-      const requested = loginContext(body);
       capacity(challenges); const id = randomToken(), time = stamp(), nonce = randomToken().replace(/[-_]/g, '');
       const context = { ...selected, origin, nonce, issuedAt: time, expiresAt: time + CHALLENGE };
       const message = body.method === 'wallet' ? loginMessage(context) + `\nResources:\n- urn:8415wallet:tenant:${tenant}\n- urn:8415wallet:purpose:login\n- urn:8415wallet:request:${id}` :
         `8415wallet hardware CA login\nOrigin: ${origin}\nTenant: ${tenant}\nAccount: ${selected.account}\nChain ID: ${selected.chainId}\nPurpose: login only; no transaction authority\nRequest: ${id}\nNonce: ${nonce}\nIssued At: ${new Date(time).toISOString()}\nExpiration Time: ${new Date(time + CHALLENGE).toISOString()}`;
-      const boundMessage = requested.identifier === null && requested.requestedPath === null ? message :
-        `${message}\nRequested wallet context: ${digest(JSON.stringify([requested.identifier, requested.requestedPath]))}`;
-      challenges.set(id, { ...context, id, method: body.method, bootstrapId: bootstrap.id, message: boundMessage, requested });
-      return { ...context, id, tenant, method: body.method, message: boundMessage };
+      challenges.set(id, { ...context, id, method: body.method, bootstrapId: bootstrap.id, message });
+      return { ...context, id, tenant, method: body.method, message };
     }
     if (path === 'proof') {
       sweep(); const challenge = typeof body.id === 'string' ? challenges.get(body.id) : null;
@@ -421,8 +463,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
         requireThat(matches.length === 1); user = matches[0];
       }
       requireThat(stamp() >= challenge.issuedAt && stamp() < challenge.expiresAt);
-      if (challenge.requested.identifier !== null) requireThat(boundUser(challenge.requested.identifier, selected) === user);
-      return issue(req, res, user, selected, challenge.method, undefined, null, challenge.requested);
+      return issue(req, res, user, selected, challenge.method);
     }
     throw new AuthError('AUTH_ROUTE_REFUSED', 404);
   }
@@ -431,7 +472,7 @@ export function createAuthService({ origin, tenant, accounts, store, verifyCa = 
     res.setHeader('Pragma', 'no-cache'); res.setHeader('X-Content-Type-Options', 'nosniff');
     // No Access-Control-Allow-Origin: only the configured same-origin UI can read.
     try { const result = await route(req, res); res.statusCode = 200; res.end(JSON.stringify(result)); }
-    catch (error) { const expected = error instanceof AuthError || error instanceof RecoveryError || error instanceof RegistrationError || error instanceof MethodChangeError || error instanceof TaskAuthorizationError || error instanceof ForwardProgressError || error instanceof TaskVerificationPolicyError; res.statusCode = expected ? error.status : 503;
+    catch (error) { const expected = error instanceof AuthError || error instanceof RecoveryError || error instanceof RegistrationError || error instanceof MethodChangeError || error instanceof TaskAuthorizationError || error instanceof ForwardProgressError || error instanceof TaskVerificationPolicyError || error instanceof AssetControlStateError; res.statusCode = expected ? error.status : 503;
       const retryAfterSeconds = expected && error.status === 429 && req.url?.startsWith('/auth/tasks/') &&
         Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds >= 1 && error.retryAfterSeconds <= 900 ? error.retryAfterSeconds : null;
       if (retryAfterSeconds !== null) res.setHeader('Retry-After', String(retryAfterSeconds));

@@ -1,3 +1,4 @@
+import { assertTaskAssetControlAuthorization } from './task-asset-control-catalog.mjs';
 import { readTaskGrantVerificationPolicy } from './task-verification-execution.mjs';
 import { taskOperationVerificationBinding, consumeTaskOperationVerification,
   assertTaskOperationVerificationAttempt, taskOperationVerificationRequirement,
@@ -228,15 +229,6 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     requireThat(typeof value === 'boolean', 'TASK_TEST_ASSET_CONFIG_REFUSED', 500);
     return value;
   }
-  // The absent owner policy is the native unlocked initial state. Select it
-  // only from the authoritative credential and canonical task/executor scope;
-  // never from request flags or the availability of the management UI.
-  function taskApprovalPolicy(credential, grant) {
-    const policy = readTaskGrantVerificationPolicy(credential, grant);
-    return Object.freeze({ factor: testFactorAllowed(grant.task) ? 'server-test-scope' :
-      policy.mode === 'ON' && policy.revision === '0' ? 'preoperational-default-on' : 'totp',
-      policyRevision: policy.revision });
-  }
   const queueKey = key('queue', [origin, tenant]);
   const challenges = new Map(), operationChallenges = new Map();
   const stamp = () => { const time = now(); requireThat(Number.isSafeInteger(time) && time >= 0, 'TASK_CLOCK_REFUSED', 503); return time; };
@@ -384,27 +376,6 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       schema: '8415-task-observation-entry/2', provenance,
       observationRevision: entry.observationRevision ?? '0', acceptedObserverContext };
   }
-  function publicApprovalEvidence(grant) {
-    // Metadata describes the original grant approval, never current authority.
-    // Pending and legacy grants must not acquire invented evaluation evidence.
-    if (grant.status === 'pending') return {};
-    const factor = grant.approvalFactor, evaluation = grant.approvalEvaluation;
-    if (factor === undefined) {
-      requireThat(evaluation === undefined, 'TASK_APPROVAL_STATE_REFUSED', 503); return {};
-    }
-    requireThat(['totp', 'server-test-scope', 'preoperational-default-on'].includes(factor),
-      'TASK_APPROVAL_STATE_REFUSED', 503);
-    if (factor !== 'preoperational-default-on') {
-      requireThat(evaluation === undefined, 'TASK_APPROVAL_STATE_REFUSED', 503);
-      return { approvalFactor: factor };
-    }
-    requireThat(evaluation !== null && typeof evaluation === 'object' && !Array.isArray(evaluation) &&
-      Object.keys(evaluation).length === 3 && evaluation.state === 'NOT_EVALUATED' &&
-      evaluation.reason === 'pre-operational-default-on' && evaluation.policyRevision === '0',
-      'TASK_APPROVAL_STATE_REFUSED', 503);
-    return { approvalFactor: factor, approvalEvaluation: { state: 'NOT_EVALUATED',
-      reason: 'pre-operational-default-on', policyRevision: '0' } };
-  }
   function readGrant(raw, session, taskDigest) {
     requireThat(['8415-task-grant/1', '8415-task-grant/2'].includes(raw?.schema) && raw.principal === JSON.stringify(principal(session)) &&
       raw.task?.digest === taskDigest && ['pending', 'authorized', 'revoked'].includes(raw.status), 'TASK_GRANT_NOT_FOUND', 404);
@@ -425,7 +396,6 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     'TASK_GRANT_STATE_REFUSED', 503);
     version(raw.grantPolicyVersion);
     if (raw.status !== 'pending') { version(raw.credentialRevisionAtApproval); normalizeTaskBudget(raw.budget); }
-    publicApprovalEvidence(raw);
     return raw;
   }
   function effectiveStatus(grant, credential) {
@@ -445,6 +415,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     // Validate the current scoped owner policy inside every existing live grant
     // gate; never treat its projection as a replacement grant or ON proof.
     readTaskGrantVerificationPolicy(credential, grant);
+    assertTaskAssetControlAuthorization(credential,grant);
     const status = effectiveStatus(grant, credential);
     requireThat(status === 'authorized', status === 'suspended' ? (grant.executor.digest !== executor.digest ? 'TASK_EXECUTOR_REVALIDATION_REQUIRED' : grant.observationPolicy?.digest !== approvedObservationPolicy?.digest ? 'TASK_OBSERVATION_POLICY_REVALIDATION_REQUIRED' :
       !sameVerifier(grant.receiptVerifier, receiptVerifier) ? 'TASK_RECEIPT_VERIFIER_REVALIDATION_REQUIRED' : 'TASK_FACTOR_REVALIDATION_REQUIRED') : `TASK_GRANT_${status.toUpperCase()}`, 403);
@@ -484,7 +455,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       taskDigest: grant.task.digest, reference: grant.reference,
       status: effective, grantPolicyVersion: grant.grantPolicyVersion,
       credentialRevisionAtApproval: grant.credentialRevisionAtApproval,
-    }, effectiveStatus: effective, budget: grant.budget, ...publicApprovalEvidence(grant),
+    }, effectiveStatus: effective, budget: grant.budget,
     humanVerification: readTaskGrantVerificationPolicy(credential, grant),
     ...(grant.task.policy.intent.kind === 'artfi-receipt' ? { receiptAttempts: normalizeReceiptAttempts(grant.task, grant.receiptAttempts ?? []) } : {}),
     capabilities: { executable: false, adapterConfigured: Boolean(grant.task.policy.intent.kind === 'artfi-receipt' ? receiptHandlerId : grant.schema === '8415-task-grant/2' ? listingExecution : execution), missing: gaps,
@@ -572,7 +543,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const time = stamp(); requireThat(BigInt(task.policy.expiresAt) > seconds(), 'TASK_EXPIRED', 400);
     requireThat(challenges.size < 10000, 'TASK_BUSY', 503);
     const ckey = credentialKey(session), gkey = grantKey(session, task.digest), ikey = taskIdKey(session, task.policy.taskId), lkey = ownerIndexKey(session);
-    const preparedState = await transaction([ckey, gkey, ikey, lkey], values => {
+    await transaction([ckey, gkey, ikey, lkey], values => {
       assertSession(session, values[ckey]); requireThat(BigInt(task.policy.expiresAt) > seconds(), 'TASK_EXPIRED', 400);
       requireThat(values[ikey] === null || values[ikey].taskDigest === task.digest, 'TASK_ID_ALREADY_BOUND');
       if (values[gkey] !== null) {
@@ -594,12 +565,8 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const challengeId = `challenge:${randomToken()}`, expiresAt = Math.min(time + CHALLENGE_LIFE, session.expiresAt,
       Number(BigInt(task.policy.expiresAt) * 1000n > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : BigInt(task.policy.expiresAt) * 1000n));
     requireThat(stamp() < expiresAt, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
-    const approvalPolicy = taskApprovalPolicy(preparedState[ckey], preparedState[gkey]);
-    const approvalEvaluation = approvalPolicy.factor === 'preoperational-default-on' ?
-      { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' } : null;
-    challenges.set(challengeId, { task, executor, valuationPolicy, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), testFactorExempt: approvalPolicy.factor === 'server-test-scope', approvalPolicy, issuedAt: time, expiresAt, attempts: 0 });
-    return { challengeId, task, executor, ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, approvalFactor: approvalPolicy.factor,
-      ...(approvalEvaluation === null ? {} : { approvalEvaluation }), purpose: 'authorize-task' };
+    challenges.set(challengeId, { task, executor, valuationPolicy, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), testFactorExempt: testFactorAllowed(task), issuedAt: time, expiresAt, attempts: 0 });
+    return { challengeId, task, executor, ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, approvalFactor: testFactorAllowed(task) ? 'server-test-scope' : 'totp', purpose: 'authorize-task' };
   }
   async function authorize(body, session) {
     const withValuation = body !== null && typeof body === 'object' && (Object.hasOwn(body, 'valuationPolicyDigest') || Object.hasOwn(body, 'priceAt'));
@@ -624,22 +591,13 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       const proposal = readGrant(values[gkey], session, body.taskDigest);
       requireThat(proposal.status === 'pending' && proposal.executor.digest === body.executorDigest && values[ikey]?.taskDigest === body.taskDigest, 'TASK_ALREADY_EXISTS');
       requireThat((proposal.valuationPolicy?.digest ?? null) === (challenge.valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_REAUTHORIZATION_REQUIRED');
-      // Compare the live saved policy in the same atomic commit as the bounded
-      // task grant. A saved ON/OFF arriving after prepare cannot use revision 0.
-      const approvalPolicy = taskApprovalPolicy(values[ckey], proposal);
-      requireThat(approvalPolicy.factor === challenge.approvalPolicy.factor &&
-        approvalPolicy.policyRevision === challenge.approvalPolicy.policyRevision, 'TASK_APPROVAL_POLICY_CHANGED', 409);
-      if (approvalPolicy.factor === 'preoperational-default-on')
-        requireThat(body.code === '', 'TASK_APPROVAL_CODE_NOT_REQUIRED', 400);
-      // No new credential or owner-setting write for the native unlocked state.
-      const credential = approvalPolicy.factor === 'totp' ? consumeTotp(session, values[ckey], body.code) : values[ckey];
+      // One durable replace consumes the OTP and creates every grant/index field.
+      const credential = challenge.testFactorExempt ? values[ckey] : consumeTotp(session, values[ckey], body.code);
       const grant = { schema: challenge.valuationPolicy === null ? '8415-task-grant/1' : '8415-task-grant/2',
         ...(challenge.valuationPolicy === null ? {} : { valuationPolicy: challenge.valuationPolicy }), principal: JSON.stringify(principal(session)),
         task: challenge.task, executor: challenge.executor, observationPolicy: challenge.observationPolicy, receiptVerifier: challenge.receiptVerifier,
         observations: [], observationRevision: '0', reference: proposal.reference, status: 'authorized', grantPolicyVersion: '1',
-        approvalFactor: approvalPolicy.factor,
-        ...(approvalPolicy.factor === 'preoperational-default-on' ? { approvalEvaluation: {
-          state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' } } : {}),
+        approvalFactor: challenge.testFactorExempt ? 'server-test-scope' : 'totp',
         credentialRevisionAtApproval: String(session.revision), issuedAt: stamp(), revokedAt: null,
         budget: challenge.task.policy.intent.kind === 'artfi-receipt' ? { schema: '8415-task-budget/1', taskDigest: challenge.task.digest, revision: '0', reservations: [] } : challenge.valuationPolicy === null ? emptyTaskBudget(challenge.task) : emptyNftListingBudget(challenge.task) };
       const queue = values[queueKey] ?? { schema: '8415-task-queue/1', entries: [] };
