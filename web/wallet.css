@@ -33,6 +33,7 @@
 [data-foundation-placeholder=true]:disabled{background:var(--canvas)!important;color:var(--muted)!important;border-color:var(--line)!important;opacity:1;cursor:default}
 /* Default ON keeps the Giraffe accent; disabled still describes interaction, not OFF. */
 [data-foundation-placeholder=true][data-policy-source=unconnected-default][data-display-mode=ON]:disabled{background:var(--accent)!important;color:var(--ink)!important;border-color:var(--accent)!important}
+[data-policy-source=saved-policy][data-display-mode=ON]:disabled{background:var(--accent)!important;color:var(--ink)!important;border-color:var(--accent)!important}
 .foundation-policy-rows{display:grid;gap:12px}.foundation-policy-row{display:flex;align-items:center;justify-content:space-between;gap:16px}.foundation-policy-row>span{overflow-wrap:anywhere}.foundation-policy-row button{min-width:64px;flex-shrink:0}
 .signed-out .workspace-bar{flex-wrap:wrap}.signed-out .foundation-public-nav{flex:1}.signed-out .foundation-home{margin:0}
 @media(max-width:820px){.foundation-public-nav{width:100%}.foundation-public-nav button{flex:1}.foundation-home-entries{grid-template-columns:1fr}.foundation-policy-row{align-items:flex-start}.signed-out .foundation-home{padding:24px 20px}}

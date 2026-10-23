@@ -9,6 +9,7 @@ function fixture({ initialOpen = false, missingHost = false } = {}) {
   const host = { hidden: true }, management = { hidden: false }, events: string[] = [];
   const listeners = new Set<(open: boolean) => void>();
   let mounted: PolicySettingsMountOptions | null = null, client: unknown = null, adapter: unknown = null;
+  let summaryArgs: { getPolicyClient(): unknown } | null = null;
   const document = { getElementById: (id: string) => id === 'auth-management' ? management :
     id === 'task-verification-policy-settings' && !missingHost ? host : null };
   const args: PolicySettingsEntryOptions = { document, window: {}, walletLogin: {},
@@ -20,7 +21,14 @@ function fixture({ initialOpen = false, missingHost = false } = {}) {
       return { show() { events.push('show'); }, hide() { events.push('hide'); }, destroy() { events.push('destroy'); } };
     },
   };
-  return { args, events, host, listeners, mounted: () => { assert.ok(mounted); return mounted; },
+  const summary = { connected: 0, states: [] as unknown[], destroyed: 0 };
+  args.connectFoundationPolicySummary = options => {
+    summary.connected++; summaryArgs = options;
+    return Object.freeze({ observe(state: unknown) { summary.states.push(state); },
+      destroy() { summary.destroyed++; } });
+  };
+  return { args, events, host, listeners, summary, summaryArgs: () => summaryArgs,
+    mounted: () => { assert.ok(mounted); return mounted; },
     setClient(value: unknown) { client = value; }, setAdapter(value: unknown) { adapter = value; },
     publish(open: boolean) { for (const listener of listeners) listener(open); } };
 }
@@ -119,4 +127,20 @@ test('retained policy startup still connects the authenticated account-settings 
   assert.match(startup, /subscribeAccountSettings: subscribeAgentPolicySettings/);
   assert.match(startup, /connectTaskVerificationPolicySettings\(/);
   assert.match(startup, /from '\.\/task-verification-policy-client\.mjs'/);
+});
+
+
+test('the Agent settings row is connected to the same adapter and torn down with the entry', () => {
+  const f = fixture(), entry = connectTaskVerificationPolicySettings(f.args);
+  assert.ok(entry);
+  assert.equal(f.summary.connected, 1);
+  // One adapter source for both the operable control and the read-only row.
+  const shared = f.summaryArgs();
+  assert.ok(shared); assert.equal(shared.getPolicyClient, f.mounted().getPolicyClient);
+  const state = { phase: 'ready', view: { mode: 'OFF', revision: '3' } };
+  f.mounted().onState?.(state);
+  assert.deepEqual(f.summary.states, [state]);
+  entry.destroy();
+  assert.equal(f.summary.destroyed, 1);
+  assert.equal(f.events.at(-1), 'destroy');
 });

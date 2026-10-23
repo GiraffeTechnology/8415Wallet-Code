@@ -14,6 +14,7 @@ declare module '*web/task-verification-policy-entry.mjs' {
     walletLogin: unknown;
     host: PolicySettingsHost;
     getPolicyClient(): unknown;
+    onState?(state: unknown): void;
   }
   export interface PolicySettingsEntryOptions {
     document: PolicySettingsDocument;
@@ -25,6 +26,9 @@ declare module '*web/task-verification-policy-entry.mjs' {
     createTaskVerificationPolicyClient(options: {
       client: unknown; walletLogin: unknown; document: PolicySettingsDocument; window: unknown;
     }): unknown;
+    connectFoundationPolicySummary?(options: {
+      document: PolicySettingsDocument; walletLogin: unknown; getPolicyClient(): unknown;
+    }): Readonly<{ observe(state: unknown): void; destroy(): void }> | null;
   }
   export function connectTaskVerificationPolicySettings(options: PolicySettingsEntryOptions): Readonly<{ destroy(): void }> | null;
 }
