@@ -1,0 +1,99 @@
+/** Human settings draft only, derived from task-asset-control-state/1 projections.
+ * This LOCAL view model is not an HTTP decoder, verified policy, grant or writer.
+ * The eventual authenticated adapter must independently bind the account/scope,
+ * decode the actual final status contract, perform exact-change factors and read
+ * back the authoritative revision. No URL, storage or network action is here.
+ */
+export const ASSET_CONTROL_UI_OPERATIONS = Object.freeze([
+  'erc8183:createJob', 'erc8183:setProvider', 'erc8183:setBudget', 'erc8183:fund',
+  'erc8183:submit', 'erc8183:complete', 'erc8183:reject', 'erc8183:claimRefund',
+  'wallet:native-transfer', 'wallet:erc20-transfer', 'wallet:erc721-transfer',
+  'wallet:erc1155-transfer', 'wallet:receive',
+]);
+const check = ok => { if (!ok) throw new Error('ASSET_CONTROL_VIEW_REFUSED'); };
+function record(value, keys) {
+  check(value && typeof value === 'object' && !Array.isArray(value) &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value)));
+  const d = Object.getOwnPropertyDescriptors(value);
+  check(Reflect.ownKeys(d).length === keys.length && keys.every(k =>
+    Object.hasOwn(d, k) && Object.hasOwn(d[k], 'value') && d[k].enumerable));
+}
+function array(value, maximum) {
+  check(Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype && value.length <= maximum);
+  const d = Object.getOwnPropertyDescriptors(value);
+  check(Reflect.ownKeys(d).length === value.length + 1);
+  return Array.from({ length: value.length }, (_, i) => {
+    const item = d[String(i)]; check(item && Object.hasOwn(item, 'value') && item.enumerable); return item.value;
+  });
+}
+function revision(value) {
+  check(typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value) && BigInt(value) < 1n << 256n);
+  return value;
+}
+export function assetControlUiTarget(raw) {
+  check(raw && typeof raw === 'object');
+  const kind = Object.getOwnPropertyDescriptor(raw, 'kind'); check(kind && Object.hasOwn(kind, 'value'));
+  if (kind.value === 'allow-agent') { record(raw, ['kind']); return Object.freeze({ kind: 'allow-agent' }); }
+  check(['asset', 'operation'].includes(kind.value));
+  record(raw, kind.value === 'asset' ? ['kind', 'path'] : ['kind', 'path', 'operation']);
+  const path = array(raw.path, 4);
+  check(path.length > 0 && path.every(x => typeof x === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(x)) &&
+    new Set(path).size === path.length);
+  if (kind.value === 'operation') check(ASSET_CONTROL_UI_OPERATIONS.includes(raw.operation));
+  return Object.freeze({ kind: kind.value, path: Object.freeze(path),
+    ...(kind.value === 'operation' ? { operation: raw.operation } : {}) });
+}
+const key = target => JSON.stringify(assetControlUiTarget(target));
+/** Actual pure backend projection shape; never interpret null/unavailable as ON. */
+export function assetControlUiField(raw, policyRevision) {
+  record(raw, ['target', 'value', 'source', 'revision', 'policyRevision', 'executable']);
+  const fieldRevision = revision(raw.revision);
+  check(typeof raw.value === 'boolean' && raw.executable === false &&
+    revision(raw.policyRevision) === revision(policyRevision) && BigInt(fieldRevision) <= BigInt(policyRevision));
+  check(raw.source === 'default' ? raw.value === true && fieldRevision === '0' :
+    raw.source === 'owner-saved' && BigInt(fieldRevision) > 0n);
+  return Object.freeze({ target: assetControlUiTarget(raw.target), value: raw.value, source: raw.source,
+    revision: fieldRevision, policyRevision, executable: false });
+}
+
+export class AssetControlDraft {
+  #view = null;
+  #draft = null;
+  /** scopeKey is captured independently by the authenticated adapter, not a URL
+   * or a browser-selected account. This method has no authority to validate it.
+   */
+  load(raw) {
+    record(raw, ['scopeKey', 'policyRevision', 'fields']);
+    check(typeof raw.scopeKey === 'string' && raw.scopeKey.length > 0 && raw.scopeKey.length <= 2048 &&
+      !/[\u0000-\u001f\u007f]/u.test(raw.scopeKey));
+    const policyRevision = revision(raw.policyRevision);
+    const fields = array(raw.fields, 10000).map(value => assetControlUiField(value, policyRevision));
+    check(new Set(fields.map(field => key(field.target))).size === fields.length);
+    const next = Object.freeze({ scopeKey: raw.scopeKey, policyRevision, fields: Object.freeze(fields) });
+    if (this.#view?.scopeKey === next.scopeKey) {
+      check(BigInt(next.policyRevision) >= BigInt(this.#view.policyRevision));
+      if (next.policyRevision === this.#view.policyRevision) check(JSON.stringify(next) === JSON.stringify(this.#view));
+    }
+    // Refresh cannot save a draft or apply it to a new authoritative revision.
+    this.#view = next; this.#draft = null;
+    return this.snapshot();
+  }
+  choose(target, value) {
+    check(this.#view && typeof value === 'boolean');
+    const normalized = assetControlUiTarget(target);
+    const field = this.#view.fields.find(item => key(item.target) === key(normalized));
+    check(field); // Missing/unread fields never acquire invented defaults.
+    this.#draft = value === field.value ? null : Object.freeze({ target: normalized, value,
+      expectedFieldRevision: field.revision });
+    return this.snapshot();
+  }
+  /** Body seam confirmed by the backend author; it is NOT dispatched here. */
+  prepare(identityMethod) {
+    check(this.#view && this.#draft && ['password', 'wallet'].includes(identityMethod));
+    return Object.freeze({ expectedRevision: this.#view.policyRevision, identityMethod,
+      patch: this.#draft });
+  }
+  cancel() { this.#draft = null; return this.snapshot(); }
+  clear() { this.#view = null; this.#draft = null; return this.snapshot(); }
+  snapshot() { return Object.freeze({ view: this.#view, draft: this.#draft, executable: false }); }
+}

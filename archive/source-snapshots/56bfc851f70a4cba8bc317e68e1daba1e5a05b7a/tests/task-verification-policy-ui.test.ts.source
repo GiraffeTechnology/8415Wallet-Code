@@ -1,0 +1,168 @@
+/** Synthetic DOM/owner settings only; no real password, email, wallet or chain. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mountTaskVerificationPolicy } from '../web/task-verification-policy-ui.mjs';
+
+class Element {
+  children: Element[] = []; parent: Element | null = null;
+  handlers = new Map<string, ((event: any) => void)[]>(); attributes = new Map<string, string>();
+  id = ''; type = ''; hidden = false; disabled = false; textContent = ''; className = '';
+  autocomplete = ''; required = false; maxLength = 0; inputMode = ''; pattern = ''; method = '';
+  stored = ''; isConnected = true;
+  readonly tag: string;
+  constructor(tag: string) { this.tag = tag; }
+  get value(): string { return this.stored || (this.tag === 'select' ? this.children[0]?.value ?? '' : ''); }
+  set value(v: string) { this.stored = v; }
+  get options() { return this.children; }
+  setAttribute(k: string, v: string) { this.attributes.set(k, v); }
+  removeAttribute(k: string) { this.attributes.delete(k); }
+  addEventListener(k: string, callback: (event: any) => void) { this.handlers.set(k, [...this.handlers.get(k) ?? [], callback]); }
+  dispatch(k: string) { for (const fn of this.handlers.get(k) ?? []) fn({ preventDefault() {} }); }
+  click() { if (!this.disabled) this.dispatch('click'); }
+  append(...nodes: Element[]) { for (const n of nodes) { n.parent = this; this.children.push(n); } }
+  replaceChildren(...nodes: Element[]) { this.children = []; this.append(...nodes); }
+  focus() {}
+  showModal() {}
+  close() { this.dispatch('close'); }
+  remove() { if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); this.isConnected = false; }
+  all(): Element[] { return this.children.flatMap(n => [n, ...n.all()]); }
+}
+const flush = async () => { for (let n = 0; n < 12; n++) await new Promise<void>(resolve => setImmediate(resolve)); };
+function fixture(t: { after(fn: () => void): void }, initial: 'ON' | 'OFF' = 'ON', available = true) {
+  const old = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const body = new Element('body'), root = new Element('section'); body.append(root);
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: {
+    body, activeElement: null, createElement: (tag: string) => new Element(tag),
+  } });
+  t.after(() => { if (old) Object.defineProperty(globalThis, 'document', old); else Reflect.deleteProperty(globalThis, 'document'); });
+  let current = true, mode = initial, revision = '0', locks = 0, releases = 0, signatures = 0;
+  let failConfirm = false, rejectMode = false;
+  const calls: { action: string; body: Record<string, unknown> }[] = [];
+  const session = { serverId: 'fixture', account: '0x' + '1'.repeat(40), chainId: '560048' };
+  const policyScope = { tenant: 'synthetic', origin: 'https://wallet.example.invalid', username: 'owner',
+    account: session.account, chainId: session.chainId, agentId: 'synthetic:agent' };
+  const request = { schema: '8415-task-human-verification-change/2', scope: policyScope,
+    changeId: 'c'.repeat(43), nonce: 'n'.repeat(43), expiresAt: Date.now() + 300_000 };
+  const client = { async taskVerification(action: string, value: Record<string, unknown> = {}) {
+    calls.push({ action, body: structuredClone(value) });
+    if (action === 'status') return { mode, revision, scope: policyScope };
+    if (action === 'prepare') {
+      Object.assign(request, { mode: rejectMode ? (value.mode === 'ON' ? 'OFF' : 'ON') : value.mode, expectedRevision: value.expectedRevision });
+      return { request, changeDigest: 'd'.repeat(64),
+        emailMasked: 'a***@example.invalid', message: 'Exact fixture ' + value.mode + ' change, no transaction signature' };
+    }
+    if (action === 'verify' || action === 'cancel') return {};
+    mode = (request as any).mode; revision = (BigInt(revision) + 1n).toString();
+    if (failConfirm && action === 'confirm') throw new Error('private transport diagnostic');
+    return { mode, revision, scope: policyScope };
+  } };
+  const panel = mountTaskVerificationPolicy({ root, clientFor: () => current ? client : null,
+    accountFor: () => ({ taskHumanVerification: available ? { mode, revision } : null, methods: { wallet: { bound: true, enabled: true }, password: { bound: true, enabled: true } } }),
+    capture: () => { if (!current) throw Error('LOGIN_REQUIRED'); return 'binding'; },
+    assertBinding: (binding: unknown) => { assert.equal(binding, 'binding'); assert.ok(current); return session; },
+    providerFor: () => ({ async request(input: { method: string }) { assert.equal(input.method, 'personal_sign'); signatures++; return 'synthetic-policy-only-signature'; } }),
+    acquire: () => { locks++; return 'lock'; }, release: (lock: string) => { assert.equal(lock, 'lock'); releases++; },
+  });
+  t.after(() => panel.clear());
+  const buttons = () => root.all().filter(n => n.tag === 'button');
+  const dialog = () => { const d = body.children.find(n => n.tag === 'dialog'); assert.ok(d); return d; };
+  const submit = (value: string) => {
+    const d = dialog(), field = d.all().find(n => n.tag === 'input'); if (field) field.value = value;
+    const form = d.all().find(n => n.tag === 'form'); assert.ok(form); form.dispatch('submit');
+  };
+  return { panel, calls, root, body, buttons, dialog, submit,
+    signOut() { current = false; panel.clear(); }, failConfirm() { failConfirm = true; }, rejectMode() { rejectMode = true; },
+    state: () => ({ mode, revision, locks, releases, signatures }) };
+}
+
+test('opening and refreshing settings reads policy only; it never signs or turns OFF', async t => {
+  const f = fixture(t); f.panel.render(true); await flush(); f.panel.render(true); await flush();
+  assert.deepEqual(f.calls.map(c => c.action), ['status']); assert.equal(f.state().signatures, 0);
+  assert.equal(f.state().mode, 'ON'); assert.equal(f.body.children.some(n => n.tag === 'dialog'), false);
+});
+
+test('unopened backend policy entry causes no business request, prompt or state change', async t => {
+  const f = fixture(t, 'ON', false); f.panel.render(true); await flush();
+  for (const button of f.buttons()) button.click(); await flush();
+  assert.deepEqual(f.calls, []); assert.equal(f.state().mode, 'ON'); assert.equal(f.state().signatures, 0);
+  assert.equal(f.body.children.some(n => n.tag === 'dialog'), false);
+});
+
+test('owner password plus existing email commits exact OFF without TOTP or recovery third gate', async t => {
+  const f = fixture(t); f.panel.render(true); await flush();
+  const select = f.root.all().find(n => n.tag === 'select'); assert.ok(select); select.value = 'password';
+  f.buttons()[0]!.click(); await flush();
+  assert.equal(f.state().mode, 'ON');
+  assert.match(f.dialog().all().find(n => n.tag === 'pre')!.textContent, /Exact fixture OFF change/);
+  f.submit('public-synthetic-password'); await flush(); f.submit('12345678'); await flush();
+  assert.deepEqual(f.calls.map(c => c.action), ['status', 'prepare', 'verify', 'confirm']);
+  const verify = f.calls.find(c => c.action === 'verify')!.body;
+  assert.deepEqual(Object.keys(verify).sort(), ['changeDigest', 'changeId', 'password']);
+  assert.equal(f.state().mode, 'OFF'); assert.equal(f.state().signatures, 0);
+  assert.equal(f.state().locks, f.state().releases);
+  for (const node of f.body.all()) assert.doesNotMatch(node.textContent, /public-synthetic-password|12345678/);
+});
+
+test('wallet policy signature needs explicit review click and never requests a transaction', async t => {
+  const f = fixture(t); f.panel.render(true); await flush(); f.buttons()[0]!.click(); await flush();
+  assert.equal(f.state().signatures, 0); f.submit(''); await flush();
+  assert.equal(f.state().signatures, 1); f.submit('12345678'); await flush();
+  assert.equal(f.state().mode, 'OFF');
+  assert.deepEqual(Object.keys(f.calls.find(c => c.action === 'verify')!.body).sort(), ['changeDigest', 'changeId', 'signature']);
+});
+
+test('ON needs exact review plus two factors, never a session-only on request', async t => {
+  const f = fixture(t, 'OFF'); f.panel.render(true); await flush(); f.buttons()[1]!.click(); await flush();
+  assert.equal(f.state().mode, 'OFF'); assert.deepEqual(f.calls.map(c => c.action), ['status', 'prepare']);
+  assert.equal(f.calls[1]!.body.mode, 'ON'); f.submit(''); await flush();
+  assert.equal(f.state().signatures, 1); assert.equal(f.state().mode, 'OFF');
+  f.submit('12345678'); await flush(); assert.equal(f.state().mode, 'ON');
+  assert.deepEqual(f.calls.map(c => c.action), ['status', 'prepare', 'verify', 'confirm']);
+  assert.equal(f.state().locks, f.state().releases);
+});
+test('server rebound target mode is refused before identity signing or confirmation', async t => {
+  const f = fixture(t, 'OFF'); f.rejectMode(); f.panel.render(true); await flush();
+  f.buttons()[1]!.click(); await flush();
+  assert.equal(f.state().mode, 'OFF'); assert.equal(f.state().signatures, 0);
+  assert.equal(f.calls.some(c => c.action === 'verify' || c.action === 'confirm' || c.action === 'on'), false);
+});
+test('cancelling an ON review preserves the prior committed OFF policy', async t => {
+  const f = fixture(t, 'OFF'); f.panel.render(true); await flush(); f.buttons()[1]!.click(); await flush();
+  f.panel.clear(); await flush(); assert.equal(f.state().mode, 'OFF');
+  assert.deepEqual(f.calls.map(c => c.action), ['status', 'prepare', 'cancel']);
+});
+
+test('logout clears a pending proof without sending identity or confirming OFF', async t => {
+  const f = fixture(t); f.panel.render(true); await flush(); f.buttons()[0]!.click(); await flush();
+  f.signOut(); await flush(); assert.equal(f.state().mode, 'ON');
+  assert.deepEqual(f.calls.map(c => c.action), ['status', 'prepare', 'cancel']);
+  assert.equal(f.body.children.some(n => n.tag === 'dialog'), false);
+  assert.equal(f.state().locks, f.state().releases);
+});
+
+test('lost confirmation does not claim rollback or repeat it; reopen reads actual server OFF', async t => {
+  const f = fixture(t); f.panel.render(true); await flush(); f.failConfirm();
+  f.buttons()[0]!.click(); await flush(); f.submit(''); await flush(); f.submit('12345678'); await flush();
+  assert.equal(f.state().mode, 'OFF'); assert.equal(f.calls.filter(c => c.action === 'confirm').length, 1);
+  f.panel.render(false); f.panel.render(true); await flush();
+  assert.equal(f.calls.filter(c => c.action === 'status').length, 2);
+  assert.equal(f.state().locks, f.state().releases);
+  for (const node of f.body.all()) assert.doesNotMatch(node.textContent, /private transport diagnostic/);
+});
+
+
+test('policy review shows only the authenticated current wallet account chain and Agent scope', async t => {
+  const f = fixture(t); f.panel.render(true); await flush();
+  const scopeValues = f.root.all().filter(n => n.tag === 'dd').map(n => n.textContent);
+  assert.deepEqual(scopeValues, ['synthetic', '0x' + '1'.repeat(40), '560048', 'synthetic:agent']);
+  assert.equal(f.buttons()[1]!.attributes.get('aria-pressed'), 'true');
+  f.signOut(); assert.equal(f.root.all().filter(n => n.tag === 'dd').length, 0);
+});
+
+test('exact proposed policy mode remains a draft until committed confirmation', async t => {
+  const f = fixture(t); f.panel.render(true); await flush(); f.buttons()[0]!.click(); await flush();
+  assert.ok(f.root.all().some(n => n.textContent.includes('Draft OFF')));
+  assert.equal(f.state().mode, 'ON');
+  f.panel.clear(); await flush(); assert.equal(f.state().mode, 'ON');
+  assert.equal(f.root.all().filter(n => n.tag === 'dd').length, 0);
+});

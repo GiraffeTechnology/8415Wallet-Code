@@ -1,0 +1,826 @@
+{
+  "schema": "8415wallet-historical-source-snapshots/1",
+  "status": "HISTORICAL_NONRUNTIME_SOURCE_ONLY",
+  "runtimeIntegrated": false,
+  "testsExecuted": false,
+  "entries": [
+    {
+      "path": "archive/source-snapshots/150da76180b4c6054f7840fc2c244752f709f604/tests/auth-build-supervisor.test.py.source",
+      "sourcePath": "tests/auth-build-supervisor.test.py",
+      "sourceBlob": "150da76180b4c6054f7840fc2c244752f709f604",
+      "neutralizations": [
+        "execution-comment-removed"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/155159c9d5a8f4cd427a89cacfaf1e302d33d5ed/server/auth-service.mjs.source",
+      "sourcePath": "server/auth-service.mjs",
+      "sourceBlob": "155159c9d5a8f4cd427a89cacfaf1e302d33d5ed",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/20f7700276ea06badceafc4e2597f49c9549abd8/web/task-authorization-ui.mjs.source",
+      "sourcePath": "web/task-authorization-ui.mjs",
+      "sourceBlob": "20f7700276ea06badceafc4e2597f49c9549abd8",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/1a88cfcc002be3519461b226406178880898e473/tests/auth-provisioning.test.mjs.source",
+      "sourcePath": "tests/auth-provisioning.test.mjs",
+      "sourceBlob": "1a88cfcc002be3519461b226406178880898e473",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/1ffe99002bccfe353e2ccf3c68e59cef253f2853/web/index.html.source",
+      "sourcePath": "web/index.html",
+      "sourceBlob": "1ffe99002bccfe353e2ccf3c68e59cef253f2853",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/238c1c10fef0aa1fdfc5913289e3d52ccb01a4b0/scripts/package/build-auth.mjs.source",
+      "sourcePath": "scripts/package/build-auth.mjs",
+      "sourceBlob": "238c1c10fef0aa1fdfc5913289e3d52ccb01a4b0",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/23dc6f876dec4e16765ba3dd4dd99a7466472566/server/task-runtime-composition.mjs.source",
+      "sourcePath": "server/task-runtime-composition.mjs",
+      "sourceBlob": "23dc6f876dec4e16765ba3dd4dd99a7466472566",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/2b430310a8a10a68c1ff5242abb7ca91fd3f3ecd/tests/readonly-check.test.mjs.source",
+      "sourcePath": "tests/readonly-check.test.mjs",
+      "sourceBlob": "2b430310a8a10a68c1ff5242abb7ca91fd3f3ecd",
+      "neutralizations": [
+        "tenant-examples"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/2c694f484324ee14ae9b9678b08641754ffb9641/web/wallet-shell.mjs.source",
+      "sourcePath": "web/wallet-shell.mjs",
+      "sourceBlob": "2c694f484324ee14ae9b9678b08641754ffb9641",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/011191508652d55e14d5577625ca53c7fbab114b/tests/task-authorization-service.test.ts.source",
+      "sourcePath": "tests/task-authorization-service.test.ts",
+      "sourceBlob": "011191508652d55e14d5577625ca53c7fbab114b",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/12c5573ee15db24ed5c9465ff71132a1af5fc808/deploy/auth-legacy/migrate-legacy.mjs.source",
+      "sourcePath": "deploy/auth-legacy/migrate-legacy.mjs",
+      "sourceBlob": "12c5573ee15db24ed5c9465ff71132a1af5fc808",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/11348ce7bed99ea427e64e1a475dc27b1a5dcc92/tests/auth-legacy-migration.test.mjs.source",
+      "sourcePath": "tests/auth-legacy-migration.test.mjs",
+      "sourceBlob": "11348ce7bed99ea427e64e1a475dc27b1a5dcc92",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/3009ee2ab91c9c2e61a707e33ae73160529df058/scripts/controls/registration-ui-smoke.cjs.source",
+      "sourcePath": "scripts/controls/registration-ui-smoke.cjs",
+      "sourceBlob": "3009ee2ab91c9c2e61a707e33ae73160529df058",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/36931372a88b5f747addd42eb043d4c28f3e746e/tests/task-api-only-http.test.mjs.source",
+      "sourcePath": "tests/task-api-only-http.test.mjs",
+      "sourceBlob": "36931372a88b5f747addd42eb043d4c28f3e746e",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/3caf20a3ea67751f6848e18587c668dfa83693fc/web/asset-workspace-panel.mjs.source",
+      "sourcePath": "web/asset-workspace-panel.mjs",
+      "sourceBlob": "3caf20a3ea67751f6848e18587c668dfa83693fc",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/40358cc6c29b1fab7ce25db9d1b755f466e86094/scripts/package/verify-auth.mjs.source",
+      "sourcePath": "scripts/package/verify-auth.mjs",
+      "sourceBlob": "40358cc6c29b1fab7ce25db9d1b755f466e86094",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/3ec70aa73ed40cf389175589d56dbd8c4443d064/tests/task-exact-planner-background.test.mjs.source",
+      "sourcePath": "tests/task-exact-planner-background.test.mjs",
+      "sourceBlob": "3ec70aa73ed40cf389175589d56dbd8c4443d064",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/4451d99264f7e25e41243028cb24008f18ab5b78/server/auth-service.mjs.source",
+      "sourcePath": "server/auth-service.mjs",
+      "sourceBlob": "4451d99264f7e25e41243028cb24008f18ab5b78",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/44af3148163549634f0e056c811a1ca0452709f3/web/wallet-auth.mjs.source",
+      "sourcePath": "web/wallet-auth.mjs",
+      "sourceBlob": "44af3148163549634f0e056c811a1ca0452709f3",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/46f47db7ab91c5dcbbdb94a889c70d5d6615d8a2/scripts/controls/tenant-password-ui-smoke.cjs.source",
+      "sourcePath": "scripts/controls/tenant-password-ui-smoke.cjs",
+      "sourceBlob": "46f47db7ab91c5dcbbdb94a889c70d5d6615d8a2",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/498b65f83abbad0fa90e5284d62efad82be7ab2a/server/task-authorization.mjs.source",
+      "sourcePath": "server/task-authorization.mjs",
+      "sourceBlob": "498b65f83abbad0fa90e5284d62efad82be7ab2a",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/4604be2222d3d7f0a0887b80d8b1d0b328dde138/tests/task-observer-context-service.test.mjs.source",
+      "sourcePath": "tests/task-observer-context-service.test.mjs",
+      "sourceBlob": "4604be2222d3d7f0a0887b80d8b1d0b328dde138",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/4660ba9bc27fa3d6130cba87273e594da70f03ea/tests/asset-control-draft.test.mjs.source",
+      "sourcePath": "tests/asset-control-draft.test.mjs",
+      "sourceBlob": "4660ba9bc27fa3d6130cba87273e594da70f03ea",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/50772c951571acd3c64fed9d253abca8e04e8721/web/task-verification-policy-ui.mjs.source",
+      "sourcePath": "web/task-verification-policy-ui.mjs",
+      "sourceBlob": "50772c951571acd3c64fed9d253abca8e04e8721",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/521fa6766406de551528b785f1f18fe80f174ac3/server/main.mjs.source",
+      "sourcePath": "server/main.mjs",
+      "sourceBlob": "521fa6766406de551528b785f1f18fe80f174ac3",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/508ca12809b7034dba8d684150152aaad1e4cffa/server/task-verification-state.mjs.source",
+      "sourcePath": "server/task-verification-state.mjs",
+      "sourceBlob": "508ca12809b7034dba8d684150152aaad1e4cffa",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/56bfc851f70a4cba8bc317e68e1daba1e5a05b7a/tests/task-verification-policy-ui.test.ts.source",
+      "sourcePath": "tests/task-verification-policy-ui.test.ts",
+      "sourceBlob": "56bfc851f70a4cba8bc317e68e1daba1e5a05b7a",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/5612b88dd882a09d6ca64cfd3d15095aba1cc1bb/tests/helpers/auth-legacy-fixture.mjs.source",
+      "sourcePath": "tests/helpers/auth-legacy-fixture.mjs",
+      "sourceBlob": "5612b88dd882a09d6ca64cfd3d15095aba1cc1bb",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/55e1bc8fc7e2ae37d66449a690ee3a383e1f24f2/tests/gapView.test.ts.source",
+      "sourcePath": "tests/gapView.test.ts",
+      "sourceBlob": "55e1bc8fc7e2ae37d66449a690ee3a383e1f24f2",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/574b2c261bc85180b1c9d4a086fbc9e6acc2be03/tests/types/task-verification-policy.d.ts.source",
+      "sourcePath": "tests/types/task-verification-policy.d.ts",
+      "sourceBlob": "574b2c261bc85180b1c9d4a086fbc9e6acc2be03",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/58e370926e5bcb2d6bfbddb882709f19a25eed18/server/task-exact-signer-adapter.mjs.source",
+      "sourcePath": "server/task-exact-signer-adapter.mjs",
+      "sourceBlob": "58e370926e5bcb2d6bfbddb882709f19a25eed18",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/5966ada19e0c6c760808ac6a0a993aeecd50de66/deploy/auth-legacy/migrate-legacy.mjs.source",
+      "sourcePath": "deploy/auth-legacy/migrate-legacy.mjs",
+      "sourceBlob": "5966ada19e0c6c760808ac6a0a993aeecd50de66",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/5cc974e54833ecbf9397f80f5789258d421a410e/tests/helpers/auth-legacy-host.mjs.source",
+      "sourcePath": "tests/helpers/auth-legacy-host.mjs",
+      "sourceBlob": "5cc974e54833ecbf9397f80f5789258d421a410e",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/6394b2817abfc10fe5c16707f8394432e906402e/tests/auth-provisioning.test.mjs.source",
+      "sourcePath": "tests/auth-provisioning.test.mjs",
+      "sourceBlob": "6394b2817abfc10fe5c16707f8394432e906402e",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/692c6708550e950f51573f904212138aa446c98d/tests/isolated-tenants.test.mjs.source",
+      "sourcePath": "tests/isolated-tenants.test.mjs",
+      "sourceBlob": "692c6708550e950f51573f904212138aa446c98d",
+      "neutralizations": [
+        "account-example-a",
+        "account-example-b",
+        "legacy-tenant-neutralized",
+        "tenant-examples",
+        "historical-examples"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/69299d3d2aff540ecca3f0f03a0879c41e11b79d/web/index.html.source",
+      "sourcePath": "web/index.html",
+      "sourceBlob": "69299d3d2aff540ecca3f0f03a0879c41e11b79d",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/6a63b64eae267f344fd2dab139c8e81d7d260baf/tests/task-runtime-entry.test.mjs.source",
+      "sourcePath": "tests/task-runtime-entry.test.mjs",
+      "sourceBlob": "6a63b64eae267f344fd2dab139c8e81d7d260baf",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/6ed9f4bf89b4cfb81fddf481a5f25acee99b64fe/tests/task-api-only-http.test.mjs.source",
+      "sourcePath": "tests/task-api-only-http.test.mjs",
+      "sourceBlob": "6ed9f4bf89b4cfb81fddf481a5f25acee99b64fe",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/6fd74ebc34aae955f384d6a297f4aff2a895f997/web/account-auth.mjs.source",
+      "sourcePath": "web/account-auth.mjs",
+      "sourceBlob": "6fd74ebc34aae955f384d6a297f4aff2a895f997",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/6e4aa4a4d9c855eb61e68e9dd930b9c2dd6f1b2a/tests/browser-connection.test.ts.source",
+      "sourcePath": "tests/browser-connection.test.ts",
+      "sourceBlob": "6e4aa4a4d9c855eb61e68e9dd930b9c2dd6f1b2a",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/7021be3106dbfd29b8ce3c9a58203d572ecb9441/web/app.mjs.source",
+      "sourcePath": "web/app.mjs",
+      "sourceBlob": "7021be3106dbfd29b8ce3c9a58203d572ecb9441",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/7422cb2a949efb88fff1aa32bf41d6a2a6a0de4e/server/task-exact-signer-adapter.mjs.source",
+      "sourcePath": "server/task-exact-signer-adapter.mjs",
+      "sourceBlob": "7422cb2a949efb88fff1aa32bf41d6a2a6a0de4e",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/73bdca8fa00b69da29cdbc8f3558593e9f05f8e4/tests/product-source.test.mjs.source",
+      "sourcePath": "tests/product-source.test.mjs",
+      "sourceBlob": "73bdca8fa00b69da29cdbc8f3558593e9f05f8e4",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/75077a6109b37d5457e0e078f798379ab1624ea2/scripts/package/supervise-auth.py.source",
+      "sourcePath": "scripts/package/supervise-auth.py",
+      "sourceBlob": "75077a6109b37d5457e0e078f798379ab1624ea2",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/757ff0efc825c37249cfd257a070645726559c78/tests/auth-activation.test.mjs.source",
+      "sourcePath": "tests/auth-activation.test.mjs",
+      "sourceBlob": "757ff0efc825c37249cfd257a070645726559c78",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/7e4c0827a055d984cdb2d908811ad2677b9ae3c1/tests/legacy-clearing-session.test.ts.source",
+      "sourcePath": "tests/legacy-clearing-session.test.ts",
+      "sourceBlob": "7e4c0827a055d984cdb2d908811ad2677b9ae3c1",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/83b95d24e666aad375cd1326af21dcb53e6394dc/scripts/package/verify-auth.mjs.source",
+      "sourcePath": "scripts/package/verify-auth.mjs",
+      "sourceBlob": "83b95d24e666aad375cd1326af21dcb53e6394dc",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/8882551861b5a570c8c1e39d764f0cf92bfebe8c/web/app.mjs.source",
+      "sourcePath": "web/app.mjs",
+      "sourceBlob": "8882551861b5a570c8c1e39d764f0cf92bfebe8c",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/87d6f87bc2bd0a92cc07d583154029af0f8b78df/tests/task-receipt-observation.test.mjs.source",
+      "sourcePath": "tests/task-receipt-observation.test.mjs",
+      "sourceBlob": "87d6f87bc2bd0a92cc07d583154029af0f8b78df",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/89141e2b458299b49d9e5df512d4d7aa9da1a309/web/task-activity.mjs.source",
+      "sourcePath": "web/task-activity.mjs",
+      "sourceBlob": "89141e2b458299b49d9e5df512d4d7aa9da1a309",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/888437237c0d0e4aa2f236b6b1727da3184697a8/web/account-auth.mjs.source",
+      "sourcePath": "web/account-auth.mjs",
+      "sourceBlob": "888437237c0d0e4aa2f236b6b1727da3184697a8",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/88a673bc34da0b9dd3686729bceaf6043533b343/server/task-authorization.mjs.source",
+      "sourcePath": "server/task-authorization.mjs",
+      "sourceBlob": "88a673bc34da0b9dd3686729bceaf6043533b343",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/8920903c56fcda7138b4602f497cf1f50468e8f5/tests/auth-package.test.mjs.source",
+      "sourcePath": "tests/auth-package.test.mjs",
+      "sourceBlob": "8920903c56fcda7138b4602f497cf1f50468e8f5",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/89366f1edf09dc56e9a30362d1bdabf0ec1aeecb/web/account-auth.mjs.source",
+      "sourcePath": "web/account-auth.mjs",
+      "sourceBlob": "89366f1edf09dc56e9a30362d1bdabf0ec1aeecb",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/8bc5bdb792603f8a0c516f27fd1f10e68ec02c84/server/task-authorization.mjs.source",
+      "sourcePath": "server/task-authorization.mjs",
+      "sourceBlob": "8bc5bdb792603f8a0c516f27fd1f10e68ec02c84",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/8d341a0f1010163eab50f4f65af3b4acf69bdd7b/test-evm/escrow.cjs.source",
+      "sourcePath": "test-evm/escrow.cjs",
+      "sourceBlob": "8d341a0f1010163eab50f4f65af3b4acf69bdd7b",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/8ec03ab0692be7bb3bcbf58bb4378f21a61ebb95/server/task-exact-signer-adapter.mjs.source",
+      "sourcePath": "server/task-exact-signer-adapter.mjs",
+      "sourceBlob": "8ec03ab0692be7bb3bcbf58bb4378f21a61ebb95",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/9184758b278441ea58797cd74e242021e05df04f/deploy/auth-legacy/migrate-legacy.mjs.source",
+      "sourcePath": "deploy/auth-legacy/migrate-legacy.mjs",
+      "sourceBlob": "9184758b278441ea58797cd74e242021e05df04f",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/935ed4cf7c7457490bc62705a74906a058c672be/deploy/auth-legacy/install.mjs.source",
+      "sourcePath": "deploy/auth-legacy/install.mjs",
+      "sourceBlob": "935ed4cf7c7457490bc62705a74906a058c672be",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/9187ed80565f68411b9ccea9a3101bbd7415c42e/tests/auth-legacy-migration.test.mjs.source",
+      "sourcePath": "tests/auth-legacy-migration.test.mjs",
+      "sourceBlob": "9187ed80565f68411b9ccea9a3101bbd7415c42e",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/915b58805142b89b614c5d3163e1004a5a71ac52/web/task-authorization.mjs.source",
+      "sourcePath": "web/task-authorization.mjs",
+      "sourceBlob": "915b58805142b89b614c5d3163e1004a5a71ac52",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/927432f954b7112f4a312279bfc438795301f410/tests/task-historical-observation.test.mjs.source",
+      "sourcePath": "tests/task-historical-observation.test.mjs",
+      "sourceBlob": "927432f954b7112f4a312279bfc438795301f410",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/92ced876478543eb65a5fb5875b8107bca7f49b0/server/task-authorization.mjs.source",
+      "sourcePath": "server/task-authorization.mjs",
+      "sourceBlob": "92ced876478543eb65a5fb5875b8107bca7f49b0",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/96dcd3d510d97dcb7b0d168d25606ac5c5b690f6/tests/task-exact-signer-adapter.test.mjs.source",
+      "sourcePath": "tests/task-exact-signer-adapter.test.mjs",
+      "sourceBlob": "96dcd3d510d97dcb7b0d168d25606ac5c5b690f6",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/977f5fe9263b0b14fa8d53c1d2c8ba073c2c6c1a/tests/auth-package.test.mjs.source",
+      "sourcePath": "tests/auth-package.test.mjs",
+      "sourceBlob": "977f5fe9263b0b14fa8d53c1d2c8ba073c2c6c1a",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/98ce9d47f7ec6647cd1c3e53d35ce5feff9b3712/scripts/package/verify-auth.mjs.source",
+      "sourcePath": "scripts/package/verify-auth.mjs",
+      "sourceBlob": "98ce9d47f7ec6647cd1c3e53d35ce5feff9b3712",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/9ad32df98c41ebd25ac43a9e2fd0aa343794b702/tests/auth-legacy-migration.test.mjs.source",
+      "sourcePath": "tests/auth-legacy-migration.test.mjs",
+      "sourceBlob": "9ad32df98c41ebd25ac43a9e2fd0aa343794b702",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/9848cedc909d833560b7ffde878c006b8dbbf5ea/tests/auth-activation.test.mjs.source",
+      "sourcePath": "tests/auth-activation.test.mjs",
+      "sourceBlob": "9848cedc909d833560b7ffde878c006b8dbbf5ea",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/9adf74cc5804f8bbfa480fa1ca3380cd3b0f5f32/server/auth-service.mjs.source",
+      "sourcePath": "server/auth-service.mjs",
+      "sourceBlob": "9adf74cc5804f8bbfa480fa1ca3380cd3b0f5f32",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/9ba2c48a5bebf80d84288adb3f9fee9b66c9f9ec/web/asset-control-draft.mjs.source",
+      "sourcePath": "web/asset-control-draft.mjs",
+      "sourceBlob": "9ba2c48a5bebf80d84288adb3f9fee9b66c9f9ec",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/9c6c27d528739cee4374221b91259632b58660e1/web/locales/task-authorization.mjs.source",
+      "sourcePath": "web/locales/task-authorization.mjs",
+      "sourceBlob": "9c6c27d528739cee4374221b91259632b58660e1",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/9c8191d9d90fd1389ea7e7a7eb716cbcb85d4945/server/task-authorization.mjs.source",
+      "sourcePath": "server/task-authorization.mjs",
+      "sourceBlob": "9c8191d9d90fd1389ea7e7a7eb716cbcb85d4945",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/9fcc41b0b31dcd16cbb3d6d8329826ff3adce74c/scripts/hoodi-readonly-check.mjs.source",
+      "sourcePath": "scripts/hoodi-readonly-check.mjs",
+      "sourceBlob": "9fcc41b0b31dcd16cbb3d6d8329826ff3adce74c",
+      "neutralizations": [
+        "account-example-a",
+        "account-example-b",
+        "tenant-examples",
+        "historical-examples"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/a310c2d37d0f36663f7353529e5395d4f49a5d2a/tests/auth-package.test.mjs.source",
+      "sourcePath": "tests/auth-package.test.mjs",
+      "sourceBlob": "a310c2d37d0f36663f7353529e5395d4f49a5d2a",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/aba2474980d68096cc5ac648b1c4559077e06f2c/tests/asset-control-read.test.mjs.source",
+      "sourcePath": "tests/asset-control-read.test.mjs",
+      "sourceBlob": "aba2474980d68096cc5ac648b1c4559077e06f2c",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/abe32ca3178481685bdd2fbc77e63e4769ad3407/scripts/package/verify-auth.mjs.source",
+      "sourcePath": "scripts/package/verify-auth.mjs",
+      "sourceBlob": "abe32ca3178481685bdd2fbc77e63e4769ad3407",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/b0573415763534db2f6e3f41e475ac64904c71bf/tests/foundation-ui.test.mjs.source",
+      "sourcePath": "tests/foundation-ui.test.mjs",
+      "sourceBlob": "b0573415763534db2f6e3f41e475ac64904c71bf",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/b0a277ec409056ee227bb6c8e41d89a1984d1fb3/web/task-verification-policy-ui.mjs.source",
+      "sourcePath": "web/task-verification-policy-ui.mjs",
+      "sourceBlob": "b0a277ec409056ee227bb6c8e41d89a1984d1fb3",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/b21a9f5822e751ebda8287b4c2c61746acb7e39d/tests/product-positioning.test.ts.source",
+      "sourcePath": "tests/product-positioning.test.ts",
+      "sourceBlob": "b21a9f5822e751ebda8287b4c2c61746acb7e39d",
+      "neutralizations": [
+        "provider-policy-example-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/b66ccc68a36770a399a7593307e4f854f1f90cff/deploy/auth-runtime/migrate-legacy.mjs.source",
+      "sourcePath": "deploy/auth-runtime/migrate-legacy.mjs",
+      "sourceBlob": "b66ccc68a36770a399a7593307e4f854f1f90cff",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/bc75bed56b20ca22f9653278195a453115f9e73d/web/wallet-auth.mjs.source",
+      "sourcePath": "web/wallet-auth.mjs",
+      "sourceBlob": "bc75bed56b20ca22f9653278195a453115f9e73d",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/bbfe404cd884f27b140d7e768a5430353c4dcacd/server/auth-service.mjs.source",
+      "sourcePath": "server/auth-service.mjs",
+      "sourceBlob": "bbfe404cd884f27b140d7e768a5430353c4dcacd",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/c2fd73a70fa766a49c9221e23ebe3b2d9976d755/web/locales/auth-management.mjs.source",
+      "sourcePath": "web/locales/auth-management.mjs",
+      "sourceBlob": "c2fd73a70fa766a49c9221e23ebe3b2d9976d755",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/c386cbb51662fc355cfcd646068de40b1a46225b/web/asset-control-read.mjs.source",
+      "sourcePath": "web/asset-control-read.mjs",
+      "sourceBlob": "c386cbb51662fc355cfcd646068de40b1a46225b",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/bee88ae139481cd6129d9fef611a1543a9cb44bc/server/operator-init.mjs.source",
+      "sourcePath": "server/operator-init.mjs",
+      "sourceBlob": "bee88ae139481cd6129d9fef611a1543a9cb44bc",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/bf476f50dfaa719a18536ffe4b8e7535ede3acbc/tests/read-panel-lifecycle.test.ts.source",
+      "sourcePath": "tests/read-panel-lifecycle.test.ts",
+      "sourceBlob": "bf476f50dfaa719a18536ffe4b8e7535ede3acbc",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/c4167b04c31bb9161ea1ce8bcd64baab8b09c9ff/tests/task-verification-policy-ui.test.ts.source",
+      "sourcePath": "tests/task-verification-policy-ui.test.ts",
+      "sourceBlob": "c4167b04c31bb9161ea1ce8bcd64baab8b09c9ff",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/c550ce2556035b26e33859c79bc3e8c873916927/server/auth-service.mjs.source",
+      "sourcePath": "server/auth-service.mjs",
+      "sourceBlob": "c550ce2556035b26e33859c79bc3e8c873916927",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/c4be175762273d8882c10e9d53794e46edf67e53/web/locales/auth-management.mjs.source",
+      "sourcePath": "web/locales/auth-management.mjs",
+      "sourceBlob": "c4be175762273d8882c10e9d53794e46edf67e53",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/c6285409d334a0002f06a1cbffabda084b6504be/web/task-verification-policy-ui.mjs.source",
+      "sourcePath": "web/task-verification-policy-ui.mjs",
+      "sourceBlob": "c6285409d334a0002f06a1cbffabda084b6504be",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/cc1fb30d2f209d0eb72f428dde3366eb17a95e58/tests/asset-authorization-policy.test.ts.source",
+      "sourcePath": "tests/asset-authorization-policy.test.ts",
+      "sourceBlob": "cc1fb30d2f209d0eb72f428dde3366eb17a95e58",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/cd05633fae83946fd027507053ffe7bc1720c010/web/locales/auth-management.mjs.source",
+      "sourcePath": "web/locales/auth-management.mjs",
+      "sourceBlob": "cd05633fae83946fd027507053ffe7bc1720c010",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/ce2527b3f349ac4ce56ecdd8bf929b57b0e1221b/server/task-verification-policy.mjs.source",
+      "sourcePath": "server/task-verification-policy.mjs",
+      "sourceBlob": "ce2527b3f349ac4ce56ecdd8bf929b57b0e1221b",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/cf7136027c7c3c6def0f1b5c91199bbbdf9792de/web/account-auth.mjs.source",
+      "sourcePath": "web/account-auth.mjs",
+      "sourceBlob": "cf7136027c7c3c6def0f1b5c91199bbbdf9792de",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/d39d15533c54afeb048d79c62fe6bb619fbeb287/web/index.html.source",
+      "sourcePath": "web/index.html",
+      "sourceBlob": "d39d15533c54afeb048d79c62fe6bb619fbeb287",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/d551e415f6ba3f68a12e2ce0911426fcffb871e1/src/wallet/legacyClearingSession.ts.source",
+      "sourcePath": "src/wallet/legacyClearingSession.ts",
+      "sourceBlob": "d551e415f6ba3f68a12e2ce0911426fcffb871e1",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/d54ef4952b5f8e4f96a1a142c1a61653cf73cefe/tests/task-authorization-ui.test.ts.source",
+      "sourcePath": "tests/task-authorization-ui.test.ts",
+      "sourceBlob": "d54ef4952b5f8e4f96a1a142c1a61653cf73cefe",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/d48dfe2cbe55642ba0a1ed3465747c86e157674e/web/wallet-auth.mjs.source",
+      "sourcePath": "web/wallet-auth.mjs",
+      "sourceBlob": "d48dfe2cbe55642ba0a1ed3465747c86e157674e",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/d42ae69ebd6baa5d78678478de9f65617f2c66fd/tests/task-verification-policy-ui.test.ts.source",
+      "sourcePath": "tests/task-verification-policy-ui.test.ts",
+      "sourceBlob": "d42ae69ebd6baa5d78678478de9f65617f2c66fd",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/dbbe95e9037dc3dd624076777f059f1049a687a2/tests/helpers/auth-legacy-host.mjs.source",
+      "sourcePath": "tests/helpers/auth-legacy-host.mjs",
+      "sourceBlob": "dbbe95e9037dc3dd624076777f059f1049a687a2",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/dabe0a2633b179fb9443e94119bd76c7af4e8db1/tests/task-runtime-composition.test.mjs.source",
+      "sourcePath": "tests/task-runtime-composition.test.mjs",
+      "sourceBlob": "dabe0a2633b179fb9443e94119bd76c7af4e8db1",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/db08f12963fb528abfa8a9d866ff2eb156fc415f/tests/dapp-install.test.mjs.source",
+      "sourcePath": "tests/dapp-install.test.mjs",
+      "sourceBlob": "db08f12963fb528abfa8a9d866ff2eb156fc415f",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/dc309a87b3f6c6e2ca2b98872c3b7b656e35c948/scripts/package/build-auth.mjs.source",
+      "sourcePath": "scripts/package/build-auth.mjs",
+      "sourceBlob": "dc309a87b3f6c6e2ca2b98872c3b7b656e35c948",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/dca0c1cdf1a1898a4201f322a336d8e72679a7dd/web/hoodi-journey-panel.mjs.source",
+      "sourcePath": "web/hoodi-journey-panel.mjs",
+      "sourceBlob": "dca0c1cdf1a1898a4201f322a336d8e72679a7dd",
+      "neutralizations": [
+        "legacy-tenant-neutralized",
+        "tenant-examples"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/dce5ea9830d61ba43494020c3c227c7f51f44955/tests/auth-install.test.mjs.source",
+      "sourcePath": "tests/auth-install.test.mjs",
+      "sourceBlob": "dce5ea9830d61ba43494020c3c227c7f51f44955",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/dddb577d5908263ca83608726b2a5e60d321689f/scripts/package/verify-auth.mjs.source",
+      "sourcePath": "scripts/package/verify-auth.mjs",
+      "sourceBlob": "dddb577d5908263ca83608726b2a5e60d321689f",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/e0a769144f6dcc44985dd688c80fee2bd4bae289/tests/task-authorization-service.test.ts.source",
+      "sourcePath": "tests/task-authorization-service.test.ts",
+      "sourceBlob": "e0a769144f6dcc44985dd688c80fee2bd4bae289",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/e1aa569ce79132370ac6c63c14f06cfe4fc90e2b/web/locales/task-authorization.mjs.source",
+      "sourcePath": "web/locales/task-authorization.mjs",
+      "sourceBlob": "e1aa569ce79132370ac6c63c14f06cfe4fc90e2b",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/e336c4889d3fad1accbe1ad25651f5ae40db8fa9/scripts/package/verify-auth.mjs.source",
+      "sourcePath": "scripts/package/verify-auth.mjs",
+      "sourceBlob": "e336c4889d3fad1accbe1ad25651f5ae40db8fa9",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/f416503a96536e03aea301d1e2233b3c45c95284/server/task-receipt-adapter.mjs.source",
+      "sourcePath": "server/task-receipt-adapter.mjs",
+      "sourceBlob": "f416503a96536e03aea301d1e2233b3c45c95284",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/f1960f9df81ab96cd695d8c2c963c606e3bb370b/web/account-auth.mjs.source",
+      "sourcePath": "web/account-auth.mjs",
+      "sourceBlob": "f1960f9df81ab96cd695d8c2c963c606e3bb370b",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/f7bedcdccfb478c8cdd70841e8dd37c36e160f12/tests/auth-package.test.mjs.source",
+      "sourcePath": "tests/auth-package.test.mjs",
+      "sourceBlob": "f7bedcdccfb478c8cdd70841e8dd37c36e160f12",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/f84f8b1bbca95a62612f976f30899e6ec11b61fb/server/auth-service.mjs.source",
+      "sourcePath": "server/auth-service.mjs",
+      "sourceBlob": "f84f8b1bbca95a62612f976f30899e6ec11b61fb",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/fb1a73589084e37dd2cc1fd453650650c94a8e08/web/locales/auth-management.mjs.source",
+      "sourcePath": "web/locales/auth-management.mjs",
+      "sourceBlob": "fb1a73589084e37dd2cc1fd453650650c94a8e08",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/f886f2f501a4e662bcaad50aa0a71770ddcb324e/scripts/package/build-auth.mjs.source",
+      "sourcePath": "scripts/package/build-auth.mjs",
+      "sourceBlob": "f886f2f501a4e662bcaad50aa0a71770ddcb324e",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/fa6a8a1bfc829b862a1bedb7c8db2eaca6a5b5b4/tests/browser-connection.test.ts.source",
+      "sourcePath": "tests/browser-connection.test.ts",
+      "sourceBlob": "fa6a8a1bfc829b862a1bedb7c8db2eaca6a5b5b4",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/f8daa3d9159c3cd18b23d8828ade8e100be59e24/src/agent/assetAuthorization.ts.source",
+      "sourcePath": "src/agent/assetAuthorization.ts",
+      "sourceBlob": "f8daa3d9159c3cd18b23d8828ade8e100be59e24",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/fc1c3172fb66fc9a40f711ae176e0a8cf74e8b44/scripts/package/verify-auth.mjs.source",
+      "sourcePath": "scripts/package/verify-auth.mjs",
+      "sourceBlob": "fc1c3172fb66fc9a40f711ae176e0a8cf74e8b44",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    },
+    {
+      "path": "archive/source-snapshots/fe8b151c792f626b02cb01eac0d8cc1d7f6dae17/web/task-authorization-ui.mjs.source",
+      "sourcePath": "web/task-authorization-ui.mjs",
+      "sourceBlob": "fe8b151c792f626b02cb01eac0d8cc1d7f6dae17",
+      "neutralizations": []
+    },
+    {
+      "path": "archive/source-snapshots/fd79d74e67cff8d69593d774c2242a3f0f3d907c/tests/task-authorization-ui.test.ts.source",
+      "sourcePath": "tests/task-authorization-ui.test.ts",
+      "sourceBlob": "fd79d74e67cff8d69593d774c2242a3f0f3d907c",
+      "neutralizations": [
+        "legacy-tenant-neutralized"
+      ]
+    }
+  ]
+}

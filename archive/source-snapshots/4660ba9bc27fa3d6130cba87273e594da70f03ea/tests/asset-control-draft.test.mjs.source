@@ -1,0 +1,71 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { AssetControlDraft, assetControlUiTarget, assetControlUiField, ASSET_CONTROL_UI_OPERATIONS } from '../web/asset-control-draft.mjs';
+const allow = { kind: 'allow-agent' };
+const leaf = { kind: 'asset', path: ['all', 'native', 'hoodi', 'eth'] };
+const field = (target, value = true, fieldRevision = '0', policyRevision = '0') => ({ target, value,
+  source: fieldRevision === '0' ? 'default' : 'owner-saved', revision: fieldRevision, policyRevision, executable: false });
+const view = (fields = [field(allow), field(leaf)], policyRevision = '0', scopeKey = 'synthetic:account:agent') => ({ scopeKey, policyRevision, fields });
+
+test('initial ON projection loads without a draft, write or claimed execution authority', () => {
+  const model = new AssetControlDraft(), input = view(), before = JSON.stringify(input);
+  assert.equal(model.load(input).draft, null);
+  assert.ok(model.snapshot().view.fields.every(x => x.value === true && x.source === 'default'));
+  assert.equal(model.snapshot().executable, false); assert.equal(JSON.stringify(input), before);
+  assert.throws(() => model.prepare('password'));
+});
+test('saved OFF survives authoritative read and is not replaced by initial ON', () => {
+  const model = new AssetControlDraft(); model.load(view([field(allow, false, '2', '3'), field(leaf, true, '0', '3')], '3'));
+  assert.equal(model.snapshot().view.fields[0].value, false);
+  assert.equal(model.snapshot().view.fields[1].value, true);
+});
+test('a draft constructs exactly one field patch and preserves unrelated saved values', () => {
+  const model = new AssetControlDraft(); model.load(view([field(allow, false, '2', '3'), field(leaf, true, '0', '3')], '3'));
+  model.choose(leaf, false);
+  assert.deepEqual(model.prepare('wallet'), { expectedRevision: '3', identityMethod: 'wallet',
+    patch: { target: leaf, value: false, expectedFieldRevision: '0' } });
+  assert.equal(model.snapshot().view.fields[0].value, false);
+  assert.equal(model.snapshot().view.fields[1].value, true); // draft is not effective
+  assert.equal(model.cancel().draft, null); assert.throws(() => model.prepare('wallet'));
+});
+test('choosing the effective value causes no save and replacing a draft never sends both fields', () => {
+  const model = new AssetControlDraft(); model.load(view()); model.choose(allow, true);
+  assert.equal(model.snapshot().draft, null); model.choose(allow, false); model.choose(leaf, false);
+  assert.deepEqual(model.prepare('password').patch.target, leaf);
+  assert.throws(() => model.prepare('agent'));
+});
+test('refresh, logout and scope switch discard drafts rather than saving or leaking them', () => {
+  const model = new AssetControlDraft(); model.load(view()); model.choose(leaf, false);
+  assert.equal(model.load(view()).draft, null); model.choose(leaf, false);
+  assert.equal(model.load(view(undefined, '0', 'synthetic:other')).draft, null);
+  assert.deepEqual(model.clear(), { view: null, draft: null, executable: false });
+  assert.throws(() => model.choose(allow, false));
+});
+test('stale revisions, same-revision substitution and unread fields refuse', () => {
+  const model = new AssetControlDraft(); model.load(view([field(allow, false, '1', '1')], '1'));
+  assert.throws(() => model.load(view()));
+  assert.throws(() => model.load(view([field(allow, true, '1', '1')], '1')));
+  assert.throws(() => model.choose(leaf, false));
+  assert.equal(model.snapshot().view.fields[0].value, false);
+});
+test('projection decoder refuses unavailable, false defaults, fake source and execution flags', () => {
+  for (const raw of [null, { ...field(allow), value: false }, { ...field(allow), source: 'approved' },
+    { ...field(allow), executable: true }, { ...field(allow), revision: '00' }, { ...field(allow), extra: true }])
+    assert.throws(() => assetControlUiField(raw, '0'));
+});
+test('closed target catalog covers all operation IDs and rejects symbols/getters/sparse or duplicate paths', () => {
+  for (const operation of ASSET_CONTROL_UI_OPERATIONS)
+    assert.equal(assetControlUiTarget({ kind: 'operation', path: leaf.path, operation }).operation, operation);
+  let called = false;
+  const getter = { kind: 'asset', get path() { called = true; return ['all']; } };
+  for (const target of [getter, { kind: 'asset', path: ['all', , 'eth'] }, { kind: 'asset', path: ['all', 'all'] },
+    { kind: 'operation', path: ['all'], operation: 'arbitrary-call' }, { kind: 'allow-agent', [Symbol('extra')]: true }])
+    assert.throws(() => assetControlUiTarget(target));
+  assert.equal(called, false);
+});
+test('snapshot copies/freeze prevent edits through captured input or returned values', () => {
+  const model = new AssetControlDraft(), input = view(); model.load(input);
+  input.fields[0].value = false;
+  assert.equal(model.snapshot().view.fields[0].value, true);
+  assert.throws(() => { model.snapshot().view.fields[0].value = false; }, TypeError);
+});

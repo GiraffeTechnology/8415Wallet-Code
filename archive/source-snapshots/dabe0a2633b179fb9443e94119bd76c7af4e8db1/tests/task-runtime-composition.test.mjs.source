@@ -1,0 +1,45 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { composeTaskAuthOptions } from '../server/task-runtime-composition.mjs';
+
+const identity = { schema: '8415-task-executor/1', agentId: 'synthetic:agent', agentVersion: '1',
+  adapterId: 'synthetic:adapter', adapterVersion: '1', implementationDigest: `0x${'1'.repeat(64)}` };
+const policy = { minimumConfirmations: '2' };
+test('no runtime means no injected task authority', () => assert.deepEqual(composeTaskAuthOptions(), {}));
+test('preserves exact ports and snapshots canonical shared approval facts', () => {
+  const execution = {}, receipt = {}, source = { ...identity };
+  const options = composeTaskAuthOptions({ exact: { taskExecution: execution, taskReceipt: receipt,
+    taskExecutorIdentity: source, taskObservationPolicy: policy } });
+  assert.strictEqual(options.taskExecution, execution);
+  assert.strictEqual(options.taskReceipt, receipt);
+  assert.deepEqual(options.taskExecutorIdentity, identity);
+  source.agentVersion = '2';
+  assert.equal(options.taskExecutorIdentity.agentVersion, '1');
+  assert.ok(Object.isFrozen(options) && Object.isFrozen(options.taskExecutorIdentity));
+});
+test('accepts identical canonical shared facts independent of key insertion order', () => {
+  const reversed = Object.fromEntries(Object.entries(identity).reverse());
+  const options = composeTaskAuthOptions({ exact: { taskExecutorIdentity: identity, taskObservationPolicy: policy },
+    listing: { taskExecutorIdentity: reversed, taskObservationPolicy: { ...policy } } });
+  assert.deepEqual(options.taskExecutorIdentity, identity);
+});
+test('different exact and listing identities are refused, never last-writer-wins', () => {
+  assert.throws(() => composeTaskAuthOptions({ exact: { taskExecutorIdentity: identity },
+    listing: { taskExecutorIdentity: { ...identity, adapterId: 'artfi:seaport' } } }), /TASK_RUNTIME_EXECUTOR_CONFLICT/);
+});
+test('different observation depths are refused even for the same executor', () => {
+  assert.throws(() => composeTaskAuthOptions({ exact: { taskExecutorIdentity: identity, taskObservationPolicy: policy },
+    listing: { taskExecutorIdentity: identity, taskObservationPolicy: { minimumConfirmations: '1' } } }), /TASK_RUNTIME_OBSERVATION_CONFLICT/);
+});
+test('runtime cannot override auth store or inject a different channel capability', () => {
+  for (const exact of [{ store: {} }, { origin: 'https://example.invalid' }, { taskReceiptHandlerId: 'artfi:whole-receipt:v1' }])
+    assert.throws(() => composeTaskAuthOptions({ exact }), /TASK_RUNTIME_OPTIONS_REFUSED/);
+  const listing = {};
+  Object.defineProperty(listing, 'taskExecutorIdentity', { get() { throw Error('not invoked'); } });
+  assert.throws(() => composeTaskAuthOptions({ listing }), /TASK_RUNTIME_OPTIONS_REFUSED/);
+});
+test('configured ports require approval facts and whole-receipt uses only its fixed ID', () => {
+  assert.throws(() => composeTaskAuthOptions({ exact: { taskExecution: {} } }), /TASK_RUNTIME_EXECUTOR_REQUIRED/);
+  assert.throws(() => composeTaskAuthOptions({ exact: { taskReceipt: {} } }), /TASK_RUNTIME_OBSERVATION_REQUIRED/);
+  assert.throws(() => composeTaskAuthOptions({ artfi: { taskReceiptHandlerId: 'exact', taskExecutorIdentity: identity } }), /TASK_RUNTIME_RECEIPT_HANDLER_REFUSED/);
+});

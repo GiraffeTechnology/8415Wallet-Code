@@ -1,0 +1,69 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizeAssetAuthorizationPolicy, resolveAssetAuthorization } from '../src/agent/assetAuthorization.ts';
+const path = ['all', 'category-a', 'subcategory-a', 'asset-a'];
+function policy() {
+  return { schema: '8415-asset-authorization/1', revision: '7', allowAgent: true, revoked: false, expiresAt: '200',
+    root: { id: 'all', level: 'all', enabled: false, operations: { 'erc8183:fund': true }, children: [
+      { id: 'category-a', level: 'category', enabled: false, operations: {}, children: [
+        { id: 'subcategory-a', level: 'subcategory', enabled: false, operations: {}, children: [
+          { id: 'asset-a', level: 'asset', enabled: true, operations: {}, children: [] },
+          { id: 'asset-b', level: 'asset', enabled: false, operations: {}, children: [] },
+        ] },
+      ] },
+    ] } };
+}
+test('OFF branches expose children, an ON leaf authorizes only its own asset', () => {
+  const p = policy(), a = resolveAssetAuthorization(p, path, 'erc8183:fund', 100n);
+  assert.equal(a.policyAllows, true); assert.equal(a.assetAuthorizationSource, 'asset-a');
+  assert.deepEqual(a.branchExpanded, [true, true, true]); assert.equal(a.executable, false);
+  assert.equal(resolveAssetAuthorization(p, [...path.slice(0, 3), 'asset-b'], 'erc8183:fund', 100n).policyAllows, false);
+});
+test('ancestor blanket ON overrides stored descendant asset OFF, but never operation overrides', () => {
+  const p = policy(); p.root.enabled = true;
+  const category = p.root.children[0]!, sub = category.children[0]!, leaf = sub.children[0]!;
+  leaf.enabled = false;
+  assert.equal(resolveAssetAuthorization(p, path, 'erc8183:fund', 100n).policyAllows, true);
+  leaf.operations = { 'erc8183:fund': false } as typeof leaf.operations;
+  const a = resolveAssetAuthorization(p, path, 'erc8183:fund', 100n);
+  assert.equal(a.assetAuthorized, true); assert.equal(a.operationEnabled, false); assert.equal(a.policyAllows, false);
+  assert.equal(a.operationSettingSource, 'asset-a'); assert.equal(a.operationInherited, false);
+  assert.deepEqual(a.branchExpanded, [false, false, false]);
+});
+test('operation settings inherit nearest explicit parent or child override independently', () => {
+  const p = policy(), category = p.root.children[0]!, sub = category.children[0]!;
+  category.operations = { 'erc8183:fund': false };
+  assert.equal(resolveAssetAuthorization(p, path, 'erc8183:fund', 100n).policyAllows, false);
+  sub.operations = { 'erc8183:fund': true };
+  const a = resolveAssetAuthorization(p, path, 'erc8183:fund', 100n);
+  assert.equal(a.policyAllows, true); assert.equal(a.operationSettingSource, 'subcategory-a'); assert.equal(a.operationInherited, true);
+});
+test('overall agent OFF, revoke and expiry cannot be overridden by an asset blanket', () => {
+  for (const delta of [{ allowAgent: false }, { revoked: true }, { expiresAt: '100' }]) {
+    const p = { ...policy(), ...delta }; p.root.enabled = true;
+    assert.equal(resolveAssetAuthorization(p, path, 'erc8183:fund', 100n).policyAllows, false);
+  }
+});
+test('unknown operations, substituted paths, duplicated nodes and malformed revisions refuse', () => {
+  assert.throws(() => resolveAssetAuthorization(policy(), path, 'arbitrary-call' as never, 100n), /ASSET_POLICY_REFUSED/);
+  assert.throws(() => resolveAssetAuthorization(policy(), ['all', 'other', 'subcategory-a', 'asset-a'], 'erc8183:fund', 100n));
+  assert.throws(() => normalizeAssetAuthorizationPolicy({ ...policy(), revision: '07' }));
+  const p = policy(); p.root.children[0]!.id = 'all'; assert.throws(() => normalizeAssetAuthorizationPolicy(p));
+});
+test('getters, sparse arrays and extra fields are rejected without invoking supplied code', () => {
+  let called = false;
+  assert.throws(() => normalizeAssetAuthorizationPolicy({ ...policy(), get allowAgent() { called = true; return true; } }));
+  assert.equal(called, false);
+  const accessorPath = [...path]; Object.defineProperty(accessorPath, '1', { get() { called = true; return 'category-a'; } });
+  assert.throws(() => resolveAssetAuthorization(policy(), accessorPath, 'erc8183:fund', 100n));
+  assert.equal(called, false);
+  const p = policy(); delete p.root.children[0];
+  assert.throws(() => normalizeAssetAuthorizationPolicy(p));
+  assert.throws(() => normalizeAssetAuthorizationPolicy({ ...policy(), approved: true }));
+});
+test('normalization copies and freezes policy; no scope evaluation mutates grant or input', () => {
+  const p = policy(), before = JSON.stringify(p), n = normalizeAssetAuthorizationPolicy(p);
+  assert.ok(Object.isFrozen(n.root.children)); resolveAssetAuthorization(p, path, 'erc8183:fund', 100n);
+  assert.equal(JSON.stringify(p), before); assert.notEqual(n.root, p.root);
+});
+

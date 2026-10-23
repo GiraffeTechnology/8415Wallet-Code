@@ -1,0 +1,104 @@
+// Nonproduction acceptance only. No credentials, network, systemd, or signer.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, writeFile, stat, readdir, realpath } from 'node:fs/promises';
+import { join, dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
+import { independentNode } from './independent-node.mjs';
+const kit=process.env.WALLET_VERIFIED_KIT_DIRECTORY;
+if(!kit||!kit.startsWith('/'))throw Error('VERIFIED_KIT_ABSOLUTE_DIRECTORY_REQUIRED');
+const load=path=>import(pathToFileURL(join(kit,path)).href);
+const {paths,prepare,inspect}=await load('runtime/auth/deploy/auth-legacy/install.mjs');
+const {validateAccountBindings}=await load('runtime/auth/server/config-validation.mjs');
+const {createDappConfig,planDapp,installDapp,verifyInstalledRelease}=await load('deploy/dapp/install.mjs');
+const {resolveReleaseProfile,verifyReleaseLocation}=await load('web/release-profile.mjs');
+import { createRequire } from 'node:module';
+const require = createRequire(pathToFileURL(join(kit,'runtime/auth/package.json')));
+const { getAddress } = require('ethers');
+const base=resolve(new URL('..',import.meta.url).pathname);
+const archive=process.env.WALLET_KIT_ARCHIVE;
+if(!archive||!archive.startsWith('/'))throw Error('VERIFIED_KIT_ABSOLUTE_ARCHIVE_REQUIRED');
+const tree='c34dd145904682f10a88b8836adba1cdc78d5952';
+const archiveSha='da363ddc1e9a8206f3e24d1947c1e3e780b36d64aca45067f8eda3aa67d1da9f';
+const tenants=['synthetic-alpha','synthetic-beta'];
+const addresses=['0x1111111111111111111111111111111111111111','0x2222222222222222222222222222222222222222'];
+const evidence={scope:'isolated offline preparation',sourceCommit:'aad759c7d48768a861007f40e4548e0718cba20e',sourceTree:tree,node:process.version,tenants:[],secretsCreated:false,serviceStarted:false,networkUsed:false};
+const root=await mkdtemp(join(tmpdir(),'hdt-'));
+const privateNode=await independentNode();
+
+// The known public addresses are validated but not installed into fixture state.
+test('original address mapping is distinct and EIP-55-valid with Hoodi-only draft bindings',async()=>{
+ assert.notEqual(addresses[0].toLowerCase(),addresses[1].toLowerCase());
+ for(let i=0;i<tenants.length;i++){
+  assert.equal(getAddress(addresses[i]),addresses[i]);
+  const bindings=JSON.parse(await readFile(join(base,'templates',`${tenants[i]}-bindings.draft.json`),'utf8'));
+  assert.deepEqual(bindings,[{username:tenants[i],wallets:[{account:addresses[i],chainId:'560048'}]}]);
+  assert.deepEqual(validateAccountBindings(bindings),{accountCount:1,bindingCount:1});
+ }
+});
+
+test('new tenant namespace paths cannot overlap each other or legacy tenant state',()=>{
+ for(const field of ['root','config','state','unit','socketDirectory']){
+  const values=['synthetic-alpha','synthetic-beta','synthetic-old-a','synthetic-old-b','legacy','default'].map(t=>paths('',t)[field]);
+  assert.equal(new Set(values).size,values.length);
+ }
+});
+
+test('both V3 static releases install in isolated roots and preserve identity separation',async()=>{
+ for(let i=0;i<tenants.length;i++){
+  const tenant=tenants[i], url=`http://127.0.0.1:${18841+i}/web/index.html`;
+  const configPath=join(root,`${tenant}.json`),target=join(root,`ui-${tenant}`),plan=join(root,`${tenant}.nginx`);
+  createDappConfig({tenant,label:tenant,profile:'v3',environment:'local',url,reservedPorts:[],output:configPath});
+  const config=JSON.parse(await readFile(configPath,'utf8'));
+  const resolved=resolveReleaseProfile(config);
+  assert.equal(resolved.features.linkedResponsibilities,true);
+  assert.equal(verifyReleaseLocation(resolved,{href:url}).tenant.id,tenant);
+  assert.throws(()=>verifyReleaseLocation(resolved,{href:`http://127.0.0.1:${18841+(1-i)}/web/index.html`}),/RELEASE_LOCATION_MISMATCH/);
+  const input={archive,expectedSha256:archiveSha,expectedTree:tree,tenant,profile:'v3',target,config:configPath};
+  assert.equal(planDapp({...input,output:plan}).changesApplied,false);
+  const installed=installDapp(input);
+  const checked=verifyInstalledRelease(target,installed.release,{expectedReceiptSha256:installed.receiptSha256,expectedTree:tree});
+  const served=JSON.parse(await readFile(join(target,'current/public/web/release-config.json'),'utf8'));
+  assert.equal(served.tenant.id,tenant); assert.equal(served.profile,'v3');
+  assert.throws(()=>installDapp({...input,tenant:tenants[1-i],upgrade:true}),/CONFIG_BOUNDARY_REFUSED|IDENTITY_MISMATCH/);
+  assert.throws(()=>installDapp({...input,profile:'v2',upgrade:true}),/CONFIG_BOUNDARY_REFUSED|IDENTITY_MISMATCH/);
+  const planText=await readFile(plan,'utf8');
+  assert.equal(/\blisten\s|server\s*\{|proxy_pass/.test(planText),false);
+  assert.equal(/\/runtime\/auth\/|\/node_modules\//.test(planText),false);
+  evidence.tenants.push({tenant,profile:'v3',fixtureOrigin:new URL(url).origin,sourceTree:tree,staticRelease:installed.release,receiptSha256:installed.receiptSha256,publicFileCount:Object.keys(checked.receipt?.files??checked.files??{}).length});
+ }
+});
+
+test('port reservations are supplied configuration, not provider assumptions',()=>{
+ for(const [name,reservedPorts,pass] of [['default-https',[],true],['explicit-conflict',[443],false],['other-reservation',[9446],true]]){
+  const fn=()=>createDappConfig({tenant:'synthetic-alpha',label:'synthetic-alpha',profile:'v3',environment:'other',url:'https://synthetic-alpha.example.invalid/web/index.html',reservedPorts,output:join(root,`${name}.json`)});
+  if(pass) assert.equal(fn().tenant,'synthetic-alpha'); else assert.throws(fn,/RELEASE_RESERVED_PORT/);
+ }
+});
+
+test('both auth runtimes prepare with synthetic identities only and remain inactive',async()=>{
+ const host=join(root,'host');
+ for(const p of ['opt','etc','var/lib','etc/systemd/system']) await mkdir(join(host,p),{recursive:true,mode:0o755});
+ for(let i=0;i<tenants.length;i++){
+  const tenant=tenants[i],target=paths(host,tenant),origin=`https://${tenant}.example.invalid`;
+  let reloads=0;
+  const options={packageDirectory:join(kit,'runtime/auth'),node:privateNode.node,nodeUid:privateNode.uid,target,uid:process.getuid(),tenant,origin,accounts:[{username:'synthetic-user',wallets:[{account:`0x${String(i+1).repeat(40)}`,chainId:'560048'}]}],reservedPorts:[],reload:()=>{reloads++}};
+  const result=await prepare(options);
+  assert.equal(result.status,'prepared-not-activated'); assert.equal(result.secretCreated,false); assert.equal(result.serviceStarted,false);assert.equal(reloads,1);
+  const checked=await inspect({target,uid:process.getuid()});
+  assert.equal(checked.config.tenant,tenant); assert.equal(checked.config.origin,origin);
+  assert.equal(checked.config.mail.transport,'disabled');
+  assert.equal(checked.config.accounts[0].wallets[0].chainId,'560048');
+  for(const p of [join(target.config,'store-key'),join(target.state,'credentials.enc')]) await assert.rejects(stat(p),{code:'ENOENT'});
+  const before=await readFile(join(target.config,'auth.json'));
+  await assert.rejects(prepare(options),/AUTH_EXISTING_INSTALLATION_REFUSED/);
+  assert.deepEqual(await readFile(join(target.config,'auth.json')),before);
+  Object.assign(evidence.tenants[i],{authStatus:result.status,authServiceName:target.unitName,authSocketNamespace:`/run/8415wallet-auth-${tenant}/auth.sock`,syntheticBindingOnly:true});
+ }
+ const cross=paths(host,'synthetic-beta');
+ await assert.rejects(prepare({target:cross,tenant:'synthetic-alpha'}),/AUTH_TARGET_TENANT_MISMATCH/);
+ await privateNode.cleanup();
+ await writeFile(join(base,'evidence/isolated-results.json'),JSON.stringify(evidence,null,2)+'\n',{mode:0o600});
+});

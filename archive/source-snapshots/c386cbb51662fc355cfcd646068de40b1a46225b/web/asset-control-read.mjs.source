@@ -1,0 +1,87 @@
+/** Decoder for the actual authenticated status/catalog contract, not a policy
+ * verifier or writer. The server remains authoritative for audit and ownership. */
+import { WalletLoginError } from './login-core.mjs';
+import { ASSET_CONTROL_UI_OPERATIONS, assetControlUiTarget } from './asset-control-draft.mjs';
+const check = ok => { if (!ok) throw new WalletLoginError('ASSET_CONTROL_RESPONSE_REFUSED'); };
+const uint = x => typeof x === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(x) && BigInt(x) < 1n << 256n;
+const hash = async value => Array.from(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256',
+  new TextEncoder().encode(JSON.stringify(value)))), b => b.toString(16).padStart(2, '0')).join('');
+function exact(value, keys) {
+  check(value && typeof value === 'object' && !Array.isArray(value) &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value)));
+  const d = Object.getOwnPropertyDescriptors(value);
+  check(Reflect.ownKeys(d).length === keys.length && keys.every(k => Object.hasOwn(d, k) &&
+    Object.hasOwn(d[k], 'value') && d[k].enumerable));
+}
+function list(value) {
+  check(Array.isArray(value) && value.length <= 10000);
+  const d = Object.getOwnPropertyDescriptors(value);
+  check(Reflect.ownKeys(d).length === value.length + 1 && value.every((_, i) =>
+    Object.hasOwn(d[String(i)], 'value') && d[String(i)].enumerable));
+  return value;
+}
+export async function validateAssetControlRead(status, catalog, session, origin, tenant) {
+  exact(status, ['schema','scope','revision','entries','label','defaultValue','evaluation','appliesTo',
+    'grantsAuthority','factorsForOFF','factorsForEverySave','changeCount','lastChange','canSave','executionScope']);
+  exact(status.scope, ['origin','tenant','username','account','chainId','agentId']);
+  const s = status.scope;
+  check(session.origin === origin && session.tenant === tenant && s.origin === origin && s.tenant === tenant &&
+    s.username === session.username && s.account === session.account.toLowerCase() && s.chainId === session.chainId &&
+    typeof s.agentId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,159}$/.test(s.agentId));
+  const scope = { origin:s.origin, tenant:s.tenant, username:s.username, account:s.account, chainId:s.chainId, agentId:s.agentId };
+  check(status.schema === '8415-asset-control-state/1' && uint(s.chainId) && s.chainId !== '0' && uint(status.revision) &&
+    status.defaultValue === true && status.evaluation === 'NOT_EVALUATED' && status.grantsAuthority === false &&
+    status.label === 'Agent and asset authorization controls' && status.appliesTo === 'still-valid-in-scope-authorizations' &&
+    typeof status.canSave === 'boolean' && status.executionScope === 'supported-actual-task-bindings' &&
+    Number.isSafeInteger(status.changeCount) && status.changeCount >= 0 && String(status.changeCount) === status.revision);
+  for (const factors of [status.factorsForOFF, status.factorsForEverySave])
+    check(JSON.stringify(factors) === '["password-or-bound-wallet","previously-verified-email"]');
+  check(status.revision === '0' ? status.lastChange === null : status.lastChange && typeof status.lastChange === 'object');
+  exact(catalog, ['schema','scopeDigest','entries','digest','ownershipVerified','grantsAuthority','inventoryComplete']);
+  check(catalog.schema === '8415-asset-control-catalog/1' && catalog.scopeDigest === await hash(scope) &&
+    catalog.ownershipVerified === false && catalog.grantsAuthority === false && typeof catalog.inventoryComplete === 'boolean');
+  const paths = new Map(), canonicalEntries = [];
+  let previous = '';
+  for (const item of list(catalog.entries)) {
+    exact(item, ['subject','path']); exact(item.subject, ['chainId','standard','contract','tokenId']);
+    const a = item.subject;
+    check(a.chainId === s.chainId && ['native','ERC-20','ERC-721','ERC-1155'].includes(a.standard));
+    check(a.standard === 'native' ? a.contract === null : typeof a.contract === 'string' && /^0x[0-9a-f]{40}$/.test(a.contract) && !/^0x0+$/.test(a.contract));
+    check(['native','ERC-20'].includes(a.standard) ? a.tokenId === null : uint(a.tokenId));
+    const subject = { chainId:a.chainId, standard:a.standard, contract:a.contract, tokenId:a.tokenId };
+    const path = ['all', ['native','ERC-20'].includes(a.standard) ? 'category:fungible' : 'category:nonfungible',
+      'subcategory:' + await hash({chainId:a.chainId,standard:a.standard}), 'asset:' + await hash(subject)];
+    check(JSON.stringify(item.path) === JSON.stringify(path) && path[3] > previous); previous = path[3];
+    for (let n = 1; n <= 4; n++) paths.set(JSON.stringify(path.slice(0,n)), path.slice(0,n));
+    canonicalEntries.push({subject,path});
+  }
+  check(catalog.digest === await hash({schema:catalog.schema,scopeDigest:catalog.scopeDigest,entries:canonicalEntries}));
+  const saved = new Map();
+  for (const item of list(status.entries)) {
+    exact(item, ['key','target','value','revision','policyRevision','changedAt','changeId']);
+    let target; try { target = assetControlUiTarget(item.target); } catch { check(false); }
+    const key = JSON.stringify(target);
+    check(item.key === await hash(target) && !saved.has(key) && typeof item.value === 'boolean' && uint(item.revision) &&
+      BigInt(item.revision) > 0n && uint(item.policyRevision) && BigInt(item.policyRevision) >= BigInt(item.revision) &&
+      BigInt(item.policyRevision) <= BigInt(status.revision) && Number.isSafeInteger(item.changedAt) && item.changedAt >= 0 &&
+      typeof item.changeId === 'string' && /^[A-Za-z0-9_-]{43}$/.test(item.changeId));
+    // Saved fields absent from today's incomplete inventory remain visible.
+    if (target.path) paths.set(JSON.stringify(target.path), [...target.path]);
+    saved.set(key,item);
+  }
+  check(status.revision !== '0' || saved.size === 0);
+  const targets = [{kind:'allow-agent'}];
+  for (const path of paths.values()) {
+    targets.push({kind:'asset',path});
+    for (const operation of ASSET_CONTROL_UI_OPERATIONS) targets.push({kind:'operation',path,operation});
+  }
+  // Bound UI output independently of the catalog bound; no 140k-field expansion.
+  check(targets.length <= 10000);
+  const fields = targets.map(target => {
+    const item = saved.get(JSON.stringify(target));
+    return {target,value:item ? item.value : true,source:item ? 'owner-saved' : 'default',
+      revision:item ? item.revision : '0',policyRevision:status.revision,executable:false};
+  });
+  return { view:{scopeKey:JSON.stringify(scope),policyRevision:status.revision,fields},
+    canSave:status.canSave,inventoryComplete:catalog.inventoryComplete,ownershipVerified:false,grantsAuthority:false };
+}

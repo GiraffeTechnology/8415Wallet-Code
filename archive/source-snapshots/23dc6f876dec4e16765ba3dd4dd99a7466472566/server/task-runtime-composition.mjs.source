@@ -1,0 +1,48 @@
+/** Explicit server-owned option composition. Never spread runtime options over
+ * origin, tenant, accounts or the protected store. Shared identity/policy may
+ * coexist only when their canonical approval digests are identical. */
+import { freezeTaskExecutorIdentity } from './task-authorization.mjs';
+import { freezeTaskObservationPolicy } from '../src/agent/receiptObservation.ts';
+
+const channels = Object.freeze({
+  exact: ['taskExecution', 'taskReceipt', 'taskExecutorIdentity', 'taskObservationPolicy'],
+  listing: ['taskListingExecution', 'taskListingResults', 'taskListingRuntimeStatus', 'taskExecutorIdentity', 'taskObservationPolicy'],
+  artfi: ['taskReceiptHandlerId', 'taskExecutorIdentity'],
+});
+const refuse = code => { throw Error(code); };
+export function composeTaskAuthOptions({ exact = {}, listing = {}, artfi = {} } = {}) {
+  const result = {};
+  let identityDigest = null, observationDigest = null;
+  for (const [channel, options] of Object.entries({ exact, listing, artfi })) {
+    if (!options || ![Object.prototype, null].includes(Object.getPrototypeOf(options))) refuse('TASK_RUNTIME_OPTIONS_REFUSED');
+    const descriptors = Object.getOwnPropertyDescriptors(options);
+    for (const key of Reflect.ownKeys(descriptors)) {
+      const field = descriptors[key];
+      if (!channels[channel].includes(key) || !Object.hasOwn(field, 'value')) refuse('TASK_RUNTIME_OPTIONS_REFUSED');
+      const value = field.value;
+      if (key === 'taskExecutorIdentity') {
+        const normalized = freezeTaskExecutorIdentity(value);
+        if (identityDigest !== null && identityDigest !== normalized.digest) refuse('TASK_RUNTIME_EXECUTOR_CONFLICT');
+        identityDigest = normalized.digest;
+        result[key] = normalized.identity;
+      } else if (key === 'taskObservationPolicy') {
+        const normalized = freezeTaskObservationPolicy(value);
+        if (observationDigest !== null && observationDigest !== normalized.digest) refuse('TASK_RUNTIME_OBSERVATION_CONFLICT');
+        observationDigest = normalized.digest;
+        result[key] = normalized.policy;
+      } else {
+        if (Object.hasOwn(result, key)) refuse('TASK_RUNTIME_OPTIONS_CONFLICT');
+        result[key] = value;
+      }
+    }
+  }
+  // The current service has one approval identity. Do not fabricate a composite
+  // identity or rewrite an adapter's bound executor when adapters disagree.
+  if ((result.taskExecution || result.taskListingExecution || result.taskReceiptHandlerId) && identityDigest === null)
+    refuse('TASK_RUNTIME_EXECUTOR_REQUIRED');
+  if ((result.taskExecution || result.taskListingExecution || result.taskReceipt) && observationDigest === null)
+    refuse('TASK_RUNTIME_OBSERVATION_REQUIRED');
+  if (result.taskReceiptHandlerId !== undefined && result.taskReceiptHandlerId !== 'artfi:whole-receipt:v1')
+    refuse('TASK_RUNTIME_RECEIPT_HANDLER_REFUSED');
+  return Object.freeze(result);
+}

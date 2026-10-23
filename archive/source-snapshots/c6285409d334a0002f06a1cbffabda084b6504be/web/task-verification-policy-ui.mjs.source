@@ -1,0 +1,182 @@
+/** Owner-only settings. Never creates grants, signs transactions or stores factors. */
+import { msg, paint } from './i18n.mjs';
+import { WalletLoginError } from './login-core.mjs';
+
+export function mountTaskVerificationPolicy({ root, clientFor, accountFor, capture, assertBinding,
+  providerFor, acquire, release, now = Date.now }) {
+  const node = (tag, key, parent) => {
+    const el = document.createElement(tag); if (key) paint(el, msg(key)); parent?.append(el); return el;
+  };
+  const section = node('section', null, root); section.hidden = true; section.className = 'card task-human-verification';
+  section.setAttribute('aria-labelledby', 'task-human-verification-title');
+  const title = node('h3', 'policy.title', section); title.id = 'task-human-verification-title';
+  node('p', 'policy.help', section);
+  const status = node('p', null, section); status.setAttribute('role', 'status');
+  const scopeDetails = node('dl', null, section);
+  const explanation = node('p', 'policy.coveredScope', section);
+  node('p', 'policy.distinctControls', section);
+  const draft = node('p', 'policy.noDraft', section); draft.setAttribute('aria-live', 'polite');
+  const methodLabel = node('label', null, section); node('span', 'change.identityMethod', methodLabel);
+  const method = node('select', null, methodLabel);
+  const actions = node('div', null, section); actions.className = 'actions';
+  const off = node('button', 'policy.off', actions), on = node('button', 'policy.on', actions);
+  off.type = on.type = 'button';
+  let visible = false, selectedClient = null, state = null, epoch = 0, busy = false, active = null;
+  function showScope() {
+    scopeDetails.replaceChildren();
+    if (!state?.scope) return;
+    for (const [key, value] of [['policy.walletScope', state.scope.tenant], ['policy.accountScope', state.scope.account],
+      ['policy.networkScope', state.scope.chainId], ['policy.agentScope', state.scope.agentId]]) {
+      node('dt', key, scopeDetails); const text = node('dd', null, scopeDetails); text.textContent = value;
+    }
+  }
+  const renderState = () => {
+    off.disabled = busy || !state || method.options.length === 0;
+    on.disabled = busy || !state || method.options.length === 0; method.disabled = busy;
+    if (state) paint(status, msg('policy.state', { mode: state.mode, revision: state.revision }));
+    showScope(); explanation.hidden = !state;
+    for (const [control, mode] of [[off, 'OFF'], [on, 'ON']]) {
+      control.setAttribute('aria-pressed', String(state?.mode === mode));
+      control.setAttribute('data-policy-mode', mode);
+    }
+    paint(draft, active?.prepared ? msg('policy.draft', { mode: active.prepared.request.mode,
+      revision: active.prepared.request.expectedRevision }) : msg('policy.noDraft'));
+  };
+  function current(flow) {
+    if (active !== flow || flow.epoch !== epoch || !visible || clientFor() !== flow.client)
+      throw new WalletLoginError('LOGIN_CANCELLED');
+    assertBinding(flow.binding);
+    if (flow.expiresAt !== null && now() >= flow.expiresAt) throw new WalletLoginError('AUTH_SETUP_EXPIRED');
+  }
+  function cancel() {
+    epoch++; const flow = active; active = null; flow?.dismiss?.();
+    if (flow) void flow.client.taskVerification('cancel').catch(() => {});
+  }
+  async function refresh() {
+    const revision = epoch, client = selectedClient;
+    try {
+      const binding = capture();
+      const result = await client.taskVerification('status'); assertBinding(binding);
+      if (revision !== epoch || !visible || client !== selectedClient) return;
+      state = result; renderState();
+    } catch {
+      if (revision === epoch && visible) { state = null; renderState(); paint(status, msg('policy.unavailable')); }
+    }
+  }
+  function prompt(flow, stage) {
+    current(flow);
+    return new Promise((resolve, reject) => {
+      const focus = document.activeElement, dialog = node('dialog'); dialog.className = 'auth-change-dialog';
+      const form = node('form', null, dialog); form.method = 'dialog';
+      const heading = node('h3', stage === 'identity' ? 'policy.review' : 'policy.email', form);
+      heading.id = 'task-policy-change-title'; dialog.setAttribute('aria-labelledby', heading.id);
+      node('p', 'policy.help', form);
+      // Exact scope, nonce, digest and signed text remain opaque and untranslated.
+      const review = node('pre', null, form);
+      paint(review, flow.prepared.message ?? JSON.stringify({ request: flow.prepared.request,
+        changeDigest: flow.prepared.changeDigest }, null, 2));
+      let field = null;
+      if (stage === 'email' || flow.method === 'password') {
+        const label = node('label', null, form);
+        node('span', stage === 'email' ? 'change.emailCode' : 'change.originalPassword', label);
+        field = node('input', null, label); field.type = stage === 'email' ? 'text' : 'password';
+        field.autocomplete = stage === 'email' ? 'one-time-code' : 'off'; field.required = true;
+        field.maxLength = stage === 'email' ? 8 : 1024;
+        if (stage === 'email') { field.inputMode = 'numeric'; field.pattern = '[0-9]{8}'; }
+      }
+      if (stage === 'email') paint(node('p', null, form), msg('change.emailSent', { email: flow.prepared.emailMasked }));
+      const controls = node('div', null, form); controls.className = 'actions';
+      const submit = node('button', 'change.continue', controls); submit.type = 'submit';
+      const close = node('button', 'change.cancel', controls); close.type = 'button';
+      let settled = false, timer;
+      const finish = (value, error) => {
+        if (settled) return; settled = true; clearTimeout(timer); flow.dismiss = null;
+        if (field) field.value = '';
+        dialog.close(); dialog.remove(); paint(review, ''); focus?.focus?.();
+        if (error) reject(error); else resolve(value);
+      };
+      flow.dismiss = () => finish(null, new WalletLoginError('LOGIN_CANCELLED'));
+      close.addEventListener('click', () => cancel());
+      dialog.addEventListener('cancel', event => { event.preventDefault(); cancel(); });
+      dialog.addEventListener('close', () => { if (!settled) cancel(); });
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        try { current(flow); } catch (error) { finish(null, error); return; }
+        if (stage === 'email' && !/^\d{8}$/.test(field.value)) return;
+        finish(field?.value ?? '');
+      });
+      document.body.append(dialog); dialog.showModal(); (field ?? submit).focus();
+      timer = setTimeout(() => { cancel(); }, Math.max(0, flow.expiresAt - now()));
+    });
+  }
+  async function change(mode) {
+    if (busy || !visible || !state || !selectedClient) return;
+    const lock = acquire(); if (lock === null) return;
+    busy = true; renderState();
+    const flow = { client: selectedClient, binding: null, epoch, method: method.value,
+      expiresAt: null, dismiss: null, prepared: null }; active = flow;
+    let password = '', signature = '', code = '', committing = false;
+    try {
+      flow.binding = capture();
+      current(flow);
+      flow.prepared = await flow.client.taskVerification('prepare', {
+        expectedRevision: state.revision, identityMethod: flow.method, mode });
+      if (flow.prepared.request.mode !== mode || flow.prepared.request.expectedRevision !== state.revision)
+        throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+      flow.expiresAt = flow.prepared.request.expiresAt; current(flow);
+      renderState();
+      password = await prompt(flow, 'identity'); current(flow);
+      if (flow.method === 'wallet') {
+        const provider = providerFor();
+        if (typeof provider?.request !== 'function') throw new WalletLoginError('LOGIN_PROVIDER_UNAVAILABLE');
+        const session = assertBinding(flow.binding);
+        const encoded = '0x' + Array.from(new TextEncoder().encode(flow.prepared.message), b => b.toString(16).padStart(2, '0')).join('');
+        signature = await provider.request({ method: 'personal_sign', params: [encoded, session.account] }); current(flow);
+      }
+      const exact = { changeId: flow.prepared.request.changeId, changeDigest: flow.prepared.changeDigest };
+      try { await flow.client.taskVerification('verify', { ...exact,
+        ...(flow.method === 'wallet' ? { signature } : { password }) }); }
+      finally { password = ''; signature = ''; }
+      current(flow); code = await prompt(flow, 'email'); current(flow);
+      committing = true;
+      const result = await flow.client.taskVerification('confirm', { ...exact, code });
+      current(flow);
+      if (result.mode !== mode || result.revision !== (BigInt(flow.prepared.request.expectedRevision) + 1n).toString())
+        throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+      state = result;
+      active = null; renderState();
+    } catch (error) {
+      if (flow.epoch === epoch && visible) {
+        state = null; renderState(); paint(status, msg(committing ? 'policy.commitUnknown' : 'policy.unavailable'));
+      }
+      // A late response may have committed. A fresh status read, not local rollback,
+      // determines the effective switch when this page is opened again.
+      if (active === flow) cancel();
+    } finally {
+      password = ''; signature = ''; code = ''; flow.prepared = null;
+      busy = false; release(lock); renderState();
+    }
+  }
+  off.addEventListener('click', () => change('OFF'));
+  on.addEventListener('click', () => change('ON'));
+  return Object.freeze({
+    render(open) {
+      const client = clientFor(), account = accountFor();
+      const show = open && !!client && !!account;
+      if (!show || client !== selectedClient) { cancel(); state = null; }
+      const entering = show && (!visible || client !== selectedClient);
+      const policyAvailable = account?.taskHumanVerification !== null && account?.taskHumanVerification !== undefined;
+      visible = show; selectedClient = client; section.hidden = !show;
+      if (!show) return;
+      const selected = method.value; method.replaceChildren();
+      for (const value of ['wallet', 'password']) if (account.methods[value].enabled && account.methods[value].bound) {
+        const option = node('option', `change.${value}`, method); option.value = value;
+      }
+      if ([...method.options].some(option => option.value === selected)) method.value = selected;
+      if (!policyAvailable) { cancel(); state = null; paint(status, ''); }
+      renderState(); if (entering && policyAvailable) void refresh();
+    },
+    clear() { cancel(); state = null; visible = false; section.hidden = true; paint(status, '');
+      scopeDetails.replaceChildren(); paint(draft, msg('policy.noDraft')); },
+  });
+}

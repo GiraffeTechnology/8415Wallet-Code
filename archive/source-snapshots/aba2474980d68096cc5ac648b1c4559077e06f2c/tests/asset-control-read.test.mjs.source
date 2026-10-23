@@ -1,0 +1,49 @@
+/** Authenticated read decoder regression SOURCE. Run only on approved Linux. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { validateAssetControlRead } from '../web/asset-control-read.mjs';
+const digest = x => createHash('sha256').update(JSON.stringify(x)).digest('hex');
+function fixture() {
+  const session = { origin:'https://wallet.example.invalid',tenant:'synthetic',username:'tester',
+    account:'0x1111111111111111111111111111111111111111',chainId:'560048' };
+  const scope = {...session,agentId:'synthetic-agent'};
+  const subject = {chainId:'560048',standard:'native',contract:null,tokenId:null};
+  const path = ['all','category:fungible','subcategory:'+digest({chainId:'560048',standard:'native'}),'asset:'+digest(subject)];
+  const catalogBase = {schema:'8415-asset-control-catalog/1',scopeDigest:digest(scope),entries:[{subject,path}]};
+  const catalog = {...catalogBase,digest:digest(catalogBase),ownershipVerified:false,grantsAuthority:false,inventoryComplete:false};
+  const status = {schema:'8415-asset-control-state/1',scope,revision:'0',entries:[],label:'Agent and asset authorization controls',
+    defaultValue:true,evaluation:'NOT_EVALUATED',appliesTo:'still-valid-in-scope-authorizations',grantsAuthority:false,
+    factorsForOFF:['password-or-bound-wallet','previously-verified-email'],
+    factorsForEverySave:['password-or-bound-wallet','previously-verified-email'],changeCount:0,lastChange:null,
+    canSave:true,executionScope:'supported-actual-task-bindings'};
+  return {session,status,catalog,path,read:()=>validateAssetControlRead(status,catalog,session,session.origin,session.tenant)};
+}
+test('initial authenticated native inventory projects every displayed control ON without ownership claims',async()=>{
+  const f=fixture(),v=await f.read(); assert.equal(v.view.fields.length,57);
+  assert.ok(v.view.fields.every(x=>x.value===true&&x.source==='default'&&x.executable===false));
+  assert.equal(v.inventoryComplete,false);assert.equal(v.ownershipVerified,false);
+});
+test('explicit saved false survives read without resetting other defaults',async()=>{
+  const f=fixture(),target={kind:'allow-agent'};
+  Object.assign(f.status,{revision:'1',changeCount:1,lastChange:{request:{}}});
+  f.status.entries.push({key:digest(target),target,value:false,revision:'1',policyRevision:'1',changedAt:1,changeId:'c'.repeat(43)});
+  const v=await f.read();assert.equal(v.view.fields[0].value,false);
+  assert.ok(v.view.fields.slice(1).every(x=>x.value===true));
+});
+test('scope mismatch and catalog digest substitution are rejected',async()=>{
+  for(const mutate of [f=>f.status.scope.tenant='other',f=>f.catalog.digest='0'.repeat(64),
+    f=>f.catalog.entries[0].path[3]='asset:'+'0'.repeat(64),f=>f.catalog.ownershipVerified=true]) {
+    const f=fixture();mutate(f);await assert.rejects(f.read(),/ASSET_CONTROL_RESPONSE_REFUSED/);
+  }
+});
+test('damaged status never turns into initial ON',async()=>{
+  for(const mutate of [f=>f.status.defaultValue=false,f=>f.status.entries=null,
+    f=>f.status.scope.chainId='0560048',f=>f.status.extra=true,f=>f.status.revision='1']) {
+    const f=fixture();mutate(f);await assert.rejects(f.read());
+  }
+});
+test('catalog source is closed and duplicate leaves are refused',async()=>{
+  const f=fixture();f.catalog.entries.push(f.catalog.entries[0]);
+  await assert.rejects(f.read(),/ASSET_CONTROL_RESPONSE_REFUSED/);
+});

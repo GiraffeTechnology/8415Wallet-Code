@@ -1,0 +1,65 @@
+/** Read-only Hoodi snapshot. No key handling, transaction, eth_call, signing or provider account request. */
+import { writeFile } from 'node:fs/promises';
+import { resolve, isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
+export const CHAIN_ID='0x88bb0';
+export const GENESIS='0xbbe312868b376a3001692a646dd2d7d1e4406380dfd86b98aa8a34d1557c971b';
+export const WALLETS=Object.freeze([
+ {tenant:'synthetic-alpha',historicalName:'synthetic-old-a',address:'0x1111111111111111111111111111111111111111'},
+ {tenant:'synthetic-beta',historicalName:'synthetic-old-b',address:'0x2222222222222222222222222222222222222222'},
+]);
+const METHODS=new Set(['eth_chainId','eth_getBlockByNumber','eth_getCode','eth_getBalance','eth_getTransactionCount']);
+const fail=code=>{throw Error(code)};
+function hex(value,bytes){if(typeof value!=='string'||!/^0x[0-9a-fA-F]*$/.test(value)||(value.length-2)%2||(bytes!==undefined&&value.length!==2+bytes*2))fail('RPC_HEX_INVALID');return value.toLowerCase()}
+function quantity(value){if(typeof value!=='string'||!/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(value))fail('RPC_QUANTITY_INVALID');return BigInt(value)}
+export function classifyCode(code){
+ code=hex(code);
+ if(code==='0x') return {classification:'no-code-observed',meaning:'EOA-compatible at this block; does not prove control or account history'};
+ if(/^0xef0100[0-9a-f]{40}$/.test(code)) return {classification:'eip7702-delegation-observed',delegate:`0x${code.slice(8)}`,meaning:'Delegated EOA code indicator; independently review wallet/auth support before any use'};
+ return {classification:'code-present',meaning:'Contract or other code-bearing account; inspect account type and supported auth route before use'};
+}
+export function validateEndpoint(value){
+ let url;try{url=new URL(value)}catch{fail('RPC_URL_REQUIRED')}
+ if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)fail('RPC_HTTPS_NO_CREDENTIAL_URL_REQUIRED');
+ return url.href;
+}
+export async function readSnapshot(rpc){
+ const chain=await rpc('eth_chainId',[]);if(quantity(chain)!==560048n)fail('HOODI_CHAIN_MISMATCH');
+ const genesis=await rpc('eth_getBlockByNumber',['0x0',false]);if(!genesis||hex(genesis.hash,32)!==GENESIS)fail('HOODI_GENESIS_MISMATCH');
+ const block=await rpc('eth_getBlockByNumber',['finalized',false]);
+ if(!block)fail('FINALIZED_BLOCK_REQUIRED');
+ quantity(block.number);const blockHash=hex(block.hash,32);const blockNumber=block.number;
+ const accounts=[];
+ for(const wallet of WALLETS){
+  const code=hex(await rpc('eth_getCode',[wallet.address,blockNumber]));
+  const balanceWei=quantity(await rpc('eth_getBalance',[wallet.address,blockNumber])).toString();
+  const nonce=quantity(await rpc('eth_getTransactionCount',[wallet.address,blockNumber])).toString();
+  accounts.push({...wallet,...classifyCode(code),code,balanceWei,nonce});
+ }
+ const check=await rpc('eth_getBlockByNumber',[blockNumber,false]);
+ if(!check||check.number!==blockNumber||hex(check.hash,32)!==blockHash)fail('SNAPSHOT_BLOCK_CHANGED');
+ return {schema:'8415wallet-hoodi-readonly/1',observedAt:new Date().toISOString(),chainId:'560048',genesisHash:GENESIS,blockNumber,blockHash,blockTag:'finalized',providerEvidence:'one operator-approved RPC; endpoint omitted',accounts,ownershipProven:false,transactionsSubmitted:false,signaturesRequested:false};
+}
+export function createRpc(endpoint,{fetchImpl=fetch}={}){
+ const url=validateEndpoint(endpoint);let id=0;
+ return async(method,params)=>{
+  if(!METHODS.has(method))fail('READONLY_METHOD_REFUSED');
+  const current=++id;
+  let response;try{response=await fetchImpl(url,{method:'POST',redirect:'error',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:current,method,params}),signal:AbortSignal.timeout(15000)})}catch{fail('RPC_TRANSPORT_UNAVAILABLE')}
+  if(!response.ok)fail(`RPC_HTTP_${response.status}`);
+  const length=Number(response.headers.get('content-length'));if(Number.isFinite(length)&&length>1048576)fail('RPC_RESPONSE_TOO_LARGE');
+  const reader=response.body.getReader();let chunks=[],total=0;
+  while(true){const item=await reader.read();if(item.done)break;total+=item.value.length;if(total>1048576){await reader.cancel();fail('RPC_RESPONSE_TOO_LARGE')}chunks.push(item.value)}
+  let data;try{data=JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{fail('RPC_RESPONSE_INVALID')}
+  if(!data||data.jsonrpc!=='2.0'||data.id!==current||data.error||!Object.hasOwn(data,'result'))fail('RPC_RESULT_REFUSED');
+  return data.result;
+ };
+}
+async function main(){
+ const args=process.argv.slice(2);
+ if(args.length!==2||args[0]!=='--output'||!isAbsolute(args[1])||resolve(args[1])!==args[1])fail('USE_NODE_SCRIPT_OUTPUT_ABSOLUTE_NEW_JSON');
+ const result=await readSnapshot(createRpc(process.env.HOODI_RPC_URL));
+ await writeFile(args[1],JSON.stringify(result,null,2)+'\n',{flag:'wx',mode:0o600});
+ console.log('Read-only Hoodi snapshot saved. No ownership or deployment conclusion.');
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(error=>{console.error(/^([A-Z0-9_]+)$/.test(error.message)?error.message:'READONLY_CHECK_FAILED');process.exitCode=1});
