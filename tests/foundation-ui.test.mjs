@@ -217,7 +217,7 @@ test('platform authentication candidate has an exact identity, with retained sec
   // Account-login, method-change and raw-page browser suites retain behavioral
   // proof/cancellation/replay tests for this changed presentation.
   const auth = text('../web/wallet-auth.mjs');
-  assert.equal(createHash('sha256').update(auth).digest('hex'), 'b150b8f0a2897ca7c8aab854ac3e105a07a4fa9f92a9ab6f1283c96f07bf5846');
+  assert.equal(createHash('sha256').update(auth).digest('hex'), 'fa09a78f97da746761523d8c48fdaf03975bb5b0fcb451c15fd5c8205d94b3b7');
   for (const [path, expected] of [
     ['web/login-core.mjs', '2b6da6cdc97ccf7ca53aaa41c25b15b8482d29c604ecd5d76ce4bf9ba31c73d8'],
     ['web/account-auth.mjs', '6e7021fbe19738a0cffc5fdb5a7a809b67419bfd54e59f44d2e66a6caa5e4f80'],
@@ -342,4 +342,13 @@ test('intentional registration leaves a previous wallet path before authenticati
   f.login(null);
   assert.equal(f.window.location.pathname, '/user-new-account');
   assert.equal(f.el('password-tenant-select').value, 'user-new-account');
+});
+
+
+test('brand marks composite without a white tile and preserve surrounding images', () => {
+  const css = text('../web/wallet.css');
+  assert.match(css, /\.brand-logo,\.login-intro>img\{background:transparent;mix-blend-mode:multiply\}/);
+  assert.equal((html.match(/src="assets\/giraffe-original\.jpg"/g) ?? []).length, 2);
+  assert.doesNotMatch(css, /(?:^|\})\s*img\s*\{[^}]*mix-blend-mode/);
+  assert.doesNotMatch(css, /\.tenant-avatar(?:\s+img)?\{[^}]*mix-blend-mode/);
 });
