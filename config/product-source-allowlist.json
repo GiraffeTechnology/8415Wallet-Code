@@ -817,8 +817,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "2d2b933fbc217c8a87f21413d4aea636c18848cd",
-      "sha256": "7462fd85f37885746cc57236c9e5796263bf8d79afaba37999dbcca7ada801bd"
+      "git_blob_sha1": "7f60e876c00e4534bf2f77f77ca4dd9ad79e11cc",
+      "sha256": "6f1005aedd00d408f7ab214aeee4a2b5d0e5dc2d2ab8d8de7def31631a07fa77"
     },
     {
       "path": "scripts/package/auth-npm-continuation.mjs",
