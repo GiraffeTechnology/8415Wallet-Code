@@ -1267,8 +1267,8 @@
     {
       "path": "server/task-verification-policy.mjs",
       "mode": "100644",
-      "git_blob_sha1": "00ce7c36a9c7d59e7a3aeadd66baf7395b3fd04f",
-      "sha256": "3492c574191a2bdd3fe80fb5fdedac28251c91fbe655564911e95bb8d391887b"
+      "git_blob_sha1": "d64d60a05f8dfda812ef42882afdec2c69f99851",
+      "sha256": "3480c2bc1afddd60c471f79d9ace0173c89385921deb3b68e944a1ba0dfd0c5f"
     },
     {
       "path": "server/task-verification-state.mjs",
