@@ -901,8 +901,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f9fa73ea2bf884d107c2bc2e7db609d693ec3bc3",
-      "sha256": "14545d00a13589a829363cd78c7de269e7077db211570e3e293e93a370ac1257"
+      "git_blob_sha1": "3e78eb147307390a441e5d746644e5a289fe14e5",
+      "sha256": "657d5a5b6b541f4081564b00cf1bcaa517a6057963c0f5539fdeaa13cd2f6fff"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -913,8 +913,8 @@
     {
       "path": "scripts/package/verify-delivery.mjs",
       "mode": "100644",
-      "git_blob_sha1": "52915d7a0f95ee25157f859a99ce4351f2d97211",
-      "sha256": "2e60bc03561e6833596b50cee398d5fbd09dead2632d0e16efc5ce56264106ae"
+      "git_blob_sha1": "18ee698e247d2536b944cbc79746b09c40671991",
+      "sha256": "d007414ad57ea6327bcfff3b09e219525a69a6966e88b758b98822af9f2975bd"
     },
     {
       "path": "scripts/package/verify-install-v3.mjs",
