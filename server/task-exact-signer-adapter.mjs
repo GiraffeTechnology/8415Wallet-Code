@@ -1,3 +1,4 @@
+import { assertTaskAssetControlAuthorization } from './task-asset-control-catalog.mjs';
 import { readTaskGrantVerificationPolicy } from './task-verification-execution.mjs';
 import { assertTaskOperationVerificationAttempt } from './task-operation-verification.mjs';
 import { normalizeTestNFT721Bindings, verifyTestNFT721OperationPreflight, readTestNFT721OperationResult } from './task-test-nft721-binding.mjs';
@@ -19,7 +20,7 @@ import { createTaskExactOperationPlanner, normalizeTaskExactFeeRule } from './ta
 import { testSeriesMintRequest, verifyTestSeriesMintPreflight } from './task-test-mint-contract.mjs';
 
 export const TASK_EXACT_SIGNER_RUNTIME_FILES = Object.freeze([
-  'server/task-operation-verification.mjs',
+  'server/task-operation-verification.mjs', 'server/task-asset-control-state.mjs', 'server/task-asset-control-catalog.mjs',
   'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
   // Approval selection, channel isolation, and the shared-store constructor
   // affect this port's trusted runtime; UI/build/test code does not.
@@ -210,9 +211,13 @@ export function createTaskExactSignerAdapter({ provider, externalSigner, signerI
       nonce.taskDigest === c.task.digest && nonce.childDigest === c.child.digest && grant?.task?.digest === c.task.digest &&
       freezeTaskPolicy(grant.task.policy).digest === c.task.digest, 'TASK_EXACT_ATTEMPT_REQUIRED');
     if (active) {
+      // Submitted attempts are reconciliation-only, never a fresh send. Keep
+      // the terminal attempt refusal before per-operation proof evaluation.
+      check(op.status === 'outcome-unknown','TASK_EXACT_GRANT_NOT_ACTIVE');
       // Same authoritative credential snapshot as grant, nonce and signature.
       // Historical recovery intentionally keeps its existing active=false path.
       const verificationPolicy = readTaskGrantVerificationPolicy(values[j.ckey], grant);
+      assertTaskAssetControlAuthorization(values[j.ckey],grant);
       let testExempt = false;
       if (grant.approvalFactor === 'server-test-scope') {
         check(testScope !== null, 'TASK_EXACT_TEST_SCOPE_NOT_CONNECTED');
