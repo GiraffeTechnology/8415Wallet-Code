@@ -94,15 +94,24 @@ export function prepareOrRestoreNpmCLI({ root, entry, args, capture, verifyPrepa
   // --foreground keeps npm in this build's owned group. External supervision
   // still proves the entire descendant tree has ended before accepting a pack.
   const offline = args.includes('--offline') ? ' --offline' : '';
-  const script = 'root=$1; token=$2; shift 2; '
-    + 'timeout --foreground --signal=TERM --kill-after=2s 180s npm ci --omit=dev --ignore-scripts --no-audit --no-fund --bin-links=false'
-    + offline + '; code=$?; if [ "$code" -ne 0 ]; then exit "$code"; fi; '
+  // This phase precedes buildAuthPackage diagnostics. Keep npm output private.
+  writeFileSync(join(directory, 'npm-phase-start.json'), json({
+    schema: 'wallet-auth-npm-phase/1', event: 'npm-command-start', startedUTC: new Date().toISOString(),
+    supervisorPid: process.pid, timeoutMs: 180000, killAfterMs: 2000, timeoutSignal: 'SIGTERM',
+    offline: args.includes('--offline'), source: identity(prepared.source)
+  }), { mode: 0o600, flag: 'wx' });
+  const script = 'root=$1; token=$2; diagnostics=$3; shift 3; umask 077; '
+    + 'timeout --verbose --foreground --signal=TERM --kill-after=2s 180s npm ci --omit=dev --ignore-scripts --no-audit --no-fund --bin-links=false'
+    + offline + ' 2>"$diagnostics/npm-stderr.log"; code=$?; '
+    + 'if ! printf \'{"event":"npm-command-exit","exitCode":%s}\\n\' "$code" > "$diagnostics/npm-phase-exit.json"; then '
+    + 'if [ "$code" -ne 0 ]; then exit "$code"; else exit 74; fi; fi; '
+    + 'if [ "$code" -ne 0 ]; then exit "$code"; fi; '
     + 'export WALLET_AUTH_NPM_TOKEN="$token"; cd "$root" || exit 71; exec "$@"';
   const env = Object.fromEntries(Object.entries({ ...process.env, [SNAPSHOT]: snapshot,
     npm_config_logs_dir: logs, NPM_CONFIG_LOGS_DIR: logs,
     npm_config_update_notifier: 'false', NPM_CONFIG_UPDATE_NOTIFIER: 'false' }).filter(([, value]) => typeof value === 'string'));
   process.chdir(runtime);
-  process.execve('/bin/sh', ['sh', '-c', script, 'wallet-auth-npm', root, token,
+  process.execve('/bin/sh', ['sh', '-c', script, 'wallet-auth-npm', root, token, directory,
     process.execPath, ...process.execArgv, entry, ...args], env);
   throw new Error('AUTH_PACKAGE_NPM_EXECVE_RETURNED');
 }
