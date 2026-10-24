@@ -17,7 +17,7 @@ function fixture(t, mode = 'success', extra = {}) {
       lock: { name: 'synthetic-runtime', version: '1.0.0', lockfileVersion: 3, packages: {} } } };
   const input = join(root, 'input.json'), argsFile = join(root, 'args.json');
   writeFileSync(input, JSON.stringify(data)); writeFileSync(argsFile, JSON.stringify(['--offline']));
-  writeFileSync(join(bin, 'timeout'), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "timeout (GNU coreutils) synthetic"; exit 0; fi\nif [ "$SYNTHETIC_MODE" = "timeout" ]; then exit 124; fi\nshift 4\nexec "$@"\n');
+  writeFileSync(join(bin, 'timeout'), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "timeout (GNU coreutils) synthetic"; exit 0; fi\nprintf "%s" "$PWD" > "$SYNTHETIC_ARENA"\nif [ "$SYNTHETIC_MODE" = "timeout" ]; then echo "timeout: sending signal TERM to command npm" >&2; exit 124; fi\nshift 5\nexec "$@"\n');
   writeFileSync(join(bin, 'npm'), '#!/bin/sh\n'
     + 'printf "invoked" > "$SYNTHETIC_INVOKED"\n'
     + 'if [ "$SYNTHETIC_MODE" = "failure" ]; then exit 7; fi\n'
@@ -55,7 +55,7 @@ writeFileSync(join(root,'completed.json'),JSON.stringify({complete:true}));conso
   const env = { ...process.env, PATH: [bin, dirname(process.execPath), process.env.PATH].join(delimiter),
     SYNTHETIC_MODE: mode, SYNTHETIC_INPUT: input, SYNTHETIC_ARGS: argsFile,
     SYNTHETIC_REPLACEMENT: JSON.stringify(replacement), SYNTHETIC_OUTSIDE: join(root, 'outside'),
-    SYNTHETIC_INVOKED: join(root, 'npm-invoked'), ...extra };
+    SYNTHETIC_INVOKED: join(root, 'npm-invoked'), SYNTHETIC_ARENA: join(root, 'npm-arena'), ...extra };
   delete env.WALLET_AUTH_NPM_SNAPSHOT; delete env.WALLET_AUTH_NPM_TOKEN;
   return { root, script, env, run: (overrides, execArgs = []) => spawnSync(process.execPath, [...execArgs, script], {
     cwd: root, env: { ...env, ...overrides }, encoding: 'utf8', timeout: 10000,
@@ -76,6 +76,16 @@ for (const [mode, code] of [['failure', 7], ['timeout', 124]]) {
     const f = fixture(t, mode), result = f.run();
     assert.equal(result.status, code, result.stderr); assert.doesNotMatch(result.stdout, /SYNTHETIC_COMPLETE/);
     assert.equal(existsSync(join(f.root, 'completed.json')), false);
+    const arena = dirname(readFileSync(join(f.root, 'npm-arena'), 'utf8'));
+    t.after(() => rmSync(arena, { recursive: true, force: true }));
+    const start = JSON.parse(readFileSync(join(arena, 'npm-phase-start.json'), 'utf8'));
+    assert.equal(start.event, 'npm-command-start');
+    assert.equal(start.timeoutMs, 180000); assert.equal(start.killAfterMs, 2000);
+    assert.equal(start.timeoutSignal, 'SIGTERM'); assert.equal(start.offline, true);
+    assert.equal(JSON.parse(readFileSync(join(arena, 'npm-phase-exit.json'), 'utf8')).exitCode, code);
+    assert.equal(existsSync(join(arena, 'npm-completed.json')), false);
+    if (mode === 'timeout') assert.match(readFileSync(join(arena, 'npm-stderr.log'), 'utf8'), /sending signal TERM/);
+    assert.doesNotMatch(result.stderr, /sending signal TERM/);
   });
 }
 for (const mode of ['source-change', 'args-change', 'lock-change', 'symlink']) {
