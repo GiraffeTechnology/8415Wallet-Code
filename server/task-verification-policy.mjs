@@ -167,9 +167,10 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
     check(state.revision === body.expectedRevision, 'TASK_VERIFICATION_REVISION_CONFLICT', 409);
     check(!slots.get(session.id)?.committing, 'TASK_VERIFICATION_CHANGE_IN_PROGRESS', 409);
     sweep(); check(slots.size < 10000 || slots.has(session.id), 'TASK_VERIFICATION_BUSY', 503);
+    const issuedAt = stamp();
     const request = { schema: '8415-task-human-verification-change/2', scope: scopeFor(session),
       mode: body.mode, expectedRevision: state.revision, credentialRevision: session.revision,
-      changeId: randomToken(), nonce: randomToken(), issuedAt: stamp(), expiresAt: stamp() + LIFE };
+      changeId: randomToken(), nonce: randomToken(), issuedAt, expiresAt: issuedAt + LIFE };
     const changeDigest = digest(JSON.stringify(request));
     const message = [`8415wallet owner policy change: Per-operation human verification ${request.mode}`,
       `Scope: ${JSON.stringify(request.scope)}`, 'Applies only to still-valid, in-scope authorizations; no new task authority.',

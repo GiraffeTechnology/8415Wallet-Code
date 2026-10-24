@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -300,20 +300,39 @@ export function readAuthArchive(bytes) {
   return scanAuthTar((offset, size) => tar.subarray(offset, offset + size), tar.length)
     .map(({ path, offset, size }) => ({ path, bytes: tar.subarray(offset, offset + size) }));
 }
-export function unpackAuthArchive(archive) {
-  fail(lstatSync(archive).size <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
+/** Expand one bounded archive to a private spool, then expose positional reads.
+ * The spool and inherited descriptors are always closed before returning. */
+export function withArchiveTar(archive, inspect, verifyDigest) {
   const spool = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-spool-'));
   const tarPath = join(spool, 'payload.tar');
-  let descriptor, directory;
+  let input, descriptor;
   try {
+    const inputPath = join(spool, 'input.tar.gz');
+    const digest = createHash('sha256');
+    if (Buffer.isBuffer(archive)) {
+      fail(archive.length <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
+      writeFileSync(inputPath, archive, { flag: 'wx', mode: 0o600 }); digest.update(archive);
+    } else {
+      const source = openSync(resolve(archive), 'r');
+      let copy;
+      try {
+        fail(fstatSync(source).isFile() && fstatSync(source).size <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
+        copy = openSync(inputPath, 'wx', 0o600);
+        const block = Buffer.allocUnsafe(65536); let total = 0;
+        for (let count; (count = readSync(source, block, 0, block.length, null)) > 0;) {
+          total += count; fail(total <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
+          digest.update(block.subarray(0, count));
+          for (let written = 0; written < count;) written += writeSync(copy, block, written, count - written);
+        }
+      } finally { if (copy !== undefined) closeSync(copy); closeSync(source); }
+    }
+    if (verifyDigest) verifyDigest(digest.digest('hex'));
+    input = openSync(inputPath, 'r');
     const output = openSync(tarPath, 'wx', 0o600);
     try {
-      // Bounded streaming expansion avoids retaining the entire tar and all
-      // payload subarrays during the independent directory verification.
-      // Only inherited descriptors and this private spool are used by the child.
-      const script = `const {createReadStream,createWriteStream}=require('node:fs');const {createGunzip}=require('node:zlib');const {Transform}=require('node:stream');const {pipeline}=require('node:stream/promises');let n=0;pipeline(createReadStream(process.argv[1]),createGunzip(),new Transform({transform(b,e,c){n+=b.length;c(n>268435456?Error('AUTH_PACKAGE_TAR_LENGTH_REFUSED'):null,b)}}),createWriteStream(null,{fd:1,autoClose:false})).catch(e=>{console.error(e.message);process.exitCode=1});`;
+      const script = `const {createReadStream,createWriteStream}=require('node:fs');const {createGunzip}=require('node:zlib');const {Transform}=require('node:stream');const {pipeline}=require('node:stream/promises');let n=0;pipeline(createReadStream(null,{fd:0,autoClose:false}),createGunzip(),new Transform({transform(b,e,c){n+=b.length;c(n>268435456?Error('AUTH_PACKAGE_TAR_LENGTH_REFUSED'):null,b)}}),createWriteStream(null,{fd:1,autoClose:false})).catch(e=>{console.error(e.message);process.exitCode=1});`;
       const env = { ...process.env, NODE_OPTIONS: '--max-old-space-size=96' }; delete env.NODE_PATH;
-      execFileSync(process.execPath, ['-e', script, resolve(archive)], { env, stdio: ['ignore', output, 'pipe'], timeout: 60000, maxBuffer: 65536 });
+      execFileSync(process.execPath, ['-e', script], { env, stdio: [input, output, 'pipe'], timeout: 60000, maxBuffer: 65536 });
     } finally { closeSync(output); }
     descriptor = openSync(tarPath, 'r');
     const read = (offset, size) => {
@@ -321,14 +340,23 @@ export function unpackAuthArchive(archive) {
       while (received < size) { const n = readSync(descriptor, bytes, received, size - received, offset + received); fail(n > 0, 'TAR_LENGTH_REFUSED'); received += n; }
       return bytes;
     };
-    // Validate every header, duplicate, padding and terminator before writing
-    // any extracted file. No external tar parser replaces these strict checks.
-    const entries = scanAuthTar(read, fstatSync(descriptor).size);
-    directory = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-'));
-    for (const { path, offset, size } of entries) { mkdirSync(dirname(join(directory, path)), { recursive: true, mode: 0o755 }); writeFileSync(join(directory, path), read(offset, size), { flag: 'wx', mode: 0o644 }); }
-    return directory;
-  } catch (error) { if (directory) rmSync(directory, { recursive: true, force: true }); throw error; }
-  finally { if (descriptor !== undefined) closeSync(descriptor); rmSync(spool, { recursive: true, force: true }); }
+    return inspect(read, fstatSync(descriptor).size);
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+    if (input !== undefined) closeSync(input);
+    rmSync(spool, { recursive: true, force: true });
+  }
+}
+export function unpackAuthArchive(archive) {
+  return withArchiveTar(archive, (read, length) => {
+    // Validate every header, duplicate, padding and terminator before writing.
+    const entries = scanAuthTar(read, length);
+    const directory = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-'));
+    try {
+      for (const { path, offset, size } of entries) { mkdirSync(dirname(join(directory, path)), { recursive: true, mode: 0o755 }); writeFileSync(join(directory, path), read(offset, size), { flag: 'wx', mode: 0o644 }); }
+      return directory;
+    } catch (error) { rmSync(directory, { recursive: true, force: true }); throw error; }
+  });
 }
 
 export function verifyAuthArchive(manifestPath, options = {}) {

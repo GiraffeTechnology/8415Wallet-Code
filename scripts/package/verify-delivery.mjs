@@ -5,8 +5,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gunzipSync } from 'node:zlib';
-import { LEGAL_FILES, PUBLIC_LEGAL_FILES, safePath, sha256, sourceTree, unpackAuthArchive, verifyAuthDirectory, walkAuth } from './verify-auth.mjs';
+import { LEGAL_FILES, PUBLIC_LEGAL_FILES, safePath, sha256, sourceTree, withArchiveTar, unpackAuthArchive, verifyAuthDirectory, walkAuth } from './verify-auth.mjs';
 import { resolveReleaseProfile } from '../../web/release-profile.mjs';
 import { validatePasswordRoutes } from '../../web/tenant-password-routing.mjs';
 export { sha256 };
@@ -24,10 +23,11 @@ const parsed = bytes => JSON.parse(bytes.toString('utf8'));
 /** Read the exact regular-file/directory GNU or USTAR subset emitted by our packers.
  * No extraction subprocess, PAX overrides, links, devices, duplicates or traversal.
  * Reject unsupported long-name records rather than silently interpreting them. */
-export function readDeliveryArchive(bytes) {
-  fail(Buffer.isBuffer(bytes) && bytes.length <= 128 * 1024 * 1024, 'ARCHIVE_SIZE_REFUSED');
-  const tar = gunzipSync(bytes, { maxOutputLength: 256 * 1024 * 1024 });
-  fail(tar.length % 512 === 0, 'TAR_LENGTH_REFUSED');
+function scanDeliveryTar(read, length) {
+  fail(length % 512 === 0, 'TAR_LENGTH_REFUSED');
+  const zeroes = (start, end, code) => {
+    for (let at = start; at < end; at += 65536) fail(read(at, Math.min(65536, end - at)).every(byte => byte === 0), code);
+  };
   const entries = new Map(), seen = new Map(); let offset = 0, terminated = false;
   const string = buffer => {
     const end = buffer.indexOf(0); const value = end < 0 ? buffer : buffer.subarray(0, end);
@@ -36,9 +36,9 @@ export function readDeliveryArchive(bytes) {
     return value.toString('ascii');
   };
   const octal = buffer => { const value = buffer.toString('ascii').replace(/[\0 ]+$/, '').trim(); fail(/^[0-7]+$/.test(value), 'TAR_NUMBER_REFUSED'); const n = parseInt(value, 8); fail(Number.isSafeInteger(n), 'TAR_NUMBER_REFUSED'); return n; };
-  while (offset + 512 <= tar.length) {
-    const header = tar.subarray(offset, offset + 512); offset += 512;
-    if (header.every(byte => byte === 0)) { fail(offset + 512 <= tar.length && tar.subarray(offset).every(byte => byte === 0), 'TAR_TRAILING_DATA_REFUSED'); terminated = true; break; }
+  while (offset + 512 <= length) {
+    const header = read(offset, 512); offset += 512;
+    if (header.every(byte => byte === 0)) { fail(offset + 512 <= length, 'TAR_TRAILING_DATA_REFUSED'); zeroes(offset, length, 'TAR_TRAILING_DATA_REFUSED'); terminated = true; break; }
     fail(octal(header.subarray(148, 156)) === [...header].reduce((sum, byte, index) => sum + (index >= 148 && index < 156 ? 32 : byte), 0), 'TAR_CHECKSUM_MISMATCH');
     const gnu = header.subarray(257, 265).equals(Buffer.from('ustar  \0'));
     const ustar = header.subarray(257, 265).equals(Buffer.from('ustar\0' + '00'));
@@ -56,9 +56,9 @@ export function readDeliveryArchive(bytes) {
     fail((directory && path === '') || safePath(path), 'TAR_PATH_REFUSED');
     fail(!seen.has(path), 'TAR_DUPLICATE_REFUSED'); seen.set(path, directory);
     const size = octal(header.subarray(124, 136)), padded = Math.ceil(size / 512) * 512;
-    fail(size <= 96 * 1024 * 1024 && (!directory || size === 0) && offset + padded <= tar.length, 'TAR_ENTRY_SIZE_REFUSED');
-    if (!directory) entries.set(path, { bytes: tar.subarray(offset, offset + size), mode });
-    fail(tar.subarray(offset + size, offset + padded).every(byte => byte === 0), 'TAR_PADDING_REFUSED'); offset += padded;
+    fail(size <= 96 * 1024 * 1024 && (!directory || size === 0) && offset + padded <= length, 'TAR_ENTRY_SIZE_REFUSED');
+    if (!directory) entries.set(path, { bytes: read(offset, size), mode });
+    zeroes(offset + size, offset + padded, 'TAR_PADDING_REFUSED'); offset += padded;
     fail(seen.size <= 25000, 'TAR_ENTRY_COUNT_REFUSED');
   }
   fail(terminated && entries.size > 0, 'TAR_TERMINATOR_REQUIRED');
@@ -67,6 +67,13 @@ export function readDeliveryArchive(bytes) {
     for (let i = 1; i < parts.length; i++) fail(seen.get(parts.slice(0, i).join('/')) !== false, 'TAR_PATH_COLLISION_REFUSED');
   }
   return entries;
+}
+/** Keep only file payloads, never a second complete expanded TAR backing store. */
+export function readDeliveryArchive(archive, expectedSha256) {
+  fail(Buffer.isBuffer(archive) || typeof archive === 'string', 'ARCHIVE_SIZE_REFUSED');
+  const size = Buffer.isBuffer(archive) ? archive.length : lstatSync(archive).size;
+  fail(size <= 128 * 1024 * 1024, 'ARCHIVE_SIZE_REFUSED');
+  return withArchiveTar(archive, scanDeliveryTar, expectedSha256 === undefined ? undefined : digest => fail(digest === expectedSha256, 'ARCHIVE_DIGEST_MISMATCH'));
 }
 const hashes = entries => Object.fromEntries([...entries].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, entry]) => [path, sha256(entry.bytes)]));
 const get = (entries, path) => { fail(entries.has(path), `FILE_MISSING: ${path}`); return entries.get(path).bytes; };
@@ -104,9 +111,7 @@ export function verifyDappEntries(entries, manifest, source, profileId) {
 }
 export function verifyDeliveryArchive(archive, { expectedSha256, expectedTree } = {}) {
   fail(digestPattern.test(expectedSha256 ?? '') && treePattern.test(expectedTree ?? ''), 'EXTERNAL_PINS_REQUIRED');
-  const bytes = Buffer.isBuffer(archive) ? archive : readFileSync(archive);
-  fail(sha256(bytes) === expectedSha256, 'ARCHIVE_DIGEST_MISMATCH');
-  const entries = readDeliveryArchive(bytes), release = parsed(get(entries, 'DELIVERY.json'));
+  const entries = readDeliveryArchive(archive, expectedSha256), release = parsed(get(entries, 'DELIVERY.json'));
   fail(release.schema === DELIVERY_SCHEMA && release.source?.tree === expectedTree && release.status === 'BETA_FUNCTIONAL_TESTING_NOT_INDEPENDENTLY_AUDITED', 'IDENTITY_REFUSED');
   fail(get(entries, 'SHA256SUMS').toString() === sums(entries), 'CHECKSUM_INVENTORY_MISMATCH');
   assert.deepEqual(hashes(new Map([...entries].filter(([path]) => !['SHA256SUMS', 'DELIVERY.json'].includes(path)))), release.files, 'DAPP_DELIVERY_COMPLETE_INVENTORY_MISMATCH');

@@ -18,7 +18,7 @@ declare module '*server/task-verification-policy.mjs' {
   }
   interface Prepared {
     changeProtocol?: string;
-    request: { mode: 'ON' | 'OFF'; changeId: string; nonce: string; expectedRevision: string; expiresAt: number };
+    request: { mode: 'ON' | 'OFF'; changeId: string; nonce: string; expectedRevision: string; issuedAt: number; expiresAt: number };
     changeDigest: string; identityMethod: 'wallet' | 'password'; emailMasked: string; message?: string;
   }
   export function taskVerificationPolicyKey(scope: unknown): string;

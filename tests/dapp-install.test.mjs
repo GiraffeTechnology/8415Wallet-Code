@@ -12,6 +12,32 @@ import { captureSource, deterministicArchive, exportSource, walk } from '../scri
 import { DELIVERY_FILES, DELIVERY_SCHEMA, extractDelivery, readDeliveryArchive, verifyDappEntries, verifyDeliveryArchive } from '../scripts/package/verify-delivery.mjs';
 import { createDappConfig, installDapp, nginxStaticAllowlist, planDapp, rollbackDapp, verifyInstalledRelease } from '../deploy/dapp/install.mjs';
 import { resolveReleaseProfile } from '../web/release-profile.mjs';
+
+test('delivery reader releases expanded TAR backing storage and matches file and buffer inputs', { timeout: 60000 }, t => {
+  const root = mkdtempSync(join(tmpdir(), 'wallet-delivery-stream-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  put(root, 'server/fixture.mjs', 'export const fixture = true;\n');
+  const canonical = gunzipSync(deterministicAuthArchive(root));
+  // Valid zero terminator padding must not remain behind a tiny retained entry.
+  const archive = join(root, 'padded.tar.gz');
+  writeFileSync(archive, gzipSync(Buffer.concat([canonical, Buffer.alloc(80 * 1024 * 1024)]), { level: 1 }));
+  const moduleURL = new URL('../scripts/package/verify-delivery.mjs', import.meta.url).href;
+  for (const mode of ['file', 'buffer']) {
+    const program = `import {readDeliveryArchive} from ${JSON.stringify(moduleURL)};
+      import {readFileSync} from 'node:fs';
+      const input = process.argv[2] === 'buffer' ? readFileSync(process.argv[1]) : process.argv[1];
+      const entries = readDeliveryArchive(input);
+      const bytes = entries.get('server/fixture.mjs').bytes;
+      if (entries.size !== 1 || bytes.toString() !== 'export const fixture = true;\\n') throw Error('payload mismatch');
+      if (bytes.buffer.byteLength > 1024 * 1024) throw Error('expanded TAR retained by entry');
+      console.log(JSON.stringify({maxRssKiB:process.resourceUsage().maxRSS}));`;
+    const result = JSON.parse(execFileSync(process.execPath, ['--max-old-space-size=32', '--input-type=module', '-e', program, archive, mode], {
+      encoding: 'utf8', timeout: 45000, env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' },
+    }));
+    assert.ok(result.maxRssKiB < 128 * 1024, `Expanded TAR retained: ${result.maxRssKiB} KiB`);
+  }
+});
+
 const put = (root, path, bytes) => { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), bytes); chmodSync(join(root, path), 0o644); };
 const hashFiles = root => Object.fromEntries(walk(root).map(path => [path, sha256(readFileSync(join(root, path)))]));
 const sums = root => put(root, 'SHA256SUMS', walk(root).filter(path => path !== 'SHA256SUMS').sort().map(path => `${sha256(readFileSync(join(root, path)))}  ${path}`).join('\n') + '\n');

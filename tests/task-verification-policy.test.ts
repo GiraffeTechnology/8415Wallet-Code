@@ -43,6 +43,15 @@ function fixture() {
     advance: (ms: number) => { time += ms; }, revokeSession: () => { active = false; } };
 }
 
+test('prepare derives its exact five-minute lifetime from one issuance clock sample', async () => {
+  const f = fixture(); let clock = f.options.now();
+  const service = createTaskVerificationPolicyService({ ...f.options, now: () => clock++ });
+  const change = await service.prepare(f.session, { expectedRevision: '0', identityMethod: 'wallet' });
+  assert.equal(change.request.expiresAt - change.request.issuedAt, 5 * 60_000);
+  assert.equal(change.request.expiresAt, change.request.issuedAt + 5 * 60_000);
+  assert.equal(f.deliveries.length, 0);
+});
+
 test('absence defaults ON; config/approved flags and one factor cannot create OFF', async () => {
   const f = fixture();
   assert.equal((await f.service.status(f.session)).mode, 'ON');
