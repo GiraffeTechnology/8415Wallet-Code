@@ -53,7 +53,8 @@
       "docs/XIONGAN-WALLET.md",
       "docs/stages/LEGACY-CLEARING-BETA-DAPP.md",
       "docs/stages/STAGE-5J-PUBLIC-PATH-AND-UI.md",
-      "src/agent/README.md"
+      "src/agent/README.md",
+      "docs/PUBLIC-INSTALL.md"
     ],
     "package_and_compiler": [
       "package-lock.json",
@@ -86,7 +87,10 @@
       "scripts/package/verify-dapp.mjs",
       "scripts/package/verify-delivery.mjs",
       "scripts/package/verify-install-v3.mjs",
-      "scripts/package/verify-install.mjs"
+      "scripts/package/verify-install.mjs",
+      "scripts/package/public-component.mjs",
+      "scripts/package/build-public-component.mjs",
+      "scripts/package/verify-public-component.mjs"
     ],
     "runtime_and_installers": [
       "deploy/auth-runtime/8415wallet-auth.service",
@@ -2741,6 +2745,30 @@
       "mode": "100644",
       "git_blob_sha1": "eaa99afc3ff705faf5dbc5b7d28cf034e1c51757",
       "sha256": "17f27cc7faaa00395ed6cc111f10e6457219d39b9727aa211de096e017f2f1c8"
+    },
+    {
+      "path": "scripts/package/public-component.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "3d7f0c319f5d09330a150c29bcbee857e16f22d6",
+      "sha256": "ae00868d828e048ef6f79f72d36c326171887498581df2b6f164ffa3fb6a1878"
+    },
+    {
+      "path": "scripts/package/build-public-component.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "1636da9d6caebdd2361e7909d6b83a61f6cdc100",
+      "sha256": "549314ec3dbd66cebe6b0f28dab85dab199b4b548790bfd214fe9d8b069babcd"
+    },
+    {
+      "path": "scripts/package/verify-public-component.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "f4c0f1af5110a5b3289868e9e531b278c876e98e",
+      "sha256": "beb0bac42bd0941d9690f491ecab213a31e7850e80a345c11b4aa88b554b4669"
+    },
+    {
+      "path": "docs/PUBLIC-INSTALL.md",
+      "mode": "100644",
+      "git_blob_sha1": "7cc89837729d750fbabfc675c06e64fec4ead235",
+      "sha256": "ee0c5d86f9c4119ef9e674ca9c72d3790b268da9530e4859fb7b21bae61fb4eb"
     }
   ]
 }
