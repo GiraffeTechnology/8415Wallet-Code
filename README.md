@@ -1,5 +1,9 @@
 # 8415wallet
 
+## Public installation availability — 2026-10-25
+
+Public installation downloads are limited to **V2** through [Wallet-Exchange](https://github.com/GiraffeTechnology/Wallet-Exchange/releases). Only an explicitly published V2 installation asset constitutes an available download; if none is listed, no public installation package is currently available. **V3 installation packages are not offered for public download** and are distributed separately through private channels. V3 source descriptions, development reports and historical package records are not public V3 release announcements. This availability policy does not establish production readiness or replace applicable acceptance requirements.
+
 8415wallet is a general-purpose wallet compatible with existing wallet and asset standards, with native [ERC-8415 asynchronous register projection](https://github.com/GiraffeTechnology/ERC-8415) support. Its native projection views show the ERC-721 tradeable position separately from the register-confirmed holder, temporal finality, open gaps and chain freshness. Record agreement does not verify legal identity or title.
 
 Product positioning: the first native wallet built on ERC-8415, compatibility with the existing wallet ecosystem, V3 transaction-chain composition, and AI + crypto infrastructure. V2 remains standalone; the shared Beta 2.0 UI label does not change either runtime profile. Implementation and acceptance evidence below remain version-bound.
