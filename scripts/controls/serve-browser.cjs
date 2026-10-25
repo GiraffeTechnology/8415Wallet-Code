@@ -18,6 +18,7 @@ web.add('method-change-ui.mjs');
 web.add('escrow-ordering-i18n.mjs');
 web.add('enrollment-qr.mjs'); web.add('qr-generator.mjs');
 web.add('task-listing-results.mjs');
+web.add('browser-journal-store.mjs');
 for (const module of ['task-activity.mjs','task-activity-ui.mjs','asset-workspace-panel.mjs','hoodi-journey-panel.mjs']) web.add(module);
 web.add('task-ui.mjs'); web.add('task-authorization.mjs'); web.add('task-authorization-ui.mjs');
 web.add('tenant-password-routing.mjs'); web.add('tenant-password-ui.mjs'); web.add('tenant-password-routing.json');
@@ -45,6 +46,7 @@ web.add('task-verification-policy-startup.mjs'); web.add('task-verification-poli
 web.add('task-verification-policy-client.mjs'); web.add('task-verification-policy-wire.mjs');
 web.add('task-verification-policy-pending.mjs');
 web.add('task-verification-policy-ceremony.mjs'); web.add('task-verification-policy-ui.mjs');
+web.add('foundation-policy-summary.mjs');
 web.add('wallet-identity-display.mjs');
 web.add('wallet-entry.mjs');
 const mime={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8'};

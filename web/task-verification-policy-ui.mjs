@@ -255,7 +255,7 @@ export class TaskVerificationPolicyController {
 }
 
 /** Mount only in the human management entry. The caller owns entry visibility. */
-export function mountTaskVerificationPolicy({ document, window, walletLogin, getPolicyClient,
+export function mountTaskVerificationPolicy({ document, window, walletLogin, getPolicyClient, onState = () => {},
   host = document.getElementById('task-verification-policy-settings') }) {
   if (!host) return null;
   if (mounts.has(host)) return mounts.get(host);
@@ -333,7 +333,10 @@ export function mountTaskVerificationPolicy({ document, window, walletLogin, get
     cancelPending.hidden = view?.changeState !== 'unknown'; cancelPending.disabled = state.busy || !open;
     if (state.notice) localized(notice, `notice.${state.notice}`); else paint(notice, '');
   }
-  controller = new TaskVerificationPolicyController({ walletLogin, getPolicyClient, onChange: render,
+  // Every published state also reaches the read-only summary consumer. It is a
+  // display observer: it cannot change, cancel or confirm a policy.
+  const publish = state => { render(state); onState(state); };
+  controller = new TaskVerificationPolicyController({ walletLogin, getPolicyClient, onChange: publish,
     isVisible: () => open && document.visibilityState !== 'hidden' && host.isConnected !== false && !host.hidden });
   const listeners = [];
   const listen = (target, type, handler) => { target.addEventListener(type, handler); listeners.push(() => target.removeEventListener(type, handler)); };
@@ -365,5 +368,5 @@ export function mountTaskVerificationPolicy({ document, window, walletLogin, get
       section.remove(); mounts.delete(host);
     },
   });
-  mounts.set(host, api); render(controller.snapshot()); return api;
+  mounts.set(host, api); publish(controller.snapshot()); return api;
 }

@@ -208,7 +208,7 @@ test('private overview and settings require login; lock and logout still work', 
 
 test('six existing locale choices remain ordered and every new label is authored', () => {
   assert.deepEqual(i18n.LOCALES.map(locale => locale.id), ['en', 'zh-Hans', 'zh-Hant', 'fr', 'es', 'ja']);
-  const keys = ['navigation', 'home', 'login', 'register', 'rbac', 'agentSettings', 'policyNote', 'allowAgent', 'assetScope', 'operations', 'humanVerification'];
+  const keys = ['navigation', 'home', 'login', 'register', 'rbac', 'agentSettings', 'policyNote', 'policySavedNote', 'allowAgent', 'assetScope', 'operations', 'humanVerification'];
   for (const locale of i18n.LOCALES) for (const key of keys) assert.equal(typeof i18n.CATALOGS[locale.id][`foundation.${key}`], 'string');
 });
 
