@@ -1,9 +1,14 @@
 # 8415wallet V2/V3 DApp Beta installation handoff
 
-[Download the installation ZIP](8415wallet-V2-V3-DApp-Beta-Handoff-1f4a9ae6-20261004.zip)
-from this private repository using an authorized GitHub account. This is the
-unchanged October 4 manual-deployment handoff with verified wallet login before
-asset/history display. It is not a deployed website or a general-release claim.
+## Public installation availability — 2026-10-25
+
+Public installation downloads are limited to **V2** through [Wallet-Exchange](https://github.com/GiraffeTechnology/Wallet-Exchange/releases). Only an explicitly published V2 installation asset constitutes an available download; if none is listed, no public installation package is currently available. **V3 installation packages are not offered for public download** and are distributed separately through private channels. V3 source descriptions, development reports and historical package records are not public V3 release announcements. This availability policy does not establish production readiness or replace applicable acceptance requirements.
+
+This is a historical record of the October 4 V2/V3 manual-deployment handoff,
+not an active download offer. The archived ZIP is not present at this path in
+the current branch. The original identity and verification notes below are
+retained for provenance only; they do not announce a current V3 installation
+package or change this repository's public visibility.
 
 ## Identity and integrity
 
@@ -15,7 +20,10 @@ asset/history display. It is not a deployed website or a general-release claim.
 - Source change: [PR #50](https://github.com/GiraffeTechnology/8415Wallet/pull/50)
 - Source CI: [merged-main Node 22/24 run](https://github.com/GiraffeTechnology/8415Wallet/actions/runs/37209416014)
 
-Verify the adjacent checksum before extraction:
+### Historical verification procedure (not a current download instruction)
+
+For an already authorized copy of the named historical bytes, the recorded
+verification procedure was:
 
 ```sh
 sha256sum --check SHA256SUMS
@@ -56,6 +64,7 @@ Connecting a wallet alone does not reveal assets; a verified, expiring,
 origin/account/chain-bound login is required. Login is memory-only, does not
 authorize transactions and does not make public blockchain data private.
 
-Keep the repository and archived source/evidence private. The publication
-commit records distribution metadata; the built artifact's source remains the
-commit listed above. Later CI builds must retain their own source identities.
+The original handoff's confidentiality instructions are historical context,
+not a claim that this repository is private. The publication commit records
+distribution metadata; the historical artifact's source remains the commit
+listed above. Later CI builds must retain their own source identities.

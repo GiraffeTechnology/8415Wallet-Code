@@ -447,8 +447,8 @@
     {
       "path": "README.md",
       "mode": "100644",
-      "git_blob_sha1": "a602159dec0b5ea44a6bd6dedd5dfe055aeefdfc",
-      "sha256": "60b5f01e9c2dd37ac53cc1e561ea4e3d6c5e4e7b2b8b3e505e85f2207695b920"
+      "git_blob_sha1": "d3284b5fea67fc07ea18eca79d473e06bf964387",
+      "sha256": "cbd1042cd487b992850b8dc6e1ccbfb5dfc8fc3e894bf3b7c8e637293c62170c"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -663,8 +663,8 @@
     {
       "path": "docs/INSTALLATION-ASSET-PUBLICATION.md",
       "mode": "100644",
-      "git_blob_sha1": "1e6d29d4f04d24da079629c2e0e554a744f84299",
-      "sha256": "613676a7327e48769f3909e016a156935d83fda396d49001da325f4ca422d47a"
+      "git_blob_sha1": "16bfbae28171db45d1c0f80c3f7b2fdde59c8aae",
+      "sha256": "894ba0ae7c69330d6d6cbf26009a5cebfade87a502ba0c93c5c73f1a09e2ddfa"
     },
     {
       "path": "docs/INTEGRATION-BOUNDARIES.md",

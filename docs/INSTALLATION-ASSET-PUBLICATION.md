@@ -1,5 +1,9 @@
 # Installation asset publication
 
+## Public installation availability — 2026-10-25
+
+Public installation downloads are limited to **V2** through [Wallet-Exchange](https://github.com/GiraffeTechnology/Wallet-Exchange/releases). Only an explicitly published V2 installation asset constitutes an available download; if none is listed, no public installation package is currently available. **V3 installation packages are not offered for public download** and are distributed separately through private channels. V3 source descriptions, development reports and historical package records are not public V3 release announcements. This availability policy does not establish production readiness or replace applicable acceptance requirements.
+
 ArtFi and 8415Wallet repositories remain public for investor review. Controllers must not change repository visibility or schedule an automatic return to private access.
 
 Installation/product packages are currently withdrawn. Do not restore old archives or publish new downloads now. Temporarily suppress only the CI installer/product-kit upload step; retain every test, build, integrity/origin check and other required validation. A runner-local archive or incidental CI artifact is not an accepted distribution.
