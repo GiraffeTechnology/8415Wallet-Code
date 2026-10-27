@@ -72,5 +72,5 @@ export function buildDelivery({ root = process.cwd(), rebuild = true, offline = 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2); if (new Set(args).size !== args.length || args.some(arg => !['--reuse', '--offline'].includes(arg))) throw Error('DAPP_DELIVERY_ARGUMENT_REFUSED');
   const result = buildDelivery({ rebuild: !args.includes('--reuse'), offline: args.includes('--offline') });
-  console.log(`${result.artifact}\nsha256 ${result.sha256}\nsource tree ${result.source.tree}\nObtain and convey these pins through the release owner’s trusted channel; checksums alongside an archive alone do not authenticate its publisher.`);
+  console.log(`${result.artifact}\nsha256 ${result.sha256}\nsource tree ${result.source.tree}\nVerify these pins through an independently authenticated release channel; checksums alongside an archive alone do not authenticate its publisher.`);
 }

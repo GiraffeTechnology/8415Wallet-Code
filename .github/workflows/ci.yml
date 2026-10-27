@@ -138,7 +138,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Xiongan synthetic browser recovery
+      - name: Synthetic browser recovery
         shell: bash
         run: |
           export WALLET_BROWSER_CHROMIUM="${WALLET_BROWSER_CHROMIUM:-$(command -v google-chrome || command -v chromium)}"
@@ -148,7 +148,7 @@ jobs:
       # The escrow holds value, so it is executed rather than only compiled:
       # hardhat runs it against the ERC-8415 reference implementation on a real
       # EVM, admitting entries through the real settlement path.
-      - name: Xiongan synthetic browser evidence
+      - name: Synthetic browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:

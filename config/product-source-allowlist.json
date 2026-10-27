@@ -109,6 +109,7 @@
       "server/method-change-service.mjs",
       "server/operator-activate.mjs",
       "server/operator-init.mjs",
+      "server/ports.mjs",
       "server/receipt-operation-encoding.mjs",
       "server/receipt-provider-handler.mjs",
       "server/recovery-service.mjs",
@@ -849,8 +850,8 @@
     {
       "path": "scripts/package/build-delivery.mjs",
       "mode": "100644",
-      "git_blob_sha1": "4735d089761bed97bb0e752c06248a4fcfadbeaf",
-      "sha256": "60f919efa1f08e0c0a5367a81d1ea87661d73d633e6fbf7ae24b22da4548cf0b"
+      "git_blob_sha1": "b03adeb7798ad130ef98c67e3fc1a91d1945c538",
+      "sha256": "bbd2808ddf508baa4ce256ad602e6140b22659c4d145045305ea8a16fb92aa9b"
     },
     {
       "path": "scripts/package/build-login-vendor.mjs",
@@ -1005,8 +1006,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "71afcfd797b11620cdd4dfc233169760db7deb43",
-      "sha256": "7566bbbe981218072c4694b75bcdb07357e61cb24a5bc51a8d294a27136ea399"
+      "git_blob_sha1": "0d506342b7c2b0294460a841123edc3fc67b9d2e",
+      "sha256": "c18a03efd7421f9e2e0bcfbee958c2a3570653350dbf2c1f59184af4856bf53d"
     },
     {
       "path": "server/method-change-service.mjs",
@@ -1029,8 +1030,8 @@
     {
       "path": "server/ports.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b4d19c156d918f908f7fa432e85c7cbbb3259653",
-      "sha256": "e83f1539f4b4bab5b50616dc5b1e689c472dce7aecad20cea62f13a3a74abf51"
+      "git_blob_sha1": "1d7aeefa69d3ccb8104ef1ccac1cb089eeb3c401",
+      "sha256": "8d774f27e7f2b5fce6712f449e596966f5f599c953a4ce5f0ef941da2842913c"
     },
     {
       "path": "server/receipt-operation-encoding.mjs",

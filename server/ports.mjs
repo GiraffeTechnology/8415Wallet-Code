@@ -9,6 +9,7 @@ export function validateLoopbackPorts(config) {
   if (config.port !== undefined && config.port !== null && !validPort(config.port)) throw Error('AUTH_LOOPBACK_PORT_REFUSED');
   if (config.reservedPorts === null) throw Error('AUTH_RESERVED_PORT_REFUSED');
   try { reservedPortSet(config.reservedPorts); } catch { throw Error('AUTH_RESERVED_PORT_REFUSED'); }
+  if (config.reservedPorts?.includes(config.port)) throw Error('AUTH_RESERVED_PORT_REFUSED');
 }
 
 // Ports the host keeps for other services. Environment configuration, never a product default.

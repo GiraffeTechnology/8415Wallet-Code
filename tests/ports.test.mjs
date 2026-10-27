@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { listenOnUsablePort, reservedPortSet, validateLoopbackPorts } from '../server/ports.mjs';
 import { readFileSync } from 'node:fs';
 test('optional TCP requests retain strict port types and bounded reservations',()=>{
-  for(const config of [{},{port:null},{port:19100},{port:19100,reservedPorts:[19100]}])assert.doesNotThrow(()=>validateLoopbackPorts(config));
+  for(const config of [{},{port:null},{port:19100}])assert.doesNotThrow(()=>validateLoopbackPorts(config));
   for(const port of [0,-1,65536,'19100',NaN])assert.throws(()=>validateLoopbackPorts({port}),/LOOPBACK_PORT_REFUSED/);
   for(const reservedPorts of [null,[0],['19100'],Array(65).fill(19100)])assert.throws(()=>validateLoopbackPorts({reservedPorts}),/RESERVED_PORT_REFUSED/);
 });

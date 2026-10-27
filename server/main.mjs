@@ -96,11 +96,13 @@ export async function startAuthFromEnvironment({ exactServerConfiguration = null
     const verifyCa = config.ca ? await createCaVerifier(config.ca) : null;
     const sendOtp = createOtpSenderFromEnvironment(process.env, config.mail);
     runtime = await createAuthRuntime({ config, store, verifyCa, sendOtp, exactServerConfiguration });
+    // Recoverable startup bind errors belong to the bounded port resolver.
+    // Attach fatal runtime teardown only once a listener has started successfully.
+    await runtime.start();
     runtime.server.on('error', async error => {
       process.stderr.write(`AUTH_LISTENER_FAILED_${/^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : 'UNKNOWN'}\n`);
       await runtime.stop(); await store.close(); process.exitCode = 1;
     });
-    await runtime.start();
     process.stdout.write('8415wallet auth service listening. No credentials logged.\n');
     if (runtime.exactState === 'disabled') process.stdout.write(`${runtime.exactCode}\n`);
     if (runtime.listingState === 'disabled') process.stdout.write(`${runtime.listingCode}\n`);
