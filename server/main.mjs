@@ -16,6 +16,7 @@ import { composeTaskAuthOptions } from './task-runtime-composition.mjs';
 import { createTaskTestAssetAuthorization } from './task-test-asset-authorization.mjs';
 import { bootstrapTaskExactConfiguration } from './task-exact-bootstrap.mjs';
 import { createTaskReceiptAdapter } from './task-receipt-adapter.mjs';
+import { listenOnUsablePort, reservedPortSet } from './ports.mjs';
 
 /** Reusable process-level entry for an already reviewed server capability object.
  * HTTP request data is never passed as listingRuntime or auth options. */
@@ -67,11 +68,12 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
         try { await lstat(config.socketPath); throw Error('AUTH_EXISTING_SOCKET_REFUSED'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
       }
       await listing.start();
-      await new Promise((resolve, reject) => {
+      if (config.socketPath) await new Promise((resolve, reject) => {
         server.once('error', reject);
         const listening = () => { server.off('error', reject); resolve(); };
-        if (config.socketPath) server.listen(config.socketPath, listening); else server.listen(config.port, '127.0.0.1', listening);
+        server.listen(config.socketPath, listening);
       });
+      else await listenOnUsablePort(server, { host: '127.0.0.1', requested: config.port ?? null, reserved: reservedPortSet(config.reservedPorts) });
       if (config.socketPath) await chmod(config.socketPath, 0o666);
       started = true; background.start();
     } catch (error) { await stop(); throw error; }

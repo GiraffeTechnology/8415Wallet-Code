@@ -819,8 +819,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "7f60e876c00e4534bf2f77f77ca4dd9ad79e11cc",
-      "sha256": "6f1005aedd00d408f7ab214aeee4a2b5d0e5dc2d2ab8d8de7def31631a07fa77"
+      "git_blob_sha1": "f27b200340156293719957a423a94c97a13e18f8",
+      "sha256": "a323080ef70a142ef4d874be954380806b76c5bd5189dde1eb7b76113b4071b9"
     },
     {
       "path": "scripts/package/auth-npm-continuation.mjs",
@@ -957,8 +957,8 @@
     {
       "path": "server/config-validation.mjs",
       "mode": "100644",
-      "git_blob_sha1": "72b1f202299d14720e774d6d77f44dabeaa2681e",
-      "sha256": "ac2a1826d3674cb668db3c269cce1afd3f03837ce255c590bce16378e5865ed1"
+      "git_blob_sha1": "e020ff938293a145eccc865c53b8f32df28ae144",
+      "sha256": "863b55d57292a5658a47377dcdf750610455aadd1d83d37d26edebd60cb65f34"
     },
     {
       "path": "server/credential-instance.mjs",
@@ -1005,8 +1005,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "d014254d1ef5282cf8e92d02296858a46cfcb9c7",
-      "sha256": "8d94b61ab68a5f657daff32a939d774221b61b27a08be0dcda827251e4d9fb79"
+      "git_blob_sha1": "71afcfd797b11620cdd4dfc233169760db7deb43",
+      "sha256": "7566bbbe981218072c4694b75bcdb07357e61cb24a5bc51a8d294a27136ea399"
     },
     {
       "path": "server/method-change-service.mjs",
@@ -1025,6 +1025,12 @@
       "mode": "100644",
       "git_blob_sha1": "d9d2f3221119078c8cbe5553e5df360db6729a16",
       "sha256": "cdc58db3662c2e7df4ac309cf873ac83f971d92af7af64e31382e9bc01b4c2f3"
+    },
+    {
+      "path": "server/ports.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "b4d19c156d918f908f7fa432e85c7cbbb3259653",
+      "sha256": "e83f1539f4b4bab5b50616dc5b1e689c472dce7aecad20cea62f13a3a74abf51"
     },
     {
       "path": "server/receipt-operation-encoding.mjs",
