@@ -849,8 +849,8 @@
     {
       "path": "scripts/package/build-delivery.mjs",
       "mode": "100644",
-      "git_blob_sha1": "4735d089761bed97bb0e752c06248a4fcfadbeaf",
-      "sha256": "60f919efa1f08e0c0a5367a81d1ea87661d73d633e6fbf7ae24b22da4548cf0b"
+      "git_blob_sha1": "b03adeb7798ad130ef98c67e3fc1a91d1945c538",
+      "sha256": "bbd2808ddf508baa4ce256ad602e6140b22659c4d145045305ea8a16fb92aa9b"
     },
     {
       "path": "scripts/package/build-login-vendor.mjs",
