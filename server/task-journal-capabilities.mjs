@@ -14,10 +14,28 @@ const receiptPhases = ['funded', 'registered', 'paid'];
  * Both shapes are rejected unless every binding field the principal needs is a
  * plain own value, so neither path can be satisfied by the other's snapshot. */
 const receiptScope = snapshot => {
-  const scope = snapshot?.scope;
-  if (!scope || Object.getPrototypeOf(scope) !== Object.prototype || snapshot.child) return null;
-  return receiptPhases.includes(scope.phase) && /^0x[a-f0-9]{64}$/.test(scope.planDigest ?? '') &&
-    /^0x[a-f0-9]{64}$/.test(scope.journalBindingHash ?? '') ? scope : null;
+  const descriptor = snapshot && Object.getOwnPropertyDescriptor(snapshot, 'scope');
+  if (!descriptor) {
+    check(snapshot?.task?.policy?.intent?.kind !== 'artfi-receipt', 'TASK_JOURNAL_RECEIPT_SCOPE_REFUSED');
+    return null;
+  }
+  // An invalid receipt must never fall back to the listing principal shape.
+  // Inspect descriptors before cloning: structuredClone would invoke getters.
+  check(Object.hasOwn(descriptor, 'value'), 'TASK_JOURNAL_RECEIPT_SCOPE_REFUSED');
+  const scope = descriptor.value;
+  check(scope && Object.getPrototypeOf(scope) === Object.prototype && !snapshot.child,
+    'TASK_JOURNAL_RECEIPT_SCOPE_REFUSED');
+  const fields = Object.getOwnPropertyDescriptors(scope);
+  check(Reflect.ownKeys(fields).every(key => typeof key === 'string' && Object.hasOwn(fields[key], 'value')) &&
+    ['phase', 'nonce', 'planDigest', 'journalBindingHash'].every(key => Object.hasOwn(fields, key)),
+  'TASK_JOURNAL_RECEIPT_SCOPE_REFUSED');
+  const { phase, nonce, planDigest, journalBindingHash } = Object.fromEntries(
+    ['phase', 'nonce', 'planDigest', 'journalBindingHash'].map(key => [key, fields[key].value]));
+  const commitment = value => typeof value === 'string' && /^0x[a-f0-9]{64}$/.test(value) && !/^0x0{64}$/.test(value);
+  check(receiptPhases.includes(phase) && typeof nonce === 'string' && /^(0|[1-9][0-9]{0,15})$/.test(nonce) &&
+    BigInt(nonce) <= BigInt(Number.MAX_SAFE_INTEGER) && commitment(planDigest) && commitment(journalBindingHash),
+  'TASK_JOURNAL_RECEIPT_SCOPE_REFUSED');
+  return Object.freeze({ phase, nonce, planDigest, journalBindingHash });
 };
 const bindingKeys = ['taskId', 'taskDigest', 'executorDigest', 'grantReference', 'grantPolicyVersion', 'operationId'];
 const scopeKeys = ['peerId', 'principal', 'action', 'nativeOperationId', 'planDigest', 'requestDigest', 'operation'];
@@ -45,6 +63,7 @@ export function createTaskJournalCapabilities({ peerId, consumerPeerId, digest, 
     check(!stopped, 'TASK_JOURNAL_CAPABILITY_STOPPED', 503);
     check(typeof recheck === 'function' && typeof action === 'function' && ['prepare', 'review', 'sign', 'publish', 'observe'].includes(purpose), 'TASK_JOURNAL_GATE_REQUIRED', 500);
     check(!scopes.getStore(), 'TASK_JOURNAL_GATE_REENTRY_REFUSED', 500);
+    receiptScope(snapshot); // Reject malformed receipt context before any action or clone.
     const held = { snapshot: structuredClone(snapshot), recheck, purpose, live: true, keys: new Set() };
     recheck();
     try { return await scopes.run(held, action); }
