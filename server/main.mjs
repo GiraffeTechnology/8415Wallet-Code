@@ -16,6 +16,7 @@ import { composeTaskAuthOptions } from './task-runtime-composition.mjs';
 import { createTaskTestAssetAuthorization } from './task-test-asset-authorization.mjs';
 import { bootstrapTaskExactConfiguration } from './task-exact-bootstrap.mjs';
 import { createTaskReceiptAdapter } from './task-receipt-adapter.mjs';
+import { listenOnUsablePort, reservedPortSet } from './ports.mjs';
 
 /** Reusable process-level entry for an already reviewed server capability object.
  * HTTP request data is never passed as listingRuntime or auth options. */
@@ -67,11 +68,12 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
         try { await lstat(config.socketPath); throw Error('AUTH_EXISTING_SOCKET_REFUSED'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
       }
       await listing.start();
-      await new Promise((resolve, reject) => {
+      if (config.socketPath) await new Promise((resolve, reject) => {
         server.once('error', reject);
         const listening = () => { server.off('error', reject); resolve(); };
-        if (config.socketPath) server.listen(config.socketPath, listening); else server.listen(config.port, '127.0.0.1', listening);
+        server.listen(config.socketPath, listening);
       });
+      else await listenOnUsablePort(server, { host: '127.0.0.1', requested: config.port ?? null, reserved: reservedPortSet(config.reservedPorts) });
       if (config.socketPath) await chmod(config.socketPath, 0o666);
       started = true; background.start();
     } catch (error) { await stop(); throw error; }
@@ -94,11 +96,13 @@ export async function startAuthFromEnvironment({ exactServerConfiguration = null
     const verifyCa = config.ca ? await createCaVerifier(config.ca) : null;
     const sendOtp = createOtpSenderFromEnvironment(process.env, config.mail);
     runtime = await createAuthRuntime({ config, store, verifyCa, sendOtp, exactServerConfiguration });
+    // Recoverable startup bind errors belong to the bounded port resolver.
+    // Attach fatal runtime teardown only once a listener has started successfully.
+    await runtime.start();
     runtime.server.on('error', async error => {
       process.stderr.write(`AUTH_LISTENER_FAILED_${/^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : 'UNKNOWN'}\n`);
       await runtime.stop(); await store.close(); process.exitCode = 1;
     });
-    await runtime.start();
     process.stdout.write('8415wallet auth service listening. No credentials logged.\n');
     if (runtime.exactState === 'disabled') process.stdout.write(`${runtime.exactCode}\n`);
     if (runtime.listingState === 'disabled') process.stdout.write(`${runtime.listingCode}\n`);
