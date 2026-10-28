@@ -1,0 +1,1524 @@
+name: Wallet fixed candidate validation
+'on':
+  push:
+    branches:
+    - ci/wallet-candidate-15164dd
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  candidate:
+    name: Fixed candidate (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+        - '22'
+        - '24'
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with: &id001
+        persist-credentials: false
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: ${{ matrix.node }}
+    - name: Import immutable draft and verify exact source tree
+      env: &id002
+        GH_TOKEN: ${{ github.token }}
+      run: python3 scripts/ci/import-wallet-candidate.py
+    - name: Install
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-2.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm ci
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Typecheck
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-3.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run typecheck
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Test
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-4.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm test
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+      env:
+        PRODUCT_STRICT_SMOKE_SOURCE: ${{ env.WALLET_CANDIDATE_SOURCE }}
+    - name: Browser entry
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-5.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run wallet:browser:build
+
+        node --test tests/task-static-module-closure.test.mjs tests/readonly-panel-browser-lifecycle.test.mjs tests/task-activity-integration-boundaries.test.mjs
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Verified wallet login browser privacy
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-6.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        export WALLET_BROWSER_CHROMIUM="${WALLET_BROWSER_CHROMIUM:-$(command -v google-chrome || command -v chromium)}"
+
+        test -n "$WALLET_BROWSER_CHROMIUM"
+
+        node scripts/controls/login-ui-smoke.cjs
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Account authentication browser journeys
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-8.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        export WALLET_BROWSER_CHROMIUM="${WALLET_BROWSER_CHROMIUM:-$(command -v google-chrome || command -v chromium)}"
+
+        test -n "$WALLET_BROWSER_CHROMIUM"
+
+        node scripts/controls/login-methods-ui-smoke.cjs
+
+        node scripts/controls/method-change-ui-smoke.cjs
+
+        node --test tests/task-authorization-browser.test.mjs
+
+        node scripts/controls/tenant-password-ui-smoke.cjs
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Multilingual wallet browser privacy and review invariants
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-10.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        export WALLET_BROWSER_CHROMIUM="${WALLET_BROWSER_CHROMIUM:-$(command -v google-chrome || command -v chromium)}"
+
+        test -n "$WALLET_BROWSER_CHROMIUM"
+
+        node scripts/controls/i18n-ui-smoke.cjs
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Approved wallet UI browser journeys
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-12.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        export WALLET_BROWSER_CHROMIUM="${WALLET_BROWSER_CHROMIUM:-$(command -v google-chrome || command -v chromium)}"
+
+        test -n "$WALLET_BROWSER_CHROMIUM"
+
+        node scripts/controls/approved-ui-smoke.cjs
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Synthetic synthetic browser recovery
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-14.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        export WALLET_BROWSER_CHROMIUM="${WALLET_BROWSER_CHROMIUM:-$(command -v google-chrome || command -v chromium)}"
+
+        test -n "$WALLET_BROWSER_CHROMIUM"
+
+        npm run wallet:xiongan:smoke
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: ERC20 browser recovery
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-16.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        export WALLET_BROWSER_CHROMIUM="${WALLET_BROWSER_CHROMIUM:-$(command -v google-chrome || command -v chromium)}"
+
+        test -n "$WALLET_BROWSER_CHROMIUM"
+
+        node scripts/controls/erc20-ui-smoke.cjs
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Contracts
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-18.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run test:evm
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Reference client
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-19.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run wallet > /dev/null
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: V2 package
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-20.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:v2
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: V2 external install
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-21.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:v2:verify
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: V3 package
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-22.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:v3
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: V3 external install
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-23.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:v3:verify
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: DApp release contract
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-24.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run test:package:dapp
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: V2 and V3 DApp Beta artifacts
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-25.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:dapp:all
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: DApp artifact integrity
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-26.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:dapp:verify
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Reproducible DApp and source archives
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-27.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        sha256sum dist/8415wallet-dapp-*.tar.gz dist/8415wallet-source-*.tar.gz > /tmp/dapp-archive-sha256
+
+        npm run pack:dapp:all
+
+        sha256sum --check /tmp/dapp-archive-sha256
+
+        npm run pack:dapp:verify
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Standalone settlement browser recovery
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-28.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        export WALLET_BROWSER_CHROMIUM="${WALLET_BROWSER_CHROMIUM:-$(command -v google-chrome || command -v chromium)}"
+
+        test -n "$WALLET_BROWSER_CHROMIUM"
+
+        HARDHAT_CONFIG=hardhat.rehearsal.config.cjs node scripts/controls/settlement-ui-smoke.cjs
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Authentication runtime package
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-30.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:auth
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Authentication runtime integrity
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-31.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:auth:verify
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Authentication task runtime package smoke
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-32.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        node scripts/controls/task-auth-runtime-smoke.mjs --runtime dist/package-auth
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Isolated installed authentication journey
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-33.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run test:auth:installed
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Reproducible authentication runtime
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-34.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        sha256sum dist/8415wallet-auth-runtime-*.tar.gz > /tmp/auth-archive-sha256
+
+        npm run pack:auth
+
+        sha256sum --check /tmp/auth-archive-sha256
+
+        npm run pack:auth:verify
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Reusable DApp delivery kit
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-35.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:delivery
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Reusable DApp delivery integrity
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/candidate-check-36.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:delivery:verify
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        python3 - "$log" "$status" <<''SAFE_SUMMARY''
+
+        import hashlib,json,pathlib,re,sys
+
+        p=pathlib.Path(sys.argv[1]);data=p.read_bytes()
+
+        # Emit fixed-shape counters only; no source, test descriptions, addresses or stack traces.
+
+        counts={k:[int(n) for n in re.findall(rb''^# ''+k.encode()+rb'' (\d+)\s*$'',data,re.M)] for k in (''tests'',''pass'',''fail'',''skipped'')}
+
+        print(json.dumps({''exit_code'':int(sys.argv[2]),''log_sha256'':hashlib.sha256(data).hexdigest(),''tap_counts'':counts,''diagnostic_codes'':sorted(set(x.decode()
+        for x in re.findall(rb''\b(?:ERR_[A-Z_]+|TS[0-9]{4})\b'',data))),''failed_test_name_sha256'':[hashlib.sha256(x).hexdigest()
+        for x in re.findall(rb''^not ok [0-9]+ - (.*)$'',data,re.M)]}))
+
+        SAFE_SUMMARY
+
+        exit "$status"
+
+        '
+    - name: Record exact candidate scope
+      if: always()
+      run: 'printf ''%s\n'' ''Candidate tree: 15164dd9f90426f8bf3af9b1ed6a1898510df253'' ''This run verifies the
+        fixed draft source snapshot, not the repository pull-request head.'' ''Original required checks, clean upstream
+        publication gate and production acceptance remain separate.'' >> "$GITHUB_STEP_SUMMARY"'
+  minimum:
+    name: Fixed candidate (Node 22.18.0 minimum)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with: *id001
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: 22.18.0
+    - name: Import immutable draft and verify exact source tree
+      env: *id002
+      run: python3 scripts/ci/import-wallet-candidate.py
+    - name: Install pinned build dependencies
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/minimum-2.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm ci
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        printf ''exit_code=%s log_sha256='' "$status"
+
+        sha256sum "$log" | cut -d'' '' -f1
+
+        exit "$status"
+
+        '
+    - name: Build and verify standalone authentication package
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/minimum-3.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        npm run pack:auth
+
+        npm run pack:auth:verify
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        printf ''exit_code=%s log_sha256='' "$status"
+
+        sha256sum "$log" | cut -d'' '' -f1
+
+        exit "$status"
+
+        '
+    - name: Synthetic Linux build-supervisor lifecycle
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/minimum-4.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        python3 tests/auth-build-supervisor.test.py
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        printf ''exit_code=%s log_sha256='' "$status"
+
+        sha256sum "$log" | cut -d'' '' -f1
+
+        exit "$status"
+
+        '
+    - name: Import canonical task core and smoke installed service
+      shell: bash
+      run: 'set -euo pipefail
+
+        cd "$WALLET_CANDIDATE_SOURCE" || exit 1
+
+        snapshot_guard() { git diff --quiet && git diff --cached --quiet && test "$(git write-tree)" = 15164dd9f90426f8bf3af9b1ed6a1898510df253;
+        }
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        log="$RUNNER_TEMP/minimum-5.private.log"
+
+        set +e
+
+        bash -e -o pipefail <<''CANDIDATE_COMMAND'' >"$log" 2>&1
+
+        node scripts/controls/task-auth-runtime-smoke.mjs --runtime dist/package-auth
+
+        CANDIDATE_COMMAND
+
+        status=$?
+
+        set -e
+
+        snapshot_guard || { echo "candidate_source_integrity_failed"; exit 65; }
+
+        printf ''exit_code=%s log_sha256='' "$status"
+
+        sha256sum "$log" | cut -d'' '' -f1
+
+        exit "$status"
+
+        '
