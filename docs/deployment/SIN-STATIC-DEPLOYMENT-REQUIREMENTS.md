@@ -27,16 +27,13 @@ and `/web/index.html` (or an explicitly configured equivalent entry path).
 Use the complete URL in every link and smoke test. Do not guess a replacement
 port or substitute a bare hostname.
 
-TCP 443 is reserved for SSH on CTYun and SIN. Do not bind HTTP/HTTPS, a reverse
-proxy, TLS listener or bridge there; do not alter SSH to free it. If the approved
-web allocation is missing, stop the server step and obtain that value. The
-package remains a valid unconfigured Beta deliverable.
+Respect the target environment's configured port reservations and existing services.
+A deployment needs an explicit web-listener allocation; the package can remain
+an unconfigured Beta deliverable until that allocation is available.
 
-The browser URL identifies the public TLS endpoint. If a separately approved
-external front door terminates public HTTPS on 443, that does not change the
-SIN/CTYun upstream reservation: the origin listener still requires its own
-confirmed non-443 allocation. Keep public endpoint and origin listener records
-separate. This document provisions neither a proxy nor a port.
+The browser URL identifies the public TLS endpoint. An external TLS front door
+and its upstream listener can use different configured ports. Keep public endpoint
+and origin-listener records separate, respecting each host's reservations.
 
 Scheme, host and port define the browser origin. A change strands browser
 journals at the prior origin. Preserve an origin with unresolved operations;
@@ -78,21 +75,20 @@ Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=()
 Evaluate HSTS under the established operations policy after HTTPS works. HSTS
 changes neither the port reservation nor the requirement for complete URLs.
 If an approved HTTP redirect exists, it must explicitly target the configured
-HTTPS port. Preserve any existing authorized ACME challenge path. No new
-firewall, DNS, SSH, certificate-account or persistent-access change is implied.
+HTTPS port. Preserve the configured ACME challenge path.
 
 ## 4. Configuration and custody
 
-The product is 8415wallet; 8415wallet.com is the UI platform domain; Xiongan is a
-V2 tenant. Keep platform/profile/tenant identity distinct. The DApp release
+The product is 8415wallet; 8415wallet.com is the UI platform domain.
+Keep platform, release profile and tenant identity distinct. The DApp release
 profile controls visible features; contract deployment pins select the exact
 chain and runtime code to verify before use. Missing controller/payment
 configuration must not disable independent standalone functionality.
 
 A normal DApp control configuration accepts supported testnets only. The
 external ETH/NFT companion also supports Ethereum/Base mainnet, and direct SDK
-integrators must enforce their own network policy. Neither capability grants
-permission for mainnet testing. Use only separately authorized testnet assets.
+integrators must enforce their own network policy. Use isolated testnet assets
+for acceptance scenarios.
 
 The server holds no key, seed, signer or custody component. There is no server
 RPC proxy or transaction relay. Browser calls use the owner's injected wallet
@@ -128,7 +124,7 @@ settlement operations and legacy clearing; all linked W-01–W-24 rows at their
 specified level; funded/unfunded flows; cancellation, repeat-click, account/
 network change and reload recovery. W-20 requires the actual deployed same-token
 multi-wallet journey. Record testnet receipts and wallet confirmations only
-when those actions are separately authorized and genuinely executed.
+when genuinely observed.
 
 ## 7. Rollback
 

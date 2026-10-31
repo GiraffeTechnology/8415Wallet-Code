@@ -21,8 +21,8 @@ not provide a burn-proof resolver or a best-effort partial discovery mode.
 
 Seven cases in tests/discovery-read-failures.test.ts are AUTHORED_NOT_RUN.
 No syntax/typecheck, application test, build, deployment, provider or chain
-execution was performed here. Bear owns approved-Linux regression on the exact
-candidate, including tests/discoveryAndCli.test.ts and applicable caller tests.
-No specialist input, endpoint, credential, signing or financial behavior changed.
+execution was performed here. Exact-candidate regression includes tests/discoveryAndCli.test.ts and applicable
+caller tests.
+No endpoint, credential, signing or financial behavior changed.
 A successful scan still carries the existing log-retention caveat and does not
 prove an account has no other assets or provide an atomic chain snapshot.

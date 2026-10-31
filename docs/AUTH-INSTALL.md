@@ -54,9 +54,8 @@ it. Do not delete locks or credential files to bypass a refusal.
 
 ## 2. First credential initialization (user personally)
 
-The user must personally run the following in a trusted terminal, with terminal
-recording disabled. No assistant or deployment worker may type, capture, generate
-or submit real credentials on the user's behalf:
+Initialize credentials in a trusted terminal with terminal recording disabled.
+The credential holder personally enters and submits their credentials:
 
 ```
 cd /opt/8415wallet-auth-TENANT/current
@@ -171,10 +170,9 @@ allows only the selected /32 or /128 endpoints, and adds AF_INET/AF_INET6 plus
 fixed LoadCredential references to the tenant's `smtp-username` and
 `smtp-password` files. It contains no credential value.
 
-The authorized operator must separately approve the precise network and
-credential-access expansion before applying the reviewed file as the tenant
-unit's mail drop-in. The user handles real credential entry through the approved
-secure process. Credential files must be root:root, regular single-link files,
+Review the precise network and credential-access changes before applying the
+file as the tenant unit's mail drop-in. The credential holder enters credentials
+through the secure operator flow. Credential files must be root:root, regular single-link files,
 mode 0600 below the private root-owned tenant config directory. Username is
 1–256 UTF-8 bytes; password is 1–1024 bytes, with no NUL/CR/LF. Do not supply
 credentials as command arguments, shell history, repository files or chat text.
@@ -182,8 +180,7 @@ Do not add ambient WALLET_AUTH_SMTP_* environment variables to the installed
 unit: runtime-entry refuses them and reads only protected systemd credentials.
 Missing, partial or invalid selected credentials refuse startup without logging
 values. The deployment operator validates the generated drop-in, reloads the
-unit definition and starts it only after the required approval. This guide and
-review file are not permission for the assistant to perform those actions.
+unit definition and starts it after reviewing the configuration. 
 
 Endpoint changes do not require code edits. Stop the tenant unit, then use the
 current verified installer's nonsecret configuration command:
@@ -240,7 +237,7 @@ consistent private backup under
 0600 files). Record the exact prior release directory and manifest hashes, the
 installation receipt, account/configuration files, current encrypted state and
 the separately protected store-key reference. Keep secret material only in the
-approved host/secret-manager backup location, never in a product archive or chat.
+protected secret-manager backup location, never in a product archive.
 
 If the candidate has never been started and no state change occurred, the
 operator can restore the exact original release, receipt and configuration from
@@ -292,17 +289,12 @@ and validates tenant/account/email-directory bindings in memory; it prints only
 counts and status. A missing ciphertext file is allowed only with explicit
 `--allow-empty-state yes` for a verified never-enrolled, wallet-only legacy store;
 the existing independent key is still mandatory. This does not create accounts
-or invent credentials. Execution belongs to the approved deployment operator
-following required action-time approvals; secrets remain on the host and are
-never exposed. An authorized deployment assistant may perform read-only checks
-and preparation. Stopping the service or changing systemd, network access or
-permissions still requires the applicable specific action-time approval. The
-terminal phrase is not a substitute for that approval. Never disclose real
-credential values in chat or logs, generate replacement credentials to bypass
-a refusal, or automate a new credential entry that belongs to the user.
+or invent credentials. Secrets remain on the host and are never exposed. Never log credential values
+or generate replacement credentials to bypass a migration refusal. Credential
+entry remains with the credential holder.
 
-After the operator has explicit authorization for the service/network-hardening
-change, replace `check` with `migrate`, keeping every argument identical. The
+After reviewing the service/network-hardening change, replace `check` with
+`migrate`, keeping every argument identical. The
 trusted terminal requires `MIGRATE-PR58-FORWARD-ONLY` confirmation. It stops only
 the named service, confirms no remaining process/writer lock, makes and hashes
 private key/config/ciphertext/unit/proxy/site snapshots, and atomically switches

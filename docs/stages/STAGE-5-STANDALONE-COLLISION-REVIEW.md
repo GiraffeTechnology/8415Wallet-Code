@@ -28,10 +28,8 @@ depend on the independent signer or package-delivery branches.
 ## Linux validation handoff — NOT RUN
 
 The development task added ten SDK boundary cases and four UI-handler cases;
-none was executed in this slice. Artfi control owns execution on managed CTYun/SIN
-Linux. Bind results to the delivered commit/tree and report actual Node,
-TypeScript, browser and provider versions. Do not disclose infrastructure names,
-addresses or credentials. No Windows runtime is permitted.
+none was executed in this slice. Bind results to the delivered commit/tree and
+report actual Node, TypeScript, browser and provider versions.
 
 1. Run typecheck and browser compilation from the exact source, then the focused
    collision-boundaries, browser-connection and existing holderViews suites.
@@ -46,4 +44,4 @@ addresses or credentials. No Windows runtime is permitted.
    partial clean report on failure. UI-handler fixtures are not real UI evidence.
 
 This document records implementation and test requirements, not PASS, release
-acceptance or completion of V3. CI and merging remain with the release owner.
+acceptance or completion of V3.

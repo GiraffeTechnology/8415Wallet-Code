@@ -5,7 +5,7 @@
 The product is **8415wallet**, a general-purpose wallet with existing wallet
 and asset standards compatibility and native ERC-8415 support. The platform identity is **8415wallet.com**;
 that identity is not a configured URL, a DNS assertion or permission to bind a
-server port. Wallet-specific deployment bindings remain private. The complete
+server port. Wallet-specific deployment bindings are configured separately. The complete
 current `ERC-8415-Wallet-PRD.md` is the only active requirements document;
 Beta 2.0 names the shared UI release, not a change to the runtime/package versions.
 
@@ -26,32 +26,28 @@ V2 does not mean version 2 of the SDK npm tarball. SDK `pack:v2` and `pack:v3`
 artifacts remain separate library deliverables; they are not hosted websites.
 
 The release status remains
-`BETA_FUNCTIONAL_TESTING_NOT_INDEPENDENTLY_AUDITED`; it grants no publication
-permission. Installation/product packages remain withdrawn. Suppress only the
-CI installer/product-kit upload while preserving all tests, builds, artifact
-integrity/origin checks and other required validations. Runner-local CI builds
+`BETA_FUNCTIONAL_TESTING_NOT_INDEPENDENTLY_AUDITED`. The current CI workflow
+disables installer/product-kit uploads while retaining all tests, builds,
+artifact integrity/origin checks and other required validations. Runner-local CI builds
 are not a downloadable release. Final distributable packages are rebuilt from
 the final integrated version after all applicable valid PRs are merged; download
 publication additionally requires privacy review and the applicable V2/V3 online
 UI and on-chain acceptance, fixes and successful retests in PRD §10.8. Authorized
 functional testing and independent security review remain distinct; neither a
-Beta label nor an earlier package lifts the current hold. Do not turn CI, W-20,
+Beta label nor an earlier package satisfies these release acceptance criteria. Do not turn CI, W-20,
 device, source or deployment evidence into a single unsupported “passed” label.
 
 The normal DApp control-manifest and agent-request paths enforce testnet
 guards. Direct SDK consumers must enforce their own chain policy; the SDK is
 not a universal mainnet barrier. The separate external-asset
 surface supports Ethereum, Base, Sepolia and Base Sepolia and prompts the
-user's own wallet for each operation. No key is held by the DApp. Use authorized
-test assets on testnets for this handoff; package creation grants no authority
-to deploy contracts, spend mainnet funds, publish to a server or change its
-security settings.
+user's own wallet for each operation. No key is held by the DApp. Beta functional acceptance uses test assets on testnets; package creation is
+separate from deployment and on-chain acceptance.
 
 ## Build and validate
 
-Run product verification only on the already authorized non-Windows server,
-with existing CI requirements separately preserved. The instructions below do
-not authorize local/Windows/sandbox execution, deployment or publication.
+Retain the existing CI tests, builds and validations. Record the exact source,
+runtime and results separately from deployed UI and on-chain acceptance.
 
 Requirements: the repository's Node version (at least 22.18.0), npm, Git,
 GNU tar and gzip. Use the lockfile. A build must run at the root of the actual
@@ -210,7 +206,7 @@ A website release profile never substitutes for those chain checks.
 1. Record the selected profile/tenant, full confirmed endpoint, source content
    tree, DApp/source archive digests and the deployer's authorization. Verify
    the artifacts before copying. Keep the previous release and its manifest.
-2. Extract into a new versioned directory on the approved host, outside the
+2. Extract into a new versioned directory on the target host, outside the
    active web root. Run `sha256sum -c SHA256SUMS` in that directory. Never
    overlay an old release with a partial extraction.
 3. Configure only the already approved web listener and route. Keep `web/` and

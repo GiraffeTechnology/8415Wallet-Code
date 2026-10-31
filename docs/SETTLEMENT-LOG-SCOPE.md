@@ -19,7 +19,5 @@ snapshot or independent chain evidence. Existing episode closure semantics,
 identity/session wrapper boundaries and no-log unavailable behavior remain.
 
 Eight regression cases are AUTHORED_NOT_RUN. No syntax/typecheck, unit tests,
-build, provider, UI or chain execution was performed here. Bear owns exact-SHA
-approved-Linux QA and post-submission fixes, including settlement history,
-temporal/audit exporters and existing reader fixtures. No specialist, credential,
-signer, deployment parameter or transaction path changed.
+build, provider, UI or chain execution was performed here. Exact-SHA validation includes settlement
+history, temporal/audit exporters and existing reader fixtures. No credential, signer, deployment parameter or transaction path changed.

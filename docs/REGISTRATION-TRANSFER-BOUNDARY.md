@@ -19,7 +19,5 @@ linked leg, take funds, sign, broadcast or replace the independent control.
 
 Seven regression cases are AUTHORED_NOT_RUN. Existing holderViews expectations
 for lag-not-blocked, Wait/nothing-to-fix and trade-term boundaries are preserved
-with narrower scope; that source review is not a test run. Bear owns approved
-Linux QA and post-submission fixes on the exact candidate, including holderViews
-and renderers. No syntax/typecheck, tests, build, UI or chain execution here.
-No specialist input, deployment parameter, credential or signing interface changed.
+with narrower scope; that source review is not a test run. Exact-candidate validation includes holderViews and renderers. No syntax/typecheck, tests, build, UI or chain execution here.
+No deployment parameter, credential or signing interface changed.

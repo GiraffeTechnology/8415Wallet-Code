@@ -44,7 +44,7 @@ Results are recorded after execution; they are not public-chain acceptance.
 On the repaired source, Linux Node 24.18.0: 716/716 Node cases (108 suites),
 59/59 local EVM cases, typecheck and browser emit all passed. The 10 new
 offline cases also passed on Windows. These are development regressions,
-not CI or a fresh public-testnet run; CI and merge remain with the release owner.
+not CI or a fresh public-testnet run.
 New offline cases cover the observed next-block timestamp, local/public policy,
 unknown/mainnet/coercible IDs, invalid periods/timestamps/overflow, every field's
 hash pin, open-gap reads, reorg and unavailable-block refusal.
@@ -53,8 +53,7 @@ block identities, including entryCount for the continuous shape.
 
 ## Remaining delivery, without expanding scope
 
-1. Release owner reviews, runs CI and merges this repair; this task does not
-   schedule CI or merge it.
+1. Review the exact repair and require successful candidate-bound CI before merge.
 2. Rebuild the exact merged source and execute the complete public-testnet
    runner in a fresh evidence directory. Never splice the earlier incomplete
    run and separate retest into that new result.

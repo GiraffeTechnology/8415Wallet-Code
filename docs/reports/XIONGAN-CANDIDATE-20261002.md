@@ -1,13 +1,13 @@
-# Xiongan candidate development evidence — 2026-10-02
+# Candidate development evidence — 2026-10-02
 
 Base: `97f4dbc6e7437b6f013b47d0fc7782cf916b9d77`, Git tree
 `c7592c786ad4a1e26a22e2164a2ef7481c2731e8`. All 282 source blobs were restored
-through the authorized repository connector and individually checked against
+through the repository API and individually checked against
 Git blob SHA-1 before changes. This is a local managed-Linux source candidate.
 
 ## Implemented
 
-- Xiongan branding and the existing ERC-8415 UI retained.
+- Existing tenant branding and the ERC-8415 UI retained.
 - Separate external-EOA companion for Ethereum/Base ETH and ERC-721/ERC-1155,
   with genuine-provider owner confirmation as the only signing route.
 - Public agent request parsing, full immutable review binding and no autonomous
@@ -38,10 +38,9 @@ A reproducible Playwright/Chromium synthetic-provider script is included as
 journeys cover prepare/no-send, account-switch revocation, the cross-panel lock,
 submission/reload/reconcile and unknown/restart/no-resend/recovery.
 
-**It has not passed in this workspace.** Chromium startup fails before opening
+**The reported browser journey did not pass in this validation environment.** Chromium startup fails before opening
 any page because its local process socket is refused by the runtime
-(`socket() failed: Operation not permitted`), including the approved unsandboxed
-retry with writable XDG directories. The available cloud browser also refuses the
+(`socket() failed: Operation not permitted`), including a retry with writable XDG directories. The available cloud browser also refuses the
 loopback URL with `net::ERR_BLOCKED_BY_CLIENT`. No local screenshots, IndexedDB browser journey, genuine MetaMask result or
 physical-device pass is claimed. The same synthetic journey is added to the
 existing CI matrix using the hosted runner's installed Chrome/Chromium, without
@@ -50,8 +49,7 @@ DOM/provider regressions are labelled as such and do not replace these tests.
 
 Historical public-chain and genuine read-only MetaMask evidence stays attributed
 to its original revisions. The earlier genuine UI unknown outcome is not claimed
-resolved: its original instance/wallet journal is not available in this workspace.
+resolved: its original instance/wallet journal was unavailable to that validation.
 No user secrets, persistent credentials, real assets or public-chain signing/
 broadcast were involved. Local EVM tests use only their existing deterministic
-fixture signers. PR merging, CI ownership, deployment and
-npm publication remain with the release owner.
+fixture signers.

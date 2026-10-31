@@ -1,4 +1,4 @@
-// SOURCE-ONLY CANDIDATE. Run only in the authorized non-Windows execution environment.
+// Source-identity regression definitions.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';

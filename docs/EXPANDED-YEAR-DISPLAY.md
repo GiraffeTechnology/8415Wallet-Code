@@ -6,4 +6,4 @@ The formatter now separates the ISO date and time at T. Four-digit years remain 
 
 Reference: ECMAScript Date Time String Format and Expanded Years, https://tc39.es/ecma262/multipage/numbers-and-dates.html#sec-expanded-years .
 
-Five regression cases are authored in tests/format-expanded-years.test.ts, NOT_RUN. Assigned approved Linux owner should run node --test tests/format-expanded-years.test.ts plus existing formatting/temporal/history/render/browser/full pipeline. No syntax/typecheck/test/build/CI/deployment/chain execution occurred in this initial source increment. Existing QA paths and specialist inputs are untouched. Full PRD acceptance remains OPEN.
+Five regression cases are authored in tests/format-expanded-years.test.ts, NOT_RUN. Focused regression command: node --test tests/format-expanded-years.test.ts plus existing formatting/temporal/history/render/browser/full pipeline. No syntax/typecheck/test/build/CI/deployment/chain execution occurred in this initial source increment. Existing QA paths and specialist inputs are untouched. Full PRD acceptance remains OPEN.

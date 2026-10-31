@@ -252,8 +252,8 @@ jobs:
       - name: Reusable DApp delivery integrity
         run: npm run pack:delivery:verify
 
-      # Full-repository archives above remain runner-local. They can contain
-      # private operations/history and must never be uploaded as public products.
+      # Full-repository archives above remain runner-local. Public product output
+      # uses the independently verified source selection below.
       - name: Build and verify public product kit
         id: public_product
         shell: bash
@@ -284,7 +284,7 @@ jobs:
             --output "$RUNNER_TEMP/8415wallet-public-product-node-${{ matrix.node-version }}" \
             --github-output "$GITHUB_OUTPUT"
 
-      # Product downloads remain withdrawn; retain all build/verification steps.
+      # Installer/product-kit upload is disabled; build/verification steps remain active.
       - name: Verified public product artifacts
         if: ${{ false }}
         uses: actions/upload-artifact@v4

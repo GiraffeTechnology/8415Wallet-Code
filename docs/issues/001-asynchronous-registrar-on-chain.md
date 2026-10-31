@@ -1,6 +1,5 @@
 # Issue 001 — An asynchronous registrar, on chain
 
-**For:** Codex (has signing keys and can deploy)
 **Repository:** `GiraffeTechnology/8415Wallet`, branch `main`
 **Status:** open
 **Depends on:** the Sepolia deployment of 2026-09-19 (below), and
@@ -28,9 +27,9 @@ backdates `effectiveAt` to when the transfer happened rather than to when it
 got round to recording it. `tests/asyncRegistrar.test.ts` covers the
 behaviour. **This issue is to run the same shape on chain.**
 
-I cannot do it: this session holds no key and can send no transaction. I can
-and did read the live deployment, which is how the three defects fixed in
-`cf36f4e` and `200f7dc` were found.
+Real-chain execution was not performed in this validation. Read-only inspection
+of the live deployment identified the three defects fixed in `cf36f4e` and
+`200f7dc`.
 
 ---
 
@@ -61,10 +60,13 @@ failure.
 
 | | |
 |---|---|
-| ERC-8415 reference | `0xaeeb157f40ffdad51693275258a465763be66cd8` |
-| `ProjectionEscrow` | `0x50299e4d454fc9ec788f735e004d1ec537767934` |
+| ERC-8415 reference | Historical deployment binding omitted |
+| `ProjectionEscrow` | Historical deployment binding omitted |
 | chain | Sepolia, 11155111 |
 | deployment block | 11739196 (`--from-block`) |
+
+This record does not provide a verified transaction link for the omitted
+deployment bindings; the remaining metadata is not a complete deployment locator.
 
 Reuse them or redeploy — but **the registrar must not be a counterparty this
 time.** Use a separate account, or a separate validator set, so that the

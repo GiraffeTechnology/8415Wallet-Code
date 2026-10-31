@@ -5,8 +5,7 @@ functional-Beta profiles. SDK archives remain supporting developer artifacts.
 This kit includes both compiled UIs, the dependency-complete same-origin auth
 runtime and installer, public configuration tooling, exact source, verification,
 static install/upgrade/rollback tooling, and this guide. An operator-selected tenant is an optional
-V2 tenant preset; there is no assigned server address or deployment permission
-in the public kit.
+V2 tenant preset; the kit does not include a configured server address.
 
 ## Requirements and trust
 
@@ -23,16 +22,14 @@ in the public kit.
   port and `/web/index.html` suffix. Preserve the deployment’s configured port
   reservations and existing listeners; no reservation is inferred from the
   environment name. Never infer a replacement port or change the browser origin.
-- These commands do not authorize deployment. Production SSH/deployment remains
-  with the separately authorized deployment operator. They never configure TLS,
-  firewall, SSH, listeners, accounts or unrelated services.
+- These commands do not configure TLS, firewall, SSH, listeners, accounts or
+  unrelated services.
 
 ## Build and verify a kit
 
 From the reviewed source checkout, stage intended new source files and finish
 edits before packaging. The kit builder reuses the existing DApp and auth
 builders/verifiers and requires every component to have the same content tree.
-Do not place local bindings, endpoints, secrets or operational logs in Git.
 
 ```sh
 npm ci
@@ -48,14 +45,14 @@ stale source tree. Building requires Git, GNU tar/gzip and the locked developmen
 toolchain. Installing the resulting kit does not.
 
 Outputs are `dist/8415wallet-dapp-delivery-TREE.tar.gz` and
-`dist/delivery-package-manifest.json`. Preserve the release owner's trusted
+`dist/delivery-package-manifest.json`. Preserve the independently authenticated
 SHA-256 and tree separately. The outer verifier validates every archive header
 before extracting anything: path traversal, links, devices, duplicate paths,
 PAX/long-name overrides and overlarge payloads are refused. It checks exact
 inventories, nested digests, UI identity, auth production dependencies, Git
 source blobs/tree and bundled installer code against that source.
 
-From the trusted checkout, with values obtained from the approved handoff:
+From the trusted checkout, with independently authenticated release values:
 
 ```sh
 node scripts/package/verify-delivery.mjs \

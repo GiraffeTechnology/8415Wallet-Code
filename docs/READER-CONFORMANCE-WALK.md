@@ -20,7 +20,5 @@ A clean report is only scoped adapter-observation evidence, not genuine-wallet,
 provider, mainnet, deployment or complete-product acceptance.
 
 Twelve regression cases are AUTHORED_NOT_RUN. No syntax/typecheck, tests, build,
-provider or chain execution was performed here. Bear owns exact-candidate
-approved-Linux QA and post-submission fixes, including readerConformance,
-RPC/Kit harnesses and existing vectors. Frozen specialist inputs and deployment
-parameters are unchanged; source-closure pins remain the integration owner's job.
+provider or chain execution was performed here. Exact-candidate validation includes
+readerConformance, RPC/Kit harnesses and existing vectors. Deployment parameters are unchanged; source-closure pins require corresponding updates.

@@ -1,8 +1,7 @@
 # 8415wallet V2/V3 DApp Beta installation handoff
 
 [Download the installation ZIP](8415wallet-V2-V3-DApp-Beta-Handoff-1f4a9ae6-20261004.zip)
-from this private repository using an authorized GitHub account. This is the
-unchanged October 4 manual-deployment handoff with verified wallet login before
+from this repository. This is the unchanged October 4 manual-deployment handoff with verified wallet login before
 asset/history display. It is not a deployed website or a general-release claim.
 
 ## Identity and integrity
@@ -25,15 +24,14 @@ sha256sum --check SHA256SUMS
 ```
 
 Read `START-HERE-EN.md` before configuring a deployment. Select
-`dapps/v2-platform/` (2.2.0-beta), `dapps/v2-xiongan/` (the V2 Xiongan tenant),
+`dapps/v2-platform/` (2.2.0-beta), `dapps/v2-xiongan/` (the historical V2 tenant preset),
 or `dapps/v3-platform/` (3.0.0-beta). Each has its own manifest and archive;
 verify its hashes and extracted `SHA256SUMS`. Keep `web/` and `dist/browser/`
 together, with `web/index.html` as the browser entry. `optional-sdk/` contains
 separate integration packages, not substitute DApps.
 
 8415wallet is a general-purpose wallet with existing-standard compatibility and
-additive native ERC-8415 support. Its platform domain is 8415wallet.com; Xiongan
-is a V2 tenant. Implemented coverage is documented inside the ZIP.
+additive native ERC-8415 support. Its platform domain is 8415wallet.com. Implemented coverage is documented inside the ZIP.
 
 ## Manual deployment and acceptance
 
@@ -41,8 +39,8 @@ Deployment URLs are unset. Obtain the authorized environment, exact public
 origin including its confirmed port, verified testnet contract manifests and
 authorized test accounts. Follow the bundled `docs/BETA-DAPP-DELIVERY.md` for a
 configuration-bound rebuild and record its new hashes. Never modify or relabel
-this archived package. TCP 443 is reserved for SSH on every server; no port,
-listener, SSH, DNS, TLS, firewall or credential change is authorized here.
+this archived package. Preserve the deployment configuration and its existing
+port reservations.
 Preserve the existing origin and recovery journals.
 
 The source CI and archived evidence cover 1,069 Node cases, 89 local-EVM cases,
@@ -56,6 +54,6 @@ Connecting a wallet alone does not reveal assets; a verified, expiring,
 origin/account/chain-bound login is required. Login is memory-only, does not
 authorize transactions and does not make public blockchain data private.
 
-Keep the repository and archived source/evidence private. The publication
+The publication
 commit records distribution metadata; the built artifact's source remains the
 commit listed above. Later CI builds must retain their own source identities.

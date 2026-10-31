@@ -299,9 +299,8 @@ test('a missing current receipt port does not erase an independently registered 
   assert.equal(f.state.sends,1);
 });
 test('encrypted-store close/reopen retains source references, original attempt and old O2 without resend',async()=>{
-  // This definition may execute only in the authorized remote Linux test run.
   // Fresh synthetic store only; no production state or real credential/key.
-  const dir=await mkdtemp(join(tmpdir(),'wallet2-observer-registry-')),path=join(dir,'synthetic-store.json');
+  const dir=await mkdtemp(join(tmpdir(),'wallet-observer-registry-')),path=join(dir,'synthetic-store.json');
   const syntheticEncryptionKey=Buffer.alloc(32,7);let firstStore=null,secondStore=null;
   try {
     firstStore=await openEncryptedStore(path,syntheticEncryptionKey);

@@ -37,10 +37,6 @@ Use the complete canonical [Wallet PRD §6.2](../ERC-8415-Wallet-PRD.md#62-task-
   resulting state. Human browser/device acceptance is separate and cannot be an
   agent browser prerequisite. Earlier legacy journeys are not current API PASS.
 
-This document authorizes no execution, funding, signing or deployment. The
-current [AGENTS.md](../../AGENTS.md) execution restrictions and explicit owner
-authorization control any future run; historical commands do not override them.
-
 ## Retained historical human-imported-request plan
 
 For the operator driving the deployed build with real wallets and testnet
@@ -89,7 +85,7 @@ listener, no HTTP write endpoint and no agent credential.
 {
   "schema": "xiongan-agent-request/1",
   "requestId": "run1-create-01",
-  "agent": "Codex Test Agent",
+  "agent": "Synthetic Test Agent",
   "chainId": "11155111",
   "actor": "0xOwnerAccountA",
   "controller": "0xControllerAddress",
