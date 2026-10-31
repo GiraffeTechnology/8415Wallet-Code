@@ -2973,8 +2973,8 @@
     {
       "path": "web/external-assets.mjs",
       "mode": "100644",
-      "git_blob_sha1": "d2f1bbfa30a6715e6e158d27ee4a983cf5532f86",
-      "sha256": "78003e6d691c0277c5f0f9b164d0f37ce7ed1035b8a5edcecada7f3946b85537"
+      "git_blob_sha1": "885a74d4ba39efa9186bdab8c100193d9af8f793",
+      "sha256": "ded18863d01966c28ca4d3dd52edc91057738acde0cbda7e4009513e6faff0cd"
     },
     {
       "path": "web/external-store.mjs",

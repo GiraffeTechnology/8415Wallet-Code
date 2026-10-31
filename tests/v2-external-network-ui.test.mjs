@@ -32,12 +32,12 @@ test('network switch during balance read discards late result and clears review 
  assert.equal(f.node('asset-network').value,'8453');assert.equal(f.node('asset-ack').checked,false);assert.equal(f.node('asset-result').textContent,'ASSET_CONNECTION_CHANGED');assert.equal(f.sends(),0);
 });
 
-test('pending asset reads keep the owned load trigger busy and leave authentication controls available',async()=>{
+test('pending asset reads keep owned load and send triggers busy and leave authentication controls available',async()=>{
  let finish;const balancePromise=new Promise(resolve=>{finish=resolve;});const f=fixture({balancePromise});
- f.node('asset-connect').disabled=false;f.node('wallet-login').disabled=false;f.node('wallet-logout').disabled=false;
- const pending=f.click();assert.equal(f.node('asset-connect').disabled,true);await f.started;
+ f.node('asset-connect').disabled=false;f.node('asset-send').disabled=false;f.node('wallet-login').disabled=false;f.node('wallet-logout').disabled=false;
+ const pending=f.click();assert.equal(f.node('asset-connect').disabled,true);assert.equal(f.node('asset-send').disabled,true);await f.started;
  assert.equal(f.node('wallet-login').disabled,false);assert.equal(f.node('wallet-logout').disabled,false);
  await f.click();assert.equal(f.reads(),1,'duplicate load must not start another read');
  finish({balanceWei:77n});await pending;
- assert.equal(f.node('asset-connect').disabled,false);assert.match(f.node('asset-result').textContent,/balanceWei/);assert.equal(f.sends(),0);
+ assert.equal(f.node('asset-connect').disabled,false);assert.equal(f.node('asset-send').disabled,false);assert.match(f.node('asset-result').textContent,/balanceWei/);assert.equal(f.sends(),0);
 });

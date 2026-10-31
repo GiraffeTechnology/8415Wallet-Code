@@ -28,10 +28,10 @@ function invalidate() {
 }
 async function run(fn) {
   if (busy) return; const uiLock = acquireWalletUi(); if (uiLock === null) return; busy = true; const current = generation;
-  // This controller owns the asset load trigger. Keep its visible busy state in
-  // sync with the operation without disabling login, logout or other panels.
-  const connect = el('asset-connect'), connectWasDisabled = connect.disabled;
-  connect.disabled = true;
+  // This controller owns the asset load/send triggers. Keep their visible busy
+  // state in sync without disabling login, logout or other controllers.
+  const actions = [el('asset-connect'), el('asset-send')].map(button => [button, button.disabled]);
+  for (const [button] of actions) button.disabled = true;
 
   try {
     await walletLogin.check();
@@ -49,7 +49,7 @@ async function run(fn) {
       try { const state = await s.status(); if (s === session && current === generation) paint(el('asset-state'), format(state)); }
       catch { if (s === session && current === generation) paint(el('asset-state'), msg('message.026')); }
     }
-    connect.disabled = connectWasDisabled;
+    for (const [button, wasDisabled] of actions) button.disabled = wasDisabled;
     busy = false; releaseWalletUi(uiLock);
   }
 }
