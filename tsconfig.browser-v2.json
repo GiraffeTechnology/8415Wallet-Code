@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./dist/browser",
+    "rootDir": "./src",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/browser-v2.ts"
+  ],
+  "exclude": [
+    "tests",
+    "src/controls/fileOperationStore.ts"
+  ]
+}

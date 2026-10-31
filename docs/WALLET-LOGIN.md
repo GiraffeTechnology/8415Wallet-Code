@@ -3,7 +3,7 @@
 The public V2/V3 entry page stays accessible without login. The asset, balance,
 holding, native projection, account, transaction/recovery and history panels are
 hidden and inert until a wallet login proof is verified. Merely connecting a
-provider or obtaining an address is insufficient. Xiongan remains a V2 tenant
+provider or obtaining an address is insufficient. A standalone tenant remains a V2 tenant
 of the general-purpose 8415wallet product.
 
 ## Additional account login methods

@@ -10,7 +10,7 @@ import { gzipSync } from 'node:zlib';
 import {
   DAPP_DOCUMENTS, LEGAL_FILES, MANDATORY_PATHS, NONPRODUCT_GENERATED_CACHE, NONPRODUCT_HISTORICAL_AUTH_DEPLOYMENT, NONPRODUCT_SOURCE_FAMILY_EXCLUSIONS, ORIGIN_FILE, POLICY_SCHEMA, TOOLING_FILES,
   cleanEnvironment, computeToolingPin, contentTree, git, gitHash, inspectSource,
-  jsonBytes, loadPolicy, planSummary, sha256, verifyDappBoundary, verifyProductDirectory,
+  jsonBytes, loadPolicy, planSummary, sha256, deriveDappBoundary, verifyDappBoundary, verifyProductDirectory,
   verifyProductEntries,
 } from '../scripts/package/verify-product-origin.mjs';
 import { buildProduct, emitGithubOutputs, materializeProduct, preparePublicFiles, verifyPublicFiles } from '../scripts/package/build-public-product.mjs';
@@ -22,12 +22,12 @@ const fixtureBytes = path => {
   if (path === 'scripts/package/v3-document-contract.mjs') return Buffer.from(`export const V2_DOCUMENTS = Object.freeze(['docs/INTEGRATION.md', ...LEGAL_FILES]);\nexport const V3_DOCUMENTS = Object.freeze(['docs/V3-REVIEW-AND-VALIDATION.md', ...LEGAL_FILES]);\n`);
   if (path === 'package.json') return jsonBytes({ name: '8415wallet', type: 'module', dependencies: {} });
   if (path === 'package-lock.json') return jsonBytes({ name: '8415wallet', lockfileVersion: 3, packages: { '': { dependencies: {} } } });
-  if (path.startsWith('tsconfig')) return jsonBytes(path === 'tsconfig.json' ? {} : { extends: './tsconfig.json', include: ['src/browser.ts'] });
+  if (path.startsWith('tsconfig')) return jsonBytes(path === 'tsconfig.json' ? { compilerOptions: { target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', rewriteRelativeImportExtensions: true, verbatimModuleSyntax: true } } : { extends: './tsconfig.json', include: ['src/browser.ts'] });
   if (path === 'src/browser.ts') return Buffer.from("export { sample } from './index.ts';\n");
   if (path === 'src/index.ts') return Buffer.from('export const sample = 1;\n');
   if (path.endsWith('.json')) return jsonBytes({ synthetic: true });
   if (/\.(?:mjs|ts|sol)$/.test(path)) return Buffer.from('// Synthetic input, no application behavior.\n');
-  if (path === 'web/index.html') return Buffer.from('<!doctype html><p>Synthetic product fixture</p>\n');
+  if (path.endsWith('.html')) return Buffer.from("<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src 'self'; script-src 'self'\"><p>Synthetic product fixture</p>\n");
   if (path.endsWith('.css')) return Buffer.from('p { color: black; }\n');
   return Buffer.from(`Synthetic public test input: ${path}\n`);
 };
@@ -48,7 +48,7 @@ function fixture(t, { approved = true, extras = {}, extraEntries = {} } = {}) {
   const policy = structuredClone(currentPolicy);
   policy.review = { status: approved ? 'approved-for-local-build' : 'pending', blockers: [], holds: approved ? [] : ['Synthetic pending review'] };
   policy.entries = [...data].sort(([a], [b]) => a < b ? -1 : 1).map(([path, bytes]) => ({ path, mode: '100644', git_blob_sha1: gitHash('blob', bytes), sha256: sha256(bytes) }));
-  for (const path of Object.keys(extraEntries)) policy.mandatory.application.push(path);
+  for (const path of Object.keys(extraEntries)) if (!Object.values(policy.mandatory).flat().includes(path)) policy.mandatory.application.push(path);
   const policyPath = join(directory, 'policy.json'); writeFileSync(policyPath, jsonBytes(policy));
   const options = { sourceRoot: source, allowlistPath: policyPath, expectedAllowlistSha256: sha256(readFileSync(policyPath)),
     expectedUpstreamCommit: commit, expectedUpstreamTree: tree, expectedToolingSha256: computeToolingPin(root), toolingRoot: root };
@@ -61,11 +61,11 @@ function materialize(f, name = 'output') {
 }
 function entryMap(plan) { return new Map(plan.productEntries.map(entry => [entry.path, { bytes: entry.path === ORIGIN_FILE ? Buffer.from(plan.originBytes) : Buffer.from(plan.blobs.get(entry.path)), mode: entry.mode }])); }
 function dappMap(plan, profile = 'v2') {
-  const map = new Map();
-  for (const [path, bytes] of plan.blobs) if (path.startsWith('web/') || DAPP_DOCUMENTS.includes(path) || LEGAL_FILES.includes(path)) map.set(path, { bytes, mode: 0o644 });
-  map.set('web/release-config.json', { bytes: jsonBytes(JSON.parse(plan.blobs.get(`config/releases/${profile}.json`))), mode: 0o644 });
+  const map = new Map(), boundary = deriveDappBoundary(plan, profile);
+  for (const [path, bytes] of boundary.web) map.set(path, { bytes: Buffer.from(bytes), mode: 0o644 });
+  for (const path of [...DAPP_DOCUMENTS, ...LEGAL_FILES]) map.set(path, { bytes: Buffer.from(plan.blobs.get(path)), mode: 0o644 });
   for (const path of LEGAL_FILES) map.set(`web/legal/${path}`, { bytes: plan.blobs.get(path), mode: 0o644 });
-  for (const path of [...plan.closure.browserOutputs, 'dist/browser/vendor/ethers.js', 'dist/browser/vendor/ETHERS-LICENSE.md', 'RELEASE.json', 'SHA256SUMS']) map.set(path, { bytes: Buffer.from('synthetic'), mode: 0o644 });
+  for (const path of [...boundary.browserOutputs, 'dist/browser/vendor/ETHERS-LICENSE.md', 'RELEASE.json', 'SHA256SUMS']) map.set(path, { bytes: Buffer.from('synthetic'), mode: 0o644 });
   return map;
 }
 
@@ -227,7 +227,7 @@ test('policy and tooling pins are required and substitution is refused', t => {
 });
 
 test('even a freshly rehashed policy cannot omit mandatory input contracts', t => {
-  for (const missing of ['package-lock.json', 'docs/DAPP-INSTALL.md', 'deploy/dapp/install.mjs',
+  for (const missing of ['package-lock.json', 'tsconfig.browser-v2.json', 'docs/DAPP-INSTALL.md', 'deploy/dapp/install.mjs',
     'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/migrate-legacy.mjs',
     'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'LICENSE']) {
     const f = fixture(t); f.policy.entries = f.policy.entries.filter(entry => entry.path !== missing);
@@ -271,6 +271,44 @@ test('missing relative import and fixed document closure refuse in newly pinned 
   const a = fixture(t, { extraEntries: { 'src/broken.ts': "import './absent.ts';\n" } }); assert.throws(() => inspectSource(a.options), /IMPORT_MISSING/);
   const b = fixture(t, { extraEntries: { 'scripts/package/check-docs.mjs': "const doc = 'docs/ABSENT.md';\n" } }); assert.throws(() => inspectSource(b.options), /MANDATORY_DOCUMENT_MISSING/);
   const c = fixture(t, { extraEntries: { 'src/dynamic.ts': 'export async function load(path) { return import(path); }\n' } }); assert.throws(() => inspectSource(c.options), /NONLITERAL_IMPORT_REFUSED/);
+});
+
+const boundedSmokeSource = `import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+const root = '/tmp/synthetic-installed-package';
+export const INSTALLED_SMOKE_RUNTIME_FILES = Object.freeze(['server/store.mjs']);
+const load = path => {
+  assert.ok(INSTALLED_SMOKE_RUNTIME_FILES.includes(path), 'INSTALLED_SMOKE_MODULE_REFUSED');
+  return import(pathToFileURL(\`\${root}/\${path}\`).href);
+};
+await load('server/store.mjs');
+`;
+
+test('source import analysis reads syntax rather than import-shaped string or comment data', t => {
+  const f = fixture(t, { extraEntries: { 'src/import-example.ts':
+    `export const example = "await import('./absent.ts')";\n// await import(untrusted);\n` } });
+  assert.doesNotThrow(() => inspectSource(f.options));
+});
+
+test('the installed smoke has a finite immutable runtime module contract', t => {
+  const f = fixture(t, { extraEntries: { 'scripts/controls/task-auth-runtime-smoke.mjs': boundedSmokeSource } });
+  assert.doesNotThrow(() => inspectSource(f.options));
+});
+
+test('bounded smoke imports still refuse missing guards dynamic calls aliases mutable tables and other code', t => {
+  for (const source of [
+    boundedSmokeSource.replace('INSTALLED_SMOKE_RUNTIME_FILES.includes(path)', 'true'),
+    boundedSmokeSource.replace("await load('server/store.mjs');", 'await load(process.argv[3]);'),
+    boundedSmokeSource.replace("await load('server/store.mjs');", "const alias = load; await alias('server/store.mjs');"),
+    boundedSmokeSource.replace('export const INSTALLED_SMOKE_RUNTIME_FILES', 'export let INSTALLED_SMOKE_RUNTIME_FILES'),
+    boundedSmokeSource.replace("['server/store.mjs']", "['../escape.mjs']"),
+    boundedSmokeSource + 'await import(process.argv[4]);\n',
+  ]) {
+    const f = fixture(t, { extraEntries: { 'scripts/controls/task-auth-runtime-smoke.mjs': source } });
+    assert.throws(() => inspectSource(f.options), /BOUNDED_IMPORT_|NONLITERAL_IMPORT_REFUSED/);
+  }
+  const f = fixture(t, { extraEntries: { 'src/unrecognized-smoke.mjs': boundedSmokeSource } });
+  assert.throws(() => inspectSource(f.options), /NONLITERAL_IMPORT_REFUSED/);
 });
 
 test('omitting an existing source-family member fails despite changing policy digest', t => {
@@ -324,6 +362,33 @@ test('DApp nested inventory rejects extra payload and mismatched legal/document 
   map.set('docs/unapproved.md', { bytes: Buffer.from('extra'), mode: 0o644 });
   assert.throws(() => verifyDappBoundary(plan, map, 'v2'), /DAPP_EXACT_INVENTORY/); map.delete('docs/unapproved.md');
   map.get('LICENSE').bytes = Buffer.from('forged legal bytes'); assert.throws(() => verifyDappBoundary(plan, map, 'v2'), /DAPP_SOURCE_COPY_MISMATCH/);
+});
+
+test('profile inventories derive aliases and module reachability from source and reject cross-profile payload', t => {
+  const html = script => `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; script-src 'self'"><script src="${script}"></script>`;
+  const f = fixture(t, { extraEntries: {
+    'web/index-v2.html': html('app-v2.mjs'), 'web/index-v3.html': html('app.mjs'),
+    'web/app-v2.mjs': "import { second } from '../dist/browser/browser.js';\n",
+    'web/app.mjs': "import { sample } from '../dist/browser/browser.js';\n",
+    'src/browser-v2.ts': 'export const second = 2;\n',
+  } });
+  const plan = inspectSource(f.options), v2 = deriveDappBoundary(plan, 'v2'), v3 = deriveDappBoundary(plan, 'v3');
+  assert.ok(v2.web.has('web/app-v2.mjs')); assert.equal(v2.web.has('web/app.mjs'), false);
+  assert.ok(v3.web.has('web/app.mjs')); assert.equal(v3.web.has('web/app-v2.mjs'), false);
+  assert.deepEqual(v2.browserOutputs, ['dist/browser/browser.js']);
+  assert.ok(v3.browserOutputs.includes('dist/browser/index.js'));
+  assert.equal(v2.web.get('web/index.html').toString().includes('app-v2.mjs'), true);
+  assert.equal(v2.web.get('web/index.html').toString().includes("img-src 'self' blob:"), true);
+  for (const profile of ['v2', 'v3']) {
+    const map = dappMap(plan, profile); verifyDappBoundary(plan, map, profile);
+    const other = profile === 'v2' ? 'web/app.mjs' : 'web/app-v2.mjs';
+    map.set(other, { bytes: plan.blobs.get(other), mode: 0o644 });
+    assert.throws(() => verifyDappBoundary(plan, map, profile), /DAPP_EXACT_INVENTORY/); map.delete(other);
+    const saved = map.get('web/index.html'); map.set('web/index.html', { bytes: Buffer.from('forged entry'), mode: 0o644 });
+    assert.throws(() => verifyDappBoundary(plan, map, profile), /DAPP_SOURCE_COPY_MISMATCH/); map.set('web/index.html', saved);
+    const compiled = `dist/browser/${profile === 'v2' ? 'browser' : 'index'}.js`; map.delete(compiled);
+    assert.throws(() => verifyDappBoundary(plan, map, profile), /DAPP_EXACT_INVENTORY/);
+  }
 });
 
 test('CLI defaults to inspect and refuses implicit output/build arguments', t => {

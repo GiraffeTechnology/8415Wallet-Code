@@ -1,3 +1,5 @@
+import {NFT_BROWSER_TEXT} from '../web/locales/nft-browser.mjs';
+import {coordinationLines,appendCoordinationView,appendForwardTracks} from '../web/coordination-render.mjs';
 /** Synthetic DOM/HTTP definitions only; no real provider or credentials. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -42,9 +44,9 @@ function mount(available = true) {
   login.check = async () => { checks++; if (holdCheck) await holdCheck; login.assert(); };
   const client = { async readForwardProgress() { reads++; if (holdRead) await holdRead; return progress(); } };
   const body = source.replace(/^import[^\n]*\n/gm, '').replace('export function mountForwardProgress', 'function mountForwardProgress');
-  new Function('document','globalThis','FORWARD_PROGRESS_TEXT','config', body + '\nmountForwardProgress(config);')(
+  new Function('document','globalThis','FORWARD_PROGRESS_TEXT','NFT_BROWSER_TEXT','coordinationLines','appendCoordinationView','appendForwardTracks','config', body + '\nmountForwardProgress(config);')(
     document, { history: { state: { walletPage: 'linked' } }, addEventListener: window.addEventListener.bind(window) },
-    FORWARD_PROGRESS_TEXT, { root, login, clientFor: () => client, available: () => available, selection: () => input });
+    FORWARD_PROGRESS_TEXT,NFT_BROWSER_TEXT,coordinationLines,appendCoordinationView,appendForwardTracks, { root, login, clientFor: () => client, available: () => available, selection: () => input });
   const nodes = root.descendants();
   return { root, events, window, locale, login, document,
     button: nodes.find((n: any) => n.type === 'button')!,

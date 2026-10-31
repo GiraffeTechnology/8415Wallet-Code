@@ -1,3 +1,4 @@
+import { requireLegacyJournalLocation } from './tenant-path.mjs';
 /** Strict-durability IndexedDB transaction is the cross-tab CAS boundary shared by
  * every browser operation journal. Only public unsigned transaction data is stored.
  * No credentials or signatures. Unsupported browser durability is refused, never
@@ -7,6 +8,7 @@
  * revision domain. Nothing here widens a scope, chooses an endpoint or signs.
  */
 export function requireBrowserJournal() {
+  requireLegacyJournalLocation(import.meta.url);
   if (!globalThis.indexedDB || !globalThis.isSecureContext) throw new Error('CONTROL_BROWSER_DURABILITY_REQUIRED');
 }
 

@@ -253,7 +253,7 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
       const files = diagnostics.phase('runtime-inventory', () => Object.fromEntries(walkAuth(stage).map(file => [file, sha256(readFileSync(join(stage, file)))])));
       const npmVersion = diagnostics.phase('npm-version', () => execFileSync('npm', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: authNpmEnvironment(process.env, npmLogs) }).trim(), { child: true });
       const release = { schema: AUTH_SCHEMA, name: '8415wallet-auth-runtime', version: runtime.manifest.version, status: AUTH_STATUS,
-        source, runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, entry: 'server/runtime-entry.mjs', tenantArgumentRequired: true, credentialStoreFormat: 1, legacyImportProtocol: 1, authStateSemantics: AUTH_STATE_SEMANTICS, openssl: 'External OpenSSL 3 required only for configured hardware CA verification' },
+        source, runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, entry: 'server/runtime-entry.mjs', tenantArgumentRequired: true, credentialStoreFormat: 5, legacyImportProtocol: 1, authStateSemantics: AUTH_STATE_SEMANTICS, openssl: 'External OpenSSL 3 required only for configured hardware CA verification' },
         build: { node: process.version, npm: npmVersion,
           sourcePolicy: { mode: sourcePolicy.release ? 'release-clean-pinned' : 'development-snapshot',
             ...(sourcePolicy.expectedCommit === undefined ? {} : { expectedCommit: sourcePolicy.expectedCommit }),

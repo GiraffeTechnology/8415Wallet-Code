@@ -6,6 +6,8 @@ import { dirname, join, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const at = (...parts: string[]) => join(root, ...parts);
+// The unchanged internal-entry checks remain an external private delivery gate.
+const productContractFixture = 'tests/fixtures/product-source-contract.md';
 
 /**
  * Layout acceptance for the merged repository.
@@ -49,9 +51,9 @@ test('the Kit specification came across with the code', () => {
   }
 });
 
-test("the wallet's own specification is still the reading order it names", () => {
+test('the exported product specification and contract excerpts are present', () => {
   for (const doc of [
-    'AGENTS.md',
+    productContractFixture,
     'README.md',
     'docs/ERC-8415-Wallet-PRD.md',
     'docs/INTEGRATION.md',
@@ -86,7 +88,7 @@ test('no legacy task document has returned', () => {
 });
 
 test('the frozen interface identifiers are recorded unchanged', () => {
-  const agents = readFileSync(at('AGENTS.md'), 'utf8');
+  const agents = readFileSync(at(productContractFixture), 'utf8');
   assert.match(agents, /`0x6309e170`[^.]*`IRegisterProjection`/);
   assert.match(agents, /`0xf4a7d71b`[^.]*`IProjectionSettlement`/);
 });

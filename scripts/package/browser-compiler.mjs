@@ -22,7 +22,8 @@ function emitted(directory, log) {
 
 export function compileBrowser(root, { source, entry, args, configPath, profile }) {
   root = resolve(root); entry = resolve(entry);
-  const binding = { root, entry, args, profile, configPath: resolve(configPath), configSha256: hash(readFileSync(configPath)),
+  const project = join(root, profile === 'v2' ? 'tsconfig.browser-v2.json' : 'tsconfig.browser.json');
+  const binding = { projectSha256: hash(readFileSync(project)), root, entry, args, profile, configPath: resolve(configPath), configSha256: hash(readFileSync(configPath)),
     commit: source.commit, commitTree: source.commitTree, indexTree: source.indexTree, tree: source.tree };
   const previous = process.env[SNAPSHOT];
   if (previous !== undefined) {
@@ -53,7 +54,7 @@ export function compileBrowser(root, { source, entry, args, configPath, profile 
   const compiler = join(root, 'node_modules/typescript/bin/tsc');
   // Retain the original CLI's complete diagnostics and nonzero-error exit.
   // Partial output stays private on failure; only exit 0 may promote it.
-  const compilerArgs = [compiler, '-p', join(root, 'tsconfig.browser.json'), '--outDir', outputDirectory, '--listEmittedFiles'];
+  const compilerArgs = [compiler, '-p', project, '--outDir', outputDirectory, '--listEmittedFiles'];
   if (process.platform !== 'win32' && typeof process.execve === 'function') {
     // All variable data is positional, never interpolated into shell syntax.
     // execve releases the packaging Node heap before the CLI starts. The shell
@@ -64,7 +65,7 @@ export function compileBrowser(root, { source, entry, args, configPath, profile 
       + 'export WALLET_DAPP_COMPILE_TOKEN="$token"; exec "$node" "$entry" "$@"';
     const env = Object.fromEntries(Object.entries({ ...process.env, [SNAPSHOT]: snapshot }).filter(([, value]) => typeof value === 'string'));
     process.execve('/bin/sh', ['sh', '-c', script, 'wallet-browser-compile', process.execPath, compiler,
-      join(root, 'tsconfig.browser.json'), log, entry, token, outputDirectory, ...args], env);
+      project, log, entry, token, outputDirectory, ...args], env);
     throw new Error('DAPP_BROWSER_EXECVE_RETURNED');
   }
   // Preserve portability where process replacement is unavailable. No checks

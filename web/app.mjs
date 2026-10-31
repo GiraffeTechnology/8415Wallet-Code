@@ -1,5 +1,5 @@
 import { settlementDisplay, checkDisplay } from './native-i18n.mjs';
-import { privateNativeSummary, privateNativeUi, privateReadDisplay } from './wallet-identity-display.mjs';
+import { privateNativeSummary, privateKeyedNativeUi, privateReadDisplay } from './wallet-identity-display.mjs';
 import { msg, paint, jsonUi, trustedMessage } from './i18n.mjs';
 import { walletLogin, WalletLoginError, currentAccountClient, currentAccountFeatures } from './wallet-auth.mjs';
 import { getReleaseProfile } from './release-profile.mjs';
@@ -12,11 +12,13 @@ import { ResponsibilityWalletSession, DetachedResponsibilityHistoryClient, Contr
 import { reviewAgentRequest, recoveryGuidance } from '../dist/browser/browser.js';
 import { BrowserPublicOperationStore } from './public-store.mjs';
 
+// The page-wide operation lock rejects duplicate business actions. Never toggle
+// unrelated task/auth/policy controls: each controller owns its disabled state.
 const el = id => document.getElementById(id);
 const renderResult = value => { paint(el('result'), jsonUi(value)); paint(el('native-read-result'), jsonUi(value)); };
 const nativeView = (state, view = null) => document.dispatchEvent?.(new CustomEvent('wallet:native-view', { detail: { state,
   view: state === 'ready' ? privateNativeSummary(view, walletLogin.assert()?.account) : null } }));
-const privateNative = (renderer, view) => privateNativeUi(renderer, view, walletLogin.assert()?.account);
+const privateNative = (renderer, view) => privateKeyedNativeUi(renderer, view, walletLogin.assert()?.account);
 const privateDisplay = (value, disclosure = null) => {
   display(privateReadDisplay(value, walletLogin.assert()?.account, disclosure));
 };
@@ -29,7 +31,7 @@ const integer = text => { if (!/^(0|[1-9][0-9]{0,77})$/.test(text) || BigInt(tex
 const number = id => integer(value(id));
 const bytes = (text, size) => { if (!new RegExp(`^0x[0-9a-fA-F]{${size * 2}}$`).test(text)) fail('CONTROL_HEX_REFUSED'); return text.toLowerCase(); };
 let deployment = null, provider = null, session = null, plainWallet = null, actor = null, review = null, signed = null, busy = false;
-let agentRequestText = null, agentReview = null;
+let agentRequestText = null, agentReview = null, agentReviewRevision = 0;
 let settlementSession = null, settlementReview = null, settlementReviewRevision = 0n, consentRevision = 0n;
 let releaseProfile = null;
 const releaseReady = getReleaseProfile().then(profile => {
@@ -40,13 +42,14 @@ const releaseReady = getReleaseProfile().then(profile => {
   el('agent-controls-panel').hidden = false;
   el('control-recovery-panel').hidden = false;
 }).catch(() => { paint(el('release-profile'), msg('message.000')); });
-let connectionRevision = 0n, operationRevision = 0n;
+let connectionRevision = 0n, operationRevision = 0n, nativeReadRevision = 0;
 function requireCurrentConnection() {
   walletLogin.assert();
   if (operationRevision !== connectionRevision) fail('CONTROL_CONNECTION_CHANGED');
 }
 const selected = () => { walletLogin.assert(); if (!session || !deployment || !actor) fail('CONTROL_CONNECTION_REQUIRED'); return session; };
 function clearAgentReview() {
+  agentReviewRevision++;
   agentRequestText = null; agentReview = null;
   el('agent-acknowledge').checked = false; paint(el('agent-terms'), msg('ui.166'));
 }
@@ -73,8 +76,13 @@ async function run(fn, reconnect = false) {
   const uiLock = acquireWalletUi(); if (uiLock === null) return;
   if (reconnect) clearConnection();
   operationRevision = connectionRevision;
-  busy = true; document.querySelectorAll('button:not([data-auth-control]):not([data-ui-locale]) ,input,select:not([data-ui-locale])').forEach(n => { n.disabled = true; });
-  try { await walletLogin.check(); if (!releaseProfile) await releaseReady; if (!releaseProfile) fail('CONTROL_RELEASE_PROFILE_REFUSED'); await fn(); } catch (e) {
+  busy = true;
+  // These triggers belong to this controller. Preserve their prior availability
+  // while the operation (including final state readback) is still pending.
+  const actions = [el('connect'), el('settlement-prepare'), el('settlement-send')].map(button => [button, button.disabled]);
+  for (const [button] of actions) button.disabled = true;
+  try { await walletLogin.check(); requireCurrentConnection(); if (!releaseProfile) await releaseReady; if (!releaseProfile) fail('CONTROL_RELEASE_PROFILE_REFUSED'); requireCurrentConnection(); await fn(); } catch (e) {
+    if (e instanceof ControlAdapterError && e.code === 'CONTROL_READ_CHANGED') return;
     nativeView('error');
     // Provider, RPC and DOM exception text is never rendered, logged or persisted.
     renderResult(operationRevision !== connectionRevision ? 'CONTROL_CONNECTION_CHANGED' :
@@ -86,7 +94,7 @@ async function run(fn, reconnect = false) {
       try {
         const state = await current.status();
         if (current === session && operationRevision === connectionRevision) paint(el('recovery-guidance'), trustedMessage(recoveryGuidance(state)));
-      } catch { paint(el('recovery-guidance'), msg('message.005')); }
+      } catch { if (current === session && operationRevision === connectionRevision) paint(el('recovery-guidance'), msg('message.005')); }
     }
     if (settlementSession && operationRevision === connectionRevision) {
       const current = settlementSession;
@@ -94,7 +102,8 @@ async function run(fn, reconnect = false) {
         if (current === settlementSession && operationRevision === connectionRevision) paint(el('settlement-state'), jsonUi(state));
       } catch { if (current === settlementSession && operationRevision === connectionRevision) paint(el('settlement-state'), msg('message.006')); }
     }
-    busy = false; releaseWalletUi(uiLock); document.querySelectorAll('button:not([data-auth-control]):not([data-ui-locale]) ,input,select:not([data-ui-locale])').forEach(n => { n.disabled = false; });
+    for (const [button, wasDisabled] of actions) button.disabled = wasDisabled;
+    busy = false; releaseWalletUi(uiLock);
   }
 }
 async function jsonFile(id, maximum) {
@@ -105,7 +114,9 @@ function pin(raw, chainId) {
   if (!raw || Object.keys(raw).sort().join(',') !== 'address,runtimeCodeHash') fail('CONTROL_DEPLOYMENT_PIN_REFUSED');
   return { chainId, controller: bytes(raw.address, 20), runtimeCodeHash: bytes(raw.runtimeCodeHash, 32) };
 }
-el('deployment').addEventListener('change', () => run(async () => {
+el('deployment').addEventListener('change', () => {
+  signed = null; deployment = null; clearConnection();
+  return run(async () => {
   signed = null; deployment = null;
   const d = await jsonFile('deployment', 8192);
   requireCurrentConnection();
@@ -115,7 +126,8 @@ el('deployment').addEventListener('change', () => run(async () => {
   if (d.controller === null && d.payment !== null) fail('CONTROL_DEPLOYMENT_SCHEMA_REFUSED');
   deployment = { chainId, controller: d.controller === null ? null : pin(d.controller, chainId), token: pin(d.token, chainId), payment: d.payment === null ? null : pin(d.payment, chainId) };
   display({ deploymentLoaded: true, chainId, executionPerformed: false });
-}, true));
+}, true);
+});
 el('connect').addEventListener('click', () => run(async () => {
   if (!deployment) fail('CONTROL_DEPLOYMENT_REQUIRED');
   {
@@ -165,7 +177,11 @@ walletLogin.subscribe((authenticated, reason) => {
   paint(el('identity'), msg('message.010'));
   renderResult(msg('message.011'));
 });
+for (const id of ['tokenId', 'instant', 'collision-token-ids']) for (const event of ['input', 'change'])
+  el(id).addEventListener(event, () => { nativeReadRevision++; nativeView('empty'); });
+document.addEventListener('wallet:page', () => { nativeReadRevision++; });
 document.querySelectorAll('[data-read]').forEach(button => button.addEventListener('click', () => run(async () => {
+  const readRevision = nativeReadRevision;
   if (!plainWallet || !deployment) fail('CONTROL_CONNECTION_REQUIRED');
   const wallet = plainWallet; await verifyControlDeployment(provider, deployment.token);
   requireCurrentConnection();
@@ -209,6 +225,7 @@ document.querySelectorAll('[data-read]').forEach(button => button.addEventListen
     default: fail('CONTROL_ACTION_REFUSED');
   }
   if (wallet !== plainWallet) fail('CONTROL_CONNECTION_CHANGED'); requireCurrentConnection();
+  if (readRevision !== nativeReadRevision) fail('CONTROL_READ_CHANGED');
   if (assetObservation) nativeView('ready', assetObservation); display(output);
 })));
 el('standalone-tab').addEventListener('click', () => { clearConsent(false); clearSettlementReview(); el('standalone').hidden = false; el('linked').hidden = true; });
@@ -326,13 +343,16 @@ async function agentContext() {
 el('agent-file').addEventListener('change', clearAgentReview);
 el('agent-dismiss').addEventListener('click', clearAgentReview);
 el('agent-review').addEventListener('click', () => run(async () => {
-  clearAgentReview();
+  clearAgentReview(); const revision = agentReviewRevision;
   const file = el('agent-file').files?.[0];
   if (!file || file.size > 8192) fail('AGENT_REQUEST_SIZE_REFUSED');
   const text = await file.text(); requireCurrentConnection();
-  const prepared = reviewAgentRequest(text, await agentContext());
+  const currentReview = () => { if (revision !== agentReviewRevision || file !== el('agent-file').files?.[0]) fail('AGENT_REVIEW_CHANGED'); };
+  currentReview();
+  const context = await agentContext(); requireCurrentConnection(); currentReview();
+  const prepared = reviewAgentRequest(text, context);
   requireOperationProfile(prepared.operation);
-  requireCurrentConnection(); agentRequestText = text; agentReview = prepared;
+  requireCurrentConnection(); if (revision !== agentReviewRevision) fail('AGENT_REVIEW_CHANGED'); agentRequestText = text; agentReview = prepared;
   paint(el('agent-terms'), jsonUi(prepared));
   display(msg('message.015'));
 }));
@@ -341,8 +361,10 @@ el('agent-execute').addEventListener('click', () => run(async () => {
   if (!agentReview || !agentRequestText || !el('agent-acknowledge').checked) fail('AGENT_OWNER_REVIEW_REQUIRED');
   const prior = agentReview, text = agentRequestText;
   // Consume review before any asynchronous work. Repeated clicks cannot reuse it.
-  clearAgentReview();
-  const fresh = reviewAgentRequest(text, await agentContext());
+  clearAgentReview(); const executionRevision = agentReviewRevision;
+  const context = await agentContext(); requireCurrentConnection();
+  if (executionRevision !== agentReviewRevision) fail('AGENT_REVIEW_CHANGED');
+  const fresh = reviewAgentRequest(text, context);
   requireOperationProfile(fresh.operation);
   if (s !== session || fresh.digest !== prior.digest) fail('AGENT_REVIEW_CHANGED');
   document.dispatchEvent?.(new CustomEvent('wallet:summary-stale'));
@@ -380,6 +402,13 @@ el('settlement-reconcile').addEventListener('click', () => run(async () => { dis
 el('settlement-recover').addEventListener('click', () => run(async () => { display(await settlementSelected().recover(bytes(value('settlement-recovery-hash'), 32))); }));
 el('settlement-replacement').addEventListener('click', () => run(async () => { display(await settlementSelected().acknowledgeReplacement(bytes(value('settlement-recovery-hash'), 32))); }));
 el('settlement-ack-terminal').addEventListener('click', () => run(async () => { const s = settlementSelected(); await s.acknowledge(); display(await s.status()); }));
+
+// Navigation cancels unsent reviews, not persisted transaction recovery.
+let activePage = globalThis.history?.state?.walletPage;
+document.addEventListener('wallet:page', event => {
+  if (event.detail !== activePage) { clearConsent(); clearSettlementReview(); clearAgentReview(); }
+  activePage = event.detail;
+});
 
 // A restored history entry must not reuse a review or signature from the old page lifecycle.
 globalThis.addEventListener?.('pagehide', () => { signed = null; clearConnection(); });

@@ -67,15 +67,20 @@ test('real decoder plus new reader accepts a valid canonical pending list',async
 });
 
 // Evaluate the unchanged development handler with an inert HTTP capability: listen is NEVER called on a real server.
-function developmentHandler(){
+async function developmentHandler(){
  const path='scripts/controls/serve-browser.cjs', source=readFileSync(join(ROOT,path));
  let handler; const require=createRequire(join(ROOT,path));
  const fakeServer={listen(){},close(){}};
- vm.runInNewContext(source.toString(),{URL,require:p=>p==='node:http'?{createServer(fn){handler=fn;return fakeServer;}}:require(p),__dirname:join(ROOT,'scripts/controls'),process:{env:{},on(){},stdout:{write(){}}}});
+ // Adapt only the VM's ESM loading boundary; the request handler stays exact.
+ // Real modules load in the host loader, without experimental VM flags.
+ const imports=[...source.toString().matchAll(/await import\(/g)];assert.equal(imports.length,2);
+ const executable=source.toString().replaceAll('await import(', 'await loadModule(');
+ await vm.runInNewContext(executable,{URL,loadModule:specifier=>import(new URL(specifier,pathToFileURL(join(ROOT,path)))),require:p=>p==='node:http'?{createServer(fn){handler=fn;return fakeServer;}}:require(p),__dirname:join(ROOT,'scripts/controls'),process:{env:{},on(){},stdout:{write(){}},stderr:{write(text){throw Error(text);}}}});
+ assert.equal(typeof handler,'function');
  return url=>{let code;const response={setHeader(){},writeHead(n){code=n;},end(){}};handler({url,method:'GET',headers:{host:'127.0.0.1:8415'}},response);return code;};
 }
-test('actual dev handler serves all four additive modules and their importers',()=>{
- const status=developmentHandler();
+test('actual dev handler serves all four additive modules and their importers',async()=>{
+ const status=await developmentHandler();
  for(const p of ['web/app.mjs','web/task-ui.mjs']) assert.equal(status('/'+p),200,p);
  for(const p of ['web/asset-workspace-panel.mjs','web/hoodi-journey-panel.mjs','web/task-activity-ui.mjs','web/task-activity.mjs']) assert.equal(status('/'+p),200,p);
 });

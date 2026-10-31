@@ -434,7 +434,7 @@ An urgent certificate revocation also requires terminating existing sessions
 
 ## Verification
 
-New source preparation: see [Xiongan provisioning and local QR](AUTH-PROVISIONING-PREPARATION.md).
+New source preparation: see [Tenant provisioning and local QR](AUTH-PROVISIONING-PREPARATION.md).
 The fixed operator initialization command, duplicate wallet/chain startup gate,
 local Canvas renderer and synthetic regression sources are prepared but not
 executed or activated. Real bindings and the independent store key still require
@@ -509,7 +509,7 @@ three tenants unavailable. To enable navigation, the operator serves the exact
 `passwordManagementReady`. Copy the URL from that tenant's verified
 `release-config.json`; do not infer, replace or migrate its scheme, host, port or
 path. Enable readiness only after matching UI/runtime capability validation.
-Xiongan maps to V2, Giraffe and Lala to V3. HTTPS hosts remain bound to
+Tenant-specific V2/V3 mappings remain private. HTTPS hosts remain bound to
 `<tenant>.8415wallet.com`; deployment selects the port (including default HTTPS)
 and any canonical path ending in `/web/index.html`. Userinfo, query, fragments,
 encoded/noncanonical paths, unknown tenants and cross-tenant hosts are rejected.

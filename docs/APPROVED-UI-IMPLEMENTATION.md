@@ -40,8 +40,8 @@ contacts a font CDN, artwork server or tracking origin at runtime.
 
 - General-purpose wallet: ERC-721/ERC-1155 NFT holdings and native ERC-8415 are
   first; ETH and ERC-20 operations remain available.
-- V2 platform, V2 Xiongan tenant and V3 platform are distinct validated release
-  profiles. The Xiongan profile does not enable V3 responsibilities.
+- V2 platform, V2 standalone tenant tenant and V3 platform are distinct validated release
+  profiles. The standalone tenant profile does not enable V3 responsibilities.
 - Login remains verified and revocable/expiring under the existing adapters.
   Navigation, locale, avatar and account connection cannot authenticate anyone.
 - Password, TOTP, local challenge signing, registered wallet and hardware CA
@@ -70,7 +70,7 @@ contacts a font CDN, artwork server or tracking origin at runtime.
 Run typecheck, Node tests, the local EVM suite, browser build, all existing
 synthetic browser suites plus `scripts/controls/approved-ui-smoke.cjs`, and the
 DApp/SDK integrity and install tests. The new browser matrix includes desktop
-and mobile viewports for V2 platform, V2 Xiongan and V3 platform. The existing
+and mobile viewports for V2 platform, V2 standalone tenant and V3 platform. The existing
 six-language matrix is preserved. Browser helper navigation uses visible UI
 controls and never changes hidden/inert or bypasses login.
 

@@ -19,12 +19,20 @@ export function verifyDeliveryEntryImports(directory) {
 }
 export function buildDelivery({ root = process.cwd(), rebuild = true, offline = false } = {}) {
   root = resolve(root);
+  // Offline applies to every nested npm invocation, including run-script's
+  // background update notifier, not only the auth dependency installation.
+  // Invoke this entry directly with node: an outer npm process has already
+  // started before these settings can take effect.
+  const env = { ...process.env,
+    npm_config_update_notifier: 'false', NPM_CONFIG_UPDATE_NOTIFIER: 'false',
+    ...(offline ? { npm_config_offline: 'true', NPM_CONFIG_OFFLINE: 'true' } : {}),
+  };
   if (rebuild) {
-    execFileSync('npm', ['run', 'pack:dapp:all'], { cwd: root, stdio: 'inherit' });
-    execFileSync('npm', ['run', 'pack:auth', ...(offline ? ['--', '--offline'] : [])], { cwd: root, stdio: 'inherit' });
+    execFileSync('npm', ['run', 'pack:dapp:all'], { cwd: root, stdio: 'inherit', env });
+    execFileSync('npm', ['run', 'pack:auth', ...(offline ? ['--', '--offline'] : [])], { cwd: root, stdio: 'inherit', env });
   }
-  execFileSync('npm', ['run', 'pack:dapp:verify'], { cwd: root, stdio: 'inherit' });
-  execFileSync('npm', ['run', 'pack:auth:verify'], { cwd: root, stdio: 'inherit' });
+  execFileSync('npm', ['run', 'pack:dapp:verify'], { cwd: root, stdio: 'inherit', env });
+  execFileSync('npm', ['run', 'pack:auth:verify'], { cwd: root, stdio: 'inherit', env });
   const source = captureSource(root), output = join(root, 'dist');
   const manifests = Object.fromEntries(['v2', 'v3', 'auth'].map(id => [id, JSON.parse(readFileSync(join(output, id === 'auth' ? 'auth-package-manifest.json' : `dapp-${id}-package-manifest.json`), 'utf8'))]));
   for (const manifest of Object.values(manifests)) assert.equal(manifest.source.tree, source.tree, 'DAPP_DELIVERY_REBUILD_REQUIRED: source changed or artifact from another tree');
@@ -72,5 +80,5 @@ export function buildDelivery({ root = process.cwd(), rebuild = true, offline = 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2); if (new Set(args).size !== args.length || args.some(arg => !['--reuse', '--offline'].includes(arg))) throw Error('DAPP_DELIVERY_ARGUMENT_REFUSED');
   const result = buildDelivery({ rebuild: !args.includes('--reuse'), offline: args.includes('--offline') });
-  console.log(`${result.artifact}\nsha256 ${result.sha256}\nsource tree ${result.source.tree}\nVerify these pins through an independently authenticated release channel; checksums alongside an archive alone do not authenticate its publisher.`);
+  console.log(`${result.artifact}\nsha256 ${result.sha256}\nsource tree ${result.source.tree}\nObtain and convey these pins through the release owner’s trusted channel; checksums alongside an archive alone do not authenticate its publisher.`);
 }

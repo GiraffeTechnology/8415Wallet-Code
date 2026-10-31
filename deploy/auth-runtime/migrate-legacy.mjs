@@ -338,7 +338,7 @@ export async function inspectLegacy(o) {
   if (normalized(proxy.toString()) !== normalized(expectedProxy)) fail('AUTH_LEGACY_PROXY_UNSUPPORTED');
   const nginxGraph = await inspectLegacyNginx({ run, uid, nginxSite: o.nginxSite, legacyProxy: o.legacyProxy, origin: config.origin });
   await protectedPackage(o.packageDirectory, uid); const release = await verifyAuthDirectory(o.packageDirectory);
-  if (release.runtime.legacyImportProtocol !== 1 || release.runtime.credentialStoreFormat !== 1 || authStateSemantics(release) !== AUTH_STATE_SEMANTICS) fail('AUTH_LEGACY_FORWARD_PACKAGE_REQUIRED');
+  if (release.runtime.legacyImportProtocol !== 1 || release.runtime.credentialStoreFormat !== 5 || authStateSemantics(release) !== AUTH_STATE_SEMANTICS) fail('AUTH_LEGACY_FORWARD_PACKAGE_REQUIRED');
   for (const path of ['auth-location.nginx.conf', 'smtp-override.review.conf', 'mail-config.lock', 'migration-config.lock']) if (await exists(join(target.config, path))) fail('AUTH_LEGACY_TARGET_CONFLICT');
   let emptyEvidence;
   if (legacyNode.policy === ALIAS_MODE && !await exists(o.legacyState)) {

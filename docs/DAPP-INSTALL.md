@@ -239,3 +239,57 @@ they must not remain linked or served as the active release. The installer can
 verify the exact legacy static-plan format while preparing an upgrade, but does
 not activate that format as a new release or accept it as a rollback plan.
 
+
+## Optional default-account canonical shell
+
+For the existing `default` profile on the configured `https://8415wallet.com`
+origin, `plan`, `install`, and `upgrade` accept `--canonical-shell true`.
+The default is `false`; existing legacy entry installations remain unchanged.
+Select **one** default profile as the canonical-shell owner for that TLS vhost:
+never include both V2 and V3 canonical-owner plans. The generated file remains
+review-only until the original site owner applies the reviewed configuration.
+No listener, TLS, auth proxy, account membership query or credential change is
+performed by the installer.
+
+The option derives one public shell from the verified package's index after
+applying its image policy, using the existing canonical-entry helper. Relative
+asset references retain the configured `/web/` or `/v3/web/` prefix. The account
+name is never a filesystem path, tenant identity or authentication proof. The
+original `default` auth endpoint, origin, module URLs and journal locations are
+not moved. The derived file is independently re-derived by installed-release
+verification and is covered by the exact installation receipt.
+
+The generated root-name rule rejects deployment-reserved paths (including
+`auth`, `api`, `web`, `v2`, and `v3`), uppercase names, encoded or noncanonical
+raw requests, queries and path traversal. These are route reservations, not a
+change to the account naming API. Existing exact tenant locations take priority;
+the site owner must review other regex and `^~` locations before including the
+plan. This code does not inspect or claim to validate the live nginx site.
+
+The optional renderer currently accepts canonical legacy asset prefixes made
+from letters, digits, `_` and `-`. Other existing legacy prefixes remain usable
+with the option disabled and are not silently migrated. Independent tenant
+`/<tenant>` installation is a separate, unimplemented migration path requiring
+original route ownership, auth basePath and journal-state reconciliation; this
+option must not be used to bypass those boundaries.
+
+An exact prior legacy receipt without a derived shell remains verifiable as its
+original release. Rollback still requires its external receipt SHA and source
+tree. A new shell receipt must include the derived file and exact metadata;
+missing or tampered derivation is never accepted by merely recomputing its own
+file hash. No UI/browser or on-chain test acceptance is implied.
+
+Canonical-shell installations use receipt schema `8415wallet-dapp-installed-release/2`;
+legacy installations retain schema `/1`. Verification binds the actual config
+bytes, source tree, UI archive SHA and shell mode back to the immutable release
+ID. Removing the shell metadata/file cannot silently convert the same release
+ID into legacy mode. External receipt/source pins remain authoritative for
+rollback; locally recomputed receipt hashes are not publisher authentication.
+
+Once the current release owns the canonical shell, every subsequent upgrade
+(and planning for that current release) must explicitly select `--canonical-shell true` (retain that role) or `false`
+(deliberately remove it with the corresponding site-plan review). Omission is
+rejected after checking the current receipt but before writing a new release or
+switching `current`; otherwise an already-included canonical alias could point
+to a missing file. First installation and legacy-only upgrade keep the original
+default false behavior. Pinned rollback remains unchanged.

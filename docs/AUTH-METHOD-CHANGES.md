@@ -45,8 +45,17 @@ A later binding performs its own fresh combined verification.
 
 If the old verified email is unavailable, this implementation cannot replace it
 using a new address as self-asserted old identity. Independently verified operator
-recovery remains a separately authorized process. No device-trust architecture,
-server hardware-CA change verifier, or operator-provisioning bypass is introduced.
+recovery remains a separately authorized process. No new device-trust architecture or operator-provisioning bypass is introduced.
+Hardware-CA changes use the existing configured certificate verifier.
+
+Registered-wallet sign-in now supports same-selected-account unbinding and
+rebinding through `wallet.unbind` and `wallet.initial`. No address input is accepted:
+asset membership, ownership and Agent scope remain unchanged. Different-address
+replacement is deliberately unsupported pending its product decision. Hardware CA
+supports `ca.initial`, `ca.replace`, and `ca.unbind` through its existing verifier.
+Enable/disable controls remain distinct from removal of binding records. Registration
+and login signatures cannot authorize method changes. See
+[wallet binding lifecycle](WALLET-BINDING-LIFECYCLE.md) for its exact safety boundary.
 
 ## Exact change API
 
@@ -56,7 +65,12 @@ not fall back to the previous single-session/conditional-factor behavior.
 
 1. `POST /auth/account/change/start` prepares one immutable intent, with `action`
    and optional `identityMethod: "password" | "wallet"`. The actions are:
+   - `wallet.initial` / `wallet.unbind`, for the current selected account only;
+   - `ca.initial` / `ca.replace` / `ca.unbind`, with exact old/new fingerprints as applicable;
    - `password.initial` / `password.replace`, with `newPassword`;
+   - `password.unbind`, without a new password; preserves another independent
+     enabled method and persists an explicit unbound marker so the configured
+     password cannot reappear as a fallback after restart;
    - `totp.initial` / `totp.replace` / `totp.unbind`;
    - `methods`, with `enabledMethods`;
    - `recovery.initial` / `recovery.replace`, with `email`, `questionId`, `answer`;

@@ -1,3 +1,4 @@
+import {validateCoordinationView} from './coordination-view.mjs';
 /** Strict own-occurrence API contract. No chain reads or execution authority. */
 const uint = value => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value) && BigInt(value) < (1n << 256n);
 const hash = value => typeof value === 'string' && /^0x[0-9a-f]{64}$/.test(value) && !/^0x0+$/.test(value);
@@ -16,9 +17,9 @@ export function forwardProgressRequest(input, chainId) {
 }
 export function validateForwardProgress(value, input) {
   exact(value, ['schema','asset','sequenceId','userPosition','sourceRevision','blockNumber','blockHash','knownEnd','scaleEnd',
-    'state','owner','holder','funds','rollback','protocolFinality','commercialExecution','canExecute','recordRevision','frozen']);
+    'state','owner','holder','funds','rollback','protocolFinality','commercialExecution','canExecute','recordRevision','frozen',...(value?.schema==='8415-forward-progress/2'?['coordination']:[])]);
   exact(value.asset, ['chainId', 'contract', 'tokenId']);
-  refuse(value.schema === '8415-forward-progress/1' && value.asset.chainId === input.asset.chainId &&
+  refuse(['8415-forward-progress/1','8415-forward-progress/2'].includes(value.schema) && value.asset.chainId === input.asset.chainId &&
     value.asset.contract === input.asset.contract && value.asset.tokenId === input.asset.tokenId && value.sequenceId === input.sequenceId &&
     [value.userPosition,value.sourceRevision,value.blockNumber,value.knownEnd,value.scaleEnd,value.recordRevision].every(uint) &&
     hash(value.blockHash) && BigInt(value.recordRevision) > 0n && BigInt(value.knownEnd) + 1n === BigInt(value.scaleEnd) &&
@@ -37,7 +38,8 @@ export function validateForwardProgress(value, input) {
   const unavailable = value.owner.position === null || value.holder.position === null;
   const done = !unavailable && BigInt(value.owner.position) >= BigInt(value.userPosition) && value.holder.position === value.userPosition;
   refuse(value.state === (unavailable ? 'UNAVAILABLE' : done ? 'DONE' : 'PENDING') && value.frozen === done);
-  exact(value.funds, ['state']); exact(value.rollback, ['state']);
-  refuse(value.funds.state === 'not-evaluated' && value.rollback.state === 'not-evaluated');
+  if(value.schema==='8415-forward-progress/2')validateCoordinationView({coordination:value.coordination,funds:value.funds,rollback:value.rollback},value.userPosition);
+  else {exact(value.funds, ['state']); exact(value.rollback, ['state']);
+  refuse(value.funds.state === 'not-evaluated' && value.rollback.state === 'not-evaluated');}
   return value;
 }

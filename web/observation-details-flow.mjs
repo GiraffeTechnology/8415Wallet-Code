@@ -113,6 +113,11 @@ export class ObservationDetailsFlow {
         evidence, error: evidence.availability === 'available' ? null : 'OBSERVATION_EVIDENCE_UNAVAILABLE' });
     } catch (error) {
       if (generation !== this.#generation) return;
+      // A rejected asynchronous read may hide a concurrent session/account
+      // change. Revalidate before retaining any prior principal's evidence,
+      // even when no logout notification reached this flow.
+      try { this.#samePrincipal(); }
+      catch { this.close(); return; }
       const failureCode = error?.code ?? error?.message ?? '';
       if (failureCode === 'OBSERVATION_SESSION_CHANGED' || failureCode === 'TASK_PRINCIPAL_BINDING_REFUSED' ||
         /^(?:AUTH|LOGIN|WALLET_LOGIN)_/.test(failureCode)) {

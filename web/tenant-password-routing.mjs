@@ -1,3 +1,4 @@
+import { tenantBasePath } from './tenant-path.mjs';
 /** No anonymous wallet directory or name-to-endpoint oracle. */
 const fail = () => { throw Error('PASSWORD_ROUTING_UNAVAILABLE'); };
 export const PASSWORD_PANELS = Object.freeze({ initial: '#auth-initial', manage: '#auth-manage' });
@@ -6,6 +7,13 @@ export const PASSWORD_PANELS = Object.freeze({ initial: '#auth-initial', manage:
 function tenantEndpoint(tenant, value) {
   if (typeof tenant !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(tenant) || typeof value !== 'string' || value.length > 2048) fail();
   let url; try { url = new URL(value); } catch { fail(); }
+  // Path tenants use their exact configured origin (including the existing port).
+  if (url.hostname === '8415wallet.com') {
+    try { tenantBasePath(tenant, url.pathname); } catch { fail(); }
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
+        value !== url.origin + url.pathname || /[\\\s%]/.test(value)) fail();
+    return url;
+  }
   const authority = value.match(/^https:\/\/([^/:?#]+)(?::([1-9][0-9]{0,4}))?(\/[^?#]*)$/);
   if (!authority || authority[1] !== tenant + '.8415wallet.com' ||
       (authority[2] && Number(authority[2]) > 65535) || url.protocol !== 'https:' ||

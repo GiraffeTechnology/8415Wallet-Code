@@ -1,3 +1,5 @@
+import {withPresentation,presentationMessage} from './renderMessages.ts';
+import {narrativeTemplate} from './renderNarratives.ts';
 import { detectConformance, requireProjectionConformance } from '../sdk/conformance.ts';
 import { ProjectionNotInitialized } from '../sdk/errors.ts';
 import { ContractIdentityPin, type ContractIdentity } from '../sdk/identity.ts';
@@ -290,7 +292,14 @@ function buildPresentFinality(
   const ruled = laterEntryAdmitted ? covered : false;
   const agreement =
     ruled === undefined ? 'unverifiable' : ruled === final ? 'consistent' : 'disagrees';
-  return {
+  const key = agreement === 'unverifiable' ? (final ? 'protocol.present.unverifiableFinal' : 'protocol.present.unverifiableNotFinal')
+    : agreement === 'disagrees' ? (final ? (laterEntryAdmitted ? 'protocol.present.trueUncovered' : 'protocol.011') : 'protocol.present.falseDisagreement')
+    : final ? 'protocol.present.final' : laterEntryAdmitted ? 'protocol.present.uncovered' : 'protocol.012';
+  const values:Readonly<Record<string,string>> = agreement === 'unverifiable' || key === 'protocol.011' ? {v0:String(observedAt),v1:String(latestEffectiveAt)}
+    : key === 'protocol.present.trueUncovered' ? {v0:String(observedAt),v1:String(coveredFrom)}
+    : key === 'protocol.present.uncovered' ? {v0:String(observedAt),v1:String(coveredFrom),v2:String(latestEffectiveAt),v3:String(coveredFrom)}
+    : key === 'protocol.012' ? {v0:String(latestEffectiveAt)} : {v0:String(latestEffectiveAt),v1:String(observedAt),v2:String(coveredFrom)};
+  return withPresentation({
     instant: observedAt,
     final,
     latestEffectiveAt,
@@ -305,7 +314,7 @@ function buildPresentFinality(
       laterEntryAdmitted,
       agreement,
     ),
-  };
+  }, {explanation:presentationMessage(key,narrativeTemplate(key),values)});
 }
 
 function explainPresentFinality(

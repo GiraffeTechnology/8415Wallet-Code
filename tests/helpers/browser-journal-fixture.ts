@@ -7,15 +7,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 type Codec = (value: unknown) => unknown;
-const plain = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
-  .replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
+// Keep the real path guard; only module metadata is supplied by this isolated source loader.
+const { requireLegacyJournalLocation } = await import(new URL('../../web/tenant-path.mjs', import.meta.url).href);
+const plain = (path: string, moduleURL?: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
+  .replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
+  .replaceAll('import.meta.url', JSON.stringify(moduleURL ?? new URL(path, import.meta.url).href));
 
 export function browserJournalSuite({ label, module, className, parse, serialize, state, args }: {
   label: string; module: string; className: string; parse: Codec; serialize: Codec;
   state: { revision: number | bigint }; args: readonly unknown[];
 }) {
-  const source = `${plain('../../web/browser-journal-store.mjs')}\n${plain(`../../web/${module}`)}`;
-  function fixture(options: { relaxed?: boolean; abort?: boolean; legacy?: boolean } = {}) {
+  function fixture(options: { relaxed?: boolean; abort?: boolean; legacy?: boolean; moduleURL?: string } = {}) {
+    const source = `${plain('../../web/browser-journal-store.mjs', options.moduleURL)}\n${plain(`../../web/${module}`)}`;
     let record: string | undefined, completed = 0, writes = 0, aborted = false;
     const db = { close() {}, transaction(_store: string, mode: string, durability?: { durability: string }) {
       if (mode === 'readwrite') assert.equal(durability?.durability, 'strict');
@@ -38,12 +41,18 @@ export function browserJournalSuite({ label, module, className, parse, serialize
       return tx;
     } };
     const indexedDB = { open() { const r: any = { result: db }; queueMicrotask(() => r.onsuccess?.()); return r; } };
-    const factory = new Function('parseOperation', 'serializeOperation', 'globalThis', 'indexedDB', 'localStorage',
+    const factory = new Function('parseOperation', 'serializeOperation', 'globalThis', 'indexedDB', 'localStorage', 'requireLegacyJournalLocation',
       `${source}\nreturn ${className};`);
     const Store = factory(parse, serialize, { indexedDB, isSecureContext: true }, indexedDB,
-      { getItem: () => options.legacy ? 'legacy-record' : null });
+      { getItem: () => options.legacy ? 'legacy-record' : null }, requireLegacyJournalLocation);
     return { store: new Store(...args), stats: () => ({ completed, writes, record }) };
   }
+  test(`${label}: a tenant journal URL cannot create a fresh empty legacy journal`, () => {
+    for (const tenant of ['example-one', 'example-two']) {
+      assert.throws(() => fixture({ moduleURL: `https://wallet.example/${tenant}/web/browser-journal-store.mjs` }),
+        /CONTROL_TENANT_JOURNAL_MIGRATION_REQUIRED/);
+    }
+  });
   test(`${label}: browser CAS resolves only after strict durable transaction completion and roundtrips`, async () => {
     const { store, stats } = fixture();
     assert.equal(await store.compareAndSwap(null, state), true); assert.equal(stats().completed, 1);

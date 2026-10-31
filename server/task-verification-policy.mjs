@@ -2,6 +2,7 @@
 import { randomBytes, randomInt, createHmac } from 'node:crypto';
 import { verifyMessage } from 'ethers';
 import { digest, equal, randomToken, verifyPassword } from './crypto.mjs';
+import { ownerChangeOriginBinding } from './owner-change-origin.mjs';
 import { registrationFor, maskEmail } from './account-directory.mjs';
 import { TaskVerificationPolicyError, SCHEMA, CURRENT_SCHEMA, fields, revision, scope,
   taskVerificationPolicyKey, readTaskVerificationPolicy, readCredentialTaskVerificationPolicy } from './task-verification-state.mjs';
@@ -17,11 +18,14 @@ const CHANGE_PROTOCOL = '8415-task-policy-change-wire/1';
  * verified email is factor two. Existing TOTP/recovery are not a third gate.
  * No factor value, signature, bearer proof, or email address enters policy audit. */
 export function createTaskVerificationPolicyService({ origin, tenant, agentId, store, users,
-  assertSession, credentialFor, passwordFor, methodStates, directory, sendOtp = null, now = Date.now }) {
+  assertSession, credentialFor, passwordFor, methodStates, directory, sendOtp = null, now = Date.now, ownerAuthorizationContext = null }) {
   check(store && ['readMany', 'transactionMany', 'withReadGate'].every(key => typeof store[key] === 'function') &&
     users instanceof Map && [assertSession, credentialFor, passwordFor, methodStates, now].every(x => typeof x === 'function') &&
     typeof directory?.checkCredential === 'function' && (sendOtp === null || typeof sendOtp === 'function'),
   'TASK_VERIFICATION_CONFIG_REFUSED', 500);
+  check(ownerAuthorizationContext === null || typeof ownerAuthorizationContext === 'function', 'TASK_VERIFICATION_CONFIG_REFUSED', 500);
+  const originBinding = session => ownerAuthorizationContext === null ? null : ownerChangeOriginBinding(ownerAuthorizationContext(session),scopeFor(session));
+  const protocolFor = session => originBinding(session) === null ? CHANGE_PROTOCOL : '8415-task-policy-change-wire/2';
   const slots = new Map(), limits = new Map(), outcomes = new Map(), pepper = randomBytes(32);
   let expensive = 0;
   const stamp = () => { const t = now(); check(Number.isSafeInteger(t) && t >= 0, 'TASK_VERIFICATION_CLOCK_REFUSED', 503); return t; };
@@ -38,9 +42,9 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
     value.changeDigest === reference.changeDigest && value.expectedRevision === reference.expectedRevision;
   const outcomeKey = (session, reference) => digest(JSON.stringify([scopeFor(session), reference.changeId,
     reference.changeDigest, reference.expectedRevision]));
-  function changeReference(body) {
+  function changeReference(session, body) {
     fields(body, ['protocol', 'changeId', 'changeDigest', 'expectedRevision']);
-    check(body.protocol === CHANGE_PROTOCOL && typeof body.changeId === 'string' && /^[A-Za-z0-9_-]{43}$/.test(body.changeId) &&
+    check(body.protocol === protocolFor(session) && typeof body.changeId === 'string' && /^[A-Za-z0-9_-]{43}$/.test(body.changeId) &&
       typeof body.changeDigest === 'string' && /^[a-f0-9]{64}$/.test(body.changeDigest), 'TASK_VERIFICATION_INPUT_REFUSED', 400);
     revision(body.expectedRevision);
     return { changeId: body.changeId, changeDigest: body.changeDigest, expectedRevision: body.expectedRevision };
@@ -77,16 +81,17 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
   }
   function established(session, credential, method) {
     const user = owner(session, credential), email = registrationFor(credential);
-    check(email && sendOtp !== null && ['password', 'wallet'].includes(method) && methodStates(user, credential)[method]?.enabled,
+    check(email && sendOtp !== null && ['password', 'wallet'].includes(method) && methodStates(user, credential, session)[method]?.enabled,
       'TASK_VERIFICATION_TWO_ESTABLISHED_FACTORS_REQUIRED', 409);
     const passwordHash = method === 'password' ? passwordFor(user, credential) : null;
     check(method !== 'password' || typeof passwordHash === 'string', 'TASK_VERIFICATION_TWO_ESTABLISHED_FACTORS_REQUIRED', 409);
     return { email: email.email, fingerprint: keyed([scopeFor(session), session.revision, method, passwordHash,
-      user.wallets, methodStates(user, credential), email]), passwordHash };
+      user.wallets, methodStates(user, credential, session), email]), passwordHash };
   }
   function current(session, slot) {
     assertSession(session); sweep();
     check(slot && slots.get(session.id) === slot && slot.sessionId === session.id &&
+      JSON.stringify(slot.originBinding ?? null) === JSON.stringify(originBinding(session)) &&
       slot.scopeDigest === digest(JSON.stringify(scopeFor(session))) && slot.credentialRevision === session.revision &&
       stamp() >= slot.issuedAt && stamp() < slot.expiresAt, 'TASK_VERIFICATION_CHANGE_EXPIRED', 409);
   }
@@ -105,8 +110,8 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
   async function status(session, body = {}) {
     fields(body, ['protocol', 'changeId', 'changeDigest', 'expectedRevision']);
     const versioned = Object.keys(body).length > 0;
-    const discovery = Object.keys(body).length === 1 && body.protocol === CHANGE_PROTOCOL;
-    const reference = versioned && !discovery ? changeReference(body) : null;
+    const discovery = Object.keys(body).length === 1 && body.protocol === protocolFor(session);
+    const reference = versioned && !discovery ? changeReference(session, body) : null;
     const keys = [credentialKey(session)], values = await store.readMany(keys);
     owner(session, values[keys[0]]);
     const state = readCredential(values[keys[0]], session);
@@ -137,24 +142,26 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
       factorsForEverySave: ['password-or-bound-wallet', 'previously-verified-email'] };
     // Existing strict browser decoders retain their original exact response.
     // A versioned discovery or qualified enquiry explicitly selects new keys.
-    return versioned ? { ...legacy, changeProtocol: CHANGE_PROTOCOL, pendingChange, reconciliation } : legacy;
+    return versioned ? { ...legacy, changeProtocol: protocolFor(session), pendingChange, reconciliation } : legacy;
   }
   async function cancelChange(session, body) {
-    const reference = changeReference(body);
+    const reference = changeReference(session, body);
     const observed = await status(session, body);
     const slot = slots.get(session.id);
     if (observed.reconciliation.state === 'committed' || !changeMatches(slot, reference) || slot.committing)
-      return { changeProtocol: CHANGE_PROTOCOL, cancelled: false, reconciliation: observed.reconciliation };
+      return { changeProtocol: protocolFor(session), cancelled: false, reconciliation: observed.reconciliation };
     // No await between the exact-slot comparison and deletion. A stale tab can
     // neither cancel a replacement draft nor undo a save already committing.
     slots.delete(session.id); remember(session, slot, 'cancelled');
-    return { changeProtocol: CHANGE_PROTOCOL, cancelled: true,
+    return { changeProtocol: protocolFor(session), cancelled: true,
       reconciliation: { ...reference, state: 'not-committed', reason: 'cancelled', automaticRetryAllowed: false, committedChange: null } };
   }
   async function prepare(session, body) {
     fields(body, ['expectedRevision', 'identityMethod', 'mode', 'protocol']); revision(body.expectedRevision); limit(session);
+    const binding = originBinding(session);
     const versioned = body.protocol !== undefined;
-    check(!versioned || body.protocol === CHANGE_PROTOCOL, 'TASK_VERIFICATION_INPUT_REFUSED', 400);
+    check(binding === null || versioned, 'TASK_VERIFICATION_ORIGIN_PROTOCOL_REQUIRED', 409);
+    check(!versioned || body.protocol === protocolFor(session), 'TASK_VERIFICATION_INPUT_REFUSED', 400);
     check(body.mode === undefined || ['ON', 'OFF'].includes(body.mode), 'TASK_VERIFICATION_INPUT_REFUSED', 400);
     body = { expectedRevision: body.expectedRevision, identityMethod: body.identityMethod, mode: body.mode ?? 'OFF' };
     check(!slots.get(session.id)?.committing, 'TASK_VERIFICATION_CHANGE_IN_PROGRESS', 409);
@@ -168,12 +175,13 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
     check(!slots.get(session.id)?.committing, 'TASK_VERIFICATION_CHANGE_IN_PROGRESS', 409);
     sweep(); check(slots.size < 10000 || slots.has(session.id), 'TASK_VERIFICATION_BUSY', 503);
     const issuedAt = stamp();
-    const request = { schema: '8415-task-human-verification-change/2', scope: scopeFor(session),
+    const request = { schema: binding === null ? '8415-task-human-verification-change/2' : '8415-task-human-verification-change/3', scope: scopeFor(session),
+      ...(binding === null ? {} : {originBinding:binding}),
       mode: body.mode, expectedRevision: state.revision, credentialRevision: session.revision,
       changeId: randomToken(), nonce: randomToken(), issuedAt, expiresAt: issuedAt + LIFE };
     const changeDigest = digest(JSON.stringify(request));
     const message = [`8415wallet owner policy change: Per-operation human verification ${request.mode}`,
-      `Scope: ${JSON.stringify(request.scope)}`, 'Applies only to still-valid, in-scope authorizations; no new task authority.',
+      `Scope: ${JSON.stringify(request.scope)}`, ...(binding === null ? [] : [`Transport binding: ${JSON.stringify(binding)}`]), 'Applies only to still-valid, in-scope authorizations; no new task authority.',
       request.mode === 'OFF' ? 'Preparation, signing, submission, continuation and receipts will not ask again within existing authority.' :
         'Future not-yet-submitted operations use ON verification. Existing submitted/unknown attempts are reconciled without resubmission.',
       `Revision: ${request.expectedRevision}`, `Credential revision: ${request.credentialRevision}`,
@@ -182,7 +190,7 @@ export function createTaskVerificationPolicyService({ origin, tenant, agentId, s
     const previous = slots.get(session.id); if (previous) remember(session, previous, 'replaced');
     slots.set(session.id, { ...request, scopeDigest: digest(JSON.stringify(request.scope)), changeDigest,
       sessionId: session.id, method: body.identityMethod, factorBinding: bound.fingerprint, message, stage: 'identity', attempts: 0 });
-    return { ...(versioned ? { changeProtocol: CHANGE_PROTOCOL } : {}), request, changeDigest, identityMethod: body.identityMethod, emailMasked: maskEmail(bound.email),
+    return { ...(versioned ? { changeProtocol: protocolFor(session) } : {}), request, changeDigest, identityMethod: body.identityMethod, emailMasked: maskEmail(bound.email),
       ...(body.identityMethod === 'wallet' ? { message } : {}) };
   }
   async function verify(session, body) {

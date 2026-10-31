@@ -21,9 +21,9 @@ export async function fixture(options: any = {}) {
   let handler: any;
   const server = createServer((req, res) => handler(req, res)); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const origin = `http://127.0.0.1:${(server.address() as any).port}`;
-  const accounts = [{ username: 'tester', wallets: [{ account: signer.address, chainId: '1' }], caFingerprints: [], ...(options.passwordless ? {} : { passwordHash: oldHash }) }];
+  const accounts = [{ username: 'tester', wallets: [{ account: signer.address, chainId: '1' }, ...(options.extraWallets ?? [])], caFingerprints: options.caFingerprints ?? [], ...(options.passwordless ? {} : { passwordHash: oldHash }) }];
   const restart = (next = store) => { handler = createAuthService({ origin, tenant: 'xiongan', accounts, store: next, now: () => state.now,
-    sendOtp: options.noMail ? null : async (message: any) => { messages.push(message); await options.sendGate?.(); } }); };
+    taskVerificationPolicyEnabled: options.taskVerificationPolicyEnabled ?? false, verifyCa: options.verifyCa ?? null, sendOtp: options.noMail ? null : async (message: any) => { messages.push(message); await options.sendGate?.(); } }); };
   restart();
   const client = () => {
     let csrf = ''; const jar = new Map<string, string>();

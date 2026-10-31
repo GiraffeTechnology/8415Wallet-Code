@@ -6,7 +6,7 @@ import { createTaskVerificationPolicyClient } from '../web/task-verification-pol
 
 function fixture() {
   const session = { serverId: 'synthetic-session', origin: 'https://wallet.example.invalid',
-    tenant: 'example', account: '0x1111111111111111111111111111111111111111', chainId: '1' };
+    tenant: 'example', username: 'synthetic', account: '0x1111111111111111111111111111111111111111', chainId: '1' };
   const scope = { origin: session.origin, tenant: session.tenant, username: 'synthetic',
     account: session.account, chainId: session.chainId, agentId: 'synthetic-agent' };
   const calls = [];
@@ -58,8 +58,8 @@ test('disabled backend policy stays unavailable without probing status or fabric
 });
 
 test('account or chain substitution and invalidated login cannot become a current policy view', async () => {
-  for (const field of ['account', 'chainId']) {
-    const f = fixture(); f.status.scope = { ...f.scope, [field]: field === 'account' ? '0x2222222222222222222222222222222222222222' : '8453' };
+  for (const field of ['account', 'chainId', 'username']) {
+    const f = fixture(); f.status.scope = { ...f.scope, [field]: field === 'account' ? '0x2222222222222222222222222222222222222222' : field === 'username' ? 'another-user' : '8453' };
     await assert.rejects(f.adapter.read({ binding: f.binding }), /TASK_POLICY_WIRE_REFUSED/);
   }
   const f = fixture(); f.deactivate();

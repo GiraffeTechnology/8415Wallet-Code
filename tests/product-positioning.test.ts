@@ -5,8 +5,10 @@ import { createHash } from 'node:crypto';
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const prose = (value: string) => value.replace(/\s+/g, ' ');
+// Original internal-entry assertions are also retained in the external delivery gate.
+const productContractFixture = 'tests/fixtures/product-source-contract.md';
 
-for (const path of ['README.md', 'AGENTS.md', 'docs/ERC-8415-Wallet-PRD.md']) {
+for (const path of ['README.md', productContractFixture, 'docs/ERC-8415-Wallet-PRD.md']) {
   test(`${path}: general-wallet identity, standards compatibility and versioned DApp scope agree`, () => {
     const text = prose(read(path));
     assert.match(text, /8415wallet/);
@@ -16,7 +18,7 @@ for (const path of ['README.md', 'AGENTS.md', 'docs/ERC-8415-Wallet-PRD.md']) {
     assert.match(text, /8415wallet\.com/);
     assert.match(text, /\bV2\b/);
     assert.match(text, /\bV3\b/);
-    if (path === 'AGENTS.md') {
+    if (path === productContractFixture) {
       assert.match(text, /Tenant deployments are configurations, not separate products/);
       assert.match(text, /Do not publish real tenant identities/);
     } else if (path === 'docs/ERC-8415-Wallet-PRD.md') {
@@ -45,7 +47,7 @@ test('native PRD requirements hold, and port reservations stay out of them', () 
   for (const identifier of ['0x6309e170', '0xf4a7d71b', 'beginSettlement', 'finalizeSettlement', 'cancelSettlement', '128']) assert.ok(prd.includes(identifier), identifier);
   // Which ports an environment reserves is deployment configuration, not a
   // product requirement. Product instructions must not prescribe a fixed list.
-  const instructions = prose(read('AGENTS.md'));
+  const instructions = prose(read(productContractFixture));
   assert.doesNotMatch(instructions, /\b443\b/);
   assert.doesNotMatch(instructions, /reserved for SSH|port reservation/);
 
@@ -59,12 +61,12 @@ test('native PRD requirements hold, and port reservations stay out of them', () 
   assert.doesNotMatch(installer, /For CTYun the list includes 443|CTYun reserves TCP 443/);
 });
 
-test('current complete PRD bytes and execution-entry pin stay synchronized', () => {
+test('current complete PRD bytes and product-contract excerpt pin stay synchronized', () => {
   const bytes = readFileSync(new URL('../docs/ERC-8415-Wallet-PRD.md', import.meta.url));
   const expectedHash = '3a4ac57c8cfec42b51799a26cf89ac91bc7218a14265c95e62493d5d6a95a39f';
   assert.equal(bytes.length, 111167);
   assert.equal(createHash('sha256').update(bytes).digest('hex'), expectedHash);
-  assert.ok(read('AGENTS.md').includes(expectedHash));
+  assert.ok(read(productContractFixture).includes(expectedHash));
   const text = bytes.toString('utf8');
   for (const marker of ['# 8415wallet Beta 2.0 Product Requirements',
     '## 6.5.1 Historical observation identity and read-only compatibility',

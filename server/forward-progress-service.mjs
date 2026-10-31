@@ -1,3 +1,4 @@
+import { validateCoordinationView } from '../web/coordination-view.mjs';
 import { createHash } from 'node:crypto';
 import { buildForwardProgress } from '../src/wallet/forwardProgress.ts';
 
@@ -40,6 +41,7 @@ function record(value, binding) {
     value.progress?.schema === '8415-forward-progress/1' && typeof value.frozen === 'boolean' &&
     (value.progress.state === 'DONE') === value.frozen && value.progress.canExecute === false,
   'FORWARD_PROGRESS_RECORD_REFUSED');
+  if(value.coordinated) {try {validateCoordinationView(value.coordinated,value.progress.userPosition);}catch {throw new ForwardProgressError('FORWARD_PROGRESS_RECORD_REFUSED');}}
   return value;
 }
 // A persisted row is never serialized wholesale to the API. This whitelist is
@@ -84,7 +86,8 @@ function publicProgress(value) {
 export function createForwardProgressService({ store, reader = null, assertSession, tenant, origin }) {
   refuse(store && typeof store.read === 'function' && typeof store.transactionMany === 'function' && typeof assertSession === 'function');
   refuse(typeof tenant === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(tenant) && typeof origin === 'string' && origin.length > 0);
-  const readForPrincipal = reader?.readForPrincipal, validateMilestone = reader?.validateMilestone;
+  const readForPrincipal = reader?.readForPrincipal, validateMilestone = reader?.validateMilestone, readCoordination = reader?.readCoordination;
+  refuse(readCoordination===undefined||typeof readCoordination==='function','FORWARD_PROGRESS_READER_CONFIG_REFUSED');
   refuse(reader === null || typeof readForPrincipal === 'function' && typeof validateMilestone === 'function', 'FORWARD_PROGRESS_READER_CONFIG_REFUSED');
   async function read(body, session) {
     assertSession(session);
@@ -93,7 +96,7 @@ export function createForwardProgressService({ store, reader = null, assertSessi
     // Only server-authenticated identity reaches the trusted entitlement reader.
     const principal = Object.freeze({ tenant, origin, username: session.username,
       account: session.account.toLowerCase(), chainId: session.chainId });
-    const source = await readForPrincipal.call(reader, Object.freeze({ principal, ...input }));
+    const source = structuredClone(await readForPrincipal.call(reader, Object.freeze({ principal, ...input })));
     assertSession(session);
     refuse(source && hash(source.ownOccurrenceId) && Array.isArray(source.historical) && source.historical.length <= 128);
     const current = projection(source, input, source.ownOccurrenceId);
@@ -125,6 +128,22 @@ export function createForwardProgressService({ store, reader = null, assertSessi
           milestone: publicProgress(selected) })) === true, 'FORWARD_PROGRESS_MILESTONE_UNAVAILABLE');
       }
     }
+    refuse(!previous?.coordinated||typeof readCoordination==='function','FORWARD_PROGRESS_COORDINATION_READER_REQUIRED');
+    let coordinated=null;
+    if(readCoordination){
+      const old=previous?.coordinated;
+      const anchor=old?.rollback.state==='DONE'?{blockNumber:old.coordination.blockNumber,blockHash:old.coordination.blockHash}:{blockNumber:current.blockNumber,blockHash:current.blockHash};
+      let raw;try {raw=await readCoordination.call(reader,Object.freeze({principal,...input,ownOccurrenceId:source.ownOccurrenceId,anchor:Object.freeze(anchor)}));}catch {throw new ForwardProgressError('FORWARD_PROGRESS_COORDINATION_UNAVAILABLE');}
+      assertSession(session);
+      refuse(raw&&Object.keys(principal).every(k=>raw.principal?.[k]===principal[k])&&raw.asset?.chainId===input.asset.chainId&&raw.asset.contract===input.asset.contract&&raw.asset.tokenId===input.asset.tokenId&&raw.sequenceId===input.sequenceId&&raw.ownOccurrenceId===source.ownOccurrenceId,'FORWARD_PROGRESS_COORDINATION_BINDING_REFUSED');
+      try {coordinated=structuredClone(validateCoordinationView(raw.view,current.userPosition));}catch {throw new ForwardProgressError('FORWARD_PROGRESS_COORDINATION_SOURCE_REFUSED');}
+      refuse(coordinated.coordination.blockNumber===anchor.blockNumber&&coordinated.coordination.blockHash===anchor.blockHash,'FORWARD_PROGRESS_COORDINATION_BLOCK_REFUSED');
+      if(old?.rollback.state==='DONE')refuse(JSON.stringify(coordinated)===JSON.stringify(old),'FORWARD_PROGRESS_COORDINATION_MILESTONE_UNAVAILABLE');
+      else {
+        refuse(coordinated.coordination.sourceRevision===current.sourceRevision&&coordinated.coordination.knownEnd===current.knownEnd,'FORWARD_PROGRESS_COORDINATION_SNAPSHOT_REFUSED');
+        if(old)refuse(BigInt(coordinated.coordination.blockNumber)>=BigInt(old.coordination.blockNumber)&&BigInt(coordinated.coordination.sourceRevision)>=BigInt(old.coordination.sourceRevision),'FORWARD_PROGRESS_COORDINATION_STALE_SOURCE');
+      }
+    }
     assertSession(session);
     const result = await store.transactionMany([credentialKey, progressKey], values => {
       assertSession(session, values[credentialKey]);
@@ -132,19 +151,19 @@ export function createForwardProgressService({ store, reader = null, assertSessi
       // Concurrent read completion cannot overwrite or borrow another completion.
       // Retry only this read when the original record changed; never replay a send.
       refuse(JSON.stringify(live) === JSON.stringify(previous), 'FORWARD_PROGRESS_REVISION_CHANGED', 409);
-      if (live?.frozen) return { [credentialKey]: values[credentialKey], [progressKey]: live };
+      if (live?.frozen && JSON.stringify(live.coordinated??null)===JSON.stringify(coordinated)) return { [credentialKey]: values[credentialKey], [progressKey]: live };
       if (live) refuse(BigInt(current.sourceRevision) >= BigInt(live.progress.sourceRevision) &&
         BigInt(current.blockNumber) >= BigInt(live.progress.blockNumber), 'FORWARD_PROGRESS_STALE_SOURCE', 409);
       const revision = (BigInt(live?.revision ?? '0') + 1n).toString();
       refuse(uint(revision), 'FORWARD_PROGRESS_REVISION_REFUSED');
       const next = { schema: '8415-forward-progress-record/1', binding,
-        revision, frozen: selected.state === 'DONE', progress: publicProgress(selected) };
+        revision, frozen: selected.state === 'DONE', progress: publicProgress(selected),...(coordinated?{coordinated}:{}) };
       return { [credentialKey]: values[credentialKey], [progressKey]: next };
     });
     assertSession(session);
     const saved = record(result[progressKey], binding);
     // No adjacent identities, own-occurrence ID, credential or reader object is returned.
-    return { ...publicProgress(saved.progress), recordRevision: saved.revision, frozen: saved.frozen };
+    return { ...publicProgress(saved.progress),...(saved.coordinated?{schema:'8415-forward-progress/2',...saved.coordinated}:{}), recordRevision: saved.revision, frozen: saved.frozen };
   }
   return Object.freeze({ read });
 }

@@ -58,7 +58,13 @@ function fixture(profile = 'v3') {
     status() { return hooks.status(); }
     execute() { executions++; return hooks.execute(); }
   }
-  const document = { getElementById: element, querySelectorAll(selector: string) {
+  // A real Document supports multiple listeners for the same page event.
+  const documentEvents = new EventTarget();
+  const document = {
+    addEventListener: documentEvents.addEventListener.bind(documentEvents),
+    removeEventListener: documentEvents.removeEventListener.bind(documentEvents),
+    dispatchEvent: documentEvents.dispatchEvent.bind(documentEvents),
+    getElementById: element, querySelectorAll(selector: string) {
     return selector === '[data-action]' ? actions : selector === '[data-read]' ? reads : [...elements.values()];
   } };
   // Capture real mount contracts here; panel internals retain their own suites.
@@ -120,6 +126,7 @@ function fixture(profile = 'v3') {
   file('consent-file', { consent: { expectedRevision: '0', tokenId: '1', deadline: '1', recipientNonce: '0', paymentAmount: '0' },
     documents: { incoming: { terms: { scheme: 'utf8-keccak256' } }, inherited: [] } });
   return { mounts, forward: () => forwardMount, progressClient, enableProgress: (enabled: boolean) => { progressEnabled = enabled; }, login: sdk.walletLogin, authChange: (reason: string) => authenticationChanged!(null, reason), hooks, element, click, state, collisionIds: () => collisionIds, emit: (event: string, value?: unknown) => events.get(event)!(value),
+    page: (page: string) => document.dispatchEvent(new CustomEvent('wallet:page', { detail: page })),
     counts: () => ({ executions, prepares, accepts, settlementSends }),
     load: () => click('deployment', 'change'),
     async connect() { await click('deployment', 'change'); await click('connect'); },
@@ -395,4 +402,13 @@ test('all additive panel mount contexts retain login and connection invalidation
   for (const options of f.mounts.values()) assert.throws(() => options.getContext(), /CONTROL_CONNECTION_/);
   assert.equal(f.counts().executions, 0);
   assert.equal(f.counts().settlementSends, 0);
+});
+
+test('page navigation clears unsent reviews without disconnecting or submitting an operation', async () => {
+  const f = fixture(); await f.connect(); await f.click('review'); await prepareSettlement(f);
+  assert.equal(f.state().reviewed, true); assert.equal(f.state().settlementReviewed, true);
+  const before = f.counts(); f.page('assets');
+  assert.equal(f.state().connected, true); assert.equal(f.state().reviewed, false);
+  assert.equal(f.state().settlementReviewed, false); assert.deepEqual(f.counts(), before);
+  assert.equal(f.counts().executions, 0); assert.equal(f.counts().settlementSends, 0);
 });

@@ -56,8 +56,8 @@ if (mount) {
   const stringify = value => jsonUi(value);
   const result = value => { paint(el('clearing-result'), typeof value === 'string' ? value : stringify(value)); };
   paint(el('clearing-notes'), trustedMessage(CLEARING_NOTES));
-  let provider = null, deployment = null, session = null, review = null, generation = 0, busy = false;
-  const clearReview = () => { review = null; el('clearing-acknowledge').checked = false; paint(el('clearing-review'), msg('ui.202')); };
+  let provider = null, deployment = null, session = null, review = null, generation = 0, reviewRevision = 0, busy = false;
+  const clearReview = () => { reviewRevision++; review = null; el('clearing-acknowledge').checked = false; paint(el('clearing-review'), msg('ui.202')); };
   const disconnect = () => { generation++; session = null; clearReview(); paint(el('clearing-result'), ''); paint(el('clearing-identity'), msg('message.043')); };
   globalThis.addEventListener?.('pagehide', disconnect);
   globalThis.addEventListener?.('pageshow', event => { if (event.persisted) disconnect(); });
@@ -66,20 +66,21 @@ if (mount) {
     if (busy) return;
     const lock = acquireWalletUi(); if (lock === null) return;
     busy = true; const current = generation;
-    document.querySelectorAll('button:not([data-auth-control]):not([data-ui-locale]) ,input,select:not([data-ui-locale])').forEach(n => { n.disabled = true; });
+
     const guard = () => { walletLogin.assert(); if (current !== generation) throw new ControlAdapterError('CLEARING_CONNECTION_CHANGED'); };
     try { await walletLogin.check(); await getReleaseProfile(); guard(); await fn(guard); guard(); } catch (error) {
       result(current !== generation ? 'CLEARING_CONNECTION_CHANGED' : error instanceof WalletLoginError ? error.code : error instanceof ControlAdapterError ? error.code : 'CLEARING_UI_OPERATION_REFUSED');
     } finally {
       if (session && current === generation) {
+        const selectedSession = session;
         try {
-          const state = await session.status(); guard();
+          const state = await selectedSession.status(); guard();
           paint(el('clearing-recovery-guidance'), state.status === 'idle' ? msg('message.044') :
             state.status === 'outcome-unknown' ? msg('message.045') :
               msg('status.savedTransaction', { hash: state.transactionHash }));
-        } catch { paint(el('clearing-recovery-guidance'), msg('message.046')); }
+        } catch { if (selectedSession === session && current === generation) paint(el('clearing-recovery-guidance'), msg('message.046')); }
       }
-      busy = false; releaseWalletUi(lock); document.querySelectorAll('button:not([data-auth-control]):not([data-ui-locale]) ,input,select:not([data-ui-locale])').forEach(n => { n.disabled = false; });
+      busy = false; releaseWalletUi(lock);
     }
   }
   for (const input of mount.querySelectorAll('input:not([type="checkbox"]):not([type="file"])')) input.addEventListener('input', clearReview);
@@ -124,12 +125,16 @@ if (mount) {
       priceWei: text('clearing-price'), admissionDeadline: text('clearing-deadline'), maxEffectiveAt: text('clearing-max-effective') };
   }
   for (const action of ['approve', 'open', 'fund', 'release', 'refund', 'abandon']) el(`clearing-review-${action}`).addEventListener('click', () => run(async guard => {
-    clearReview(); const next = await selected().prepare(JSON.stringify(inputRequest(action))); guard(); review = next;
+    clearReview(); const revision = reviewRevision, selectedSession = selected();
+    const next = await selectedSession.prepare(JSON.stringify(inputRequest(action))); guard();
+    if (revision !== reviewRevision || selectedSession !== session) throw new ControlAdapterError('CLEARING_REVIEW_CHANGED');
+    review = next;
     el('clearing-trade-key').value = next.tradeKey;
     paint(el('clearing-review'), clearingReviewDisplay(next, CLEARING_NOTES));
     result(msg('message.048'));
   }));
   el('clearing-cancel-review').addEventListener('click', clearReview);
+  document.addEventListener?.('wallet:page', event => { if (event.detail !== 'advanced') clearReview(); });
   el('clearing-send').addEventListener('click', () => run(async guard => {
     if (!review || !el('clearing-acknowledge').checked) throw new ControlAdapterError('CLEARING_OWNER_REVIEW_REQUIRED');
     document.dispatchEvent?.(new CustomEvent('wallet:summary-stale'));

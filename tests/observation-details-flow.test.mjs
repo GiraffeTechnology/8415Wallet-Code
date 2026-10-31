@@ -82,6 +82,26 @@ test('any session assertion failure clears cached evidence instead of retaining 
   await f.flow.refresh(); assert.equal(f.flow.snapshot().phase, 'closed');
   assert.equal(f.flow.snapshot().evidence, null);
 });
+for (const boundary of ['source', 'evidence']) {
+  test(`session changes during ${boundary} failure clear the prior evidence without a logout event`, async () => {
+    let authenticated = true, failNext = false, rejectPending, entered;
+    const pending = new Promise((_, reject) => { rejectPending = reject; });
+    const waiting = new Promise(resolve => { entered = resolve; });
+    const source = Object.freeze({ reference: 'fixture-source', revision: '1' });
+    const flow = new ObservationDetailsFlow({
+      assertSession: () => { if (!authenticated) throw Error('LOGIN_SESSION_CHANGED'); return context; },
+      async resolveSource() { if (failNext && boundary === 'source') { entered(); return pending; } return source; },
+      async readEvidence(c) { if (failNext && boundary === 'evidence') { entered(); return pending; } return { ...c, savedRevision: '2' }; },
+      decodeEvidence: raw => Object.freeze({ ...raw, availability: 'available', fresh: true,
+        observedAt: '100', observedBy: 'fixture-observer', sourceReference: source.reference, sourceRevision: source.revision }),
+    });
+    await flow.open(context, binding); assert.equal(flow.snapshot().phase, 'ready');
+    failNext = true; const refreshing = flow.refresh(); await waiting;
+    authenticated = false; rejectPending(Error('network failed after session changed')); await refreshing;
+    assert.equal(flow.snapshot().phase, 'closed'); assert.equal(flow.snapshot().evidence, null);
+    assert.equal(flow.snapshot().loading, false); assert.equal(flow.snapshot().stale, false);
+  });
+}
 test('malformed new context clears the old view before refusing the selection', async () => {
   const f = fixture(); await f.flow.open(context, binding);
   await assert.rejects(f.flow.open({ ...context, extra: true }, binding), /OBSERVATION_CONTEXT_REFUSED/);
