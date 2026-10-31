@@ -2787,14 +2787,14 @@
     {
       "path": "web/app-v2.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b06d9346d1b55ce6c60bb5946abbaff4be790511",
-      "sha256": "27027539ce262b0c04b3344bd958cf268de1887efbceff45bf4a8de55430415a"
+      "git_blob_sha1": "787686a65c13517ad84cd2e0eeb849c45f7e1587",
+      "sha256": "acaca9616c6abdb724686e54d9df8a5e07b6b3745ae680ee549d2c907057af88"
     },
     {
       "path": "web/app.mjs",
       "mode": "100644",
-      "git_blob_sha1": "9385ad155172221cb240e444ce613b15fe054a2c",
-      "sha256": "05cd14c9f3cef403c2b781a2dac43b637235e19d027656e506f128da4a66a2bb"
+      "git_blob_sha1": "695d42b8a218f4eb33e91401d29534c5ac1d40f8",
+      "sha256": "ec7ecfc6f95c70182e52e6d077a4e387af8511f96ab3eac886eac8a900b8dcc2"
     },
     {
       "path": "web/asset-control-client.mjs",

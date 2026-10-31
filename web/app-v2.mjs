@@ -73,6 +73,10 @@ async function run(fn, reconnect = false) {
   if (reconnect) clearConnection();
   operationRevision = connectionRevision;
   busy = true;
+  // These triggers belong to this controller. Preserve their prior availability
+  // while the operation (including final state readback) is still pending.
+  const actions = [el('connect'), el('settlement-prepare'), el('settlement-send')].map(button => [button, button.disabled]);
+  for (const [button] of actions) button.disabled = true;
   try { await walletLogin.check(); requireCurrentConnection(); if (!releaseProfile) await releaseReady; if (!releaseProfile) fail('CONTROL_RELEASE_PROFILE_REFUSED'); requireCurrentConnection(); await fn(); } catch (e) {
     if (e instanceof ControlAdapterError && e.code === 'CONTROL_READ_CHANGED') return;
     nativeView('error');
@@ -94,6 +98,7 @@ async function run(fn, reconnect = false) {
         if (current === settlementSession && operationRevision === connectionRevision) paint(el('settlement-state'), jsonUi(state));
       } catch { if (current === settlementSession && operationRevision === connectionRevision) paint(el('settlement-state'), msg('message.006')); }
     }
+    for (const [button, wasDisabled] of actions) button.disabled = wasDisabled;
     busy = false; releaseWalletUi(uiLock);
   }
 }

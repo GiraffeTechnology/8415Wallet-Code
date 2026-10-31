@@ -83,8 +83,14 @@ for(const name of ['app.mjs','app-v2.mjs'])test(`${name}: an operation finishing
   currentAccountClient:()=>null,currentAccountFeatures:()=>null,acquireWalletUi:()=>Symbol(),releaseWalletUi(){},recoveryGuidance:()=>'',
   mountAssetWorkspace(){},mountAuditExport(){},mountFeedContinuity(){},mountWatchtowerRead(){},mountKitRead(){},mountForwardProgress(){}};
  runInNewContext(stripped(name),context);await Promise.resolve();
- const pending=node('connect').handlers.get('click')();policy.disabled=true;gate.resolve();await pending;
+ node('connect').disabled=false;node('settlement-prepare').disabled=false;node('settlement-send').disabled=true;
+ node('wallet-login').disabled=false;node('wallet-logout').disabled=false;
+ const pending=node('connect').handlers.get('click')();
+ assert.equal(node('connect').disabled,true);assert.equal(node('settlement-prepare').disabled,true);assert.equal(node('settlement-send').disabled,true);
+ assert.equal(node('wallet-login').disabled,false);assert.equal(node('wallet-logout').disabled,false);
+ policy.disabled=true;gate.resolve();await pending;
  assert.equal(task.disabled,true);assert.equal(policy.disabled,true);assert.equal(node('result').textContent,'CONTROL_DEPLOYMENT_REQUIRED');
+ assert.equal(node('connect').disabled,false);assert.equal(node('settlement-prepare').disabled,false);assert.equal(node('settlement-send').disabled,true);
 });
 function nativeHarness(name,{loginGate=null,profileGate=null}={}){
  const nodes=new Map(),providers=[],calls=[],events=new Map();let signed=0,live=true,chainGate=null,readGate=null;
