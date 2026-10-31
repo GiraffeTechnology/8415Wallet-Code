@@ -16,6 +16,8 @@ function fixture() {
   const config = deferred();
   const element = (id: string) => {
     if (!elements.has(id)) elements.set(id, { hidden: id === 'wallet-private' || id === 'wallet-logout', inert: id === 'wallet-private', textContent: '', disabled: false,
+      // The real CA selector is contained by a hideable label; handlers need that DOM relationship.
+      parentElement: id === 'auth-ca-old' ? { hidden: false } : null,
       handlers: new Map(), addEventListener(event: string, handler: () => unknown) { this.handlers.set(event, handler); } });
     return elements.get(id);
   };

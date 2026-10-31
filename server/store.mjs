@@ -1,18 +1,26 @@
 /** Single-writer encrypted credential state. Sessions/challenges intentionally die on restart. */
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto';
 import { open, readFile, rename, unlink, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { requiredStoreGeneration, encodeStorePayload, decodeStorePayload } from './store-state-generation.mjs';
+import { inspectOriginIndependentState } from './origin-transition-state.mjs';
+import { readOriginContinuation, originContinuationKey } from './origin-continuation.mjs';
+// Only transactionMany owns a persistence snapshot. The identity capability is
+// module-private and preserves existing subclass persistence hooks.
+const persistenceSnapshots = new WeakMap();
 export const MAX_STORE_BYTES = 4 * 1024 * 1024;
 const envelopeOverhead = Buffer.byteLength(JSON.stringify({ version: 1, iv: 'A'.repeat(16), tag: 'A'.repeat(24), data: '' }));
-function checkStoreSize(data) {
-  const bytes = Buffer.byteLength(JSON.stringify(data));
+function checkStoreSize(data, generation = requiredStoreGeneration(data)) {
+  const bytes = Buffer.byteLength(JSON.stringify(encodeStorePayload(data, generation)));
   if (4 * Math.ceil(bytes / 3) + envelopeOverhead > MAX_STORE_BYTES) throw new Error('AUTH_STORE_CAPACITY');
 }
 export class MemoryCredentialStore {
-  #data; #queue = Promise.resolve(); #failed = false;
+  #data; #queue = Promise.resolve(); #failed = false; #closing = false; #closePromise;
+  #assertOpen() { if (this.#closing) throw new Error('AUTH_STORE_CLOSED'); }
   constructor(data = {}) { this.#data = structuredClone(data); }
-  async read(username) { if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY'); return structuredClone(Object.hasOwn(this.#data, username) ? this.#data[username] : null); }
+  async read(username) { this.#assertOpen(); if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY'); return structuredClone(Object.hasOwn(this.#data, username) ? this.#data[username] : null); }
   async readMany(keys) {
+    this.#assertOpen();
     if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
       ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length) throw new Error('AUTH_STORE_KEYS_REFUSED');
     const run = this.#queue.then(() => {
@@ -27,6 +35,7 @@ export class MemoryCredentialStore {
    * must not await or re-enter this store. Use only after required durable data
    * has already committed; this method itself performs no persistence. */
   async withReadSnapshot(keys, inspect) {
+    this.#assertOpen();
     if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
       ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length ||
       typeof inspect !== 'function') throw new Error('AUTH_STORE_KEYS_REFUSED');
@@ -45,6 +54,7 @@ export class MemoryCredentialStore {
    * The callback MUST NOT re-enter this store. Use a separate native task journal.
    * This is additive: the synchronous withReadSnapshot contract is unchanged. */
   async withReadGate(keys, inspect) {
+    this.#assertOpen();
     if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
       ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length ||
       typeof inspect !== 'function') throw new Error('AUTH_STORE_KEYS_REFUSED');
@@ -55,6 +65,21 @@ export class MemoryCredentialStore {
     });
     this.#queue = run.catch(() => {}); return run;
   }
+  /** Offline transition only. Drain admitted writes and close admission before
+   * inspecting the WHOLE authoritative state. No credential snapshot is exported,
+   * no state is persisted, and the callback must never re-enter this store.
+   * The caller closes the store afterward, including a rejected transition. */
+  async withOriginTransition(input, transition) {
+    this.#assertOpen();
+    if (typeof transition !== 'function') throw Error('AUTH_ORIGIN_TRANSITION_CALLBACK_REQUIRED');
+    this.#closing = true;
+    const run = this.#queue.then(async () => {
+      if (this.#failed) throw Error('AUTH_STORE_UNHEALTHY');
+      const proof = inspectOriginIndependentState(this.#data, input);
+      return await transition(proof);
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
   async transaction(username, update) {
     const result = await this.transactionMany([username], async values => ({ [username]: await update(values[username]) }));
     return result[username];
@@ -62,6 +87,7 @@ export class MemoryCredentialStore {
   // One queue entry and durable replace cover every index/credential involved.
   // Keys cannot escape the explicit selection; failures leave all old values intact.
   async transactionMany(keys, update) {
+    this.#assertOpen();
     if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
       ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length) throw new Error('AUTH_STORE_KEYS_REFUSED');
     const run = this.#queue.then(async () => {
@@ -72,14 +98,74 @@ export class MemoryCredentialStore {
       if (!changed || typeof changed !== 'object' || Array.isArray(changed) ||
         Object.keys(changed).length !== keys.length || keys.some(key => !Object.hasOwn(changed, key))) throw new Error('AUTH_STORE_UPDATE_REFUSED');
       for (const key of keys) next[key] = structuredClone(changed[key]);
-      checkStoreSize(next); // Rejected capacity is not a failed/uncertain durable write.
+      this.validatePersistence(next); // Rejected capacity is not a failed/uncertain durable write.
+      persistenceSnapshots.set(this, next);
       try { await this.persist(next); } catch (error) { this.#failed = true; throw error; }
+      finally { persistenceSnapshots.delete(this); }
       this.#data = next; return structuredClone(changed);
     });
     this.#queue = run.catch(() => {}); return run;
   }
+  /** Metadata-only prestate plan. A later drain independently compares this hash;
+   * this read never authorizes a mapping or freezes concurrent writes. */
+  async inspectOriginContinuationState() {
+    this.#assertOpen();
+    if (typeof this.originTransitionBinding !== 'function' || this.originTransitionBinding().stateEstablished !== true)
+      throw Error('AUTH_ORIGIN_EXISTING_STATE_REQUIRED');
+    const run = this.#queue.then(() => {
+      if (this.#failed) throw Error('AUTH_STORE_UNHEALTHY');
+      return Object.freeze({ schema: '8415wallet-origin-continuation-plan/1',
+        stateSha256: createHash('sha256').update(JSON.stringify(this.#data)).digest('hex'),
+        originalRecordCount: Object.keys(this.#data).length, minimumGeneration: this.originTransitionBinding().minimumGeneration });
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
+  /** Offline continuation primitive. The existing authenticated store is drained
+   * and admission stays closed, including failures. The caller must hold the
+   * service/configuration fence, durably journal `prepared` before returning,
+   * finish forward recovery after `committed`, then close this store. No original
+   * record or plaintext snapshot leaves this boundary. Never exposed over HTTP. */
+  async withOriginContinuation(input, checkpoint) {
+    this.#assertOpen();
+    const record = readOriginContinuation(input), reference = originContinuationKey(record);
+    if (typeof checkpoint !== 'function' || typeof this.originTransitionBinding !== 'function' ||
+        this.originTransitionBinding().stateEstablished !== true) throw Error('AUTH_ORIGIN_EXISTING_STATE_REQUIRED');
+    this.#closing = true;
+    const run = this.#queue.then(async () => {
+      if (this.#failed) throw Error('AUTH_STORE_UNHEALTHY');
+      const before = structuredClone(this.#data), existing = Object.hasOwn(before, reference);
+      if (existing) {
+        if (readOriginContinuation(before[reference]).digest !== record.digest) throw Error('AUTH_ORIGIN_CONTINUATION_CONFLICT');
+        delete before[reference];
+      }
+      const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+      if (hash(before) !== record.priorStateSha256) throw Error('AUTH_ORIGIN_CONTINUATION_STATE_CHANGED');
+      const next = existing ? structuredClone(this.#data) : { ...before, [reference]: record };
+      this.validatePersistence(next);
+      const proof = Object.freeze({ schema: '8415wallet-origin-continuation-state/1', reference,
+        mappingDigest: record.digest, revision: record.revision, beforeStateSha256: record.priorStateSha256,
+        afterStateSha256: hash(next), originalRecordCount: Object.keys(before).length, minimumGeneration: 5 });
+      if (existing) {
+        if (this.originTransitionBinding().minimumGeneration !== 5) throw Error('AUTH_ORIGIN_CONTINUATION_CONFLICT');
+        await checkpoint('recovered', proof); return proof;
+      }
+      await checkpoint('prepared', proof);
+      persistenceSnapshots.set(this, next);
+      try { await this.persist(next); } catch (error) { this.#failed = true; throw error; }
+      finally { persistenceSnapshots.delete(this); }
+      this.#data = next;
+      await checkpoint('committed', proof); return proof;
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
+  validatePersistence(data) { checkStoreSize(data); }
   async persist(_data) {}
-  async close() { await this.#queue; }
+  close() {
+    // Stop admitting work synchronously, but drain work already admitted before
+    // releasing the durable writer lock. Concurrent closes share one outcome.
+    this.#closing = true;
+    return this.#closePromise ??= this.#queue.then(() => {});
+  }
 }
 export async function openEncryptedStore(path, key) {
   if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('AUTH_STORE_KEY_REQUIRED');
@@ -87,33 +173,47 @@ export async function openEncryptedStore(path, key) {
   // Never infer that an existing lock is stale. Operators must establish that the
   // prior process stopped before removing it; concurrent replicas are unsupported.
   const lock = await open(`${path}.lock`, 'wx', 0o600);
-  let initial = {};
+  let initial = {}, minimumGeneration = 1, stateEstablished = false;
   try {
     try {
       const raw = await readFile(path, 'utf8');
       if (Buffer.byteLength(raw) > MAX_STORE_BYTES) throw new Error('AUTH_STORE_TOO_LARGE');
       const envelope = JSON.parse(raw);
-      if (envelope.version !== 1) throw new Error('AUTH_STORE_VERSION_REFUSED');
+      if (![1, 2, 3, 4, 5].includes(envelope.version)) throw new Error('AUTH_STORE_VERSION_REFUSED');
       const decrypt = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'));
-      decrypt.setAAD(Buffer.from('8415wallet-auth-store/1')); decrypt.setAuthTag(Buffer.from(envelope.tag, 'base64'));
-      initial = JSON.parse(Buffer.concat([decrypt.update(Buffer.from(envelope.data, 'base64')), decrypt.final()]).toString('utf8'));
-      if (!initial || typeof initial !== 'object' || Array.isArray(initial)) throw new Error('AUTH_STORE_INVALID');
+      decrypt.setAAD(Buffer.from(`8415wallet-auth-store/${envelope.version}`)); decrypt.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+      initial = decodeStorePayload(JSON.parse(Buffer.concat([decrypt.update(Buffer.from(envelope.data, 'base64')), decrypt.final()]).toString('utf8')), envelope.version);
+      minimumGeneration = envelope.version;
+      stateEstablished = true;
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   } catch (error) { await lock.close(); await unlink(`${path}.lock`); throw error; }
   class EncryptedStore extends MemoryCredentialStore {
+    #releasePromise;
+    originTransitionBinding() { return Object.freeze({ statePath: path, minimumGeneration, stateEstablished }); }
+    validatePersistence(data) { checkStoreSize(data, requiredStoreGeneration(data, minimumGeneration)); }
     async persist(data) {
+      if (!persistenceSnapshots.has(this) || persistenceSnapshots.get(this) !== data) throw new Error('AUTH_STORE_PERSISTENCE_SCOPE_REFUSED');
+      const generation = requiredStoreGeneration(data, minimumGeneration);
+      checkStoreSize(data, generation);
       const iv = randomBytes(12), encrypt = createCipheriv('aes-256-gcm', key, iv);
-      encrypt.setAAD(Buffer.from('8415wallet-auth-store/1'));
-      const ciphertext = Buffer.concat([encrypt.update(JSON.stringify(data)), encrypt.final()]);
+      encrypt.setAAD(Buffer.from(`8415wallet-auth-store/${generation}`));
+      const ciphertext = Buffer.concat([encrypt.update(JSON.stringify(encodeStorePayload(data, generation))), encrypt.final()]);
       const temp = `${path}.${randomBytes(12).toString('hex')}.tmp`;
       const file = await open(temp, 'wx', 0o600);
       try {
-        await file.writeFile(JSON.stringify({ version: 1, iv: iv.toString('base64'), tag: encrypt.getAuthTag().toString('base64'), data: ciphertext.toString('base64') }));
+        await file.writeFile(JSON.stringify({ version: generation, iv: iv.toString('base64'), tag: encrypt.getAuthTag().toString('base64'), data: ciphertext.toString('base64') }));
         await file.sync(); await file.close(); await rename(temp, path);
         const directory = await open(dirname(path), 'r'); try { await directory.sync(); } finally { await directory.close(); }
+        minimumGeneration = generation;
+        stateEstablished = true;
       } catch (error) { await file.close().catch(() => {}); await unlink(temp).catch(() => {}); throw error; }
     }
-    async close() { await super.close(); await lock.close(); await unlink(`${path}.lock`); }
+    close() {
+      const drained = super.close();
+      return this.#releasePromise ??= drained.then(async () => {
+        await lock.close(); await unlink(`${path}.lock`);
+      });
+    }
   }
   return new EncryptedStore(initial);
 }

@@ -1,3 +1,8 @@
+import {rendererMessages} from './renderer-messages.mjs';
+import nativeSource from './locales/native-en.mjs';
+import nativeFragments from './locales/native-fragments.mjs';
+import {RENDERER_EXTRA} from './locales/renderer-extra.mjs';
+import {RENDERER_MODEL} from './locales/renderer-model.mjs';
 import { presentation, renderUi } from './i18n.mjs';
 import { translateNative } from './native-i18n.mjs';
 
@@ -35,6 +40,38 @@ const identityFields = new Set(['owner','holder','initialHolder','expectedHolder
   'position','confirmedHolder','account','seller','buyer','payer','payee','from','to','recipient','sender','beneficiary']);
 const identityNames = new Set(['walletName','ownerName','holderName','sellerName','buyerName','tenantName']);
 
+const renderMessageSymbol=Symbol.for('8415wallet.render-messages/1');
+const renderMessageSources=Object.freeze({...nativeSource,...nativeFragments.en,...RENDERER_MODEL.en,...RENDERER_EXTRA.en,'renderer.join':'{v0} — {v1}'});
+const ownData=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Reflect.ownKeys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key)&&'value' in Object.getOwnPropertyDescriptor(value,key));
+function copyRenderMetadata(source,target,reduce){
+ const fields=Object.getOwnPropertyDescriptor(source,renderMessageSymbol)?.value;
+ if(!fields||typeof fields!=='object'||Array.isArray(fields))return target;
+ const copy=(message,depth=0)=>{
+  if(depth>12||!ownData(message,['schema','key','template','values'])||message.schema!=='8415-render-message/1'||
+   typeof message.key!=='string'||typeof message.template!=='string'||message.template.length>16384||
+   renderMessageSources[message.key]!==message.template.trim())return null;
+  const values=message.values;
+  if(!values||typeof values!=='object'||Array.isArray(values)||Reflect.ownKeys(values).length>32)return null;
+  const allowed=new Set([...message.template.matchAll(/\{(v[0-9]+)\}/g)].map(match=>match[1]));
+  const out={};
+  for(const key of Reflect.ownKeys(values)){
+   if(typeof key!=='string'||!allowed.has(key)||!('value' in Object.getOwnPropertyDescriptor(values,key)))return null;
+   const value=values[key];
+   const safe=typeof value==='string'&&value.length<=65536?reduce(value,'presentationValue',''):copy(value,depth+1);
+   if(safe===null)return null;out[key]=safe;
+  }
+  if(allowed.size!==Object.keys(out).length)return null;
+  return Object.freeze({schema:message.schema,key:message.key,template:message.template,values:Object.freeze(out)});
+ };
+ const accepted={};
+ for(const key of Reflect.ownKeys(fields)){
+  if(typeof key!=='string'||!Object.hasOwn(target,key)||typeof target[key]!=='string'||!('value' in Object.getOwnPropertyDescriptor(fields,key)))continue;
+  const safe=copy(fields[key]);if(safe)accepted[key]=safe;
+ }
+ if(Object.keys(accepted).length)Object.defineProperty(target,renderMessageSymbol,{value:Object.freeze(accepted),enumerable:false,writable:false,configurable:false});
+ return target;
+}
+
 /** Only for SDK read-only view copies. Never pass a signed document, transaction
  * review, operation request or grant through this seam. Metadata is copied and
  * subject to the same identity filtering; original metadata remains untouched.
@@ -58,14 +95,14 @@ export function privateReadProjection(value, authenticatedAccount) {
       // 32-byte commitments/hashes exact; never guess a sequence occurrence.
       return item.replace(/0x[0-9a-f]{40}(?![0-9a-f])/gi, match => markers[walletIdentityState(match, authenticatedAccount)]);
     }
-    if (Array.isArray(item)) return Object.freeze(item.map(child => reduce(child, key, path + '[]')));
+    if (Array.isArray(item)) return Object.freeze(copyRenderMetadata(item,item.map(child => reduce(child, key, path + '[]')),reduce));
     if (!item || typeof item !== 'object') return item;
     // Arbitrary metadata can place identities in property names. Do not rename
     // those keys into a shared marker: collisions would silently discard data.
     // Suppress the smallest affected object in this display copy instead.
     if (Object.keys(item).some(field => /0x[0-9a-f]{40}(?![0-9a-f])/i.test(field))) return markers.hidden;
-    return Object.freeze(Object.fromEntries(Object.entries(item).map(([field, child]) => [field,
-      reduce(child, field, path ? path + '.' + field : field)])));
+    return Object.freeze(copyRenderMetadata(item,Object.fromEntries(Object.entries(item).map(([field, child]) => [field,
+      reduce(child, field, path ? path + '.' + field : field)])),reduce));
   };
   return reduce(value);
 }
@@ -76,6 +113,11 @@ export function identityText(text, locale) {
 export function privateNativeUi(renderer, view, authenticatedAccount) {
   const safe = privateReadProjection(view, authenticatedAccount);
   return presentation(locale => identityText(renderer(safe, text => translateNative(text, locale)), locale));
+}
+/** Source-keyed native renderer seam. External narrative is never parsed as a template. */
+export function privateKeyedNativeUi(renderer, view, authenticatedAccount) {
+  const safe=privateReadProjection(view,authenticatedAccount);
+  return presentation(locale=>identityText(renderer(safe,undefined,rendererMessages(locale)),locale));
 }
 export function privateReadDisplay(view, authenticatedAccount, disclosure = null) {
   const safe = privateReadProjection(view, authenticatedAccount);

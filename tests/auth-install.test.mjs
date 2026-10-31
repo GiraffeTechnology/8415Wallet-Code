@@ -13,7 +13,7 @@ import { validateAuthConfig } from '../server/config-validation.mjs';
 import { createAuthService } from '../server/auth-service.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
 import { captureAuthSource } from '../scripts/package/build-auth.mjs';
-import { TASK_RUNTIME_SOURCE_PATHS, LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, runtimePackage, sha256, walkAuth } from '../scripts/package/verify-auth.mjs';
+import { TASK_RUNTIME_SOURCE_PATHS, ORIGIN_CONTINUATION_SOURCE_PATHS, LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, runtimePackage, sha256, walkAuth } from '../scripts/package/verify-auth.mjs';
 import { independentNode } from './helpers/independent-node.mjs';
 const fixtureNode = await independentNode();
 after(() => fixtureNode.cleanup());
@@ -70,9 +70,9 @@ test('independent Node fixture uses exclusive create-and-write rather than host 
 const uid = process.getuid(), nodeUid = fixtureNode.uid;
 const tenant = 'fixture-tenant', origin = 'https://wallet.example.invalid:9447';
 const accounts = [{ username: 'fixture-user', wallets: [{ account: `0x${'1'.repeat(40)}`, chainId: '8453' }] }];
-const sourceFiles = ['server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS, 'server/main.mjs', 'server/service-entry.mjs', 'server/credential-instance.mjs', 'server/runtime-entry.mjs', 'server/socket-path.mjs', 'server/mail-config.mjs', 'server/mail-otp.mjs', 'server/account-directory.mjs', 'server/recovery-service.mjs', 'server/registration-service.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
+const sourceFiles = [...ORIGIN_CONTINUATION_SOURCE_PATHS,'server/ca-bindings.mjs','server/store-state-generation.mjs','server/task-asset-control-state.mjs','server/task-asset-control-catalog.mjs','server/task-asset-control-policy.mjs','server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS, 'server/main.mjs', 'server/service-entry.mjs', 'server/credential-instance.mjs', 'server/runtime-entry.mjs', 'server/socket-path.mjs', 'server/mail-config.mjs', 'server/mail-otp.mjs', 'server/account-directory.mjs', 'server/recovery-service.mjs', 'server/registration-service.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'web/tenant-path.mjs', 'web/wallet-entry.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
 function put(root, path, data) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), data, { mode: 0o644 }); }
-function syntheticPackage(root, label = '', { mailSupported = true } = {}) {
+function syntheticPackage(root, label = '', { mailSupported = true,format=1,semantics=undefined } = {}) {
   const source = join(root, 'source'), runtime = join(root, 'runtime'); mkdirSync(source); mkdirSync(runtime);
   const files = sourceFiles.filter(path => mailSupported || path !== 'server/mail-config.mjs');
   for (const path of files) put(source, path, readFileSync(new URL(`../${path}`, import.meta.url)));
@@ -91,7 +91,7 @@ function syntheticPackage(root, label = '', { mailSupported = true } = {}) {
   put(runtime, 'package.json', JSON.stringify(generated.manifest)); put(runtime, 'package-lock.json', JSON.stringify(generated.lock));
   put(runtime, 'provenance/package.source.json', JSON.stringify(pkg)); put(runtime, 'provenance/package-lock.source.json', JSON.stringify(lock));
   put(runtime, 'node_modules/ethers/package.json', JSON.stringify({ name: 'ethers', version: '6.17.0' }));
-  const release = { schema: AUTH_SCHEMA, status: AUTH_STATUS, source: identity, runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, credentialStoreFormat: 1 }, files: Object.fromEntries(walkAuth(runtime).map(path => [path, sha256(readFileSync(join(runtime, path)))])) };
+  const release = { schema: AUTH_SCHEMA, status: AUTH_STATUS, source: identity, runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, credentialStoreFormat: format,...(semantics?{authStateSemantics:semantics}:{}) }, files: Object.fromEntries(walkAuth(runtime).map(path => [path, sha256(readFileSync(join(runtime, path)))])) };
   put(runtime, 'AUTH-RELEASE.json', JSON.stringify(release));
   put(runtime, 'SHA256SUMS', walkAuth(runtime).map(path => `${sha256(readFileSync(join(runtime, path)))}  ${path}`).join('\n') + '\n');
   return runtime;
@@ -382,4 +382,29 @@ test('legacy package preparation omits unknown mail config and refuses SMTP befo
   assert.equal(Object.hasOwn(config, 'mail'), false);
   await assert.rejects(configureMail({ target: f.target, uid, mail: { transport: 'disabled' }, serviceState: () => 'inactive' }), /AUTH_MAIL_RUNTIME_UPGRADE_REQUIRED/);
   assert.equal(Object.hasOwn((await inspect({ target: f.target, uid })).config, 'mail'), false);
+});
+
+test('format4 fresh prepare and same-generation upgrade rollback preserve synthetic state without services',async t=>{
+ const f=await fixture(t,{format:4,semantics:'8415wallet-auth-state/7'});const first=await prepare(f.options);
+ const statePath=join(f.target.state,'credentials.enc');await writeFile(statePath,'SYNTHETIC-GEN4-TOMBSTONE',{mode:0o600});
+ const nextRoot=join(f.root,'gen4-next');await mkdir(nextRoot);const pkg=syntheticPackage(nextRoot,'next gen4',{format:4,semantics:'8415wallet-auth-state/7'});const run=()=>assert.fail('inactive test must not start services');
+ const changed=await upgrade({packageDirectory:pkg,target:f.target,uid,run});assert.equal(changed.status,'code-upgraded');const back=await rollbackCode({target:f.target,uid,run});assert.equal(back.sourceTree,first.sourceTree);assert.equal(await readFile(statePath,'utf8'),'SYNTHETIC-GEN4-TOMBSTONE');
+});
+test('format4 historical gen3 upgrade works but semantic downgrade rollback is refused',async t=>{
+ const f=await fixture(t,{format:3,semantics:'8415wallet-auth-state/6'});await prepare(f.options);const nextRoot=join(f.root,'gen4');await mkdir(nextRoot);const pkg=syntheticPackage(nextRoot,'new wallet tombstones',{format:4,semantics:'8415wallet-auth-state/7'});const run=()=>assert.fail('inactive test must not start services');
+ const changed=await upgrade({packageDirectory:pkg,target:f.target,uid,run});assert.equal(changed.status,'code-upgraded');await assert.rejects(rollbackCode({target:f.target,uid,run}),/STATE_SEMANTICS_DOWNGRADE_REFUSED/);assert.equal((await inspect({target:f.target,uid})).summary.sourceTree,changed.sourceTree);
+});
+test('format4 installer rejects unknown format and unknown semantics before prepare',async t=>{
+ for(const options of [{format:5,semantics:'8415wallet-auth-state/7'},{format:4,semantics:'8415wallet-auth-state/8'}]){const f=await fixture(t,options);await assert.rejects(prepare(f.options),/STATE_FORMAT_REFUSED|STATE_SEMANTICS_REFUSED/);assert.equal(f.calls.length,0);}
+});
+
+
+test('format5 continuation release upgrades from gen4 and cannot rollback authority capability',async t=>{
+ const f=await fixture(t,{format:4,semantics:'8415wallet-auth-state/7'});await prepare(f.options);
+ const statePath=join(f.target.state,'credentials.enc');await writeFile(statePath,'SYNTHETIC-ORIGINAL-AUTHORITY',{mode:0o600});
+ const nextRoot=join(f.root,'gen5');await mkdir(nextRoot);const pkg=syntheticPackage(nextRoot,'origin continuation',{format:5,semantics:'8415wallet-auth-state/8'});
+ const run=()=>assert.fail('inactive source compatibility test must not start services');
+ const changed=await upgrade({packageDirectory:pkg,target:f.target,uid,run});assert.equal(changed.status,'code-upgraded');
+ assert.equal(await readFile(statePath,'utf8'),'SYNTHETIC-ORIGINAL-AUTHORITY');
+ await assert.rejects(rollbackCode({target:f.target,uid,run}),/STATE_SEMANTICS_DOWNGRADE_REFUSED/);
 });

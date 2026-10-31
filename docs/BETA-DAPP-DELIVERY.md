@@ -18,9 +18,7 @@ Both retain optional controlled-account creation, deposit, unencumbered
 withdrawal, basic account-request review and recovery. V2 restricts linked
 responsibility actions rather than disabling all account utilities.
 
-Both use a shared compiled browser runtime. The profile is explicit deployment
-configuration and a UI capability boundary, not on-chain authority or a claim
-that every required acceptance observation has already been collected. The
+The public V2 build uses a separate compiled import closure; it does not ship disabled V3 linked algorithms. Private V3 retains the full linked runtime. The profile is explicit deployment configuration, not on-chain authority or a claim that every required acceptance observation has already been collected. The
 exact PRD file hash, sections and scenario identifiers travel in `RELEASE.json`.
 V2 does not mean version 2 of the SDK npm tarball. SDK `pack:v2` and `pack:v3`
 artifacts remain separate library deliverables; they are not hosted websites.
@@ -352,3 +350,15 @@ are loaded or displayed. Login is memory-only and must be repeated after reload;
 connecting an account alone is insufficient. See [wallet login and its exact
 privacy boundary](WALLET-LOGIN.md). Public blockchain data remains public, and
 this client-side gate is not private-API authorization.
+
+## Fully offline delivery build
+
+With the pinned compiler, browser dependency and npm cache already available,
+invoke `node scripts/package/build-delivery.mjs --offline` directly. An outer
+`npm run` process can start its own version lookup before the builder executes;
+passing `--offline` after npm's argument separator does not configure that outer
+process. The direct builder sets offline mode for every nested npm command and
+disables their update notifier. Auth dependencies still undergo the existing
+lockfile/integrity verification with `npm ci --offline`; missing cached packages
+fail rather than enabling a network fallback. This is not a network sandbox or
+a substitute for complete build, CI, deployment and business acceptance evidence.

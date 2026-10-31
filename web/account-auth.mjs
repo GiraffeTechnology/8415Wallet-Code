@@ -1,4 +1,8 @@
+import { tenantBasePath, authRequestPath } from './tenant-path.mjs';
+import { validateNftInventory } from './nft-inventory-client.mjs';
+import { validateAuthorizationContext } from './authorization-context.mjs';
 /** Same-origin account login client. Passwords/codes are never persisted. */
+import { fundsReadId, validateFunds } from './funds-client.mjs';
 import { WalletLoginError } from './login-core.mjs';
 import { forwardProgressRequest, validateForwardProgress } from './forward-progress-client.mjs';
 import { loginIdentifier, walletPath, authenticatedRoute } from './wallet-entry.mjs';
@@ -14,9 +18,9 @@ function policyRequestBody(action, input) {
   const value = key => properties[key]?.value;
   const string = key => typeof value(key) === 'string' && value(key).length > 0;
   if (action === 'status' || action === 'cancel') {
-    if (!(action === 'status' && (exact([]) || exact(['protocol']) && value('protocol') === '8415-task-policy-change-wire/1')) &&
+    if (!(action === 'status' && (exact([]) || exact(['protocol']) && ['8415-task-policy-change-wire/1','8415-task-policy-change-wire/2'].includes(value('protocol')))) &&
       (!exact(['protocol', 'changeId', 'changeDigest', 'expectedRevision']) ||
-        value('protocol') !== '8415-task-policy-change-wire/1' ||
+        !['8415-task-policy-change-wire/1','8415-task-policy-change-wire/2'].includes(value('protocol')) ||
         typeof value('changeId') !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value('changeId')) ||
         typeof value('changeDigest') !== 'string' || !/^[a-f0-9]{64}$/.test(value('changeDigest')) ||
         typeof value('expectedRevision') !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(value('expectedRevision')) ||
@@ -24,7 +28,7 @@ function policyRequestBody(action, input) {
   }
   else if (action === 'prepare') {
     if (!(exact(['expectedRevision', 'identityMethod', 'mode']) ||
-      exact(['expectedRevision', 'identityMethod', 'mode', 'protocol']) && value('protocol') === '8415-task-policy-change-wire/1') ||
+      exact(['expectedRevision', 'identityMethod', 'mode', 'protocol']) && ['8415-task-policy-change-wire/1','8415-task-policy-change-wire/2'].includes(value('protocol'))) ||
       typeof value('expectedRevision') !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(value('expectedRevision')) ||
       BigInt(value('expectedRevision')) >= (1n << 256n) || !['password', 'wallet'].includes(value('identityMethod')) ||
       !['ON', 'OFF'].includes(value('mode'))) refuse();
@@ -38,8 +42,9 @@ function policyRequestBody(action, input) {
   return Object.fromEntries(keys.map(key => [key, properties[key].value]));
 }
 export class AccountAuthClient {
-  #tenant; #fetch; #csrf = null; #session = null; #origin; #registrationEpoch = 0; #capabilities = null; #taskPolicyChange = null; #policyEpoch = 0; #loginEntry = null;
-  constructor({ tenant, origin = globalThis.location.origin, fetcher = globalThis.fetch.bind(globalThis), loginEntry = null }) {
+  #basePath; #tenant; #fetch; #csrf = null; #session = null; #origin; #registrationEpoch = 0; #capabilities = null; #taskPolicyChange = null; #policyEpoch = 0; #policyAuthorizationContext = null; #loginEntry = null;
+  constructor({ tenant, basePath = '', origin = globalThis.location.origin, fetcher = globalThis.fetch.bind(globalThis), loginEntry = null }) {
+    this.#basePath = tenantBasePath(tenant, basePath);
     this.#tenant = tenant; this.#fetch = fetcher; this.#origin = origin;
     if (loginEntry !== null) {
       const identifier = loginIdentifier(loginEntry.identifier), requestedWalletPath = loginEntry.requestedWalletPath ?? null;
@@ -48,18 +53,20 @@ export class AccountAuthClient {
     }
   }
   async request(path, body, { keepalive = false, signal } = {}) {
-    const response = await this.#fetch(new URL(`/auth/${path}`, this.#origin), { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', keepalive, ...(signal === undefined ? {} : { signal }),
+    const response = await this.#fetch(new URL(authRequestPath(this.#tenant, this.#basePath, path), this.#origin), { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', keepalive, ...(signal === undefined ? {} : { signal }),
       headers: { 'X-Wallet-Tenant': this.#tenant, ...(this.#csrf ? { 'X-Wallet-CSRF': this.#csrf } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    const text = await response.text(); if (text.length > (path.startsWith('tasks/') ? 4194304 : 16384)) throw new WalletLoginError('LOGIN_SERVER_RESPONSE_REFUSED');
+    const text = await response.text(); if (text.length > ((path.startsWith('tasks/') || path === 'assets/funds' || path === 'assets/nft-inventory') ? 4194304 : 16384)) throw new WalletLoginError('LOGIN_SERVER_RESPONSE_REFUSED');
     let result; try { result = JSON.parse(text); } catch { throw new WalletLoginError('LOGIN_SERVICE_UNAVAILABLE'); }
     if (!response.ok) {
-      const errorPattern = path.startsWith('tasks/') ? /^(AUTH|TASK)_[A-Z_]+$/ :
+      const errorPattern = path.startsWith('account/asset-controls/') ? /^(?:AUTH|ASSET_CONTROL)_[A-Z_]+$/ : path.startsWith('tasks/') ? /^(AUTH|TASK)_[A-Z_]+$/ :
+        path === 'assets/funds' ? /^(AUTH|FUNDS)_[A-Z_]+$/ :
+        path === 'assets/nft-inventory' ? /^(AUTH|NFT_INVENTORY)_[A-Z_]+$/ :
         path === 'assets/forward-progress' ? /^(AUTH|FORWARD_PROGRESS)_[A-Z_]+$/ :
         policyRoute(path) ? /^(?:AUTH_[A-Z_]+|TASK_VERIFICATION_[A-Z_]+)$/ : /^AUTH_[A-Z_]+$/;
       const error = new WalletLoginError(typeof result?.error === 'string' && errorPattern.test(result.error) ? result.error : 'LOGIN_SERVICE_UNAVAILABLE');
       // Account-policy routes expose failure status, never task retry metadata.
-      if (policyRoute(path) && Number.isInteger(response.status)) error.status = response.status;
+      if ((policyRoute(path) || path.startsWith('account/asset-controls/')) && Number.isInteger(response.status)) error.status = response.status;
       // Scheduling metadata is never authority. Only the authenticated task-route
       // limiter's explicit 429 response may delay automatic continuation.
       if (path.startsWith('tasks/') && response.status === 429 && error.code === 'AUTH_RATE_LIMITED') {
@@ -124,6 +131,28 @@ export class AccountAuthClient {
       logout: async () => this.logout(),
     };
   }
+  /** Native Agent login uses the same real authentication endpoints, with a
+   * purpose-limited signer. Capability discovery is not a login prerequisite. */
+  async authenticateWallet({account,chainId,signer,signal}) {
+    if(typeof signer?.signLoginChallenge!=='function')throw new WalletLoginError('LOGIN_MESSAGE_SIGNER_REQUIRED');
+    this.#policyEpoch++;this.#taskPolicyChange=null;this.#policyAuthorizationContext=null;this.#session=null;this.#csrf=null;
+    const epoch=this.#policyEpoch,identity={account,chainId};
+    const current=()=>{if(signal?.aborted || epoch!==this.#policyEpoch)throw new WalletLoginError('LOGIN_CANCELLED');};
+    current();const bootstrap=await this.request('bootstrap',undefined,{signal});current();
+    if(typeof bootstrap.csrf!=='string' || !/^[A-Za-z0-9_-]{43}$/.test(bootstrap.csrf))throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+    this.#csrf=bootstrap.csrf;
+    const challenge=await this.request('challenge',{...identity,method:'wallet',...(this.#loginEntry??{})},{signal});current();
+    if(challenge.origin!==this.#origin || challenge.tenant!==this.#tenant || challenge.account!==account ||
+      challenge.chainId!==chainId || challenge.method!=='wallet')throw new WalletLoginError('LOGIN_CHALLENGE_BINDING_REFUSED');
+    const proof=await signer.signLoginChallenge(challenge,{signal,requestedContext:this.#loginEntry});current();
+    if(typeof proof?.signature!=='string' || !/^0x[0-9a-fA-F]{130}$/.test(proof.signature))throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+    const session=await this.request('proof',{...identity,id:challenge.id,signature:proof.signature},{signal});current();
+    if(session.origin!==this.#origin || session.tenant!==this.#tenant || session.account!==account || session.chainId!==chainId ||
+      typeof session.id!=='string' || !/^[A-Za-z0-9_-]{43}$/.test(session.id) || typeof session.csrf!=='string' ||
+      !/^[A-Za-z0-9_-]{43}$/.test(session.csrf))throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
+    if(this.#loginEntry){const route=authenticatedRoute(session.walletRoute);if(!route || this.#loginEntry.requestedWalletPath!==null && route.walletPath!==this.#loginEntry.requestedWalletPath){this.#csrf=session.csrf;await this.logout();throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');}}
+    this.#session=session;this.#csrf=session.csrf;return session;
+  }
   adapter(method, credentials = {}, caBridge = globalThis.walletCaBridge) {
     return {
       authenticate: async (identity, provider) => {
@@ -174,6 +203,17 @@ export class AccountAuthClient {
     if (!this.#csrf) return;
     try { await this.request('logout', {}, { keepalive: true }); } finally { this.#csrf = null; this.#session = null; }
   }
+  async authorizationContext() {
+    const session = this.#session, epoch = this.#policyEpoch;
+    if (!session || !this.#csrf) throw new WalletLoginError('LOGIN_REQUIRED');
+    const value = await this.request('authorization-context');
+    let context;
+    try { context = await validateAuthorizationContext(value, session, this.#origin); }
+    catch { throw new WalletLoginError('AUTHORIZATION_CONTEXT_BINDING_REFUSED'); }
+    if (this.#session !== session || this.#policyEpoch !== epoch) throw new WalletLoginError('LOGIN_CANCELLED');
+    this.#policyAuthorizationContext = {session,epoch,context};
+    return context;
+  }
   async account() {
     if (!this.#session) throw new WalletLoginError('LOGIN_REQUIRED');
     const value = await this.request('account');
@@ -192,6 +232,24 @@ export class AccountAuthClient {
       value.authenticator.enrolled !== value.methods.totp.bound || value.management.existingCodeRequired !== value.authenticator.enrolled)
       throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
     return value;
+  }
+  async readNftInventory() {
+    const session = this.#session;
+    if (!session || !this.#csrf) throw new WalletLoginError('LOGIN_REQUIRED');
+    const readId = fundsReadId();
+    const result = await this.request('assets/nft-inventory', { readId });
+    if (this.#session !== session) throw new WalletLoginError('LOGIN_CANCELLED');
+    try { return validateNftInventory(result, { readId, scope: { tenant: this.#tenant, origin: this.#origin, account: session.account, chainId: session.chainId } }); }
+    catch { throw new WalletLoginError('NFT_INVENTORY_RESPONSE_REFUSED'); }
+  }
+  async readFunds() {
+    const session = this.#session;
+    if (!session || !this.#csrf) throw new WalletLoginError('LOGIN_REQUIRED');
+    const readId = fundsReadId();
+    const result = await this.request('assets/funds', { readId });
+    if (this.#session !== session) throw new WalletLoginError('LOGIN_CANCELLED');
+    try { return validateFunds(result, { readId, scope: { tenant: this.#tenant, origin: this.#origin, account: session.account, chainId: session.chainId } }); }
+    catch { throw new WalletLoginError('FUNDS_RESPONSE_REFUSED'); }
   }
   async readForwardProgress(input) {
     const session = this.#session;
@@ -223,6 +281,12 @@ export class AccountAuthClient {
       if (session.origin !== this.#origin || session.tenant !== this.#tenant) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
     };
     current(); body = policyRequestBody(action, body);
+    const known=this.#policyAuthorizationContext;
+    const authority=known?.session===session && known.epoch===epoch?known.context:null;
+    const authorityOrigin=authority?.authorizationOrigin??this.#origin;
+    const originBinding=authority?.continuation?{schema:'8415-owner-change-origin/1',transportOrigin:this.#origin,
+      authorizationOrigin:authorityOrigin,continuation:authority.continuation}:null;
+    const protocol=originBinding===null?'8415-task-policy-change-wire/1':'8415-task-policy-change-wire/2';
     try {
       if (['verify', 'confirm'].includes(action) && (this.#taskPolicyChange?.session !== session ||
         this.#taskPolicyChange.request.changeId !== body.changeId || this.#taskPolicyChange.changeDigest !== body.changeDigest))
@@ -230,14 +294,14 @@ export class AccountAuthClient {
       const result = await this.request(`account/task-verification/${action}`, body, { signal });
       current();
       if (!result || typeof result !== 'object' || Array.isArray(result)) throw new WalletLoginError('LOGIN_SERVICE_BINDING_REFUSED');
-      const boundScope = value => value && value.origin === this.#origin && value.tenant === this.#tenant &&
+      const boundScope = value => value && value.origin === authorityOrigin && value.tenant === this.#tenant &&
         value.username === session.username && value.account === session.account.toLowerCase() && value.chainId === session.chainId &&
         typeof value.agentId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,159}$/.test(value.agentId);
       const version = value => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value) && BigInt(value) < (1n << 256n);
       const token = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
       const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
       let valid;
-      if (action === 'cancel') valid = result.changeProtocol === '8415-task-policy-change-wire/1' &&
+      if (action === 'cancel') valid = result.changeProtocol === protocol &&
         typeof result.cancelled === 'boolean' && result.reconciliation?.changeId === body.changeId &&
         result.reconciliation?.changeDigest === body.changeDigest && result.reconciliation?.expectedRevision === body.expectedRevision &&
         result.reconciliation?.automaticRetryAllowed === false;
@@ -249,7 +313,8 @@ export class AccountAuthClient {
             result.lastChange?.revision === result.revision && result.lastChange?.mode === result.mode && hash(result.lastChange?.changeDigest));
       } else if (action === 'prepare') {
         const request = result.request;
-        valid = request?.schema === '8415-task-human-verification-change/2' && boundScope(request.scope) && ['ON', 'OFF'].includes(body.mode) && request.mode === body.mode &&
+        valid = request?.schema === (originBinding===null?'8415-task-human-verification-change/2':'8415-task-human-verification-change/3') &&
+          (originBinding===null?!Object.hasOwn(request,'originBinding'):JSON.stringify(request.originBinding)===JSON.stringify(originBinding)) && boundScope(request.scope) && ['ON', 'OFF'].includes(body.mode) && request.mode === body.mode &&
           request.expectedRevision === body.expectedRevision && version(request.expectedRevision) && Number.isSafeInteger(request.credentialRevision) &&
           request.credentialRevision >= 0 && token(request.changeId) && token(request.nonce) && hash(result.changeDigest) &&
           Number.isSafeInteger(request.issuedAt) && Number.isSafeInteger(request.expiresAt) && request.expiresAt > request.issuedAt &&

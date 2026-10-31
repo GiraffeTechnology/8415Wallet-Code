@@ -1,32 +1,36 @@
 import { readAssetWorkspace, renderAssetWorkspace } from '../dist/browser/browser.js';
 import { paint, presentation } from './i18n.mjs';
+import { rendererMessages } from './renderer-messages.mjs';
+import workspaceCopy, { workspaceNarrative } from './locales/workspace.mjs';
 import { privateReadProjection, identityText } from './wallet-identity-display.mjs';
 
 /** Mounted by the existing app, with its original connected session references. */
 export function mountAssetWorkspace({ root, login, getContext }) {
   if (!root) return;
+  const message = key => presentation(locale => (workspaceCopy[locale] ?? workspaceCopy.en)[key]);
+  const label = (element, key) => paint(element, message(key));
+  const field = (input, key) => {
+    const wrapper = document.createElement('label'), text = document.createElement('span');
+    label(text, key); wrapper.append(text, input); return wrapper;
+  };
   const panel = document.createElement('section');
-  panel.setAttribute('aria-label', 'Asset and responsibility workspace');
-  const title = document.createElement('h2'); title.textContent = 'Asset and history workspace';
-  const instant = document.createElement('input');
-  instant.type = 'text'; instant.inputMode = 'numeric'; instant.placeholder = 'Unix instant (seconds)';
-  instant.setAttribute('aria-label', 'Historical query instant as integer seconds');
+  const title = document.createElement('h2'); title.id = 'asset-workspace-title'; label(title, 'title');
+  panel.setAttribute('aria-labelledby', title.id);
+  const instant = document.createElement('input'); instant.type = 'text'; instant.inputMode = 'numeric';
+  const instantLabel = field(instant, 'instant');
   const sequence = document.createElement('input'); sequence.type = 'text';
-  sequence.placeholder = 'Optional responsibility sequence ID';
-  sequence.setAttribute('aria-label', 'Optional responsibility sequence ID');
+  const sequenceLabel = field(sequence, 'sequence');
   const logs = document.createElement('input'); logs.type = 'checkbox';
-  const logsLabel = document.createElement('label');
-  logsLabel.append(logs, document.createTextNode('Read full dual histories (bounded, optional)'));
-  const load = document.createElement('button'); load.type = 'button'; load.textContent = 'Read asset workspace';
-  const next = document.createElement('button'); next.type = 'button'; next.textContent = 'Next register-history page';
-  const select = document.createElement('select'); select.setAttribute('aria-label', 'Workspace section');
-  for (const [value, label] of [
-    ['asset', 'Asset'], ['temporal', 'Historical instant'], ['register-history', 'Register history'],
-    ['dual-history', 'Dual histories'], ['responsibility', 'Responsibility window'], ['payments', 'Optional payments'],
-  ]) { const option = document.createElement('option'); option.value = value; option.textContent = label; select.append(option); }
+  const logsLabel = field(logs, 'logs');
+  const load = document.createElement('button'); load.type = 'button'; label(load, 'load');
+  const next = document.createElement('button'); next.type = 'button'; label(next, 'next');
+  const select = document.createElement('select'); const selectLabel = field(select, 'section');
+  for (const value of ["asset", "temporal", "register-history", "dual-history", "responsibility", "payments"]) {
+    const option = document.createElement('option'); option.value = value; label(option, value); select.append(option);
+  }
   const output = document.createElement('pre'); output.setAttribute('aria-live', 'polite');
   output.style.whiteSpace = 'pre-wrap'; output.style.overflowWrap = 'anywhere';
-  panel.append(title, instant, sequence, logsLabel, load, next, select, output); root.append(panel);
+  panel.append(title, instantLabel, sequenceLabel, logsLabel, load, next, selectLabel, output); root.append(panel);
   let generation = 0, report = null, nextVersion = null, pending = false;
   let page = globalThis.history?.state?.walletPage ?? 'native';
   panel.setAttribute('data-page', 'native'); panel.hidden = page !== 'native';
@@ -37,7 +41,7 @@ export function mountAssetWorkspace({ root, login, getContext }) {
     next.disabled = !authenticated || pending || nextVersion === null || panel.hidden || document.visibilityState === 'hidden';
   };
   const render = () => { if (report) { const safe = report, tab = select.value;
-    paint(output, presentation(locale => identityText(renderAssetWorkspace(safe, tab), locale))); } };
+    paint(output, presentation(locale => identityText(renderAssetWorkspace(safe, tab, (text, values = {}) => (workspaceNarrative[locale]?.[text] ?? text).replace(/\{([a-z]+)\}/g, (match, key) => values[key] ?? match), rendererMessages(locale)), locale))); } };
   login.subscribe(() => { clear(); instant.value = ''; sequence.value = ''; logs.checked = false; refresh(); });
   document.addEventListener('wallet:summary-stale', () => { clear(); refresh(); });
   for (const event of ['input', 'change']) document.getElementById('tokenId')?.addEventListener(event, () => { clear(); refresh(); });
@@ -81,7 +85,7 @@ export function mountAssetWorkspace({ root, login, getContext }) {
       report = privateReadProjection(result, authenticated.account); nextVersion = result.registerHistory.state === 'ready' ? result.registerHistory.value.nextVersion : null;
       render();
     } catch {
-      if (binding) { try { login.assert(binding); if (epoch === generation) paint(output, 'WORKSPACE_UNAVAILABLE'); } catch { clear(); } }
+      if (binding) { try { login.assert(binding); if (epoch === generation) paint(output, message('unavailable')); } catch { clear(); } }
     } finally { if (epoch === generation) { pending = false; refresh(); } }
   }
   load.addEventListener('click', () => read());

@@ -1,3 +1,5 @@
+import { tenantBasePath } from './tenant-path.mjs';
+import {validateImageOrigins} from './image-policy.mjs';
 import { passwordPanelAction } from './tenant-password-routing.mjs';
 import { walletPath } from './wallet-entry.mjs';
 /** Release identity is presentation configuration, never signing authority. */
@@ -42,7 +44,7 @@ export function validateDeploymentConfig(value) {
   if (hasReservations && value.reservedPorts.includes(port)) fail('RELEASE_RESERVED_PORT');
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (value.environment === 'local' ? !local || !['http:', 'https:'].includes(url.protocol) : local || url.protocol !== 'https:') fail('RELEASE_SECURE_URL_REQUIRED');
-  if (!url.pathname.endsWith('/web/index.html')) fail('RELEASE_ENTRY_URL_REQUIRED');
+  if (!url.pathname.endsWith('/web/index.html') && !walletPath(url.pathname)) fail('RELEASE_ENTRY_URL_REQUIRED');
   const rawPath = value.url.match(/^https?:\/\/[^/]+(\/[^?#]*)$/)?.[1];
   if (!rawPath || rawPath !== url.pathname || rawPath.includes('%') || rawPath.includes('//')) fail('RELEASE_CANONICAL_PATH_REQUIRED');
   // Keep the configured URL exactly; no endpoint or replacement port is invented.
@@ -50,13 +52,17 @@ export function validateDeploymentConfig(value) {
 }
 
 export function resolveReleaseProfile(value) {
-  if (!exact(value, 'schema,product,platform,profile,tenant,deployment') || value.schema !== '8415wallet-release/1' ||
+  if (!exact(value, 'schema,product,platform,profile,tenant,deployment'+(Object.hasOwn(value??{},'imageOrigins')?',imageOrigins':'')) || value.schema !== '8415wallet-release/1' ||
       value.product !== '8415wallet' || value.platform !== '8415wallet.com' || !Object.hasOwn(RELEASE_PROFILES, value.profile)) fail('RELEASE_PROFILE_REFUSED');
   if (!exact(value.tenant, 'id,label') || !/^[a-z][a-z0-9-]{0,47}$/.test(value.tenant.id) ||
       typeof value.tenant.label !== 'string' || !/^[\x20-\x7e]{1,80}$/.test(value.tenant.label)) fail('RELEASE_TENANT_REFUSED');
   if (value.tenant.id === 'xiongan' && value.profile !== 'v2') fail('RELEASE_XIONGAN_V2_REQUIRED');
+  const deployment = validateDeploymentConfig(value.deployment);
+  if (deployment.url && !new URL(deployment.url).pathname.endsWith('/web/index.html')) {
+    try { tenantBasePath(value.tenant.id, new URL(deployment.url).pathname); } catch { fail('RELEASE_TENANT_PATH_REFUSED'); }
+  }
   return freeze({ ...RELEASE_PROFILES[value.profile], product: value.product, platform: value.platform,
-    status: RELEASE_STATUS, tenant: { ...value.tenant }, deployment: validateDeploymentConfig(value.deployment) });
+    imageOrigins: validateImageOrigins(value.imageOrigins), status: RELEASE_STATUS, tenant: { ...value.tenant }, deployment: validateDeploymentConfig(value.deployment) });
 }
 
 export function verifyReleaseLocation(profile, location = globalThis.location) {

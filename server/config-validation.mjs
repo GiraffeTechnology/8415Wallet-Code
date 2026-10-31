@@ -1,3 +1,4 @@
+import { tenantBasePath } from '../web/tenant-path.mjs';
 /** Public binding validation. Never returns credential material. */
 import { isAbsolute, normalize } from 'node:path';
 import { getAddress } from 'ethers';
@@ -40,11 +41,12 @@ export function validateAccountBindings(accounts) {
 }
 export function validateAuthConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) fail('AUTH_CONFIG_REFUSED');
-  if (Object.keys(config).some(key => !['origin', 'tenant', 'port', 'statePath', 'accounts', 'ca', 'reservedPorts', 'socketPath', 'mail', 'listing', 'taskTestAssets', 'exact'].includes(key))) fail('AUTH_CONFIG_FIELD_REFUSED');
+  if (Object.keys(config).some(key => !['origin', 'tenant', 'basePath', 'port', 'statePath', 'accounts', 'ca', 'reservedPorts', 'socketPath', 'mail', 'listing', 'taskTestAssets', 'exact'].includes(key))) fail('AUTH_CONFIG_FIELD_REFUSED');
   validateTaskExactConfig(config.exact);
   validateMailConfig(config.mail);
   try { validateTaskListingConfig(config.listing); } catch (error) { if (error.message !== 'TASK_LISTING_CONFIGURATION_REQUIRED') throw error; }
   const url = loginOrigin(config.origin);
+  try { tenantBasePath(config.tenant, Object.hasOwn(config, 'basePath') ? config.basePath : ''); } catch { fail('AUTH_ORIGIN_TENANT_REFUSED'); }
   if (url.origin !== config.origin || typeof config.tenant !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(config.tenant)) fail('AUTH_ORIGIN_TENANT_REFUSED');
   if (config.socketPath !== undefined) {
     if (config.port !== undefined || typeof config.socketPath !== 'string' || !/^\/[A-Za-z0-9_./-]+\.sock$/.test(config.socketPath) || normalize(config.socketPath) !== config.socketPath || Buffer.byteLength(config.socketPath) > 100) fail('AUTH_SOCKET_PATH_REFUSED');

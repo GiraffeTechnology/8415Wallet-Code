@@ -1,0 +1,125 @@
+/** Single-writer encrypted credential state. Sessions/challenges intentionally die on restart. */
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { open, readFile, rename, unlink, mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { requiredStoreGeneration, encodeStorePayload, decodeStorePayload } from './store-state-generation.mjs';
+export const MAX_STORE_BYTES = 4 * 1024 * 1024;
+const envelopeOverhead = Buffer.byteLength(JSON.stringify({ version: 1, iv: 'A'.repeat(16), tag: 'A'.repeat(24), data: '' }));
+function checkStoreSize(data, generation = requiredStoreGeneration(data)) {
+  const bytes = Buffer.byteLength(JSON.stringify(encodeStorePayload(data, generation)));
+  if (4 * Math.ceil(bytes / 3) + envelopeOverhead > MAX_STORE_BYTES) throw new Error('AUTH_STORE_CAPACITY');
+}
+export class MemoryCredentialStore {
+  #data; #queue = Promise.resolve(); #failed = false;
+  constructor(data = {}) { this.#data = structuredClone(data); }
+  async read(username) { if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY'); return structuredClone(Object.hasOwn(this.#data, username) ? this.#data[username] : null); }
+  async readMany(keys) {
+    if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
+      ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length) throw new Error('AUTH_STORE_KEYS_REFUSED');
+    const run = this.#queue.then(() => {
+      if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY');
+      return structuredClone(Object.fromEntries(keys.map(key => [key, Object.hasOwn(this.#data, key) ? this.#data[key] : null])));
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
+  /** Read-only serialized boundary for a server-owned immediate side effect.
+   * The callback runs synchronously inside the same queue as credential/grant
+   * writes. It receives a detached snapshot, cannot update stored values, and
+   * must not await or re-enter this store. Use only after required durable data
+   * has already committed; this method itself performs no persistence. */
+  async withReadSnapshot(keys, inspect) {
+    if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
+      ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length ||
+      typeof inspect !== 'function') throw new Error('AUTH_STORE_KEYS_REFUSED');
+    const run = this.#queue.then(() => {
+      if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY');
+      const values = structuredClone(Object.fromEntries(keys.map(key => [key, Object.hasOwn(this.#data, key) ? this.#data[key] : null])));
+      const result = inspect(values);
+      if (result && typeof result.then === 'function') throw new Error('AUTH_STORE_ASYNC_SNAPSHOT_REFUSED');
+      return result;
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
+  /** Server-owned asynchronous read capability. Shares the exact credential/grant
+   * write queue. The lock is retained until the callback actually settles; a timeout
+   * must never race/drop its promise and imply that a side effect was not attempted.
+   * The callback MUST NOT re-enter this store. Use a separate native task journal.
+   * This is additive: the synchronous withReadSnapshot contract is unchanged. */
+  async withReadGate(keys, inspect) {
+    if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
+      ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length ||
+      typeof inspect !== 'function') throw new Error('AUTH_STORE_KEYS_REFUSED');
+    const run = this.#queue.then(async () => {
+      if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY');
+      const values = structuredClone(Object.fromEntries(keys.map(key => [key, Object.hasOwn(this.#data, key) ? this.#data[key] : null])));
+      return await inspect(values);
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
+  async transaction(username, update) {
+    const result = await this.transactionMany([username], async values => ({ [username]: await update(values[username]) }));
+    return result[username];
+  }
+  // One queue entry and durable replace cover every index/credential involved.
+  // Keys cannot escape the explicit selection; failures leave all old values intact.
+  async transactionMany(keys, update) {
+    if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string' || !key ||
+      ['__proto__', 'constructor', 'prototype'].includes(key)) || new Set(keys).size !== keys.length) throw new Error('AUTH_STORE_KEYS_REFUSED');
+    const run = this.#queue.then(async () => {
+      if (this.#failed) throw new Error('AUTH_STORE_UNHEALTHY');
+      const next = structuredClone(this.#data);
+      const values = Object.fromEntries(keys.map(key => [key, Object.hasOwn(next, key) ? next[key] : null]));
+      const changed = await update(values);
+      if (!changed || typeof changed !== 'object' || Array.isArray(changed) ||
+        Object.keys(changed).length !== keys.length || keys.some(key => !Object.hasOwn(changed, key))) throw new Error('AUTH_STORE_UPDATE_REFUSED');
+      for (const key of keys) next[key] = structuredClone(changed[key]);
+      this.validatePersistence(next); // Rejected capacity is not a failed/uncertain durable write.
+      try { await this.persist(next); } catch (error) { this.#failed = true; throw error; }
+      this.#data = next; return structuredClone(changed);
+    });
+    this.#queue = run.catch(() => {}); return run;
+  }
+  validatePersistence(data) { checkStoreSize(data); }
+  async persist(_data) {}
+  async close() { await this.#queue; }
+}
+export async function openEncryptedStore(path, key) {
+  if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('AUTH_STORE_KEY_REQUIRED');
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  // Never infer that an existing lock is stale. Operators must establish that the
+  // prior process stopped before removing it; concurrent replicas are unsupported.
+  const lock = await open(`${path}.lock`, 'wx', 0o600);
+  let initial = {}, minimumGeneration = 1;
+  try {
+    try {
+      const raw = await readFile(path, 'utf8');
+      if (Buffer.byteLength(raw) > MAX_STORE_BYTES) throw new Error('AUTH_STORE_TOO_LARGE');
+      const envelope = JSON.parse(raw);
+      if (![1, 2, 3].includes(envelope.version)) throw new Error('AUTH_STORE_VERSION_REFUSED');
+      const decrypt = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'));
+      decrypt.setAAD(Buffer.from(`8415wallet-auth-store/${envelope.version}`)); decrypt.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+      initial = decodeStorePayload(JSON.parse(Buffer.concat([decrypt.update(Buffer.from(envelope.data, 'base64')), decrypt.final()]).toString('utf8')), envelope.version);
+      minimumGeneration = envelope.version;
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  } catch (error) { await lock.close(); await unlink(`${path}.lock`); throw error; }
+  class EncryptedStore extends MemoryCredentialStore {
+    validatePersistence(data) { checkStoreSize(data, requiredStoreGeneration(data, minimumGeneration)); }
+    async persist(data) {
+      const generation = requiredStoreGeneration(data, minimumGeneration);
+      checkStoreSize(data, generation);
+      const iv = randomBytes(12), encrypt = createCipheriv('aes-256-gcm', key, iv);
+      encrypt.setAAD(Buffer.from(`8415wallet-auth-store/${generation}`));
+      const ciphertext = Buffer.concat([encrypt.update(JSON.stringify(encodeStorePayload(data, generation))), encrypt.final()]);
+      const temp = `${path}.${randomBytes(12).toString('hex')}.tmp`;
+      const file = await open(temp, 'wx', 0o600);
+      try {
+        await file.writeFile(JSON.stringify({ version: generation, iv: iv.toString('base64'), tag: encrypt.getAuthTag().toString('base64'), data: ciphertext.toString('base64') }));
+        await file.sync(); await file.close(); await rename(temp, path);
+        const directory = await open(dirname(path), 'r'); try { await directory.sync(); } finally { await directory.close(); }
+        minimumGeneration = generation;
+      } catch (error) { await file.close().catch(() => {}); await unlink(temp).catch(() => {}); throw error; }
+    }
+    async close() { await super.close(); await lock.close(); await unlink(`${path}.lock`); }
+  }
+  return new EncryptedStore(initial);
+}

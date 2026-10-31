@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { captureAuthSource, createAuthBuildDiagnostics, deterministicAuthArchive } from '../scripts/package/build-auth.mjs';
-import { LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, TASK_RUNTIME_SOURCE_PATHS, REGISTRATION_AUTH_STATE_SEMANTICS, LEGACY_AUTH_STATE_SEMANTICS, authStateSemantics, validateAuthStateTransition, jsonBytes, packagePathAllowed, readAuthArchive, runtimePackage, sha256, sourcePathAllowed, sourceTree, unpackAuthArchive, verifyAuthArchive, verifyAuthDirectory, walkAuth } from '../scripts/package/verify-auth.mjs';
+import { LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, TASK_AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, TASK_RUNTIME_SOURCE_PATHS, ORIGIN_CONTINUATION_SOURCE_PATHS, REGISTRATION_AUTH_STATE_SEMANTICS, LEGACY_AUTH_STATE_SEMANTICS, authStateSemantics, validateAuthStateTransition, jsonBytes, packagePathAllowed, readAuthArchive, runtimePackage, sha256, sourcePathAllowed, sourceTree, unpackAuthArchive, verifyAuthArchive, verifyAuthDirectory, walkAuth } from '../scripts/package/verify-auth.mjs';
 import { paths, nginxLocation, upgrade, rollbackCode } from '../deploy/auth-runtime/install.mjs';
 
 function temporary(t) { const path = mkdtempSync(join(tmpdir(), 'wallet-auth-package-test-')); t.after(() => rmSync(path, { recursive: true, force: true })); return path; }
@@ -107,7 +107,7 @@ const sourceLock = { name: '8415wallet', lockfileVersion: 3, packages: {
   'node_modules/ethers': { version: '6.17.0', resolved: 'https://registry.npmjs.org/ethers/-/ethers-6.17.0.tgz', integrity: 'sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==' },
   'node_modules/typescript': { version: '5.9.3', dev: true },
 } };
-const sourcePaths = ['server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS, 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
+const sourcePaths = [...ORIGIN_CONTINUATION_SOURCE_PATHS,'server/ca-bindings.mjs', 'server/store-state-generation.mjs', 'server/task-asset-control-state.mjs', 'server/task-asset-control-catalog.mjs', 'server/task-asset-control-policy.mjs', 'server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS, 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'web/tenant-path.mjs', 'web/wallet-entry.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
 function git(root, args) { return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
 function fixture(t, { semantics, label = '' } = {}) {
   const root = temporary(t); const sourceRoot = join(root, 'source'); const runtimeRoot = join(root, 'runtime'); mkdirSync(sourceRoot); mkdirSync(runtimeRoot);
@@ -126,7 +126,7 @@ function fixture(t, { semantics, label = '' } = {}) {
   put(runtimeRoot, 'node_modules/ethers/package.json', jsonBytes({ name: 'ethers', version: '6.17.0' }));
   put(runtimeRoot, 'node_modules/ethers/index.js', 'export const synthetic = true;\n');
   const release = { schema: AUTH_SCHEMA, status: AUTH_STATUS, source,
-    runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, credentialStoreFormat: 1,
+    runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, credentialStoreFormat: ({'8415wallet-auth-state/5':2,'8415wallet-auth-state/6':3,'8415wallet-auth-state/7':4,'8415wallet-auth-state/8':5})[semantics] ?? 1,
       ...(semantics === undefined ? {} : { authStateSemantics: semantics }) },
     files: Object.fromEntries(walkAuth(runtimeRoot).map(path => [path, sha256(readFileSync(join(runtimeRoot, path)))])) };
   const update = () => {
@@ -148,7 +148,11 @@ test('auth state semantics allow only the reviewed forward edge and same-generat
   const legacy = { runtime: { credentialStoreFormat: 1 } };
   const explicitLegacy = { runtime: { credentialStoreFormat: 1, authStateSemantics: LEGACY_AUTH_STATE_SEMANTICS } };
   const registration = { runtime: { credentialStoreFormat: 1, authStateSemantics: REGISTRATION_AUTH_STATE_SEMANTICS } };
-  const current = { runtime: { credentialStoreFormat: 1, authStateSemantics: AUTH_STATE_SEMANTICS } };
+  const current = { runtime: { credentialStoreFormat: 5, authStateSemantics: AUTH_STATE_SEMANTICS } };
+  const task = { runtime: { credentialStoreFormat: 1, authStateSemantics: TASK_AUTH_STATE_SEMANTICS } };
+  assert.equal(authStateSemantics(current), AUTH_STATE_SEMANTICS);
+  assert.doesNotThrow(() => validateAuthStateTransition(task, current));
+  assert.throws(() => validateAuthStateTransition(current, task, { rollback: true }), /STATE_SEMANTICS_DOWNGRADE_REFUSED/);
   assert.doesNotThrow(() => validateAuthStateTransition(legacy, registration));
   assert.doesNotThrow(() => validateAuthStateTransition(registration, current));
   assert.throws(() => validateAuthStateTransition(registration, legacy), /STATE_SEMANTICS_DOWNGRADE_REFUSED/);
@@ -161,18 +165,44 @@ test('auth state semantics allow only the reviewed forward edge and same-generat
     assert.throws(() => validateAuthStateTransition(current, old, { rollback: true }), /STATE_SEMANTICS_DOWNGRADE_REFUSED/);
   }
   assert.throws(() => validateAuthStateTransition(legacy, current, { rollback: true }), /STATE_SEMANTICS_TRANSITION_REFUSED/);
-  for (const value of [null, 2, '', '8415wallet-auth-state/5', '1', {}]) {
+  for (const value of [null, 2, '', '8415wallet-auth-state/9', '8415wallet-auth-state/999', '1', {}]) {
     assert.throws(() => authStateSemantics({ runtime: { authStateSemantics: value } }), /STATE_SEMANTICS_REFUSED/);
     assert.throws(() => validateAuthStateTransition(current, { runtime: { authStateSemantics: value } }), /STATE_SEMANTICS_REFUSED/);
+  }
+});
+test('every reviewed auth generation preserves forward and rollback boundaries', () => {
+  const reviewed = [
+    '8415wallet-auth-state/1', '8415wallet-auth-state/2', '8415wallet-auth-state/3',
+    '8415wallet-auth-state/4', '8415wallet-auth-state/5', '8415wallet-auth-state/6',
+    '8415wallet-auth-state/7', '8415wallet-auth-state/8',
+  ];
+  const release = semantics => ({ runtime: { authStateSemantics: semantics } });
+  for (const [fromIndex, from] of reviewed.entries()) for (const [toIndex, to] of reviewed.entries()) {
+    const current = release(from), candidate = release(to);
+    if (toIndex < fromIndex) {
+      assert.throws(() => validateAuthStateTransition(current, candidate), /STATE_SEMANTICS_DOWNGRADE_REFUSED/);
+      assert.throws(() => validateAuthStateTransition(current, candidate, { rollback: true }), /STATE_SEMANTICS_DOWNGRADE_REFUSED/);
+    } else {
+      assert.doesNotThrow(() => validateAuthStateTransition(current, candidate));
+      if (toIndex === fromIndex) assert.doesNotThrow(() => validateAuthStateTransition(current, candidate, { rollback: true }));
+      else assert.throws(() => validateAuthStateTransition(current, candidate, { rollback: true }), /STATE_SEMANTICS_TRANSITION_REFUSED/);
+    }
+  }
+  for (const unknown of ['8415wallet-auth-state/9', '8415wallet-auth-state/999']) {
+    for (const known of reviewed) {
+      assert.throws(() => validateAuthStateTransition(release(known), release(unknown)), /STATE_SEMANTICS_REFUSED/);
+      assert.throws(() => validateAuthStateTransition(release(unknown), release(known)), /STATE_SEMANTICS_REFUSED/);
+    }
   }
 });
 test('directory verification preserves legacy readability and validates the independent state declaration', t => {
   const f = fixture(t);
   assert.equal(authStateSemantics(verifyAuthDirectory(f.runtimeRoot)), LEGACY_AUTH_STATE_SEMANTICS);
-  f.release.runtime.authStateSemantics = AUTH_STATE_SEMANTICS; f.update();
-  assert.equal(verifyAuthDirectory(f.runtimeRoot).runtime.credentialStoreFormat, 1);
+  f.release.runtime.authStateSemantics = AUTH_STATE_SEMANTICS; f.release.runtime.credentialStoreFormat = 5; f.update();
+  assert.equal(verifyAuthDirectory(f.runtimeRoot).runtime.credentialStoreFormat, 5);
   assert.equal(authStateSemantics(verifyAuthDirectory(f.runtimeRoot)), AUTH_STATE_SEMANTICS);
-  f.release.runtime.authStateSemantics = '8415wallet-auth-state/5'; f.update();
+  // Generation 8 is current; the negative case must remain an unadmitted version.
+  f.release.runtime.authStateSemantics = '8415wallet-auth-state/999'; f.update();
   assert.throws(() => verifyAuthDirectory(f.runtimeRoot), /STATE_SEMANTICS_REFUSED/);
 });
 
@@ -378,7 +408,12 @@ test('task runtime source closure has the exact planner, signer, encoding, contr
   // server/task-runtime-import-probe.mjs, which task-exact-planner-package-closure
   // checks against the computed import graph.
   assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, [
+    'web/account-auth.mjs', 'web/funds-client.mjs',
+    'server/origin-continuation.mjs', 'server/owner-change-origin.mjs', 'web/native-login-challenge.mjs', 'web/authorization-context.mjs',
+    'server/wallet-bindings.mjs', 'server/funds-service.mjs', 'src/wallet/currencyFunds.ts',
+    'server/nft-inventory-service.mjs', 'server/nft-inventory-reader.mjs', 'web/nft-inventory-client.mjs', 'web/nft-details-client.mjs', 'web/forward-progress-client.mjs',
     'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
+    'server/coordinated-forward-progress-reader.mjs', 'server/coordination-projection.mjs', 'web/coordination-view.mjs', 'src/controls/payments.ts',
     'server/forward-progress-reader.mjs', 'src/controls/detachedHistoryLocator.ts', 'src/controls/historyView.ts',
     'src/controls/historyEntitlement.ts', 'src/controls/historyMilestone.ts', 'src/controls/historyDiscovery.ts', 'src/sdk/conformance.ts',
     'server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts', 'src/wallet/linkedChainView.ts', 'src/sdk/types.ts',
@@ -395,10 +430,12 @@ test('task runtime source closure has the exact planner, signer, encoding, contr
     'server/task-listing-results.mjs', 'web/task-listing-results.mjs', 'web/task-observer-context.mjs',
     'server/task-observation-sources.mjs',
     'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
+    'server/task-business-fence-fd.mjs', 'server/task-business-dispatch-fence.mjs',
     'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
     'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
     'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
     'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
+    'src/standalone/authorization.ts', 'src/standalone/execution.ts',
     'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts']);
   assert.doesNotThrow(() => verifyAuthDirectory(f.runtimeRoot));
   assert.equal(packagePathAllowed('src/agent/unauthorized.ts'), false);
@@ -426,3 +463,27 @@ test('password generation /3 can upgrade to /4 without changing user, key or cre
 });
 
 
+test('wallet generation 7 requires format 4 while exact historical CA generation 6 remains verifiable',t=>{
+ const f=fixture(t,{semantics:'8415wallet-auth-state/7'});assert.equal(verifyAuthDirectory(f.runtimeRoot).runtime.credentialStoreFormat,4);
+ f.release.runtime.credentialStoreFormat=3;f.update();assert.throws(()=>verifyAuthDirectory(f.runtimeRoot),/STATE_FORMAT_REFUSED/);
+ f.release.runtime.authStateSemantics='8415wallet-auth-state/6';f.update();assert.equal(verifyAuthDirectory(f.runtimeRoot).runtime.credentialStoreFormat,3);
+ const old={runtime:{authStateSemantics:'8415wallet-auth-state/6'}},current={runtime:{authStateSemantics:AUTH_STATE_SEMANTICS}};
+ assert.doesNotThrow(()=>validateAuthStateTransition(old,current));assert.throws(()=>validateAuthStateTransition(current,old),/DOWNGRADE/);assert.throws(()=>validateAuthStateTransition(old,current,{rollback:true}),/TRANSITION/);assert.throws(()=>authStateSemantics({runtime:{authStateSemantics:'8415wallet-auth-state/9'}}),/SEMANTICS_REFUSED/);
+});
+test('historical CA package does not retroactively require new wallet and read-projection source files',t=>{
+ const f=fixture(t,{semantics:AUTH_STATE_SEMANTICS});const added=['server/wallet-bindings.mjs','server/funds-service.mjs','src/wallet/currencyFunds.ts','server/nft-inventory-service.mjs','server/nft-inventory-reader.mjs','web/nft-inventory-client.mjs','web/nft-details-client.mjs','web/forward-progress-client.mjs','server/coordinated-forward-progress-reader.mjs','server/coordination-projection.mjs','web/coordination-view.mjs','src/controls/payments.ts'];
+ for(const path of added){rmSync(join(f.sourceRoot,path));rmSync(join(f.runtimeRoot,path));}git(f.sourceRoot,['add','--all']);git(f.sourceRoot,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Synthetic historical closure']);f.release.source=captureAuthSource(f.sourceRoot);f.release.runtime.authStateSemantics='8415wallet-auth-state/6';f.release.runtime.credentialStoreFormat=3;f.update();assert.equal(verifyAuthDirectory(f.runtimeRoot).runtime.authStateSemantics,'8415wallet-auth-state/6');f.release.runtime.authStateSemantics=AUTH_STATE_SEMANTICS;f.release.runtime.credentialStoreFormat=5;f.update();assert.throws(()=>verifyAuthDirectory(f.runtimeRoot),/REQUIRED_FILE_MISSING/);
+});
+
+test('current auth packages cannot omit either public entry after source and manifest re-signing', t => {
+  for (const entry of ['web/tenant-path.mjs', 'web/wallet-entry.mjs']) {
+    const f = fixture(t, { semantics: AUTH_STATE_SEMANTICS });
+    assert.equal(verifyAuthDirectory(f.runtimeRoot).source.tree, f.release.source.tree);
+    rmSync(join(f.sourceRoot, entry)); rmSync(join(f.runtimeRoot, entry));
+    git(f.sourceRoot, ['add', '--all']);
+    git(f.sourceRoot, ['-c', 'user.name=Package Test', '-c', 'user.email=package-test@example.invalid',
+      'commit', '-qm', 'Synthetic omission of required public entry']);
+    f.release.source = captureAuthSource(f.sourceRoot); f.update();
+    assert.throws(() => verifyAuthDirectory(f.runtimeRoot), /AUTH_PACKAGE_REQUIRED_FILE_MISSING/);
+  }
+});

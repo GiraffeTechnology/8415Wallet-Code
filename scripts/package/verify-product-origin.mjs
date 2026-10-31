@@ -6,6 +6,7 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import ts from 'typescript';
 
 export const TOOLING_VERSION = '8415wallet-public-product-tooling/2';
 export const TOOLING_FILES = Object.freeze([
@@ -26,13 +27,13 @@ export const MANDATORY_PATHS = Object.freeze([
   'docs/RESPONSIBILITY-CONTROLS-SECURITY.md', 'docs/V3-REVIEW-AND-VALIDATION.md',
   'docs/stages/STAGE-5J-PUBLIC-PATH-AND-UI.md', 'docs/V3-DEVELOPMENT-CLOSURE.md', 'docs/XIONGAN-WALLET.md',
   'PACKAGE.md', 'PACKAGE-V3.md', 'README.md', 'README-package.md', 'package.json', 'package-lock.json',
-  'tsconfig.json', 'tsconfig.browser.json', 'tsconfig.package.json', 'tsconfig.package-v3.json',
+  'tsconfig.json', 'tsconfig.browser.json', 'tsconfig.browser-v2.json', 'tsconfig.package.json', 'tsconfig.package-v3.json',
   'config/current-prd.json', 'config/releases/v2.json', 'config/releases/v3.json', 'config/releases/xiongan-v2.json',
   'deploy/dapp/install.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/migrate-legacy.mjs',
   'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf',
   'server/main.mjs', 'server/runtime-entry.mjs', 'server/service-entry.mjs',
-  'src/index.ts', 'src/v2.ts', 'src/browser.ts', 'src/cli/main.ts', 'src/controls/index.ts',
-  'src/controls/fileOperationStore.ts', 'web/index.html', 'web/release-profile.mjs', 'web/release-config.json',
+  'src/index.ts', 'src/v2.ts', 'src/browser.ts', 'src/browser-v2.ts', 'src/cli/main.ts', 'src/controls/index.ts',
+  'src/controls/fileOperationStore.ts', 'web/index.html', 'web/index-v2.html', 'web/index-v3.html', 'web/release-profile-v2.mjs', 'web/release-profile.mjs', 'web/release-config.json',
   'web/tenant-password-routing.json', 'web/tenant-password-routing.mjs', 'web/tenant-password-ui.mjs',
   ...['build-auth', 'build-dapp', 'build-delivery', 'build-login-vendor', 'build-v2', 'build-v3',
     'dapp-release', 'release-contract', 'shared', 'v3-document-contract', 'verify-auth', 'verify-dapp',
@@ -202,14 +203,62 @@ export function localCommitBytes(tree) {
   return Buffer.from(`tree ${tree}\nauthor 8415wallet Product Export <product-export@invalid.example> 0 +0000\ncommitter 8415wallet Product Export <product-export@invalid.example> 0 +0000\n\nDeterministic local curated product export. No upstream history or CI attestation.\n`);
 }
 function importsOf(path, bytes) {
-  const text = bytes.toString('utf8'); const imports = [];
-  // Restricted source-contract scanner: pinned current source uses literal static
-  // import/export declarations and literal dynamic imports. New syntax needs review.
-  for (const match of text.matchAll(/^\s*(?:import|export)\s+(?:[^'";]*?\s+from\s*)?(['"])([^'"\n]+)\1/gm)) imports.push(match[2]);
-  for (const match of text.matchAll(/\bimport\s*\(([^)]*)\)/g)) {
-    const literal = match[1].trim().match(/^(['"])([^'"\n]+)\1$/);
-    fail(literal, `NONLITERAL_IMPORT_REFUSED: ${path}`); imports.push(literal[2]);
+  const text = bytes.toString('utf8'), imports = [];
+  if (path.endsWith('.sol')) {
+    for (const match of text.matchAll(/^\s*import\s+(?:[^'";]*?\s+from\s*)?(['"])([^'"\n]+)\1/gm)) imports.push(match[2]);
+    return imports;
   }
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true,
+    path.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS);
+  fail(source.parseDiagnostics.length === 0, `IMPORT_SYNTAX_REFUSED: ${path}`);
+  let boundedImport = null;
+  if (path === 'scripts/controls/task-auth-runtime-smoke.mjs') {
+    const declarations = source.statements.filter(ts.isVariableStatement)
+      .flatMap(statement => [...statement.declarationList.declarations]);
+    const tables = declarations.filter(node => ts.isIdentifier(node.name) && node.name.text === 'INSTALLED_SMOKE_RUNTIME_FILES');
+    const loaders = declarations.filter(node => ts.isIdentifier(node.name) && node.name.text === 'load');
+    if (tables.length || loaders.length) {
+      fail(tables.length === 1 && loaders.length === 1, `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      fail((tables[0].parent.flags & ts.NodeFlags.Const) !== 0 && (loaders[0].parent.flags & ts.NodeFlags.Const) !== 0,
+        `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      const initializer = tables[0].initializer;
+      fail(initializer && ts.isCallExpression(initializer) && initializer.expression.getText(source) === 'Object.freeze'
+        && initializer.arguments.length === 1 && ts.isArrayLiteralExpression(initializer.arguments[0]), `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      const elements = [...initializer.arguments[0].elements];
+      fail(elements.length > 0 && elements.length <= 32 && elements.every(ts.isStringLiteral), `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      const targets = elements.map(node => node.text);
+      fail(new Set(targets).size === targets.length && targets.every(safePath), `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      const loader = loaders[0].initializer;
+      const expected = "path=>{assert.ok(INSTALLED_SMOKE_RUNTIME_FILES.includes(path),'INSTALLED_SMOKE_MODULE_REFUSED');returnimport(pathToFileURL(`${root}/${path}`).href);}";
+      fail(loader && ts.isArrowFunction(loader) && loader.getText(source).replace(/\s+/g, '') === expected,
+        `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      boundedImport = loader.body.statements[1].expression;
+      const calls = new Set();
+      function checkLoad(node) {
+        if (ts.isIdentifier(node) && node.text === 'load' && node !== loaders[0].name) {
+          const call = node.parent;
+          fail(ts.isCallExpression(call) && call.expression === node && call.arguments.length === 1
+            && ts.isStringLiteral(call.arguments[0]) && targets.includes(call.arguments[0].text), `BOUNDED_IMPORT_CALL_REFUSED: ${path}`);
+          calls.add(call.arguments[0].text);
+        }
+        ts.forEachChild(node, checkLoad);
+      }
+      checkLoad(source);
+      fail(calls.size === targets.length && targets.every(target => calls.has(target)), `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      imports.push(...targets.map(target => posix.relative(posix.dirname(path), target)));
+    }
+  }
+  function visit(node) {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+      fail(ts.isStringLiteral(node.moduleSpecifier), `NONLITERAL_IMPORT_REFUSED: ${path}`);
+      imports.push(node.moduleSpecifier.text);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node !== boundedImport) {
+      fail(node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0]), `NONLITERAL_IMPORT_REFUSED: ${path}`);
+      imports.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
   return imports;
 }
 function resolveImport(path, specifier, selected) {
@@ -390,15 +439,80 @@ export function verifyProductDirectory(plan, productRoot, expectedProductTree, {
   fail(git(productRoot, ['remote']).toString().trim() === '', 'PRODUCT_REMOTE_REFUSED');
   return result;
 }
+/** Derive profile outputs from pinned source, never from archive declarations.
+ * Transpilation is import analysis only; no emitted or archived code is executed.
+ */
+export function deriveDappBoundary(plan, profile) {
+  fail(['v2', 'v3'].includes(profile), 'DAPP_PROFILE_REFUSED');
+  const files = new Map([...plan.blobs].filter(([path]) => path.startsWith('web/')));
+  const base = JSON.parse(plan.blobs.get('tsconfig.json'));
+  const project = JSON.parse(plan.blobs.get(profile === 'v2' ? 'tsconfig.browser-v2.json' : 'tsconfig.browser.json'));
+  const converted = ts.convertCompilerOptionsFromJson({ ...base.compilerOptions, ...project.compilerOptions }, '.');
+  fail(converted.errors.length === 0, 'DAPP_COMPILER_OPTIONS_REFUSED');
+  for (const [path, bytes] of plan.blobs) if (path.startsWith('src/') && path.endsWith('.ts') && !path.endsWith('.d.ts')) {
+    const emitted = ts.transpileModule(bytes.toString('utf8'), { fileName: path,
+      compilerOptions: { ...converted.options, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+        noEmit: false, declaration: false, emitDeclarationOnly: false, sourceMap: false, inlineSourceMap: false } }).outputText;
+    files.set(`dist/browser/${path.slice(4, -3)}.js`, Buffer.from(emitted));
+  }
+  // The existing strict DApp verifier checks the pinned vendor. Treat it as a
+  // leaf for this independent, source-derived module inventory.
+  files.set('dist/browser/vendor/ethers.js', Buffer.alloc(0));
+  const copy = (from, to) => { fail(files.has(from), `DAPP_PROFILE_INPUT_MISSING: ${from}`); files.set(to, files.get(from)); };
+  copy(`web/index-${profile}.html`, 'web/index.html');
+  if (profile === 'v2') {
+    copy('web/release-profile-v2.mjs', 'web/release-profile.mjs');
+    copy('dist/browser/browser-v2.js', 'dist/browser/browser.js');
+  }
+  const visited = new Set();
+  const target = (from, specifier) => {
+    const path = posix.normalize(posix.join(posix.dirname(from), specifier));
+    fail(specifier.startsWith('.') && safePath(path) && files.has(path), `DAPP_PROFILE_IMPORT_REFUSED: ${from} -> ${specifier}`);
+    return path;
+  };
+  const visit = path => {
+    if (visited.has(path)) return;
+    visited.add(path);
+    for (const specifier of importsOf(path, files.get(path))) visit(target(path, specifier));
+  };
+  visit('web/release-profile.mjs');
+  for (const match of files.get('web/index.html').toString('utf8').matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/g))
+    visit(target('web/index.html', './' + match[1]));
+  for (const path of files.keys()) {
+    if (/\.(?:mjs|js)$/.test(path) && !visited.has(path)) files.delete(path);
+    else if (profile === 'v2' && path.startsWith('web/') && path.endsWith('.html') && path !== 'web/index.html') files.delete(path);
+  }
+  if (profile === 'v3') { files.delete('web/index-v2.html'); files.delete('web/index-v3.html'); }
+  const config = JSON.parse(plan.blobs.get(`config/releases/${profile}.json`)), origins = config.imageOrigins ?? [];
+  fail(Array.isArray(origins) && origins.length <= 16 && new Set(origins).size === origins.length, 'DAPP_IMAGE_ORIGINS_REFUSED');
+  for (const origin of origins) {
+    let u; try { u = new URL(origin); } catch { fail(false, 'DAPP_IMAGE_ORIGINS_REFUSED'); }
+    fail(typeof origin === 'string' && origin === u.origin && u.protocol === 'https:' && !u.port && !u.username && !u.password
+      && /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,63}$/.test(u.hostname)
+      && !/(?:^|\.)(?:localhost|local|internal|invalid|test|lan|home|arpa)$/.test(u.hostname), 'DAPP_IMAGE_ORIGINS_REFUSED');
+  }
+  const meta = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/g;
+  const html = files.get('web/index.html').toString('utf8');
+  fail([...html.matchAll(meta)].length === 1, 'DAPP_IMAGE_CSP_REFUSED');
+  files.set('web/index.html', Buffer.from(html.replace(meta, (_, csp) => {
+    fail((csp.match(/(?:^|;)\s*img-src\s+[^;]+/g) ?? []).length === 1, 'DAPP_IMAGE_CSP_REFUSED');
+    return '<meta http-equiv="Content-Security-Policy" content="' + csp.replace(/((?:^|;)\s*)img-src\s+[^;]+/,
+      (_, prefix) => prefix + "img-src 'self' blob:" + (origins.length ? ' ' + origins.join(' ') : '')) + '">';
+  })));
+  files.set('web/release-config.json', jsonBytes(config));
+  return { web: new Map([...files].filter(([path]) => path.startsWith('web/'))),
+    browserOutputs: [...visited].filter(path => path.startsWith('dist/browser/')).sort() };
+}
+
 /** Additional source-bound UI inventory; original strict validators stay intact. */
 export function verifyDappBoundary(plan, entries, profile) {
   fail(['v2', 'v3'].includes(profile), 'DAPP_PROFILE_REFUSED');
-  const sourceWeb = plan.policy.entries.map(entry => entry.path).filter(path => path.startsWith('web/'));
-  const expected = [...sourceWeb, ...plan.closure.browserOutputs, 'dist/browser/vendor/ethers.js', 'dist/browser/vendor/ETHERS-LICENSE.md',
+  const boundary = deriveDappBoundary(plan, profile), sourceWeb = [...boundary.web.keys()];
+  const expected = [...sourceWeb, ...boundary.browserOutputs, 'dist/browser/vendor/ETHERS-LICENSE.md',
     ...DAPP_DOCUMENTS, ...LEGAL_FILES, ...LEGAL_FILES.map(path => `web/legal/${path}`), 'RELEASE.json', 'SHA256SUMS'];
   assert.deepEqual([...entries.keys()].sort(), [...new Set(expected)].sort(), 'PRODUCT_DAPP_EXACT_INVENTORY');
   for (const path of [...sourceWeb, ...DAPP_DOCUMENTS, ...LEGAL_FILES]) {
-    const expectedBytes = path === 'web/release-config.json' ? jsonBytes(JSON.parse(plan.blobs.get(`config/releases/${profile}.json`))) : plan.blobs.get(path);
+    const expectedBytes = path.startsWith('web/') ? boundary.web.get(path) : plan.blobs.get(path);
     fail(entries.get(path).bytes.equals(expectedBytes), `DAPP_SOURCE_COPY_MISMATCH: ${path}`);
   }
   for (const path of LEGAL_FILES) fail(entries.get(`web/legal/${path}`).bytes.equals(plan.blobs.get(path)), `DAPP_LEGAL_COPY_MISMATCH: ${path}`);

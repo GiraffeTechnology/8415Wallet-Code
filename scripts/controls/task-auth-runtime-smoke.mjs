@@ -8,15 +8,33 @@ import { pathToFileURL } from 'node:url';
 const args = process.argv.slice(2);
 assert.equal(args.length, 2, 'Usage: --runtime PATH'); assert.equal(args[0], '--runtime');
 const root = resolve(args[1]);
-const load = path => import(pathToFileURL(`${root}/${path}`).href);
+export const INSTALLED_SMOKE_RUNTIME_FILES = Object.freeze([
+  'scripts/package/verify-auth.mjs', 'server/task-receipt-adapter.mjs',
+  'server/method-change-service.mjs', 'server/task-background-runner.mjs',
+  'src/agent/taskContract.ts', 'server/auth-service.mjs', 'server/main.mjs',
+  'server/store.mjs', 'server/crypto.mjs',
+]);
+const load = path => {
+  assert.ok(INSTALLED_SMOKE_RUNTIME_FILES.includes(path), 'INSTALLED_SMOKE_MODULE_REFUSED');
+  return import(pathToFileURL(`${root}/${path}`).href);
+};
 const { verifyAuthDirectory, TASK_RUNTIME_SOURCE_PATHS, AUTH_STATE_SEMANTICS } = await load('scripts/package/verify-auth.mjs');
 const release = verifyAuthDirectory(root);
 assert.equal(release.runtime.authStateSemantics, AUTH_STATE_SEMANTICS);
+// Keep an explicit installed-source inventory independent of the package manifest.
+// Read APIs and their shared view/standalone dependencies belong to this runtime.
 assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, [
+  'web/account-auth.mjs', 'web/funds-client.mjs',
+  'server/origin-continuation.mjs', 'server/owner-change-origin.mjs', 'web/native-login-challenge.mjs', 'web/authorization-context.mjs',
+  'server/wallet-bindings.mjs', 'server/funds-service.mjs', 'src/wallet/currencyFunds.ts',
+  'server/nft-inventory-service.mjs', 'server/nft-inventory-reader.mjs', 'web/nft-inventory-client.mjs', 'web/nft-details-client.mjs', 'web/forward-progress-client.mjs',
   'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
+  'server/coordinated-forward-progress-reader.mjs', 'server/coordination-projection.mjs', 'web/coordination-view.mjs', 'src/controls/payments.ts',
   'server/forward-progress-reader.mjs', 'src/controls/detachedHistoryLocator.ts', 'src/controls/historyView.ts',
   'src/controls/historyEntitlement.ts', 'src/controls/historyMilestone.ts', 'src/controls/historyDiscovery.ts', 'src/sdk/conformance.ts',
   'server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts', 'src/wallet/linkedChainView.ts', 'src/sdk/types.ts',
+  // linkedChainView uses sdk/linked.ts only via import type; native type
+  // stripping does not load it. Keep this list an exact executable closure.
   'server/task-runtime-import-probe.mjs', 'server/task-exact-runtime.mjs', 'server/task-runtime-composition.mjs',
   'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
   'server/task-exact-chain-state.mjs',
@@ -27,11 +45,14 @@ assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, [
   'server/task-listing-results.mjs', 'web/task-listing-results.mjs', 'web/task-observer-context.mjs',
   'server/task-observation-sources.mjs',
   'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
-  'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
+  'server/task-business-fence-fd.mjs', 'server/task-business-dispatch-fence.mjs', 'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
   'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
   'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
-  'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts']);
+  // Shared standalone safety helpers retain the original V3 compatibility exports.
+  'src/standalone/authorization.ts', 'src/standalone/execution.ts',
+  'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
+]);
 const { createTaskReceiptAdapter } = await load('server/task-receipt-adapter.mjs');
 assert.equal(typeof createTaskReceiptAdapter, 'function');
 await load('server/method-change-service.mjs');

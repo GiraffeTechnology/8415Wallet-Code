@@ -19,10 +19,11 @@ class Node {
   dispatchEvent(event: any) { for (const fn of this.handlers.get(event.type) ?? []) fn(event); }
   click() { if (!this.disabled) this.dispatchEvent({ type: 'click' }); }
   focus() { this.focused = true; }
+  closest() { return null; }
   replaceChildren(...items: Node[]) { this.children = items; this.textContent = ''; }
   append(...items: Node[]) { this.children.push(...items); }
 }
-function fixture(linked = false) {
+function fixture(linked = false, platformPath: string | null = null) {
   const nodes: Node[] = [], ids = new Map<string, Node>(), events = new Node(), windowEvents = new Node();
   for (const tag of html.matchAll(/<([a-z][a-z0-9]*)\b([^>]+)>/g)) {
     const node = new Node();
@@ -36,19 +37,47 @@ function fixture(linked = false) {
     return attrs.every(([, key, value]) => node.attributes.has(key!) && (value === undefined || node.attributes.get(key!) === value));
   };
   const document = { body: new Node(), getElementById: (id: string) => ids.get(id), createElement: () => new Node(), querySelectorAll: (selector: string) => nodes.filter(node => match(node, selector)), querySelector: (selector: string) => nodes.find(node => match(node, selector)), addEventListener: events.addEventListener.bind(events), dispatchEvent: events.dispatchEvent.bind(events) };
+  if (platformPath !== null) document.body.dataset.walletComposition = 'foundation';
   let subscriber: Function = () => {}, busy = false, avatarSaves = 0;
   const history: any[] = [];
-  const profile = { id: linked ? 'v3' : 'v2', tenant: { id: 'xiongan', label: 'Xiongan' }, features: { linkedResponsibilities: linked } };
+  const profile = { id: linked ? 'v3' : 'v2', tenant: platformPath === null ? { id: 'xiongan', label: 'Xiongan' } : { id: 'default', label: '8415wallet' }, deployment: { url: 'https://8415wallet.com/' }, features: { linkedResponsibilities: linked } };
   class Avatar {
     state = { status: 'empty', savedUrl: null, previewUrl: null, errorCode: null, hasDraft: false, hasSaved: false };
     snapshot() { return this.state; } cancel() { this.state.hasDraft = false; return this.state; } setContext() {} async load() {} async select() {} async save() { avatarSaves++; } async remove() {} dispose() {}
   }
   const sdk = { ...i18n, walletIdentityStateDisplay, isPlatformPasswordProfile, loginIdentifier, requestedWalletPath, authenticatedRoute, walletLogin: { subscribe(fn: Function) { subscriber = fn; } }, getReleaseProfile: async () => profile, walletUiBusy: () => busy, TenantAvatarController: Avatar };
-  const window = { location: { origin: 'http://localhost:18428', href: 'http://localhost:18428/web/index.html' }, history: { replaceState(s: any) { history.push(['replace', s]); }, pushState(s: any) { history.push(['push', s]); } }, addEventListener: windowEvents.addEventListener.bind(windowEvents) };
+  const location = new URL(platformPath === null ? 'http://localhost:18428/web/index.html' : `https://8415wallet.com${platformPath}`);
+  const window = { location, history: { replaceState(s: any, _title?: string, url?: string) { history.push(['replace', s]); if (url !== undefined) location.href = new URL(url, location.href).href; }, pushState(s: any, _title?: string, url?: string) { history.push(['push', s]); if (url !== undefined) location.href = new URL(url, location.href).href; } }, addEventListener: windowEvents.addEventListener.bind(windowEvents) };
   new Function('document', 'globalThis', ...Object.keys(sdk), source)(document, window, ...Object.values(sdk));
   const el = (id: string) => ids.get(id)!;
   el('asset-dismiss').addEventListener('click', () => { el('asset-ack').checked = false; events.dispatchEvent({ type: 'wallet:asset-review-cleared' }); });
-  return { el, nodes, events, windowEvents, history, profile, login: (session: any) => subscriber(session), setBusy: (value: boolean) => { busy = value; }, avatarSaves: () => avatarSaves, route: (name: string) => nodes.find(node => node.dataset.route === name)!.click(), page: (name: string) => nodes.find(node => node.dataset.page === name)! };
+  return { el, nodes, events, windowEvents, history, profile, location, login: (session: any) => subscriber(session), setBusy: (value: boolean) => { busy = value; }, avatarSaves: () => avatarSaves, route: (name: string) => nodes.find(node => node.dataset.route === name)!.click(), page: (name: string) => nodes.find(node => node.dataset.page === name)! };
+}
+test('public Back restores requested tenant intent and enabled entry after Home cleared it', async () => {
+  const f = fixture(true, '/alice'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.el('password-tenant-select').value, 'alice');
+  f.nodes.find(node => node.dataset.publicRoute === 'home')!.click();
+  assert.equal(f.location.pathname, '/'); assert.equal(f.el('password-tenant-select').value, '');
+  assert.equal(f.el('password-tenant-continue').disabled, true);
+  f.location.pathname = '/alice'; const before = f.history.length;
+  f.windowEvents.dispatchEvent({ type: 'popstate', state: { walletPage: 'existing' } });
+  assert.equal(f.el('existing-user-panel').hidden, false);
+  assert.equal(f.el('password-tenant-select').value, 'alice'); assert.equal(f.el('auth-username').value, 'alice');
+  assert.equal(f.el('password-tenant-continue').disabled, false); assert.equal(f.el('password-tenant-continue').getAttribute('aria-disabled'), 'false');
+  assert.equal(f.el('existing-login-open').disabled, false); assert.equal(f.el('wallet-private').hidden, true);
+  assert.equal(f.history.length, before); assert.equal(f.location.pathname, '/alice');
+});
+for (const path of ['/', '/api', '/alice?untrusted=1']) {
+  test(`public login history with no valid tenant path clears stale intent: ${path}`, async () => {
+    const f = fixture(true, '/alice'); await new Promise(resolve => setImmediate(resolve));
+    f.location.href = `https://8415wallet.com${path}`; const before = f.history.length;
+    f.windowEvents.dispatchEvent({ type: 'popstate', state: { walletPage: 'login' } });
+    assert.equal(f.el('existing-user-panel').hidden, false); assert.equal(f.el('login-panel').hidden, true);
+    assert.equal(f.el('password-tenant-select').value, ''); assert.equal(f.el('auth-username').value, '');
+    assert.equal(f.el('password-tenant-continue').disabled, true); assert.equal(f.el('password-tenant-continue').getAttribute('aria-disabled'), 'true');
+    assert.equal(f.el('existing-login-open').disabled, true); assert.equal(f.el('wallet-private').hidden, true);
+    assert.equal(f.history.length, before); assert.equal(f.location.href, `https://8415wallet.com${path}`);
+  });
 }
 test('approved shell preserves exact original giraffe bytes, local asset references and all operational IDs', () => {
   assert.equal(createHash('sha256').update(readFileSync(new URL('../web/assets/giraffe-original.jpg', import.meta.url))).digest('hex'), '08f239d0eebdd0aa2b8fe09345c50297405db8e2345fa7304b205b65ad126c3c');

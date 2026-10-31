@@ -589,7 +589,16 @@ async function run() {
           check(!(await f.state()).closed, 'Verified destination fragment must open its local panel');
           assert.equal(f.page.url(), new URL(endpoint).href, 'Consumed fragment must be removed without changing the configured endpoint');
           assert.deepEqual(f.auth, [], 'Fragment must open choices without selecting an operation');
-          await f.page.click('#auth-setup-password-open'); await f.page.waitForLoadState('networkidle');
+          // Observe the request caused by this action, not a network-idle state
+          // which may already hold before the async profile lookup dispatches.
+          // Missing or misbound capability requests still fail by timeout.
+          await Promise.all([
+            f.page.waitForResponse(response =>
+              response.url() === new URL('/auth/capabilities', endpoint).href &&
+              response.request().method() === 'GET'),
+            f.page.click('#auth-setup-password-open'),
+          ]);
+          await f.page.waitForLoadState('networkidle');
           assert.equal(f.auth.length, 1, 'Explicit destination operation must make only one local capability lookup');
           await f.page.click('#auth-management-close'); await settle(f.page); check((await f.state()).closed, 'Close must stay closed after fragment consumption');
           assert.equal(f.page.url(), new URL(endpoint).href); await f.safety(); return { exactDestination: true, fragmentConsumed: true, noAuthentication: true };

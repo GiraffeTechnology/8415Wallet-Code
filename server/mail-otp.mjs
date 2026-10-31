@@ -17,9 +17,11 @@ export function normalizeEmail(value) {
   return `${local}@${domain}`;
 }
 function messageFor({ to, code, purpose, expiresAt, tenant, origin, changeDigest }) {
-  const policyMode = purpose === 'task-verification-policy-off' ? 'OFF' : purpose === 'task-verification-policy-on' ? 'ON' : null;
+  const assetPolicy = purpose === 'asset-control-policy-off' || purpose === 'asset-control-policy-on';
+  const policyMode = ['task-verification-policy-off', 'asset-control-policy-off'].includes(purpose) ? 'OFF' :
+    ['task-verification-policy-on', 'asset-control-policy-on'].includes(purpose) ? 'ON' : null;
   const email = normalizeEmail(to);
-  if (typeof code !== 'string' || !/^\d{8}$/.test(code) || !['enroll', 'reset', 'registration', 'method-change', 'task-verification-policy-off', 'task-verification-policy-on'].includes(purpose) || !Number.isSafeInteger(expiresAt) || expiresAt < 0 ||
+  if (typeof code !== 'string' || !/^\d{8}$/.test(code) || !['enroll', 'reset', 'registration', 'method-change', 'task-verification-policy-off', 'task-verification-policy-on', 'asset-control-policy-off', 'asset-control-policy-on'].includes(purpose) || !Number.isSafeInteger(expiresAt) || expiresAt < 0 ||
     typeof tenant !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(tenant)) throw refused();
   let site; try { site = new URL(origin); } catch { throw refused(); }
   if (!['http:', 'https:'].includes(site.protocol) || site.origin !== origin || /[\r\n]/.test(origin)) throw refused();
@@ -30,7 +32,7 @@ function messageFor({ to, code, purpose, expiresAt, tenant, origin, changeDigest
     `Date: ${new Date().toUTCString()}`, `Message-ID: <${randomUUID()}@8415wallet.com>`,
     'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit', '',
     `Your ${policyMode !== null ? 'owner policy change verification' : purpose === 'method-change' ? 'account method change verification' : purpose === 'registration' ? 'account email verification' : purpose === 'enroll' ? 'reserved email enrollment' : 'security reset'} code is: ${code}`,
-    ...(policyMode === null ? [] : [`Setting: Per-operation human verification ${policyMode}`, `Change digest: ${changeDigest}`]),
+    ...(policyMode === null ? [] : [`Setting: ${assetPolicy ? 'Agent and asset authorization controls' : 'Per-operation human verification'} ${policyMode}`, `Change digest: ${changeDigest}`]),
     `Expires: ${new Date(expiresAt).toISOString()}`, `Tenant: ${tenant}`, `Requested at: ${origin}`, '',
     'This code cannot log you in or approve a transaction. Do not share it.',
     'If you did not request it, ignore this message and review your account security.', '',

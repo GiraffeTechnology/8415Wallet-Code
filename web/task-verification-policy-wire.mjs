@@ -1,3 +1,4 @@
+import { validateAuthorizationContext } from './authorization-context.mjs';
 /** Strict owner-policy HTTP decoder. Legacy policy status remains readable;
  * changing and recovery require the qualified change protocol. This decoder
  * authenticates no human factor and grants no execution authority. */
@@ -7,11 +8,12 @@ const MODE = ['ON', 'OFF'], FACTORS = ['password-or-bound-wallet', 'previously-v
 const SCOPE = ['origin', 'tenant', 'username', 'account', 'chainId', 'agentId'];
 const TOKEN = /^[A-Za-z0-9_-]{43}$/, HASH = /^[a-f0-9]{64}$/;
 export const TASK_POLICY_CHANGE_PROTOCOL = '8415-task-policy-change-wire/1';
-export function taskPolicyChangeQuery(reference) {
+export function taskPolicyChangeQuery(reference, protocol = TASK_POLICY_CHANGE_PROTOCOL) {
+  check([TASK_POLICY_CHANGE_PROTOCOL,'8415-task-policy-change-wire/2'].includes(protocol));
   reference = snapshot(reference);
   check(reference && typeof reference.changeId === 'string' && TOKEN.test(reference.changeId) &&
     typeof reference.changeDigest === 'string' && HASH.test(reference.changeDigest));
-  return Object.freeze({ protocol: TASK_POLICY_CHANGE_PROTOCOL, changeId: reference.changeId,
+  return Object.freeze({ protocol, changeId: reference.changeId,
     changeDigest: reference.changeDigest, expectedRevision: version(reference.previousRevision) });
 }
 function snapshot(value, depth = 0) {
@@ -48,13 +50,13 @@ function version(value) {
 const integer = value => { check(Number.isSafeInteger(value) && value >= 0); return value; };
 const maskedEmail = value => { check(typeof value === 'string' && value.length > 0 && value.length <= 320 &&
   !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value)); return value; };
-function scope(value, session, account) {
+function scope(value, session, account, authorityOrigin = session.origin) {
   check(account && account.origin === session.origin && account.tenant === session.tenant &&
     typeof account.account === 'string' && account.account.toLowerCase() === session.account.toLowerCase() &&
     account.chainId === session.chainId);
   record(value, SCOPE);
   let origin; try { origin = new URL(value.origin).origin; } catch { throw refuse(); }
-  check(typeof value.origin === 'string' && value.origin === origin && value.origin === session.origin &&
+  check(typeof value.origin === 'string' && value.origin === origin && value.origin === authorityOrigin &&
     typeof value.tenant === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(value.tenant) && value.tenant === session.tenant &&
     typeof value.username === 'string' && /^[a-z0-9][a-z0-9._-]{2,63}$/.test(value.username) &&
     !['__proto__', 'constructor', 'prototype'].includes(value.username) && value.username === account.username &&
@@ -67,7 +69,7 @@ function scope(value, session, account) {
 function exactFactors(value) { check(JSON.stringify(array(value)) === JSON.stringify(FACTORS)); }
 function canonicalMessage(request, changeDigest) {
   return [`8415wallet owner policy change: Per-operation human verification ${request.mode}`,
-    `Scope: ${JSON.stringify(request.scope)}`, 'Applies only to still-valid, in-scope authorizations; no new task authority.',
+    `Scope: ${JSON.stringify(request.scope)}`, ...(request.originBinding?[`Transport binding: ${JSON.stringify(request.originBinding)}`]:[]), 'Applies only to still-valid, in-scope authorizations; no new task authority.',
     request.mode === 'OFF' ? 'Preparation, signing, submission, continuation and receipts will not ask again within existing authority.' :
       'Future not-yet-submitted operations use ON verification. Existing submitted/unknown attempts are reconciled without resubmission.',
     `Revision: ${request.expectedRevision}`, `Credential revision: ${request.credentialRevision}`,
@@ -79,6 +81,15 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
     check(typeof crypto?.subtle?.digest === 'function');
     const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value)));
     return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+  async function expected(session, account, context) {
+    check(account?.origin===session.origin && account.tenant===session.tenant && account.username===session.username &&
+      account.account.toLowerCase()===session.account.toLowerCase() && account.chainId===session.chainId);
+    if(context===null)return {context:null,origin:session.origin,binding:null,protocol:TASK_POLICY_CHANGE_PROTOCOL};
+    context=await validateAuthorizationContext(context,session,session.origin,crypto);
+    return {context,origin:context.authorizationOrigin,binding:context.continuation===null?null:
+      {schema:'8415-owner-change-origin/1',transportOrigin:session.origin,authorizationOrigin:context.authorizationOrigin,continuation:context.continuation},
+      protocol:context.continuation===null?TASK_POLICY_CHANGE_PROTOCOL:'8415-task-policy-change-wire/2'};
   }
   function reconciliation(raw, reference, scopeDigest, revision) {
     record(raw, ['changeId', 'changeDigest', 'expectedRevision', 'state', 'reason', 'automaticRetryAllowed', 'committedChange']);
@@ -105,7 +116,8 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
     }
     return raw;
   }
-  async function status(raw, session, account, reference = null) {
+  async function status(raw, session, account, reference = null, authorizationContext = null) {
+    const authority=await expected(session,account,authorizationContext);
     raw = snapshot(raw);
     check(account && account.origin === session.origin && account.tenant === session.tenant &&
       account.account.toLowerCase() === session.account.toLowerCase() && account.chainId === session.chainId);
@@ -117,10 +129,10 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
     const qualified = Object.hasOwn(raw, 'changeProtocol');
     record(raw, [...base, ...(v2 ? ['enforcedFromRevision'] : []),
       ...(qualified ? ['changeProtocol', 'pendingChange', 'reconciliation'] : [])]);
-    if (qualified) check(raw.changeProtocol === TASK_POLICY_CHANGE_PROTOCOL);
+    if (qualified) check(raw.changeProtocol === authority.protocol);
     if (reference) check(qualified);
     check(v2 || raw.schema === '8415-task-human-verification/1');
-    const boundScope = scope(raw.scope, session, account), scopeDigest = await digest(boundScope);
+    const boundScope = scope(raw.scope, session, account, authority.origin), scopeDigest = await digest(boundScope);
     version(raw.revision); integer(raw.changeCount);
     check(MODE.includes(raw.mode) && BigInt(raw.changeCount) === BigInt(raw.revision) &&
       raw.label === 'Per-operation human verification' && raw.appliesTo === 'still-valid-in-scope-authorizations' &&
@@ -139,7 +151,7 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
       check(v2 || raw.mode === 'OFF' ? factors.length === 2 && ['password', 'wallet'].includes(factors[0]) && factors[1] === 'verified-email' : factors.length === 0);
       lastChange = Object.freeze({ ...entry, verifiedFactors: Object.freeze([...factors]) });
     }
-    const context = Object.freeze({ origin: boundScope.origin, tenant: boundScope.tenant,
+    const context = Object.freeze({ origin: session.origin, tenant: boundScope.tenant,
       account: session.account, chainId: boundScope.chainId });
     // The actual source supplies applicability, not an Agent permission inventory.
     // Never reinterpret missing inventory as an empty grant list or all authority.
@@ -168,35 +180,37 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
     }
     const view = Object.freeze({ mode: raw.mode, revision: raw.revision, context,
       scopeKey: scopeDigest, walletLabel: boundScope.tenant, agentId: boundScope.agentId,
-      agentLabel: boundScope.agentId, scopeLabel: raw.appliesTo, permissions: null,
+      agentLabel: boundScope.agentId, scopeLabel: raw.appliesTo+(authority.binding?' · Authorization origin: '+authority.origin:''), permissions: null,
       canChange: qualified, changeState: pendingChange || reference && !['committed', 'not-committed'].includes(reconciled?.state) ? 'unknown' : 'settled' });
     return Object.freeze({ view, lastChange, scope: boundScope, scopeDigest, schema: raw.schema,
-      changeProtocol: qualified ? raw.changeProtocol : null, pendingChange, reconciliation: reconciled });
+      authorizationContext: authority.context, changeProtocol: qualified ? raw.changeProtocol : null, pendingChange, reconciliation: reconciled });
   }
-  async function prepared(raw, { session, account, reviewed, mode, identityMethod, now }) {
+  async function prepared(raw, { session, account, reviewed, mode, identityMethod, now, authorizationContext = null }) {
+    const authority=await expected(session,account,authorizationContext);
     raw = snapshot(raw);
     check(['password', 'wallet'].includes(identityMethod));
     const qualified = Object.hasOwn(raw, 'changeProtocol');
-    if (qualified) check(raw.changeProtocol === TASK_POLICY_CHANGE_PROTOCOL);
+    if (qualified) check(raw.changeProtocol === authority.protocol);
     record(raw, ['request', 'changeDigest', 'identityMethod', 'emailMasked', ...(identityMethod === 'wallet' ? ['message'] : []),
       ...(qualified ? ['changeProtocol'] : [])]);
     if (reviewed.canChange) check(qualified);
-    record(raw.request, ['schema', 'scope', 'mode', 'expectedRevision', 'credentialRevision', 'changeId', 'nonce', 'issuedAt', 'expiresAt']);
-    const r = raw.request, boundScope = scope(r.scope, session, account);
-    check(r.schema === '8415-task-human-verification-change/2' && MODE.includes(mode) && r.mode === mode &&
+    record(raw.request, ['schema', 'scope', ...(authority.binding?['originBinding']:[]), 'mode', 'expectedRevision', 'credentialRevision', 'changeId', 'nonce', 'issuedAt', 'expiresAt']);
+    const r = raw.request, boundScope = scope(r.scope, session, account, authority.origin);
+    check(r.schema === (authority.binding?'8415-task-human-verification-change/3':'8415-task-human-verification-change/2') &&
+      (authority.binding===null || JSON.stringify(r.originBinding)===JSON.stringify(authority.binding)) && MODE.includes(mode) && r.mode === mode &&
       version(r.expectedRevision) === reviewed.revision && raw.identityMethod === identityMethod &&
       typeof r.changeId === 'string' && TOKEN.test(r.changeId) && typeof r.nonce === 'string' && TOKEN.test(r.nonce));
     integer(r.credentialRevision); integer(r.issuedAt); integer(r.expiresAt); integer(now);
     check(r.expiresAt > r.issuedAt && r.expiresAt - r.issuedAt <= 300000 && now >= r.issuedAt && now < r.expiresAt);
     check(await digest(boundScope) === reviewed.scopeKey);
-    const request = Object.freeze({ schema: r.schema, scope: boundScope, mode, expectedRevision: r.expectedRevision,
+    const request = Object.freeze({ schema: r.schema, scope: boundScope, ...(authority.binding?{originBinding:authority.binding}:{}), mode, expectedRevision: r.expectedRevision,
       credentialRevision: r.credentialRevision, changeId: r.changeId, nonce: r.nonce, issuedAt: r.issuedAt, expiresAt: r.expiresAt });
     check(typeof raw.changeDigest === 'string' && HASH.test(raw.changeDigest) && await digest(request) === raw.changeDigest);
     const message = canonicalMessage(request, raw.changeDigest);
     if (identityMethod === 'wallet') check(raw.message === message);
     const principal = Object.freeze({ origin: account.origin, tenant: account.tenant, username: account.username,
       account: account.account, chainId: account.chainId });
-    return Object.freeze({ request, session, account: principal, changeId: r.changeId, changeDigest: raw.changeDigest,
+    return Object.freeze({ request, session, authorizationContext:authority.context, account: principal, changeId: r.changeId, changeDigest: raw.changeDigest,
       identityMethod, emailMasked: maskedEmail(raw.emailMasked), issuedAt: r.issuedAt, expiresAt: r.expiresAt,
       message: identityMethod === 'wallet' ? message : null });
   }
@@ -208,7 +222,7 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
     return Object.freeze({ ...raw });
   }
   async function committed(raw, prepared) {
-    const decoded = await status(raw, prepared.session, prepared.account), entry = decoded.lastChange, r = prepared.request;
+    const decoded = await status(raw, prepared.session, prepared.account,null,prepared.authorizationContext??null), entry = decoded.lastChange, r = prepared.request;
     check(decoded.schema === '8415-task-human-verification/2' && decoded.view.mode === r.mode &&
       decoded.view.revision === (BigInt(r.expectedRevision) + 1n).toString() && entry &&
       entry.changeId === prepared.changeId && entry.changeDigest === prepared.changeDigest &&
@@ -220,7 +234,7 @@ export function createTaskVerificationPolicyWire({ crypto = globalThis.crypto } 
   function cancelled(raw, reference, decodedStatus) {
     raw = snapshot(raw);
     record(raw, ['changeProtocol', 'cancelled', 'reconciliation']);
-    check(raw.changeProtocol === TASK_POLICY_CHANGE_PROTOCOL && typeof raw.cancelled === 'boolean' &&
+    check(raw.changeProtocol === decodedStatus.changeProtocol && typeof raw.cancelled === 'boolean' &&
       reference.scopeKey === decodedStatus.scopeDigest);
     const result = reconciliation(raw.reconciliation, reference, decodedStatus.scopeDigest, decodedStatus.view.revision);
     if (raw.cancelled) check(result.state === 'not-committed' && result.reason === 'cancelled');

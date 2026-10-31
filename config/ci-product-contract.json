@@ -1,0 +1,54 @@
+{
+  "schema": "wallet-ci-product-contract/1",
+  "sourceCommit": "ecab1d36df9526628a2955a6306d709a5959baf9",
+  "sourceTree": "f2b1823365c537ef61d079ca2a27c600668bf123",
+  "fixture": {
+    "path": "tests/fixtures/product-source-contract.md",
+    "bytes": 2259,
+    "sha256": "31146915eb9ea1f902bda32211d215920d63ffe098c0b90968e070c430502344",
+    "sourceBlob": "f18a2d954b966212def3af6758042b3b0fa86ee7",
+    "verbatimProductExcerptParagraphs": [
+      {
+        "paragraph": 2,
+        "sha256": "9f956f20376c2889237f90435d94e3492448ecfa86c0a4a7cb996990a5056246"
+      },
+      {
+        "paragraph": 7,
+        "sha256": "048ebcfaa665387d66a5b44527dd4e59e900464788ce9f19ff9ecf6b15c345f7"
+      },
+      {
+        "paragraph": 11,
+        "sha256": "97fc4802144c5a1b79aee3dd547b7fd63ffedef249f3ff804d141502d5dfd966"
+      },
+      {
+        "paragraph": 15,
+        "sha256": "0418fc7f382e926ede2025a70f9f4a48b6e01ab1c9fc737fb69910e0ac556651"
+      },
+      {
+        "paragraph": 85,
+        "sha256": "48237c411de8ae470311bd308df5da2c837fbe97a752a588272d63f542710003"
+      }
+    ]
+  },
+  "externalDeliveryGates": [
+    {
+      "id": "internal-development-entry-contract",
+      "required": true,
+      "evaluation": "private-local-delivery",
+      "ciStatus": "NOT_EVALUATED_BY_CI",
+      "description": "Run the unchanged internal execution-entry existence, reading-order, product, origin and PRD pin assertions against the full private source snapshot.",
+      "originalTests": [
+        {
+          "path": "tests/kit/repositoryStructure.test.ts",
+          "sha256": "0b2525ee3139582e40c8f290c1c7a161305b19b6de29c4a002f106a2655763c2"
+        },
+        {
+          "path": "tests/product-positioning.test.ts",
+          "sha256": "2c8947fc1f0d9effc5ac9315abdc3b158e9d61495b44fcb4cd28bb8d6aea5bd3"
+        }
+      ],
+      "internalDocumentIncluded": false
+    }
+  ],
+  "ciSuccessAloneAuthorizesActivation": false
+}

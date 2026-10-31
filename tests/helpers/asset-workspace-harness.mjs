@@ -6,6 +6,7 @@ import { WalletSession } from '../../dist/browser/browser.js';
 import { divergentToken, T } from '../../src/adapters/memory/scenarios.ts';
 import { delegateReader } from '../support/delegateReader.ts';
 import { fakeLogin, Node, SECRET } from './readonly-panel-harness.mjs';
+import workspaceCopy from '../../web/locales/workspace.mjs';
 
 /**
  * The asset and history workspace panel.
@@ -51,7 +52,7 @@ function mount(options = {}) {
   let created = 0;
   const document = {
     getElementById: id => (id === 'tokenId' ? tokenNode : undefined),
-    createElement: () => { created += 1; return new Node(); },
+    createElement: tag => { created += 1; return Object.assign(new Node(), { tagName: tag.toUpperCase() }); },
     createTextNode: text => Object.assign(new Node(), { textContent: text }),
     addEventListener: documentEvents.addEventListener.bind(documentEvents),
   };
@@ -81,7 +82,7 @@ function mount(options = {}) {
   }
   const nodes = root ? root.descendants() : [];
   const byType = type => nodes.filter(node => node.type === type);
-  const selection = nodes.find(node => node.getAttribute('aria-label') === 'Workspace section');
+  const selection = nodes.find(node => node.tagName === 'SELECT');
   // A real select reports its first option; the stand-in element would report
   // an empty value, which no browser shows the panel.
   if (selection && selection.value === '') selection.value = selection.children[0]?.value ?? '';
@@ -136,7 +137,8 @@ export function runAssetWorkspaceCases() {
   test('asset workspace: mounts one card with its read controls', () => {
     const panel = mount();
     assert.equal(panel.root.children.length, 1);
-    assert.equal(panel.card.getAttribute('aria-label'), 'Asset and responsibility workspace');
+    const heading = panel.root.descendants().find(node => node.id === panel.card.getAttribute('aria-labelledby'));
+    assert.equal(heading?.textContent, workspaceCopy.en.title);
     assert.ok(panel.instant && panel.sequence && panel.logs && panel.load && panel.next && panel.select);
     assert.equal(panel.output.textContent, '');
     assert.equal(panel.login.subscriberCount(), 1);
@@ -181,7 +183,7 @@ export function runAssetWorkspaceCases() {
       refusal.prepare(panel);
       await panel.act(() => panel.load.click());
       assert.equal(panel.calls.entryCount, 0, 'a refused form must not reach the contract');
-      assert.equal(panel.output.textContent, 'WORKSPACE_UNAVAILABLE');
+      assert.equal(panel.output.textContent, workspaceCopy.en.unavailable);
     });
   }
 
@@ -191,7 +193,7 @@ export function runAssetWorkspaceCases() {
     panel.sequence.value = `0x${'ab'.repeat(32)}`;
     await panel.act(() => panel.load.click());
     assert.equal(panel.calls.entryCount, 0);
-    assert.equal(panel.output.textContent, 'WORKSPACE_UNAVAILABLE');
+    assert.equal(panel.output.textContent, workspaceCopy.en.unavailable);
   });
 
   test('asset workspace: a context on another chain refuses before any read', async () => {
@@ -200,7 +202,7 @@ export function runAssetWorkspaceCases() {
     ready(panel);
     await panel.act(() => panel.load.click());
     assert.equal(panel.calls.entryCount, 0, 'a chain the session did not authorize must not be read');
-    assert.equal(panel.output.textContent, 'WORKSPACE_UNAVAILABLE');
+    assert.equal(panel.output.textContent, workspaceCopy.en.unavailable);
   });
 
   test('asset workspace: a context that refuses to open shows only the panel message', async () => {
@@ -209,7 +211,7 @@ export function runAssetWorkspaceCases() {
     await panel.act(() => panel.load.click());
     assert.ok(panel.contextReads() > 0, 'the panel refused earlier, so this proves nothing');
     assert.equal(panel.calls.entryCount, 0);
-    assert.equal(panel.output.textContent, 'WORKSPACE_UNAVAILABLE');
+    assert.equal(panel.output.textContent, workspaceCopy.en.unavailable);
     for (const node of panel.root.descendants()) {
       assert.doesNotMatch(node.textContent, new RegExp(SECRET), 'context text reached the page');
     }
@@ -219,7 +221,7 @@ export function runAssetWorkspaceCases() {
     const panel = mount();
     panel.instant.value = (1n << 64n).toString();
     await panel.act(() => panel.load.click());
-    assert.equal(panel.output.textContent, 'WORKSPACE_UNAVAILABLE');
+    assert.equal(panel.output.textContent, workspaceCopy.en.unavailable);
     assert.equal(panel.next.disabled, true);
   });
 
@@ -230,7 +232,7 @@ export function runAssetWorkspaceCases() {
     assert.ok(panel.calls.entryCount > 0, 'the read never reached the contract');
     const asset = panel.output.textContent;
     assert.notEqual(asset, '');
-    assert.notEqual(asset, 'WORKSPACE_UNAVAILABLE');
+    assert.notEqual(asset, workspaceCopy.en.unavailable);
     assert.match(asset, /READ ONLY, not transaction authority/);
     const reads = panel.calls.entryCount;
     panel.select.value = 'register-history';
@@ -248,7 +250,7 @@ export function runAssetWorkspaceCases() {
     await panel.act(() => panel.load.click());
     assert.ok(panel.calls.entryCount > 0);
     assert.notEqual(panel.output.textContent, '');
-    assert.notEqual(panel.output.textContent, 'WORKSPACE_UNAVAILABLE',
+    assert.notEqual(panel.output.textContent, workspaceCopy.en.unavailable,
       'the whole read refused, so this proves nothing about a failing section');
     for (const node of panel.root.descendants()) {
       assert.doesNotMatch(node.textContent, new RegExp(SECRET), 'contract error text reached the page');

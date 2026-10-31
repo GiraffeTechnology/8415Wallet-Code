@@ -6,6 +6,10 @@ const {isCanonicalWalletRequest,canonicalEntryHtml}=require('./canonical-entry.c
 // Development-only server: loopback, GET/HEAD and two public static trees only.
 // It has no RPC forwarding, signing, secret loading, upload or write endpoint.
 const root=path.resolve(__dirname,'../..');
+(async()=>{
+const {resolveReleaseProfile}=await import('../../web/release-profile.mjs');
+const {applyImagePolicy,imageContentSecurityPolicy}=await import('../../web/image-policy.mjs');
+const imageOrigins=resolveReleaseProfile(JSON.parse(fs.readFileSync(path.join(root,'web/release-config.json'),'utf8'))).imageOrigins;
 // Only an explicitly requested loopback test URL can assemble retained modules.
 // The default /web/index.html remains its exact source bytes.
 const testComposition=process.env.WALLET_BROWSER_TEST_COMPOSITION || null;
@@ -47,13 +51,17 @@ web.add('task-verification-policy-client.mjs'); web.add('task-verification-polic
 web.add('task-verification-policy-pending.mjs');
 web.add('task-verification-policy-ceremony.mjs'); web.add('task-verification-policy-ui.mjs');
 web.add('foundation-policy-summary.mjs');
+for (const name of ['asset-control-transport.mjs', 'asset-control-wire.mjs', 'asset-control-client.mjs',
+  'asset-control-ui.mjs', 'asset-control-startup.mjs']) web.add(name);
 web.add('wallet-identity-display.mjs');
 web.add('wallet-entry.mjs');
+web.add('tenant-path.mjs'); web.add('authorization-context.mjs'); web.add('native-login-challenge.mjs');
+for(const name of ['coordination-render.mjs','coordination-view.mjs','renderer-messages.mjs','image-policy.mjs','nft-browser.mjs','nft-browser-startup.mjs','nft-inventory-client.mjs','nft-details-client.mjs','funds-panel.mjs','funds-startup.mjs','funds-client.mjs'])web.add(name);
 const mime={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8'};
 const server=http.createServer((req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cache-Control','no-store');
   res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Cross-Origin-Resource-Policy','same-origin');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; font-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none'");
+  res.setHeader('Content-Security-Policy',imageContentSecurityPolicy("default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; font-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",imageOrigins));
   const host=req.headers.host;
   if(![`127.0.0.1:${port}`,`localhost:${port}`].includes(host)||!['GET','HEAD'].includes(req.method)) {res.writeHead(403);res.end();return;}
   if(testFixture && testFixture.serveEnabledComposition(req,res,{root,composition:testComposition})) return;
@@ -73,9 +81,12 @@ const server=http.createServer((req,res)=>{
     for(const segment of segments){at=path.join(at,segment);if(fs.lstatSync(at).isSymbolicLink())throw new Error();}
     const stat=fs.lstatSync(full);if(!stat.isFile()||stat.nlink!==1||stat.size>2000000)throw new Error();
     res.setHeader('Content-Type',mime[path.extname(full)]??'application/octet-stream');
-    const bytes=fs.readFileSync(full);
+    let bytes=fs.readFileSync(full);
+    if(path.extname(full)==='.html')bytes=Buffer.from(applyImagePolicy(bytes.toString('utf8'),imageOrigins));
     res.writeHead(200);res.end(req.method==='HEAD'?undefined:canonicalEntry?canonicalEntryHtml(bytes.toString('utf8')):bytes);
   }catch{res.writeHead(404);res.end();}
 });
 server.listen(port,'127.0.0.1',()=>process.stdout.write(`8415Wallet browser available on loopback port ${port}; development-only\n`));
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>server.close());
+
+})().catch(error=>{process.stderr.write(error.message+'\n');process.exitCode=1;});
