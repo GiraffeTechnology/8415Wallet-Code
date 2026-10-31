@@ -66,6 +66,7 @@
     "package_and_compiler": [
       "package-lock.json",
       "package.json",
+      "tsconfig.browser-v2.json",
       "tsconfig.browser.json",
       "tsconfig.json",
       "tsconfig.package-v3.json",
@@ -2735,6 +2736,12 @@
       "mode": "100644",
       "git_blob_sha1": "20ba63e0f0c9b36eb22381604b43733ce3049bf7",
       "sha256": "ce17b1a0d6d69c02f672dfc452f2febfe2a66c8843b32b631a9a5243df2b78a4"
+    },
+    {
+      "path": "tsconfig.browser-v2.json",
+      "mode": "100644",
+      "git_blob_sha1": "ae0db3ad11fe2b4535286381929aaa2ae577b295",
+      "sha256": "a49c13abf463f27f1c3a01ae112063e92000194b8332b28e0c5a38da1ff1947e"
     },
     {
       "path": "tsconfig.browser.json",
