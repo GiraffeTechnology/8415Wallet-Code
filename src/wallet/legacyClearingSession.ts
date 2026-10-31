@@ -3,7 +3,7 @@ import { RpcEscrowReader } from '../adapters/rpc/escrowRpcReader.ts';
 import type { CallTransport } from '../adapters/rpc/transport.ts';
 import { encodeCall, encodeWords, decodeResult, type StaticType, type AbiValue } from '../codec/abi.ts';
 import { keccak256Utf8 } from '../codec/keccak.ts';
-import { controlHex, controlRpc, controlPendingNonce, hashControlBytes, requireControlAdapter as check, isControlProviderRejection } from '../controls/authorization.ts';
+import { controlHex, controlRpc, controlPendingNonce, hashControlBytes, requireControlAdapter as check, isControlProviderRejection } from '../standalone/authorization.ts';
 import { isAddressInput } from '../xiongan/address.ts';
 import type { Address, Bytes32 } from '../sdk/types.ts';
 import { buildEscrowView } from './escrowView.ts';

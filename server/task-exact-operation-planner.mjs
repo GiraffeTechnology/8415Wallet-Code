@@ -19,7 +19,7 @@ export const TASK_EXACT_PLANNER_RUNTIME_FILES = Object.freeze([
   'server/task-exact-chain-state.mjs', 'server/crypto.mjs', 'server/task-exact-operation-planner.mjs', 'server/task-operation-encoding.mjs', 'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs', 'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs',
   'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
-  'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts',
+  'src/standalone/authorization.ts', 'src/standalone/execution.ts', 'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts',
 ]);
 const sha = value => createHash('sha256').update(value).digest('hex');
 const sourceDigest = `0x${sha(JSON.stringify(TASK_EXACT_PLANNER_RUNTIME_FILES.map(path => ({ path,

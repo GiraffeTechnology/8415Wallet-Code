@@ -371,8 +371,8 @@ async function upgradeLocked({ packageDirectory, target = paths(), uid = 0, run 
   const oldRelease = await verifyAuthDirectory(receipt.runtime, { expectedTree: receipt.sourceTree });
   await protectedPackage(packageDirectory, uid);
   const next = await verifyAuthDirectory(packageDirectory);
-  if (next.runtime.credentialStoreFormat !== 1 || oldRelease.runtime.credentialStoreFormat !== 1) fail('AUTH_UPGRADE_STATE_FORMAT_REFUSED');
   validateAuthStateTransition(oldRelease, next);
+  if (![1, 2, 3, 4, 5].includes(next.runtime.credentialStoreFormat) || ![1, 2, 3, 4, 5].includes(oldRelease.runtime.credentialStoreFormat) || next.runtime.credentialStoreFormat < oldRelease.runtime.credentialStoreFormat) fail('AUTH_UPGRADE_STATE_FORMAT_REFUSED');
   if (next.source.tree === receipt.sourceTree) return { status: 'already-current', sourceTree: receipt.sourceTree, credentialStatePreserved: true };
   const destination = join(target.root, 'releases', next.source.tree);
   let switched = false, stopped = false, candidateStartAttempted = false, recoveryRequired = false;
@@ -406,10 +406,10 @@ async function rollbackCodeLocked({ target = paths(), uid = 0, run = (file, args
   if (previous.runtime !== join(target.root, 'releases', previous.sourceTree)) fail('AUTH_ROLLBACK_PATH_REFUSED');
   const old = await verifyAuthDirectory(previous.runtime, { expectedTree: previous.sourceTree });
   if (digest(await readFile(join(previous.runtime, 'AUTH-RELEASE.json'))) !== previous.releaseManifestSha256) fail('AUTH_ROLLBACK_MANIFEST_CHANGED');
-  if (old.runtime.credentialStoreFormat !== 1) fail('AUTH_UPGRADE_STATE_FORMAT_REFUSED');
+  if (![1, 2, 3, 4, 5].includes(old.runtime.credentialStoreFormat)) fail('AUTH_UPGRADE_STATE_FORMAT_REFUSED');
   const current = await verifyAuthDirectory(receipt.runtime, { expectedTree: receipt.sourceTree });
-  if (current.runtime.credentialStoreFormat !== 1) fail('AUTH_UPGRADE_STATE_FORMAT_REFUSED');
   validateAuthStateTransition(current, old, { rollback: true });
+  if (![1, 2, 3, 4, 5].includes(current.runtime.credentialStoreFormat) || old.runtime.credentialStoreFormat < current.runtime.credentialStoreFormat) fail('AUTH_UPGRADE_STATE_FORMAT_REFUSED');
   let switched = false, stopped = false, recoveryRequired = false;
   try {
     if (receipt.status === 'proxy-enabled') { await run('systemctl', ['stop', target.unitName]); stopped = true; }

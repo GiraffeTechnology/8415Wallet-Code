@@ -1,3 +1,6 @@
+import {applyImagePolicy} from '../../web/image-policy.mjs';
+import { stageV3Composition } from './v3-ui-composition.mjs';
+import { isolateV2Stage, verifyV2Isolation } from './v2-public-isolation.mjs';
 /** Build distinct static Beta artifacts; SDK npm tarballs use separate commands. */
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -39,6 +42,9 @@ rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
 stagePublicWeb(root, source, stage);
 cpSync(join(root, 'dist/browser'), join(stage, 'dist/browser'), { recursive: true });
+if (id === 'v2') isolateV2Stage(stage);
+else stageV3Composition(stage);
+writeFileSync(join(stage,'web/index.html'),applyImagePolicy(readFileSync(join(stage,'web/index.html'),'utf8'),profile.imageOrigins));
 writeFileSync(join(stage, 'web/release-config.json'), `${JSON.stringify(config, null, 2)}\n`);
 for (const file of [...LEGAL_FILES, prdPath, 'docs/BETA-DAPP-DELIVERY.md', 'docs/BETA-PRD-COVERAGE.md', 'docs/STANDARDS-COMPATIBILITY.md', 'docs/WALLET-LOGIN.md', 'docs/ACCOUNT-AUTHENTICATION.md', 'docs/APPROVED-UI-IMPLEMENTATION.md', 'docs/TENANT-AVATAR.md', 'docs/stages/LEGACY-CLEARING-BETA-DAPP.md']) {
   mkdirSync(join(stage, dirname(file)), { recursive: true }); cpSync(join(root, file), join(stage, file));
@@ -48,12 +54,14 @@ for (const file of LEGAL_FILES) {
   mkdirSync(dirname(target), { recursive: true }); cpSync(join(root, file), target);
 }
 if (captureSource(root).tree !== source.tree) throw new Error('DAPP_SOURCE_CHANGED_DURING_BUILD');
+const isolation = id === 'v2' ? verifyV2Isolation(stage) : null;
 const validation = validateStaticTree(stage);
 const runtimeFiles = Object.fromEntries(validation.files.map(file => [file, sha256(readFileSync(join(stage, file)))]));
 const sourceArtifact = `8415wallet-source-${source.tree}.tar.gz`;
 const sourceSha256 = exportSource(root, source, join(root, 'dist', sourceArtifact));
 const { entries, ...sourceIdentity } = source;
 const release = {
+  ...(isolation ? { codeIsolation: isolation } : {}),
   schema: '8415wallet-dapp-release/2', name: `8415wallet-dapp-${id}`, product: '8415wallet', platform: '8415wallet.com',
   description: 'General-purpose wallet with existing wallet and asset standards compatibility and native ERC-8415 support',
   profile: id, version: profile.version, status: RELEASE_STATUS, tenant: profile.tenant, deployment: profile.deployment,

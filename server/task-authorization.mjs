@@ -1,3 +1,4 @@
+import { assertTaskAssetControlAuthorization } from './task-asset-control-catalog.mjs';
 import { readTaskGrantVerificationPolicy } from './task-verification-execution.mjs';
 import { taskOperationVerificationBinding, consumeTaskOperationVerification,
   assertTaskOperationVerificationAttempt, taskOperationVerificationRequirement,
@@ -445,6 +446,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     // Validate the current scoped owner policy inside every existing live grant
     // gate; never treat its projection as a replacement grant or ON proof.
     readTaskGrantVerificationPolicy(credential, grant);
+    assertTaskAssetControlAuthorization(credential, grant);
     const status = effectiveStatus(grant, credential);
     requireThat(status === 'authorized', status === 'suspended' ? (grant.executor.digest !== executor.digest ? 'TASK_EXECUTOR_REVALIDATION_REQUIRED' : grant.observationPolicy?.digest !== approvedObservationPolicy?.digest ? 'TASK_OBSERVATION_POLICY_REVALIDATION_REQUIRED' :
       !sameVerifier(grant.receiptVerifier, receiptVerifier) ? 'TASK_RECEIPT_VERIFIER_REVALIDATION_REQUIRED' : 'TASK_FACTOR_REVALIDATION_REQUIRED') : `TASK_GRANT_${status.toUpperCase()}`, 403);
@@ -670,6 +672,44 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     });
     return view(result[gkey], result[ckey]);
   }
+  async function planReserve(body, session) {
+    // This endpoint never calls resume, continueExecution, execute or send.
+    // A cancelled/unknown historical child cannot create a fresh planning slot.
+    fields(body,['taskDigest','expectedBudgetRevision']);hash(body.taskDigest);version(body.expectedBudgetRevision);
+    requireThat(typeof store.withReadSnapshot==='function','TASK_EXECUTION_GATE_NOT_CONFIGURED',503);
+    const initial=await status(session,body.taskDigest);
+    requireThat(initial.task.policy.intent.kind==='exact-operation' && initial.budget?.schema==='8415-task-budget/1',
+      'TASK_PLAN_EXACT_OPERATION_REQUIRED');
+    requireThat(initial.budget.revision===body.expectedBudgetRevision,'TASK_BUDGET_REVISION_CONFLICT');
+    async function originalEnvelope(viewValue) {
+      requireThat(viewValue.budget.reservations.length===1,'TASK_PLAN_EXISTING_OPERATION_REQUIRES_RECONCILIATION');
+      const row=viewValue.budget.reservations[0];
+      requireThat(['reserved','outcome-unknown','submitted'].includes(row.status),'TASK_PLAN_EXISTING_OPERATION_REQUIRES_RECONCILIATION');
+      const request={taskDigest:body.taskDigest,operationId:row.operationId,childDigest:row.childDigest,expectedBudgetRevision:viewValue.budget.revision};
+      const c=await operationContext(request,session);let result;
+      await store.withReadSnapshot([c.ckey,c.gkey,c.okey,c.nkey],values=>{
+        const grant=checkOperation(values,c,request,session),operation=values[c.okey];
+        const child=freezeChildOperation(operation.child.child);
+        const reservation=grant.budget.reservations.find(r=>r.operationId===row.operationId&&r.childDigest===row.childDigest);
+        requireThat(child.digest===row.childDigest && child.child.taskDigest===body.taskDigest && reservation &&
+          grant.budget.reservations.length===1 && ['reserved','outcome-unknown','submitted'].includes(reservation.status) &&
+          operation.status===reservation.status,'TASK_OPERATION_STATE_REFUSED',503);
+        result=immutable(structuredClone({schema:'8415-task-plan-reservation/1',status:view(grant,values[c.ckey]),child,reservation}));
+      });
+      return result;
+    }
+    if(initial.budget.reservations.length!==0)return originalEnvelope(initial);
+    requireThat(initial.effectiveStatus==='authorized','TASK_GRANT_NOT_ACTIVE');
+    requireThat(execution && typeof execution.plan==='function','TASK_PLANNER_NOT_CONNECTED',503);
+    const proposal=await execution.plan(immutable(structuredClone({task:initial.task,budget:initial.budget,executor:initial.executor,
+      grantPolicyVersion:initial.authorization.grantPolicyVersion})));
+    requireThat(proposal!==null,'TASK_NO_CANDIDATE',409);
+    const frozen=freezeChildOperation(proposal);
+    // Original reserve revalidates current grant/credential/revision and claims
+    // operation+nonce in one original store transaction. No blind retry.
+    const reserved=await reserve({taskDigest:body.taskDigest,child:frozen.child,expectedBudgetRevision:initial.budget.revision},session);
+    return originalEnvelope(reserved);
+  }
   async function operationContext(body, session) {
     fields(body, ['taskDigest', 'operationId', 'childDigest', 'expectedBudgetRevision']);
     hash(body.taskDigest); hash(body.childDigest); identifier(body.operationId); version(body.expectedBudgetRevision);
@@ -841,12 +881,21 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     // Once the durable send attempt exists, even a rejected dispatch fence or
     // lost adapter response cannot free the nonce or make a retry safe.
     const outcome = await sending;
-    if (outcome.failed) return { ...view(result[gkey], result[ckey]), outcome: 'outcome-unknown' };
+    if (outcome.failed) return currentExecutionProgress(context, session);
     const submitted = outcome.value;
     if (!verifiedBinding(submitted, context) || !/^0x[0-9a-f]{64}$/.test(submitted.transactionHash ?? '') || /^0x0+$/.test(submitted.transactionHash)) {
-      return { ...view(result[gkey], result[ckey]), outcome: 'outcome-unknown' };
+      return currentExecutionProgress(context, session);
     }
     return recordSubmission(context, body, session, submitted.transactionHash, result[gkey].budget.revision);
+  }
+  async function currentExecutionProgress(context, session) {
+    // An adapter await can outlive revocation, credential changes, or a separate
+    // read-only recovery. Never return the pre-dispatch authority snapshot.
+    const current = await status(session, context.grant.task.digest);
+    const reservation = current.budget.reservations.find(r =>
+      r.operationId === context.child.child.operationId && r.childDigest === context.child.digest);
+    requireThat(reservation && ['outcome-unknown', 'submitted'].includes(reservation.status), 'TASK_SUBMISSION_STATE_REFUSED');
+    return { ...current, outcome: reservation.status };
   }
   function listingGrantBinding(grant) {
     requireThat(grant.schema === '8415-task-grant/2', 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED');
@@ -1301,6 +1350,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       if (path === 'tasks/status') { fields(body, ['taskDigest']); return await status(session, hash(body.taskDigest)); }
       if (path === 'tasks/revoke') return await revoke(body, session);
       if (path === 'tasks/reserve') return await reserve(body, session);
+      if (path === 'tasks/plan-reserve') return await planReserve(body, session);
       if (path === 'tasks/cancel-reservation') return await cancelReservation(body, session);
       if (path === 'tasks/prepare-operation-verification') return await prepareOperationVerification(body, session);
       if (path === 'tasks/confirm-operation-verification') return await confirmOperationVerification(body, session);

@@ -4,22 +4,31 @@ import { getReleaseProfile } from './release-profile.mjs';
 import { acquireWalletUi, releaseWalletUi, walletUiBusy } from './ui-lock.mjs';
 import { ExternalAssetSession, ASSET_CHAINS, ControlAdapterError, controlRpc, formatWeiAsEth } from '../dist/browser/browser.js';
 import { BrowserExternalAssetStore } from './external-store.mjs';
+// The page-wide operation lock rejects duplicate business actions. Never toggle
+// unrelated task/auth/policy controls: each controller owns its disabled state.
 const el = id => document.getElementById(id);
+// Selection is caller intent, never inferred from an RPC response. Legacy
+// compositions without a selector retain Ethereum as their explicit default.
+const selectedNetwork = () => {
+  const selected = el('asset-network')?.value || '1';
+  if (!Object.hasOwn(ASSET_CHAINS, selected)) throw new ControlAdapterError('ASSET_CHAIN_UNSUPPORTED');
+  return selected;
+};
 const format = value => jsonUi(value);
-let session = null, provider = null, listeningProvider = null, review = null, busy = false, generation = 0;
+let session = null, provider = null, listeningProvider = null, review = null, busy = false, generation = 0, reviewRevision = 0, nftRevision = 0;
 const output = value => { paint(el('asset-result'), typeof value === 'string' ? value : format(value));
   if (value && typeof value === 'object' && typeof value.balanceETH === 'string') document.dispatchEvent?.(new CustomEvent('wallet:asset-balance', { detail: value }));
 };
-function dismiss() { document.dispatchEvent?.(new CustomEvent('wallet:asset-review-cleared')); review = null; el('asset-ack').checked = false; paint(el('asset-review-text'), msg('ui.055')); }
+function dismiss() { reviewRevision++; document.dispatchEvent?.(new CustomEvent('wallet:asset-review-cleared')); review = null; el('asset-ack').checked = false; paint(el('asset-review-text'), msg('ui.055')); }
 function invalidate() {
   document.dispatchEvent?.(new CustomEvent('wallet:summary-stale', { detail: 'external' }));
   paint(el('nft-result'), msg('design.noNft')); document.dispatchEvent?.(new CustomEvent('wallet:nft-view', { detail: null }));
-  generation++; session = null; dismiss(); paint(el('asset-receive'), msg('message.022')); paint(el('asset-identity'), msg('message.023'));
+  generation++; nftRevision++; session = null; dismiss(); paint(el('asset-receive'), msg('message.022')); paint(el('asset-identity'), msg('message.023'));
   output(msg('message.024'));
 }
 async function run(fn) {
   if (busy) return; const uiLock = acquireWalletUi(); if (uiLock === null) return; busy = true; const current = generation;
-  document.querySelectorAll('button:not([data-auth-control]):not([data-ui-locale]) ,input,select:not([data-ui-locale])').forEach(n => { n.disabled = true; });
+
   try {
     await walletLogin.check();
     let profile;
@@ -34,16 +43,21 @@ async function run(fn) {
     if (session && current === generation) {
       const s = session;
       try { const state = await s.status(); if (s === session && current === generation) paint(el('asset-state'), format(state)); }
-      catch { paint(el('asset-state'), msg('message.026')); }
+      catch { if (s === session && current === generation) paint(el('asset-state'), msg('message.026')); }
     }
-    busy = false; releaseWalletUi(uiLock); document.querySelectorAll('button:not([data-auth-control]):not([data-ui-locale]) ,input,select:not([data-ui-locale])').forEach(n => { n.disabled = false; });
+    busy = false; releaseWalletUi(uiLock);
   }
 }
-const checkCurrent = g => { walletLogin.assert(); if (g !== generation) throw new ControlAdapterError('ASSET_CONNECTION_CHANGED'); };
+const checkCurrent = (g, expectedChain = session?.chainId) => {
+  walletLogin.assert();
+  if (g !== generation || (expectedChain !== undefined && selectedNetwork() !== expectedChain)) throw new ControlAdapterError('ASSET_CONNECTION_CHANGED');
+};
+el('asset-network')?.addEventListener('change', invalidate);
 const selected = () => { walletLogin.assert(); if (!session) throw new ControlAdapterError('ASSET_CONNECTION_REQUIRED'); return session; };
 el('asset-connect').addEventListener('click', () => {
   if (busy || walletUiBusy()) return;
   invalidate(); return run(async g => {
+    const expectedChain = selectedNetwork();
     provider = walletLogin.provider();
     if (!provider || typeof provider.request !== 'function') throw new ControlAdapterError('ASSET_WALLET_PROVIDER_REQUIRED');
     if (listeningProvider !== provider) {
@@ -51,37 +65,54 @@ el('asset-connect').addEventListener('click', () => {
       // Listener attachment is local UI state only; no wallet permission or persistent delegation.
       listeningProvider = provider;
     }
-    const accounts = await controlRpc(provider, 'eth_requestAccounts', []); checkCurrent(g);
-    const chainHex = await controlRpc(provider, 'eth_chainId', []); checkCurrent(g);
+    const accounts = await controlRpc(provider, 'eth_requestAccounts', []); checkCurrent(g, expectedChain);
+    const chainHex = await controlRpc(provider, 'eth_chainId', []); checkCurrent(g, expectedChain);
     if (typeof chainHex !== 'string' || !/^0x[0-9a-f]+$/i.test(chainHex) || !Array.isArray(accounts) || typeof accounts[0] !== 'string') throw new ControlAdapterError('ASSET_CONNECTION_REFUSED');
     const chainId = BigInt(chainHex).toString(), actor = accounts[0].toLowerCase();
-    const next = new ExternalAssetSession(provider, chainId, actor, new BrowserExternalAssetStore(chainId, actor), () => checkCurrent(g));
-    const balance = await next.balance(); await next.status(); checkCurrent(g);
+    if (chainId !== expectedChain) throw new ControlAdapterError('CONTROL_CHAIN_MISMATCH');
+    const next = new ExternalAssetSession(provider, chainId, actor, new BrowserExternalAssetStore(chainId, actor), () => checkCurrent(g, expectedChain));
+    const balance = await next.balance(); checkCurrent(g, expectedChain); await next.status(); checkCurrent(g, expectedChain);
     session = next; paint(el('asset-identity'), `${ASSET_CHAINS[chainId]} · EOA ${actor}`);
     paint(el('asset-receive'), msg('status.receive', { network: ASSET_CHAINS[chainId], chain: chainId, account: actor }));
     output({ ...balance, balanceETH: formatWeiAsEth(balance.balanceWei), custody: msg('message.027') });
   });
 });
 el('nft-read').addEventListener('click', () => run(async g => {
+  const revision = nftRevision;
   paint(el('nft-result'), msg('design.loading')); document.dispatchEvent?.(new CustomEvent('wallet:nft-view', { detail: null }));
   try {
-    const result = await selected().nftHolding(el('nft-standard').value, el('nft-contract').value.trim(), el('nft-token-id').value.trim()); checkCurrent(g);
-    paint(el('nft-result'), format(result)); document.dispatchEvent?.(new CustomEvent('wallet:nft-view', { detail: result }));
-  } catch (error) { paint(el('nft-result'), msg('design.readFailed')); throw error; }
+    const selectedSession = selected();
+    const result = await selectedSession.nftHolding(el('nft-standard').value, el('nft-contract').value.trim(), el('nft-token-id').value.trim()); checkCurrent(g);
+    if (revision !== nftRevision || selectedSession !== session) throw new ControlAdapterError('ASSET_READ_CHANGED');
+    // The SDK may read ownerOf, but neighboring wallet identity is not UI data.
+    const { owner: _privateOwner, ...snapshot } = result;
+    paint(el('nft-result'), format(snapshot)); document.dispatchEvent?.(new CustomEvent('wallet:nft-view', { detail: snapshot }));
+  } catch (error) { if (revision === nftRevision && g === generation) paint(el('nft-result'), msg('design.readFailed')); throw error; }
 }));
-for (const id of ['nft-standard', 'nft-contract', 'nft-token-id']) el(id).addEventListener('input', () => {
+for (const id of ['nft-standard', 'nft-contract', 'nft-token-id']) for (const event of ['input', 'change']) el(id).addEventListener(event, () => {
+  nftRevision++;
   paint(el('nft-result'), msg('design.noNft')); document.dispatchEvent?.(new CustomEvent('wallet:nft-view', { detail: null }));
 });
 el('asset-token-balance').addEventListener('click', () => run(async g => {
-  const result = await selected().erc20Balance(el('asset-contract').value.trim()); checkCurrent(g);
+  const selectedSession = selected(), contract = el('asset-contract').value.trim();
+  const result = await selectedSession.erc20Balance(contract); checkCurrent(g);
+  if (selectedSession !== session || contract !== el('asset-contract').value.trim()) throw new ControlAdapterError('ASSET_READ_CHANGED');
   output({ ...result, amountUnit: msg('message.028'),
     metadataTrust: msg('message.029') });
 }));
 el('asset-balance').addEventListener('click', () => run(async g => { document.dispatchEvent?.(new CustomEvent('wallet:summary-stale', { detail: 'eth' })); const result = await selected().balance(); checkCurrent(g); output({ ...result, balanceETH: formatWeiAsEth(result.balanceWei) }); }));
 for (const id of ['asset-kind', 'asset-recipient', 'asset-amount', 'asset-contract', 'asset-token-id', 'asset-request-file']) { el(id).addEventListener('change', dismiss); el(id).addEventListener('input', dismiss); }
 el('asset-dismiss').addEventListener('click', dismiss);
+// The shell's successful prepare routes transfer -> review; keep that exact review.
+// Leaving the transfer/review workflow cancels unsent authorization only.
+document.addEventListener?.('wallet:page', event => {
+  if (!['transfer', 'review'].includes(event.detail)) dismiss();
+});
 async function prepare(text, g) {
-  dismiss(); const prepared = await selected().prepare(text); checkCurrent(g); review = prepared;
+  dismiss(); const revision = reviewRevision, selectedSession = selected();
+  const prepared = await selectedSession.prepare(text); checkCurrent(g);
+  if (revision !== reviewRevision || selectedSession !== session) throw new ControlAdapterError('ASSET_REVIEW_CHANGED');
+  review = prepared;
   paint(el('asset-review-text'), format({ ...prepared, requestText: undefined, humanAmount: prepared.asset === 'ETH' ? `${formatWeiAsEth(prepared.amount)} ETH` : prepared.asset === 'ERC-20' ? (prepared.displayAmount === null ? msg('message.030') : msg('amount.tokenUnits', { amount: decimalUi(prepared.displayAmount) })) : msg('amount.nftUnits', { amount: decimalUi(prepared.amount) }), amountUnit: prepared.asset === 'ETH' ? 'wei (1 ETH = 1000000000000000000 wei)' : prepared.asset === 'ERC-20' ? msg('message.031') : msg('message.032'),
     tokenCautions: prepared.asset === 'ERC-20' ? msg('message.033') : undefined, gas: msg('message.034'),
     custody: msg('message.035'), acceptance: msg('message.036') }));
@@ -98,9 +129,11 @@ el('asset-prepare').addEventListener('click', () => run(async g => {
   await prepare(text, g);
 }));
 el('asset-review-file').addEventListener('click', () => run(async g => {
-  const f = el('asset-request-file').files?.[0];
+  const revision = reviewRevision, f = el('asset-request-file').files?.[0];
   if (!f || f.size > 8192) throw new ControlAdapterError('ASSET_REQUEST_SIZE_REFUSED');
-  const text = await f.text(); checkCurrent(g); await prepare(text, g);
+  const text = await f.text(); checkCurrent(g);
+  if (revision !== reviewRevision || f !== el('asset-request-file').files?.[0]) throw new ControlAdapterError('ASSET_REVIEW_CHANGED');
+  await prepare(text, g);
 }));
 el('asset-send').addEventListener('click', () => run(async g => {
   document.dispatchEvent?.(new CustomEvent('wallet:summary-stale'));

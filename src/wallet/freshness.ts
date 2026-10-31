@@ -1,7 +1,8 @@
+import { withPresentation, presentationMessage } from './renderMessages.ts';
+import type { PresentationMessage } from './renderMessages.ts';
 import { TransportError } from '../sdk/errors.ts';
 import type { Bytes32 } from '../sdk/types.ts';
 import type { Freshness, WatchtowerBinding } from '../sdk/watchtower.ts';
-
 /**
  * Freshness, presented as what it is.
  *
@@ -16,180 +17,187 @@ import type { Freshness, WatchtowerBinding } from '../sdk/watchtower.ts';
  * a freshness answer reach the finality display or the contest display, and
  * the tests hold that line in both directions.
  */
-
-export type FreshnessDisplay =
-  | 'reorg-safe'
-  | 'fresh-reorg-exposed'
-  | 'stale'
-  | 'unknown'
-  | 'not-configured';
-
+export type FreshnessDisplay = 'reorg-safe' | 'fresh-reorg-exposed' | 'stale' | 'unknown' | 'not-configured';
 export type FreshnessView = {
-  readonly assetId: Bytes32 | undefined;
-  /** Which watchtower contract, on which chain, answered. */
-  readonly source: { readonly chainId: bigint; readonly address: string } | undefined;
-  /**
-   * How this feed came to be paired with the projection being read.
-   *
-   * Never verified on chain: the two contracts do not know about each other.
-   * Shown so a reader can see the pairing is someone's assertion.
-   */
-  readonly binding:
-    | { readonly provenance: 'configured' | 'computed'; readonly claimedRegisterId?: Bytes32 }
-    | undefined;
-  readonly bindingNote: string | undefined;
-  /** Exactly what the contract's enum said, when one was consulted. */
-  readonly reported: Freshness | undefined;
-  readonly display: FreshnessDisplay;
-  readonly label: string;
-  /** Blocks since the head was signed. */
-  readonly age: bigint | undefined;
-  readonly finalityDepth: bigint | undefined;
-  readonly explanation: string;
-  /** Shown wherever the status is shown. */
-  readonly disclaimer: string;
+    readonly assetId: Bytes32 | undefined;
+    /** Which watchtower contract, on which chain, answered. */
+    readonly source: {
+        readonly chainId: bigint;
+        readonly address: string;
+    } | undefined;
+    /**
+     * How this feed came to be paired with the projection being read.
+     *
+     * Never verified on chain: the two contracts do not know about each other.
+     * Shown so a reader can see the pairing is someone's assertion.
+     */
+    readonly binding: {
+        readonly provenance: 'configured' | 'computed';
+        readonly claimedRegisterId?: Bytes32;
+    } | undefined;
+    readonly bindingNote: string | undefined;
+    /** Exactly what the contract's enum said, when one was consulted. */
+    readonly reported: Freshness | undefined;
+    readonly display: FreshnessDisplay;
+    readonly label: string;
+    /** Blocks since the head was signed. */
+    readonly age: bigint | undefined;
+    readonly finalityDepth: bigint | undefined;
+    readonly explanation: string;
+    /** Shown wherever the status is shown. */
+    readonly disclaimer: string;
 };
-
-const DISCLAIMER =
-  'Freshness is not finality. It measures how exposed the attestation is to a ' +
-  'chain reorganisation, not whether the register has confirmed a holder, and ' +
-  'not whether a projected instant can still change. Read `isFinalAsOf` for ' +
-  'that; nothing here substitutes for it.';
-
+const DISCLAIMER = 'Freshness is not finality. It measures how exposed the attestation is to a ' +
+    'chain reorganisation, not whether the register has confirmed a holder, and ' +
+    'not whether a projected instant can still change. Read `isFinalAsOf` for ' +
+    'that; nothing here substitutes for it.';
 const LABELS: Record<FreshnessDisplay, string> = {
-  'reorg-safe': 'Reorg-safe',
-  'fresh-reorg-exposed': 'Fresh, reorg-exposed',
-  stale: 'Stale',
-  unknown: 'Unknown',
-  'not-configured': 'No watchtower configured',
+    'reorg-safe': 'Reorg-safe',
+    'fresh-reorg-exposed': 'Fresh, reorg-exposed',
+    stale: 'Stale',
+    unknown: 'Unknown',
+    'not-configured': 'No watchtower configured',
 };
-
 const DISPLAY_BY_STATUS: Record<Freshness, FreshnessDisplay> = {
-  UNKNOWN: 'unknown',
-  STALE: 'stale',
-  FRESH_PENDING: 'fresh-reorg-exposed',
-  FRESH_FINAL: 'reorg-safe',
+    UNKNOWN: 'unknown',
+    STALE: 'stale',
+    FRESH_PENDING: 'fresh-reorg-exposed',
+    FRESH_FINAL: 'reorg-safe',
 };
-
 /** The view for a wallet with no watchtower to consult. */
 export function noWatchtower(): FreshnessView {
-  return {
-    assetId: undefined,
-    source: undefined,
-    binding: undefined,
-    bindingNote: undefined,
-    reported: undefined,
-    display: 'not-configured',
-    label: LABELS['not-configured'],
-    age: undefined,
-    finalityDepth: undefined,
-    explanation:
-      'No watchtower freshness layer is configured for this asset. Its absence ' +
-      'says nothing about the projection, which is read from the ERC-8415 ' +
-      'contract and does not depend on a watchtower.',
-    disclaimer: DISCLAIMER,
-  };
+    return withPresentation({
+        assetId: undefined,
+        source: undefined,
+        binding: undefined,
+        bindingNote: undefined,
+        reported: undefined,
+        display: 'not-configured',
+        label: LABELS['not-configured'],
+        age: undefined,
+        finalityDepth: undefined,
+        explanation: 'No watchtower freshness layer is configured for this asset. Its absence ' +
+            'says nothing about the projection, which is read from the ERC-8415 ' +
+            'contract and does not depend on a watchtower.',
+        disclaimer: DISCLAIMER,
+    }, {
+        label: ({
+            'reorg-safe': presentationMessage("protocol.040", "Reorg-safe", {}),
+            'fresh-reorg-exposed': presentationMessage("protocol.041", "Fresh, reorg-exposed", {}),
+            stale: presentationMessage("protocol.042", "Stale", {}),
+            unknown: presentationMessage("protocol.043", "Unknown", {}),
+            'not-configured': presentationMessage("protocol.044", "No watchtower configured", {})
+        })['not-configured'],
+        explanation: presentationMessage("protocol.045", "No watchtower freshness layer is configured for this asset. Its absence says nothing about the projection, which is read from the ERC-8415 contract and does not depend on a watchtower.", {})
+    });
 }
-
 export async function buildFreshnessView(binding: WatchtowerBinding): Promise<FreshnessView> {
-  const { reader, assetId, provenance, claimedRegisterId } = binding;
-  const selected: WatchtowerBinding = { reader, assetId, provenance,
-    ...(claimedRegisterId === undefined ? {} : { claimedRegisterId }) };
-  const source = Object.freeze({ chainId: reader.source.chainId, address: reader.source.address });
-  const assertSource = () => {
-    if (reader.source.chainId !== source.chainId ||
-      reader.source.address.toLowerCase() !== source.address.toLowerCase()) {
-      throw new TransportError('watchtower source', 'source identity changed during freshness observation');
+    const { reader, assetId, provenance, claimedRegisterId } = binding;
+    const selected: WatchtowerBinding = { reader, assetId, provenance,
+        ...(claimedRegisterId === undefined ? {} : { claimedRegisterId }) };
+    const source = Object.freeze({ chainId: reader.source.chainId, address: reader.source.address });
+    const assertSource = () => {
+        if (reader.source.chainId !== source.chainId ||
+            reader.source.address.toLowerCase() !== source.address.toLowerCase()) {
+            throw new TransportError('watchtower source', 'source identity changed during freshness observation');
+        }
+    };
+    const answer = await reader.freshnessOf(assetId);
+    assertSource();
+    if (answer === null || typeof answer !== 'object' ||
+        typeof answer.status !== 'string' || !Object.hasOwn(DISPLAY_BY_STATUS, answer.status) ||
+        typeof answer.age !== 'bigint' || answer.age < 0n) {
+        throw new TransportError('freshnessOf', 'malformed freshness response');
     }
-  };
-  const answer = await reader.freshnessOf(assetId);
-  assertSource();
-  if (answer === null || typeof answer !== 'object' ||
-    typeof answer.status !== 'string' || !Object.hasOwn(DISPLAY_BY_STATUS, answer.status) ||
-    typeof answer.age !== 'bigint' || answer.age < 0n) {
-    throw new TransportError('freshnessOf', 'malformed freshness response');
-  }
-  const { status, age } = answer;
-
-  let finalityDepth: bigint | undefined;
-  let policy: unknown;
-  let policyAnswered = false;
-  try {
-    policy = await reader.policyOf(assetId);
-    policyAnswered = true;
-  } catch {
-    // Optional policy read failed: preserve the reported status, with depth unavailable.
-  }
-  assertSource();
-  if (policyAnswered) {
-    const depth = policy !== null && typeof policy === 'object'
-      ? (policy as { finalityDepth?: unknown }).finalityDepth : undefined;
-    if (typeof depth !== 'bigint' || depth < 0n) {
-      throw new TransportError('policyOf', 'malformed finalityDepth response');
+    const { status, age } = answer;
+    let finalityDepth: bigint | undefined;
+    let policy: unknown;
+    let policyAnswered = false;
+    try {
+        policy = await reader.policyOf(assetId);
+        policyAnswered = true;
     }
-    finalityDepth = depth;
-  }
-
-  const display = DISPLAY_BY_STATUS[status];
-  return {
-    assetId,
-    source,
-    binding: {
-      provenance,
-      ...(claimedRegisterId === undefined ? {} : { claimedRegisterId }),
-    },
-    bindingNote: bindingNote(selected),
-    reported: status,
-    display,
-    label: LABELS[display],
-    age,
-    finalityDepth,
-    explanation: explain(status, age, finalityDepth),
-    disclaimer: DISCLAIMER,
-  };
+    catch {
+        // Optional policy read failed: preserve the reported status, with depth unavailable.
+    }
+    assertSource();
+    if (policyAnswered) {
+        const depth = policy !== null && typeof policy === 'object'
+            ? (policy as {
+                finalityDepth?: unknown;
+            }).finalityDepth : undefined;
+        if (typeof depth !== 'bigint' || depth < 0n) {
+            throw new TransportError('policyOf', 'malformed finalityDepth response');
+        }
+        finalityDepth = depth;
+    }
+    const display = DISPLAY_BY_STATUS[status];
+    return withPresentation({
+        assetId,
+        source,
+        binding: {
+            provenance,
+            ...(claimedRegisterId === undefined ? {} : { claimedRegisterId }),
+        },
+        bindingNote: bindingNote(selected),
+        reported: status,
+        display,
+        label: LABELS[display],
+        age,
+        finalityDepth,
+        explanation: explain(status, age, finalityDepth),
+        disclaimer: DISCLAIMER,
+    }, {
+        explanation: explainPresentation(status, age, finalityDepth),
+        label: ({
+            'reorg-safe': presentationMessage("protocol.040", "Reorg-safe", {}),
+            'fresh-reorg-exposed': presentationMessage("protocol.041", "Fresh, reorg-exposed", {}),
+            stale: presentationMessage("protocol.042", "Stale", {}),
+            unknown: presentationMessage("protocol.043", "Unknown", {}),
+            'not-configured': presentationMessage("protocol.044", "No watchtower configured", {})
+        })[display]
+    });
 }
-
 function explain(status: Freshness, age: bigint, finalityDepth: bigint | undefined): string {
-  const depth = finalityDepth === undefined ? 'the configured depth' : `${finalityDepth} blocks`;
-  switch (status) {
-    case 'FRESH_FINAL':
-      return (
-        `The head was signed ${age} block(s) ago, at or beyond ${depth}, so it is ` +
-        `buried deeply enough not to flip in a reorganisation. The contract's enum ` +
-        `calls this state FRESH_FINAL; it is reorg safety of the attestation, not ` +
-        `registrar finality and not projection finality.`
-      );
-    case 'FRESH_PENDING':
-      return (
-        `The head was signed ${age} block(s) ago, short of ${depth}, so it is recent ` +
-        `enough to be useful but still exposed to a reorganisation.`
-      );
-    case 'STALE':
-      return (
-        `The head is ${age} block(s) old and no longer counts as fresh — its age has ` +
-        `passed the threshold it was signed with, or its signing key was revoked. ` +
-        `A revoked key means compromise, and collapses the classification retroactively.`
-      );
-    case 'UNKNOWN':
-      return (
-        'No head is recorded, or the asset is not registered with this watchtower. ' +
-        'Nothing is being attested.'
-      );
-  }
+    const depth = finalityDepth === undefined ? 'the configured depth' : `${finalityDepth} blocks`;
+    switch (status) {
+        case 'FRESH_FINAL':
+            return (`The head was signed ${age} block(s) ago, at or beyond ${depth}, so it is ` +
+                `buried deeply enough not to flip in a reorganisation. The contract's enum ` +
+                `calls this state FRESH_FINAL; it is reorg safety of the attestation, not ` +
+                `registrar finality and not projection finality.`);
+        case 'FRESH_PENDING':
+            return (`The head was signed ${age} block(s) ago, short of ${depth}, so it is recent ` +
+                `enough to be useful but still exposed to a reorganisation.`);
+        case 'STALE':
+            return (`The head is ${age} block(s) old and no longer counts as fresh — its age has ` +
+                `passed the threshold it was signed with, or its signing key was revoked. ` +
+                `A revoked key means compromise, and collapses the classification retroactively.`);
+        case 'UNKNOWN':
+            return ('No head is recorded, or the asset is not registered with this watchtower. ' +
+                'Nothing is being attested.');
+    }
 }
-
 function bindingNote(binding: WatchtowerBinding): string {
-  const how =
-    binding.provenance === 'computed'
-      ? 'This feed identifier was derived through the watchtower\u2019s own computeAssetId.'
-      : 'This feed identifier was supplied by configuration.';
-  const claim =
-    binding.claimedRegisterId === undefined
-      ? 'Nothing states which register it tracks.'
-      : `It is asserted to track register ${binding.claimedRegisterId}.`;
-  return (
-    `${how} ${claim} No on-chain link exists between an ERC-8415 register and a ` +
-    'watchtower feed \u2014 the two contracts do not know about each other \u2014 so this ' +
-    'pairing is an assertion by whoever configured it, not a fact the wallet checked.'
-  );
+    const how = binding.provenance === 'computed'
+        ? 'This feed identifier was derived through the watchtower\u2019s own computeAssetId.'
+        : 'This feed identifier was supplied by configuration.';
+    const claim = binding.claimedRegisterId === undefined
+        ? 'Nothing states which register it tracks.'
+        : `It is asserted to track register ${binding.claimedRegisterId}.`;
+    return (`${how} ${claim} No on-chain link exists between an ERC-8415 register and a ` +
+        'watchtower feed \u2014 the two contracts do not know about each other \u2014 so this ' +
+        'pairing is an assertion by whoever configured it, not a fact the wallet checked.');
+}
+function explainPresentation(status: Freshness, age: bigint, finalityDepth: bigint | undefined): PresentationMessage | undefined {
+    switch (status) {
+        case 'FRESH_FINAL':
+            return presentationMessage("protocol.048", "The head was signed {v0} block(s) ago, at or beyond {v1}, so it is buried deeply enough not to flip in a reorganisation. The contract's enum calls this state FRESH_FINAL; it is reorg safety of the attestation, not registrar finality and not projection finality.", { v0: String(age), v1: finalityDepth === undefined ? presentationMessage("protocol.046", "the configured depth", {}) : presentationMessage("protocol.047", "{v0} blocks", { v0: String(finalityDepth) }) });
+        case 'FRESH_PENDING':
+            return presentationMessage("protocol.049", "The head was signed {v0} block(s) ago, short of {v1}, so it is recent enough to be useful but still exposed to a reorganisation.", { v0: String(age), v1: finalityDepth === undefined ? presentationMessage("protocol.046", "the configured depth", {}) : presentationMessage("protocol.047", "{v0} blocks", { v0: String(finalityDepth) }) });
+        case 'STALE':
+            return presentationMessage("protocol.051", "The head is {v0} block(s) old and no longer counts as fresh \u2014 its age has passed the threshold it was signed with, or its signing key was revoked. A revoked key means compromise, and collapses the classification retroactively.", { v0: String(age) });
+        case 'UNKNOWN':
+            return presentationMessage("protocol.053", "No head is recorded, or the asset is not registered with this watchtower. Nothing is being attested.", {});
+    }
 }

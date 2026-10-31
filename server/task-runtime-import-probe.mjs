@@ -7,6 +7,7 @@ import './task-test-nft721-contract.mjs';
 /** Inert installed-runtime check. Import factories without invoking capabilities. */
 import './task-exact-operation-planner.mjs';
 import './task-exact-signer-adapter.mjs';
+import './task-business-fence-fd.mjs';
 import './task-exact-runtime.mjs';
 import './task-runtime-composition.mjs';
 import './task-receipt-adapter.mjs';

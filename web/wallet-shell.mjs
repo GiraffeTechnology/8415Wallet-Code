@@ -155,7 +155,21 @@ globalThis.addEventListener('popstate', event => {
   else if (walletUiBusy()) { globalThis.history.replaceState({ ...(globalThis.history.state ?? {}), walletPage: page }, ''); return; }
   // Cancellation invalidates the attempt immediately, but its request owns the
   // business lock until finally. History may display the destination meanwhile.
-  if (foundationOnly && !authenticated) { openPublicPage(publicPages.has(event.state?.walletPage) ? event.state.walletPage : 'home', { history: false, cancelledManagement }); return; }
+  if (foundationOnly && !authenticated) {
+    let destination = publicPages.has(event.state?.walletPage) ? event.state.walletPage : 'home';
+    if (profile && isPlatformPasswordProfile(profile)) {
+      // History restores only public intent, never membership or login authority.
+      // Do not carry another entry's identifier into a missing/invalid path.
+      const requested = requestedWalletPath(globalThis.location);
+      const identifier = requested ? requested.slice(1) : '';
+      el('password-tenant-select').value = identifier; el('auth-username').value = identifier;
+      el('password-tenant-continue').disabled = !identifier;
+      el('password-tenant-continue').setAttribute('aria-disabled', String(!identifier));
+      el('existing-login-open').disabled = !identifier;
+      if (destination === 'login' && !identifier) destination = 'existing';
+    }
+    openPublicPage(destination, { history: false, cancelledManagement }); return;
+  }
   if (event.state?.walletPage === managementPage) {
     restoringPublicHistory = true;
     try { el('auth-manage-open').click(); } finally { restoringPublicHistory = false; }

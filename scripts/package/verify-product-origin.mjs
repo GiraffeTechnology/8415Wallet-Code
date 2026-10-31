@@ -6,6 +6,7 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import ts from 'typescript';
 
 export const TOOLING_VERSION = '8415wallet-public-product-tooling/2';
 export const TOOLING_FILES = Object.freeze([
@@ -202,14 +203,62 @@ export function localCommitBytes(tree) {
   return Buffer.from(`tree ${tree}\nauthor 8415wallet Product Export <product-export@invalid.example> 0 +0000\ncommitter 8415wallet Product Export <product-export@invalid.example> 0 +0000\n\nDeterministic local curated product export. No upstream history or CI attestation.\n`);
 }
 function importsOf(path, bytes) {
-  const text = bytes.toString('utf8'); const imports = [];
-  // Restricted source-contract scanner: pinned current source uses literal static
-  // import/export declarations and literal dynamic imports. New syntax needs review.
-  for (const match of text.matchAll(/^\s*(?:import|export)\s+(?:[^'";]*?\s+from\s*)?(['"])([^'"\n]+)\1/gm)) imports.push(match[2]);
-  for (const match of text.matchAll(/\bimport\s*\(([^)]*)\)/g)) {
-    const literal = match[1].trim().match(/^(['"])([^'"\n]+)\1$/);
-    fail(literal, `NONLITERAL_IMPORT_REFUSED: ${path}`); imports.push(literal[2]);
+  const text = bytes.toString('utf8'), imports = [];
+  if (path.endsWith('.sol')) {
+    for (const match of text.matchAll(/^\s*import\s+(?:[^'";]*?\s+from\s*)?(['"])([^'"\n]+)\1/gm)) imports.push(match[2]);
+    return imports;
   }
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true,
+    path.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS);
+  fail(source.parseDiagnostics.length === 0, `IMPORT_SYNTAX_REFUSED: ${path}`);
+  let boundedImport = null;
+  if (path === 'scripts/controls/task-auth-runtime-smoke.mjs') {
+    const declarations = source.statements.filter(ts.isVariableStatement)
+      .flatMap(statement => [...statement.declarationList.declarations]);
+    const tables = declarations.filter(node => ts.isIdentifier(node.name) && node.name.text === 'INSTALLED_SMOKE_RUNTIME_FILES');
+    const loaders = declarations.filter(node => ts.isIdentifier(node.name) && node.name.text === 'load');
+    if (tables.length || loaders.length) {
+      fail(tables.length === 1 && loaders.length === 1, `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      fail((tables[0].parent.flags & ts.NodeFlags.Const) !== 0 && (loaders[0].parent.flags & ts.NodeFlags.Const) !== 0,
+        `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      const initializer = tables[0].initializer;
+      fail(initializer && ts.isCallExpression(initializer) && initializer.expression.getText(source) === 'Object.freeze'
+        && initializer.arguments.length === 1 && ts.isArrayLiteralExpression(initializer.arguments[0]), `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      const elements = [...initializer.arguments[0].elements];
+      fail(elements.length > 0 && elements.length <= 32 && elements.every(ts.isStringLiteral), `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      const targets = elements.map(node => node.text);
+      fail(new Set(targets).size === targets.length && targets.every(safePath), `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      const loader = loaders[0].initializer;
+      const expected = "path=>{assert.ok(INSTALLED_SMOKE_RUNTIME_FILES.includes(path),'INSTALLED_SMOKE_MODULE_REFUSED');returnimport(pathToFileURL(`${root}/${path}`).href);}";
+      fail(loader && ts.isArrowFunction(loader) && loader.getText(source).replace(/\s+/g, '') === expected,
+        `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      boundedImport = loader.body.statements[1].expression;
+      const calls = new Set();
+      function checkLoad(node) {
+        if (ts.isIdentifier(node) && node.text === 'load' && node !== loaders[0].name) {
+          const call = node.parent;
+          fail(ts.isCallExpression(call) && call.expression === node && call.arguments.length === 1
+            && ts.isStringLiteral(call.arguments[0]) && targets.includes(call.arguments[0].text), `BOUNDED_IMPORT_CALL_REFUSED: ${path}`);
+          calls.add(call.arguments[0].text);
+        }
+        ts.forEachChild(node, checkLoad);
+      }
+      checkLoad(source);
+      fail(calls.size === targets.length && targets.every(target => calls.has(target)), `BOUNDED_IMPORT_CONTRACT_REFUSED: ${path}`);
+      imports.push(...targets.map(target => posix.relative(posix.dirname(path), target)));
+    }
+  }
+  function visit(node) {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+      fail(ts.isStringLiteral(node.moduleSpecifier), `NONLITERAL_IMPORT_REFUSED: ${path}`);
+      imports.push(node.moduleSpecifier.text);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node !== boundedImport) {
+      fail(node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0]), `NONLITERAL_IMPORT_REFUSED: ${path}`);
+      imports.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
   return imports;
 }
 function resolveImport(path, specifier, selected) {

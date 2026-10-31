@@ -105,15 +105,20 @@ function fixture(initialEntry = null, platform = false) {
     route(name) { nodes.find(node => node.dataset.route === name && !node.attributes.has('data-foundation-placeholder')).click(); } };
 }
 
-test('foundation mounts authenticated read-only policy status without operation entry modules', () => {
+test('foundation mounts reviewed authenticated settings without legacy operation entry modules', () => {
   const scripts = [...html.matchAll(/<script\b([^>]*)>/g)].map(([, raw]) => attrsOf(raw));
-  assert.deepEqual(scripts.map(attrs => attrs.get('src')), ['locale-ui.mjs', 'wallet-auth.mjs', 'wallet-shell.mjs', 'tenant-password-ui.mjs', 'about-entry.mjs', 'task-verification-policy-startup.mjs']);
+  assert.deepEqual(scripts.map(attrs => attrs.get('src')), ['locale-ui.mjs', 'wallet-auth.mjs', 'wallet-shell.mjs', 'tenant-password-ui.mjs', 'about-entry.mjs', 'task-verification-policy-startup.mjs', 'asset-control-startup.mjs']);
   for (const script of scripts) assert.equal(script.get('type'), 'module');
   for (const path of ['app.mjs', 'external-assets.mjs', 'legacy-clearing.mjs', 'task-ui.mjs', 'task-verification-policy-startup.mjs']) {
     assert.ok(readFileSync(new URL(`../web/${path}`, import.meta.url)).byteLength > 0);
   }
   assert.match(html, /<body[^>]*data-wallet-composition="foundation"/);
   assert.match(html, /id="wallet-private" hidden inert/);
+  const assetStartup = text('../web/asset-control-startup.mjs');
+  assert.match(assetStartup, /host\.hidden = true/);
+  assert.match(assetStartup, /typeof client\.account !== 'function'/);
+  assert.match(assetStartup, /typeof client\.request !== 'function'/);
+  assert.match(assetStartup, /event\.detail === 'settings'/);
 });
 
 test('every placeholder is disabled before startup and cannot submit a form', () => {
@@ -217,11 +222,11 @@ test('platform authentication candidate has an exact identity, with retained sec
   // Account-login, method-change and raw-page browser suites retain behavioral
   // proof/cancellation/replay tests for this changed presentation.
   const auth = text('../web/wallet-auth.mjs');
-  assert.equal(createHash('sha256').update(auth).digest('hex'), 'fa09a78f97da746761523d8c48fdaf03975bb5b0fcb451c15fd5c8205d94b3b7');
+  assert.equal(createHash('sha256').update(auth).digest('hex'), '43b374ce6006c1d75bd5f1dfe8c9cb4d1e8b4348f30ac3f0731a2cd5466a7297');
   for (const [path, expected] of [
     ['web/login-core.mjs', '2b6da6cdc97ccf7ca53aaa41c25b15b8482d29c604ecd5d76ce4bf9ba31c73d8'],
-    ['web/account-auth.mjs', '6e7021fbe19738a0cffc5fdb5a7a809b67419bfd54e59f44d2e66a6caa5e4f80'],
-    ['web/method-change-ui.mjs', '31119a18fbf541cb588b9daf531dc0e75ca46f25d8d7340e7e65d89728d209fe'],
+    ['web/account-auth.mjs', '7287481431f82ba01a656365e1f47f1178448afa563f9f9d64b156c3555343d9'],
+    ['web/method-change-ui.mjs', 'dfac55cb70a05d007795951e90845b8a39b8b949196631d2dfe65a9f5fe16e72'],
   ]) assert.equal(createHash('sha256').update(text('../' + path)).digest('hex'), expected, path);
 });
 

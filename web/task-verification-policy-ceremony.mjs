@@ -23,6 +23,7 @@ const localized = (element, key, parameters = {}) => paint(element,
  */
 export async function runTaskVerificationPolicyChange({ document, window, walletLogin,
   client, binding, signal, reviewed, mode, decoders, now = Date.now,
+  authorizationContext = null, changeProtocol = '8415-task-policy-change-wire/1',
   onPrepared = () => {}, onConfirmDispatch = () => {}, onCommitted = () => {}, onCancelled = () => {} }) {
   insist(document && window && client && typeof client.taskVerification === 'function' &&
     ['prepared', 'verified', 'committed'].every(name => typeof decoders?.[name] === 'function'));
@@ -152,10 +153,10 @@ export async function runTaskVerificationPolicyChange({ document, window, wallet
     input = await prompt('identity', account); await recheck();
     needsCancel = true;
     const raw = await client.taskVerification('prepare', { expectedRevision: reviewed.revision,
-      identityMethod: input.identityMethod, mode, protocol: '8415-task-policy-change-wire/1' }, { signal });
+      identityMethod: input.identityMethod, mode, protocol: changeProtocol }, { signal });
     await recheck();
     flow.prepared = await decoders.prepared(raw, { session, account, reviewed, mode,
-      identityMethod: input.identityMethod, now: now() });
+      identityMethod: input.identityMethod, now: now(), authorizationContext });
     await recheck();
     // Identifier and digest encodings belong to the exact current-source wire
     // decoder, not this presentation seam. These checks do not accept or
@@ -208,7 +209,7 @@ export async function runTaskVerificationPolicyChange({ document, window, wallet
       try {
         walletLogin.assert(binding);
         const result = await client.taskVerification('cancel', {
-          protocol: '8415-task-policy-change-wire/1', changeId: flow.prepared.changeId,
+          protocol: changeProtocol, changeId: flow.prepared.changeId,
           changeDigest: flow.prepared.changeDigest, expectedRevision: reviewed.revision });
         walletLogin.assert(binding);
         await onCancelled(result, flow.prepared);

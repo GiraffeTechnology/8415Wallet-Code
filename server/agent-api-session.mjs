@@ -1,3 +1,4 @@
+import { tenantBasePath, authOperation, authRequestPath } from '../web/tenant-path.mjs';
 /** Headless API client. No browser/provider UI, key loading, settings writes,
  * human-factor prompting, transaction signing or automatic submission retries.
  * Inject only the existing lawful login-message signer and trusted transport.
@@ -21,14 +22,16 @@ const taskPaths = new Set(['list', 'prepare', 'authorize', 'status', 'reserve', 
  * proxy selection, TLS relaxation or alternate endpoint fallback. Secrets are
  * passed in memory and never included in errors. HTTP is loopback-only.
  */
-export function createAgentHttpTransport({ origin, timeoutMs = 10_000, maxResponseBytes = 1_048_576 }) {
+export function createAgentHttpTransport({ origin, tenant, basePath = '', timeoutMs = 10_000, maxResponseBytes = 1_048_576 }) {
   const base = loginOrigin(origin);
+  tenantBasePath(tenant, basePath);
   check(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 60_000 &&
     Number.isSafeInteger(maxResponseBytes) && maxResponseBytes > 0 && maxResponseBytes <= 4_194_304,
   'AGENT_API_TRANSPORT_CONFIG_REFUSED');
   const send = base.protocol === 'https:' ? httpsRequest : httpRequest;
   return Object.freeze({ request({ method, path, headers, body, signal }) {
-    check(['GET', 'POST'].includes(method) && /^\/auth\/[a-z/-]+$/.test(path), 'AGENT_API_ROUTE_REFUSED');
+    check(['GET', 'POST'].includes(method), 'AGENT_API_ROUTE_REFUSED');
+    try { check(/^[a-z/-]+$/.test(authOperation(tenant, basePath, path)), 'AGENT_API_ROUTE_REFUSED'); } catch { throw new AgentApiError('AGENT_API_ROUTE_REFUSED'); }
     const bytes = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     return new Promise((resolve, reject) => {
       const fail = () => reject(new AgentApiError('AGENT_API_TRANSPORT_UNAVAILABLE'));
@@ -53,8 +56,9 @@ export function createAgentHttpTransport({ origin, timeoutMs = 10_000, maxRespon
   } });
 }
 
-export function createAgentApiSession({ origin, tenant, account, chainId, loginSigner, transport, now = Date.now }) {
+export function createAgentApiSession({ origin, tenant, basePath = '', account, chainId, loginSigner, transport, now = Date.now }) {
   const url = loginOrigin(origin);
+  tenantBasePath(tenant, basePath);
   check(typeof tenant === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(tenant) && uint(chainId) &&
     typeof account === 'string' && /^0x[0-9a-fA-F]{40}$/.test(account) && !/^0x0+$/.test(account), 'AGENT_API_CONTEXT_REFUSED');
   const selected = getAddress(account.toLowerCase());
@@ -63,8 +67,9 @@ export function createAgentApiSession({ origin, tenant, account, chainId, loginS
   // Capture methods once; JSON/body flags cannot select a signer or transport.
   const sign = loginSigner.signLoginMessage.bind(loginSigner), request = transport.request.bind(transport);
   const prefix = url.protocol === 'https:' ? '__Host-' : '';
-  const preauthCookie = prefix ? '__Host-8415preauth' : '8415preauth-local';
-  const sessionCookie = prefix ? '__Host-8415session' : '8415session-local';
+  const suffix = basePath ? `-${tenant}` : '';
+  const preauthCookie = (prefix ? '__Host-8415preauth' : '8415preauth-local') + suffix;
+  const sessionCookie = (prefix ? '__Host-8415session' : '8415session-local') + suffix;
   const cookies = new Map(), attempted = new Set();
   let session = null, csrf = '', epoch = 0, pending = false, abort = new AbortController();
   const time = () => { const t = now(); check(Number.isSafeInteger(t) && t >= 0, 'AGENT_API_CLOCK_REFUSED'); return t; };
@@ -86,7 +91,7 @@ export function createAgentApiSession({ origin, tenant, account, chainId, loginS
   }
   async function call(method, path, body, version) {
     let response;
-    try { response = await request({ method, path: `/auth/${path}`, signal: abort.signal, headers: {
+    try { response = await request({ method, path: authRequestPath(tenant, basePath, path), signal: abort.signal, headers: {
       Origin: origin, 'X-Wallet-Tenant': tenant, Accept: 'application/json',
       ...(csrf ? { 'X-Wallet-CSRF': csrf } : {}),
       ...(cookies.size ? { Cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join('; ') } : {}),

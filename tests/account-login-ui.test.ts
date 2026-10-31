@@ -1,3 +1,4 @@
+import { tenantClientOptions } from '../web/tenant-path.mjs';
 import { isPlatformPasswordProfile, passwordPanelAction } from '../web/tenant-password-routing.mjs';
 import { loginIdentifier, requestedWalletPath } from '../web/wallet-entry.mjs';
 import * as uiI18n from '../web/i18n.mjs';
@@ -35,13 +36,13 @@ class DialogElement {
 const descendants = (root: DialogElement): DialogElement[] => [root, ...root.children.flatMap(descendants)];
 function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 'example' } }), pathname = '', providerAvailable = true) {
   const signer = Wallet.createRandom(), origin = 'https://wallet.example.invalid:18443', elements = new Map<string, any>(), requests: any[] = [], calls: string[] = [];
-  const state = { hold: null as null | Promise<void>, accountHold: null as null | Promise<void>, fail: false, revoked: false, enrolled: false, cancelled: false, badAccount: false, mailAvailable: true, reserved: false, rejectPath: '', rejectCode: 'AUTH_REFUSED', recoveryHold: null as null | Promise<void>, registrationHold: null as null | Promise<void>, registrationConfirmHold: null as null | Promise<void>, registeredEmail: 'tester@example.invalid' as string | null, registrationCancelled: false, signatureHold: null as null | Promise<void>, passwordManagement: true, passwordBound: true, passwordEnabled: true, stale: false, passwordHold: null as null | Promise<void>, capabilitiesHold: null as null | Promise<void>, sessionHold: null as null | Promise<void>, passwordBadResponse: false, passwordNetworkFailure: false, changeCode: 'synthetic-recovery', changeRecovery: true, changeAnswer: 'synthetic private recovery phrase', changeIdentity: '', dialogHold: false };
+  const state = { hold: null as null | Promise<void>, accountHold: null as null | Promise<void>, fail: false, revoked: false, enrolled: false, cancelled: false, badAccount: false, mailAvailable: true, reserved: false, rejectPath: '', rejectCode: 'AUTH_REFUSED', recoveryHold: null as null | Promise<void>, registrationHold: null as null | Promise<void>, registrationConfirmHold: null as null | Promise<void>, registeredEmail: 'tester@example.invalid' as string | null, registrationCancelled: false, registrationCancelHold: null as null | Promise<void>, registrationCancelResult: { cancelled: true } as Record<string, boolean>, signatureHold: null as null | Promise<void>, passwordManagement: true, passwordBound: true, passwordEnabled: true, stale: false, passwordHold: null as null | Promise<void>, capabilitiesHold: null as null | Promise<void>, sessionHold: null as null | Promise<void>, passwordBadResponse: false, passwordNetworkFailure: false, changeCode: 'synthetic-recovery', changeRecovery: true, changeAnswer: 'synthetic private recovery phrase', changeIdentity: '', dialogHold: false };
   const timers = new Map<number, () => void>(), windowEvents = new Map<string, (event?: any) => unknown>();
   let timerId = 0;
   const issuedAt = Date.now();
   const session = { id: 'a'.repeat(43), csrf: 'b'.repeat(43), tenant: 'example', origin, username: 'tester', account: signer.address, chainId: '1', kind: method, issuedAt, expiresAt: issuedAt + 900000 };
   const element = (id: string) => {
-    if (!elements.has(id)) elements.set(id, { hidden: true, inert: true, textContent: '', value: '', checked: false, disabled: false,
+    if (!elements.has(id)) elements.set(id, { hidden: true, inert: true, textContent: '', value: '', checked: false, disabled: false, parentElement: { hidden: true },
       querySelector() { return null; }, handlers: new Map(), addEventListener(event: string, handler: () => unknown) { this.handlers.set(event, handler); } });
     return elements.get(id);
   };
@@ -98,7 +99,7 @@ function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 
     else if (path === 'registration/verify') data = { verified: true, registrationId: 'v'.repeat(43), expiresAt: Date.now() + 300000 };
     else if (path === 'registration/challenge') data = { id: 'w'.repeat(43), tenant: 'example', origin, account: signer.address, chainId: '1', method: 'wallet', message: 'Synthetic ordinary account proof\nurn:8415wallet:purpose:registration' };
     else if (path === 'registration/confirm') { if (state.registrationConfirmHold) await state.registrationConfirmHold; session.kind = 'wallet'; state.registeredEmail = 'tester@example.invalid'; data = { registered: true, session }; }
-    else if (path === 'registration/cancel') { state.registrationCancelled = true; data = { cancelled: true }; }
+    else if (path === 'registration/cancel') { state.registrationCancelled = true; if (state.registrationCancelHold) await state.registrationCancelHold; data = state.registrationCancelResult; }
     else if (path === 'recovery/reset/start') { if (state.recoveryHold) await state.recoveryHold; data = { challengeId: 'c'.repeat(43), expiresAt: Date.now() + 300000, emailMasked: 't***@example.invalid', digits: 8 }; }
     else if (path === 'recovery/reset/confirm') data = { resetProof: 'p'.repeat(43), expiresAt: Date.now() + 120000 };
     else if (path === 'recovery/cancel') data = { cancelled: true };
@@ -135,7 +136,7 @@ function fixture(method: string, profile = Promise.resolve<any>({ tenant: { id: 
     `${changeSource}\nreturn { authorizeMethodChange, commitMethodChange, cancelMethodChangeUi };`)(document, setTimer, clearTimer, uiI18n.msg, uiI18n.paint, WalletLoginError);
   const sdk = { ...uiI18n, ...changeUi, WalletLogin, WalletLoginError, AccountAuthClient: BoundClient, verifyMessage, getAddress, hashMessage, Interface,
     clearEnrollmentQr, renderEnrollmentQr,
-    isPlatformPasswordProfile, passwordPanelAction, loginIdentifier, requestedWalletPath, getReleaseProfile: () => profile, acquireWalletUi: () => Symbol(), releaseWalletUi() {} };
+    tenantClientOptions, isPlatformPasswordProfile, passwordPanelAction, loginIdentifier, requestedWalletPath, getReleaseProfile: () => profile, acquireWalletUi: () => Symbol(), releaseWalletUi() {} };
   const settingsEntry = new Function('document', 'globalThis', 'setTimeout', 'clearTimeout', ...Object.keys(sdk), `${source}\nreturn { walletLogin, subscribeAccountSettings, subscribeAgentPolicySettings };`)(
     document, { ethereum: providerAvailable ? provider : undefined, location: { origin, pathname }, addEventListener(event: string, handler: (event?: any) => unknown) { windowEvents.set(event, handler); } },
     (handler: () => void) => { timers.set(++timerId, handler); return timerId; }, (id: number) => timers.delete(id), ...Object.values(sdk));
@@ -616,6 +617,86 @@ test('UI session fixture uses one clock instant and never fabricates an overlong
   await f.click('wallet-login'); assert.equal(f.element('wallet-private').hidden, false);
 });
 
+for (const reserved of [false, true]) {
+  test(`legacy recovery email prerequisite: ${reserved ? 'replace' : 'initial'} redirects and blocks stale handler`, async () => {
+    const f = fixture('password'); f.state.reserved = reserved; f.state.registeredEmail = null;
+    await f.click('wallet-login'); await openOperation(f, 'recovery');
+    assert.equal(f.element('wallet-private').hidden, false);
+    assert.equal(f.element('auth-registration-account').hidden, false);
+    assert.equal(f.element('auth-registration-account-start').disabled, false);
+    assert.equal(f.element('auth-recovery-settings').hidden, true);
+    const before = f.requests.length;
+    f.element('auth-reserved-email').value = 'tester@example.invalid';
+    f.element('auth-reserved-question-id').value = 'first-school';
+    f.element('auth-reserved-answer').value = 'synthetic new answer';
+    // Negative handler test: a hidden control is not claimed to be reachable.
+    await f.click('auth-recovery-enroll');
+    assert.equal(f.requests.slice(before).some(r => r.path.startsWith('account/change/')), false);
+    assert.equal(f.element('auth-management-status').textContent, uiI18n.t('change.verifyEmailFirst'));
+    assert.equal(f.document.body.children.length, 0);
+  });
+}
+test('legacy recovery email prerequisite: visible migration retains reserved verification', async () => {
+  const f = fixture('password'); f.state.reserved = true; f.state.registeredEmail = null;
+  await f.click('wallet-login'); await openOperation(f, 'recovery');
+  assert.equal(f.element('auth-registration-account').hidden, false);
+  f.element('auth-registration-account-email').value = 'tester@example.invalid';
+  await f.click('auth-registration-account-start');
+  assert.deepEqual(f.requests.filter(r => r.path === 'account/change/start').map(r => r.body.action), ['email.initial']);
+  assert.equal(f.requests.find(r => r.path === 'account/change/verify').body.existingAnswer, f.state.changeAnswer);
+  assert.equal(f.requests.some(r => r.path.startsWith('recovery/reset/')), false);
+  assert.equal(f.requests.filter(r => r.path === 'account/change/commit').length, 1);
+  assert.equal(f.element('wallet-private').hidden, true);
+});
+test('legacy recovery email prerequisite: password management remains available', async () => {
+  const f = fixture('password'); f.state.reserved = true; f.state.registeredEmail = null;
+  await f.click('wallet-login'); await openOperation(f, 'password');
+  assert.equal(f.element('auth-password-settings').hidden, false);
+  assert.equal(f.element('auth-registration-account').hidden, true);
+  passwordEntries(f); await f.click('auth-password-save');
+  assert.deepEqual(f.requests.filter(r => r.path === 'account/change/start').map(r => r.body.action), ['password.replace']);
+  assert.equal(f.requests.filter(r => r.path === 'account/change/commit').length, 1);
+});
+
+for (const mode of ['cancelled', 'account switch', 'session expiry']) {
+  test(`legacy recovery email prerequisite: delayed start ${mode}`, async () => {
+    const originalNow = Date.now; let now = originalNow();
+    let release: (() => void) | undefined, pending: Promise<unknown> | undefined;
+    // Install before fixture creation: WalletLogin captures the clock function.
+    if (mode === 'session expiry') Date.now = () => now;
+    try {
+      const f = fixture('password'); f.state.reserved = true; f.state.registeredEmail = null;
+      await f.click('wallet-login'); await openOperation(f, 'recovery');
+      assert.equal(f.element('auth-registration-account').hidden, false);
+      assert.equal(f.element('auth-registration-account-start').disabled, false);
+      assert.equal(f.element('auth-recovery-settings').hidden, true);
+      f.element('auth-registration-account-email').value = 'tester@example.invalid';
+      f.state.registrationHold = new Promise<void>(resolve => { release = resolve; });
+      pending = f.click('auth-registration-account-start');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(f.requests.filter(r => r.path === 'account/change/start').map(r => r.body.action), ['email.initial']);
+      const laterWrite = (r: any) => ['account/change/verify', 'account/change/confirm', 'account/change/commit'].includes(r.path);
+      assert.equal(f.requests.some(laterWrite), false);
+      if (mode === 'cancelled') await f.click('auth-registration-account-cancel');
+      else if (mode === 'account switch') f.emit('accountsChanged');
+      else { now = f.session.expiresAt + 1; await f.windowEvents.get('focus')!(); }
+      release!(); await pending;
+      assert.equal(f.requests.some(laterWrite), false);
+      assert.equal(f.requests.some(r => r.path.startsWith('recovery/reset/')), false);
+      assert.equal(f.document.body.children.length, 0);
+      for (const field of f.dialogFields) if (field.type !== 'checkbox') assert.equal(field.value, '');
+      assert.equal(f.element('auth-registration-account-email').value, '');
+      assert.equal(f.element('auth-registration-account-code').value, '');
+      assert.equal(f.element('wallet-private').hidden, true);
+      assert.throws(() => f.login.assert());
+      assert.notEqual(f.element('wallet-login-status').textContent, uiI18n.t('registration.migrateDone'));
+    } finally {
+      release?.(); if (pending) await pending;
+      Date.now = originalNow;
+    }
+  });
+}
+
 function passwordEntries(f: ReturnType<typeof fixture>, value = 'synthetic-new-password') {
   f.element('auth-new-password').value = value; f.element('auth-new-password-confirm').value = value;
 }
@@ -994,3 +1075,91 @@ for (const locale of uiI18n.LOCALES.map(item => item.id)) {
     } finally { uiI18n.setLocale('en', { persist: false }); }
   });
 }
+
+// Public-readiness delta: expiry is not evidence of rollback after submission.
+for (const cancellation of ([{ cancelled: false, confirmationInProgress: true }, { unconfirmed: true }, { cancelled: true }] as Record<string, boolean>[])) {
+  test(`submitted signup expiry keeps reconciliation advice: ${JSON.stringify(cancellation)}`, async () => {
+    const f = fixture('password'); await signupVerified(f); let release!: () => void;
+    f.state.registrationCancelResult = cancellation;
+    f.state.registrationConfirmHold = new Promise<void>(resolve => { release = resolve; });
+    const expiry = [...f.timers.values()].at(-1)!;
+    const pending = f.click('auth-registration-finish');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.requests.some(r => r.path === 'registration/confirm'), true);
+    expiry(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.element('auth-registration-status').textContent, uiI18n.t('registration.checkSubmitted'));
+    release(); await pending;
+    assert.equal(f.element('wallet-private').hidden, true); assert.throws(() => f.login.assert());
+    assert.equal(f.element('auth-registration-status').textContent, uiI18n.t('registration.checkSubmitted'));
+  });
+}
+test('late expiry cancellation cannot overwrite a new registration attempt', async () => {
+  const f = fixture('password'); await signupVerified(f); let release!: () => void;
+  f.state.registrationCancelHold = new Promise<void>(resolve => { release = resolve; });
+  f.state.registrationCancelResult = { confirmationInProgress: true };
+  [...f.timers.values()].at(-1)!();
+  f.element('auth-registration-email').value = 'another@example.invalid';
+  await f.click('auth-registration-start');
+  const current = f.element('auth-registration-status').textContent;
+  release(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.element('auth-registration-status').textContent, current);
+  assert.equal(f.element('auth-registration-code-fields').hidden, false);
+});
+for (const [code, key] of [['AUTH_EMAIL_UNAVAILABLE', 'registration.emailUnavailable'], ['AUTH_REFUSED', 'registration.verificationRefused'], ['AUTH_BUSY', 'registration.unavailable']] as const) {
+  test(`signup ${code} has actionable authored text in every supported locale`, async () => {
+    const f = fixture('password'); await f.click('auth-registration-open');
+    f.state.rejectPath = 'registration/start'; f.state.rejectCode = code;
+    f.element('auth-registration-email').value = 'tester@example.invalid';
+    await f.click('auth-registration-start');
+    const requests = f.requests.length;
+    try {
+      for (const { id } of uiI18n.LOCALES) {
+        uiI18n.setLocale(id, { persist: false });
+        assert.equal(f.element('auth-registration-status').textContent, uiI18n.t(key));
+        assert.equal(f.element('auth-registration-status').textContent.includes('tester@example.invalid'), false);
+      }
+    } finally { uiI18n.setLocale('en', { persist: false }); }
+    assert.equal(f.requests.length, requests); assert.deepEqual(f.calls, []);
+  });
+}
+test('failed signup confirmation requires reconciliation, clears proof and never retries automatically', async () => {
+  const f = fixture('password'); await signupVerified(f);
+  f.state.rejectPath = 'registration/confirm'; f.state.rejectCode = 'AUTH_REFUSED';
+  await f.click('auth-registration-finish');
+  assert.equal(f.element('auth-registration-status').textContent, uiI18n.t('registration.checkSubmitted'));
+  assert.equal(f.element('auth-registration-wallet-fields').hidden, true);
+  assert.equal(f.element('wallet-private').hidden, true); assert.throws(() => f.login.assert());
+  const confirmations = f.requests.filter(r => r.path === 'registration/confirm').length;
+  await f.click('auth-registration-finish');
+  assert.equal(f.requests.filter(r => r.path === 'registration/confirm').length, confirmations);
+});
+
+// S2: early configuration/binding failures must clear submitted secrets too.
+test('rejected release configuration clears submitted password and OTP without authentication calls', async () => {
+  let reject!: (reason?: unknown) => void;
+  const profile = new Promise<any>((_resolve, fail) => { reject = fail; });
+  const f = fixture('password', profile);
+  const pending = f.click('wallet-login');
+  reject(new Error('synthetic unavailable profile')); await pending;
+  assert.equal(f.element('auth-password').value, ''); assert.equal(f.element('auth-code').value, '');
+  assert.match(f.element('wallet-login-status').textContent, /LOGIN_RELEASE_CONFIG_REFUSED/);
+  assert.deepEqual(f.calls, []); assert.equal(f.requests.length, 0);
+  assert.equal(f.element('wallet-login').disabled, false); assert.throws(() => f.login.assert());
+});
+test('invalid public wallet identifier clears submitted secrets before refusing identity binding', async () => {
+  const profile = Promise.resolve<any>({ tenant: { id: 'default', label: 'Wallet' }, deployment: { url: 'https://8415wallet.com/web/index.html' } });
+  const f = fixture('password', profile, '/web/index.html'); await f.ready;
+  f.element('password-tenant-select').value = 'synthetic\u0000owner';
+  f.element('auth-password').value = 'synthetic-unsent-password'; f.element('auth-code').value = '654321';
+  await f.click('wallet-login');
+  assert.equal(f.element('auth-password').value, ''); assert.equal(f.element('auth-code').value, '');
+  assert.match(f.element('wallet-login-status').textContent, /LOGIN_SERVICE_BINDING_REFUSED/);
+  assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []); assert.throws(() => f.login.assert());
+});
+test('missing provider on local login clears any hidden submitted password or OTP', async () => {
+  const f = fixture('wallet-local', Promise.resolve<any>({ tenant: { id: 'example' } }), '', false);
+  await f.click('wallet-login');
+  assert.equal(f.element('auth-password').value, ''); assert.equal(f.element('auth-code').value, '');
+  assert.equal(f.element('wallet-login-status').textContent, uiI18n.t('account.providerRequired'));
+  assert.deepEqual(f.calls, []); assert.deepEqual(f.requests, []); assert.throws(() => f.login.assert());
+});

@@ -478,7 +478,7 @@ export class TaskAuthorizationClient {
 }
 /** No credentials, secrets, signatures or grant references are browser-persisted. */
 export class TaskAuthorizationFlow {
-  #client; #now; #notify; #epoch = 0; #challenge = null; #busy = false; #retryAt = 0; #waiting = 0; #continuationDelay = 30000;
+  #client; #now; #notify; #authorizationOnly = false; #epoch = 0; #challenge = null; #busy = false; #retryAt = 0; #waiting = 0; #continuationDelay = 30000;
   #state = { phase: 'locked', tasks: [], selected: null, error: null };
   constructor({ client, now = Date.now, onChange = () => {} }) { this.#client = client; this.#now = now; this.#notify = onChange; }
   snapshot() { return Object.freeze({ ...this.#state, challengeExpiresAt: this.#challenge?.expiresAt ?? null, approvalFactor: this.#challenge?.approvalFactor ?? this.#state.selected?.approvalFactor ?? 'totp', approvalEvaluation: this.#challenge?.approvalEvaluation ?? this.#state.selected?.approvalEvaluation ?? null, busy: this.#busy, retryAfterMs: Math.max(0, this.#retryAt - this.#now()), continuationDelayMs: this.#continuationDelay }); }
@@ -510,18 +510,23 @@ export class TaskAuthorizationFlow {
   #error(error) { return typeof error?.code === 'string' && /^(TASK|AUTH|LOGIN)_[A-Z_]+$/.test(error.code) ? error.code : 'TASK_SERVICE_UNAVAILABLE'; }
   suspend() { this.#epoch++; this.#challenge = null; this.#busy = false; this.#paint({ phase: this.#state.selected ? 'paused' : 'list', selected: historical(this.#state.selected), error: null }); }
   lock() { this.#epoch++; this.#challenge = null; this.#busy = false; this.#paint({ phase: 'locked', tasks: [], selected: null, error: null }); }
-  async load(taskDigest = null) {
+  async load(taskDigest = null, { verificationOnly = false, authorizationOnly = false } = {}) {
     const epoch = ++this.#epoch; this.#challenge = null; this.#busy = true; this.#paint({ phase: 'loading', selected: null, error: null });
     try { const tasks = await this.#client.list(); if (!this.#current(epoch)) return;
       this.#busy = false; this.#paint({ phase: 'list', tasks });
-      if (taskDigest && tasks.some(view => view.task.digest === taskDigest)) await this.open(taskDigest);
+      if (taskDigest && tasks.some(view => view.task.digest === taskDigest)) await this.open(taskDigest, { verificationOnly, authorizationOnly });
     } catch (error) { if (this.#current(epoch)) { this.#busy = false; this.#paint({ phase: 'error', error: this.#error(error) }); } }
   }
-  async open(taskDigest) {
+  async open(taskDigest, { verificationOnly = false, authorizationOnly = false } = {}) {
+    this.#authorizationOnly = authorizationOnly === true;
     const epoch = ++this.#epoch; this.#challenge = null; this.#busy = true; this.#paint({ phase: 'loading', selected: null, error: null });
     try {
       const view = await this.#client.status(taskDigest); if (!this.#current(epoch)) return;
       this.#paint({ selected: view });
+      if (verificationOnly) {
+        insist(view.effectiveStatus === 'authorized', 'TASK_VERIFICATION_ONLY');
+        this.#busy = false; this.#paint({ phase: this.#phase(view), selected: this.#progress(view) }); return;
+      }
       if (view.effectiveStatus === 'pending' && approvalBlocker(view)) {
         this.#busy = false; this.#paint({ phase: 'configuration-required', error: approvalBlocker(view) }); return;
       }
@@ -530,7 +535,7 @@ export class TaskAuthorizationFlow {
         insist(challenge.expiresAt > this.#now() && challenge.expiresAt <= this.#now() + 120000, 'TASK_CHALLENGE_EXPIRED');
         this.#challenge = challenge;
       }
-      const checked = view.effectiveStatus === 'authorized' || view.executionState === 'submitted' && view.capabilities.receiptVerifierConfigured ||
+      const checked = this.#authorizationOnly ? view : view.effectiveStatus === 'authorized' || view.executionState === 'submitted' && view.capabilities.receiptVerifierConfigured ||
         view.executionState === 'listed' && view.listing?.settlementObservationConfigured ?
         await this.#continueRequest(view) : view;
       if (!this.#current(epoch)) return;
@@ -547,7 +552,7 @@ export class TaskAuthorizationFlow {
       this.#challenge = null; this.#paint({ phase: 'checking', selected: view });
       // The service continues the SAME bounded parent task, enforcing its grant
       // and scope. Missing adapters remain blocked; submission is not success.
-      const checked = await this.#continueRequest(view); if (!this.#current(epoch)) return;
+      const checked = this.#authorizationOnly ? await this.#client.status(view.task.digest) : await this.#continueRequest(view); if (!this.#current(epoch)) return;
       this.#busy = false; this.#paint({ phase: this.#phase(checked), selected: this.#progress(checked) });
     } catch (error) { code = ''; if (this.#current(epoch) && this.#challenge === null && this.#state.selected?.effectiveStatus === 'authorized') { await this.#refreshFailure(epoch, error); return; }
       if (this.#current(epoch)) { this.#challenge = null; this.#busy = false;

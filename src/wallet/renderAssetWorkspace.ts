@@ -1,3 +1,4 @@
+import type { RendererMessageFormatter } from './renderMessages.ts';
 import type { AssetWorkspace, WorkspaceSection } from './assetWorkspace.ts';
 import { renderAssetView } from './renderAssetView.ts';
 import { renderTemporalQuery } from './renderTemporalQuery.ts';
@@ -6,49 +7,51 @@ import { renderSettlementLog } from './renderGapView.ts';
 import { renderLinkedChain } from './renderLinkedChain.ts';
 
 export type WorkspaceTab = 'asset' | 'temporal' | 'register-history' | 'dual-history' | 'responsibility' | 'payments';
-function renderSection<T>(value: WorkspaceSection<T>, render: (value: T) => string): string {
+function renderSection<T>(value: WorkspaceSection<T>, render: (value: T) => string, translate: (text: string) => string): string {
   return value.state === 'ready' ? render(value.value)
-    : value.state === 'not-requested' ? 'NOT REQUESTED — no absence claim is made.'
-    : 'UNAVAILABLE — ' + value.reason + '; no cached or empty-success substitute.';
+    : value.state === 'not-requested' ? translate('NOT REQUESTED — no absence claim is made.')
+    : translate('UNAVAILABLE — ') + value.reason + translate('; no cached or empty-success substitute.');
 }
-export function renderAssetWorkspace(view: AssetWorkspace, tab: WorkspaceTab): string {
+export function renderAssetWorkspace(view: AssetWorkspace, tab: WorkspaceTab, translate: (text: string, values?: Readonly<Record<string, string>>) => string = (text, values = {}) => text.replace(/\{([a-z]+)\}/g, (match, key: string) => values[key] ?? match), nativeFormat?: RendererMessageFormatter): string {
   const lines = [
-    'Asset workspace — READ ONLY, not transaction authority',
-    'Chain ' + view.source.chainId + ' / ' + view.source.contract + ':' + view.source.tokenId,
-    'Requested instant: ' + view.instant,
+    translate('Asset workspace — READ ONLY, not transaction authority'),
+    translate('Chain ') + view.source.chainId + ' / ' + view.source.contract + ':' + view.source.tokenId,
+    translate('Requested instant: ') + view.instant,
   ];
-  if (tab === 'asset') lines.push(renderSection(view.asset, renderAssetView));
-  else if (tab === 'temporal') lines.push(renderSection(view.temporal, renderTemporalQuery));
+  if (tab === 'asset') lines.push(renderSection(view.asset, value => renderAssetView(value, undefined, nativeFormat), translate));
+  else if (tab === 'temporal') lines.push(renderSection(view.temporal, value => renderTemporalQuery(value, undefined, nativeFormat), translate));
   else if (tab === 'register-history') lines.push(renderSection(view.registerHistory, page => [
-    'Register history — admission order, not a sorted or filtered history',
-    'Versions from ' + page.startVersion + ' / total ' + page.totalEntries,
+    translate('Register history — admission order, not a sorted or filtered history'),
+    translate('Versions from ') + page.startVersion + translate(' / total ') + page.totalEntries,
     ...page.entries.map(entry => [
-      'v' + entry.version + ' holder ' + entry.holder,
+      'v' + entry.version + translate(' holder ') + entry.holder,
       'effectiveAt ' + entry.effectiveAt + ' / supersededAt ' + entry.supersededAt,
-      'commitment ' + entry.recordCommitment,
-      'previous ' + entry.previousCommitment,
-      'opaque registry reference ' + entry.registryReference,
+      translate('commitment ') + entry.recordCommitment,
+      translate('previous ') + entry.previousCommitment,
+      translate('opaque registry reference ') + entry.registryReference,
     ].join('\n')),
-    page.nextVersion === null ? 'End of this observed entry count.' : 'Next admission version: ' + page.nextVersion,
+    page.nextVersion === null ? translate('End of this observed entry count.') : translate('Next admission version: ') + page.nextVersion,
     page.readSemantics,
-  ].join('\n\n')));
+  ].join('\n\n'), translate));
   else if (tab === 'dual-history') lines.push(
-    renderSection(view.ownershipHistory, renderOwnershipHistory),
-    renderSection(view.settlementLog, renderSettlementLog),
+    renderSection(view.ownershipHistory, value => renderOwnershipHistory(value, undefined, nativeFormat), translate),
+    renderSection(view.settlementLog, value => renderSettlementLog(value, undefined, nativeFormat), translate),
   );
-  else if (tab === 'responsibility') lines.push(renderSection(view.linked, renderLinkedChain));
+  else if (tab === 'responsibility') lines.push(renderSection(view.linked, value => renderLinkedChain(value, translate), translate));
   else if (tab === 'payments') {
     lines.push(view.paymentMode === 'not-configured'
-      ? 'No payment adapter configured. Responsibility does not require escrow or payment.'
-      : 'Optional native-payment records — separate from responsibility and protocol finality.');
+      ? translate('No payment adapter configured. Responsibility does not require escrow or payment.')
+      : translate('Optional native-payment records — separate from responsibility and protocol finality.'));
     if (view.paymentMode === 'configured' && view.linked.state !== 'ready') {
-      lines.push('Payment read unavailable: no bound responsibility snapshot to associate with.');
+      lines.push(translate('Payment read unavailable: no bound responsibility snapshot to associate with.'));
     }
-    for (const row of view.payments) lines.push('Leg ' + row.legId + '\n' + renderSection(row.result,
-      payment => 'State ' + payment.state + '\nPayer ' + payment.payer + '\nPayee ' + payment.payee +
-        '\nAmount (base units) ' + payment.amount));
+    for (const row of view.payments) lines.push(translate('Leg ') + row.legId + '\n' + renderSection(row.result,
+      payment => translate('State ') + payment.state + translate('\nPayer ') + payment.payer + translate('\nPayee ') + payment.payee +
+        translate('\nAmount (base units) ') + payment.amount, translate));
   }
   else throw new Error('WORKSPACE_TAB_REFUSED');
-  lines.push(...view.notes);
+  // Only known SDK-owned disclosures enter translation; arbitrary notes stay opaque.
+  const knownNotes = new Set(['Standalone and linked observations keep their own read semantics; this workspace is not an atomic execution snapshot.', 'No payment adapter is required for responsibility. Payment success/failure never changes a control outcome here.', 'A completion predicate is not executed completion. Detached history and return boundaries come from the control.', 'Unknown or unavailable sections are not empty successful histories. No owner/holder, freshness/finality or legal-title substitution.']);
+  lines.push(...view.notes.map(note => knownNotes.has(note) ? translate(note) : note));
   return lines.join('\n\n');
 }

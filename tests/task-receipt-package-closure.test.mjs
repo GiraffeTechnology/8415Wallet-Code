@@ -34,6 +34,8 @@ function closure(entry) {
 // read-only adapter does not import them. Keep this independent inventory: do
 // not derive expected identity inputs from TASK_RECEIPT_RUNTIME_FILES itself.
 const trustedVerificationInputs = [
+  'server/origin-continuation.mjs',
+  'server/owner-change-origin.mjs',
   'server/task-operation-verification.mjs',
   'server/task-verification-execution.mjs',
   'server/task-verification-state.mjs',
@@ -58,7 +60,7 @@ test('exact native-TS runtime closure loads alone, missing dependencies refuse, 
     const original = run(); assert.equal(original.status, 0, original.stderr);
     const expected = createTaskReceiptAdapter({ provider: { async request() {} }, observationPolicy: { minimumConfirmations: '2' } }).identity.verifierImplementationDigest;
     assert.equal(original.stdout.trim(), expected);
-    for (const relativePath of ['src/codec/keccak.ts', ...trustedVerificationInputs]) {
+    for (const relativePath of ['src/codec/keccak.ts', 'src/standalone/authorization.ts', 'src/standalone/execution.ts', ...trustedVerificationInputs]) {
       const path = join(directory, relativePath), originalBytes = readFileSync(path);
       writeFileSync(path, Buffer.concat([originalBytes, Buffer.from('\n// Changed fixture bytes.\n')]));
       const changed = run(); assert.equal(changed.status, 0, changed.stderr);

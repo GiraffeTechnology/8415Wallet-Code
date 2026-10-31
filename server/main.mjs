@@ -1,3 +1,4 @@
+export {createRpcNftInventoryReader} from './nft-inventory-reader.mjs';
 /** Explicitly configured auth service; listing is an additive server-only runtime. */
 import { createServer } from 'node:http';
 import { readFile, chmod, lstat } from 'node:fs/promises';
@@ -16,11 +17,14 @@ import { composeTaskAuthOptions } from './task-runtime-composition.mjs';
 import { createTaskTestAssetAuthorization } from './task-test-asset-authorization.mjs';
 import { bootstrapTaskExactConfiguration } from './task-exact-bootstrap.mjs';
 import { createTaskReceiptAdapter } from './task-receipt-adapter.mjs';
+import { composeWalletReadRuntime } from './wallet-read-runtime.mjs';
+import { assertAuthConfigurationStable } from './configuration-transition.mjs';
 
 /** Reusable process-level entry for an already reviewed server capability object.
  * HTTP request data is never passed as listingRuntime or auth options. */
-export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, now = Date.now }) {
+export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, readSources = null, now = Date.now }) {
   validateAuthConfig(config);
+  const reads = composeWalletReadRuntime({ sources: readSources, fundsReader, nftInventoryReader, now });
   if (exactServerConfiguration !== null && config.exact?.enabled) throw Error('TASK_EXACT_DUPLICATE_CONFIG_REFUSED');
   const fixedExact = exactServerConfiguration ?? await bootstrapTaskExactConfiguration(config.exact);
   let inventoryObserver=null;
@@ -38,8 +42,8 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
     testNFT721Metadata: testAuthorization?.metadataVerifier ?? null }, now, testAuthorization });
   const listing = listingRuntime ?? await bootstrapTaskListingRuntime({ configuration: config.listing, store, authStatePath: config.statePath, now });
   try {
-  const handler = createAuthService({ origin: config.origin, tenant: config.tenant, accounts: config.accounts, store, verifyCa, sendOtp, now,
-    taskTestAuthorization: testAuthorization, forwardProgressReader,
+  const handler = createAuthService({ origin: config.origin, tenant: config.tenant, basePath: config.basePath ?? '', accounts: config.accounts, store, verifyCa, sendOtp, now,
+    taskTestAuthorization: testAuthorization, forwardProgressReader, assetControlCatalogReader, fundsReader: reads.fundsReader, nftInventoryReader: reads.nftInventoryReader,
     ...composeTaskAuthOptions({ exact: exact.authOptions, listing: listing.runtime.authOptions }),
     // The authenticated owner-policy API is part of the standard runtime.
     // Its persisted effective value and factors remain service-owned; this
@@ -76,28 +80,34 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
       started = true; background.start();
     } catch (error) { await stop(); throw error; }
   }
-  return Object.freeze({ handler, server, background, exactState: exact.state, exactCode: exact.code, listingState: listing.runtime.state, listingCode: listing.runtime.code, start, stop });
+  return Object.freeze({ handler, server, background, exactState: exact.state, exactCode: exact.code, listingState: listing.runtime.state, listingCode: listing.runtime.code, readState: reads.state, readCodes: reads.codes, start, stop });
   } catch (error) { try { await listing.stop(); } catch { /* Preserve the original construction failure. */ } throw error; }
 }
 /** Ports can only come from reviewed server code, never the JSON configuration.
+ * Read capabilities and confirmed-mint evidence verification likewise come only
+ * from the reviewed process composition; configuration does not fabricate either.
  * CLI/installed defaults remain disabled until the fixed capability is bound. */
-export async function startAuthFromEnvironment({ exactServerConfiguration = null } = {}) {
+export async function startAuthFromEnvironment({ exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, readSources = null } = {}) {
   const configPath = process.env.WALLET_AUTH_CONFIG;
   if (!configPath) throw Error('WALLET_AUTH_CONFIG_REQUIRED');
+  await assertAuthConfigurationStable(configPath);
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   validateAuthConfig(config);
   await ensureTaskListingServerCondition(config.listing);
   if (typeof config.statePath !== 'string' || !/^[a-fA-F0-9]{64}$/.test(process.env.WALLET_AUTH_STORE_KEY ?? '')) throw Error('AUTH_ENCRYPTED_STORE_CONFIG_REQUIRED');
+  await assertAuthConfigurationStable(configPath);
   const store = await openEncryptedStore(config.statePath, Buffer.from(process.env.WALLET_AUTH_STORE_KEY, 'hex'));
   let runtime;
   try {
     const verifyCa = config.ca ? await createCaVerifier(config.ca) : null;
     const sendOtp = createOtpSenderFromEnvironment(process.env, config.mail);
-    runtime = await createAuthRuntime({ config, store, verifyCa, sendOtp, exactServerConfiguration });
+    runtime = await createAuthRuntime({ config, store, verifyCa, sendOtp, exactServerConfiguration, testAssetEvidenceVerifier,
+      forwardProgressReader, assetControlCatalogReader, fundsReader, nftInventoryReader, readSources });
     runtime.server.on('error', async error => {
       process.stderr.write(`AUTH_LISTENER_FAILED_${/^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : 'UNKNOWN'}\n`);
       await runtime.stop(); await store.close(); process.exitCode = 1;
     });
+    await assertAuthConfigurationStable(configPath);
     await runtime.start();
     process.stdout.write('8415wallet auth service listening. No credentials logged.\n');
     if (runtime.exactState === 'disabled') process.stdout.write(`${runtime.exactCode}\n`);

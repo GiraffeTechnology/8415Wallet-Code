@@ -1,5 +1,7 @@
 import * as identityProjection from '../web/wallet-identity-display.mjs';
 import * as identityI18n from '../web/i18n.mjs';
+const { default: workspaceCopy, workspaceNarrative } = await import(new URL('../web/locales/workspace.mjs', import.meta.url).href);
+const { rendererMessages } = await import(new URL('../web/renderer-messages.mjs', import.meta.url).href);
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -20,7 +22,7 @@ function mountPanel(kind: 'workspace' | 'hoodi') {
     createElement: () => new Node(), createTextNode: (text: string) => { const node = new Node(); node.textContent = text; return node; },
     addEventListener: events.addEventListener.bind(events) };
   const context = { wallet: { reader: { source: { chainId: 560048n } } }, tokenId: 1n };
-  const sandbox = { ...identityProjection, ...identityI18n, readAssetWorkspace: async () => { reads++; return { registerHistory: { state: 'ready', value: { nextVersion: null } } }; },
+  const sandbox = { ...identityProjection, ...identityI18n, workspaceCopy, workspaceNarrative, rendererMessages, readAssetWorkspace: async () => { reads++; return { registerHistory: { state: 'ready', value: { nextVersion: null } } }; },
     renderAssetWorkspace: () => 'rendered', openHoodiJourneyRead: async () => { reads++; return {}; },
     compareHoodiReleaseHistory: async () => ({}), renderHoodiReleaseHistory: () => 'rendered' };
   const globals = { history: { state: { walletPage: route } }, addEventListener: windowEvents.addEventListener.bind(windowEvents) };

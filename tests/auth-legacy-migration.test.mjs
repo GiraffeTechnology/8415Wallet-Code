@@ -330,7 +330,19 @@ for (const phase of ['snapshot-copied', 'fence-written', 'release-copied', 'snip
 });
 test('candidate protocol must declare its persistent migration startup fence', async t => {
   const f = await fixture(t); const raw = await readFile(join(f.options.packageDirectory, 'server/runtime-entry.mjs'), 'utf8');
-  assert.match(raw, /migration-config\.lock/);
+  assert.match(raw, /^import \{ runCredentialEntry \} from '\.\/runtime-entry-core\.mjs';$/m);
+  assert.match(raw, /^await runCredentialEntry\(/m);
+  const core = await readFile(join(f.options.packageDirectory, 'server/runtime-entry-core.mjs'), 'utf8');
+  assert.equal(core, await readFile(new URL('../server/runtime-entry-core.mjs', import.meta.url), 'utf8'));
+  assert.match(core, /^import \{ assertAuthConfigurationStable \} from '\.\/configuration-transition\.mjs';$/m);
+  const transition = await readFile(join(f.options.packageDirectory, 'server/configuration-transition.mjs'), 'utf8');
+  assert.equal(transition, await readFile(new URL('../server/configuration-transition.mjs', import.meta.url), 'utf8'));
+  assert.match(transition, /migration-config\.lock/);
+  assert.match(transition, /AUTH_CONFIG_TRANSITION_IN_PROGRESS/);
+  const fence = core.indexOf('await assertAuthConfigurationStable(configPath)');
+  const readConfig = core.indexOf('const config = JSON.parse');
+  const start = core.indexOf('await startAuthFromEnvironment({ readSources })');
+  assert.ok(fence >= 0 && readConfig > fence && start > readConfig);
   const release = JSON.parse(await readFile(join(f.options.packageDirectory, 'AUTH-RELEASE.json'))); assert.equal(release.runtime.legacyImportProtocol, 1);
 });
 

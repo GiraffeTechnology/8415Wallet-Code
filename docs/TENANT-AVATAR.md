@@ -10,7 +10,7 @@ explicitly labelled tenant-avatar badge/settings preview.
 
 - Scope: validated release origin (scheme, host and port), release profile ID
   (`v2`/`v3`), and tenant ID. Tenant labels and wallet-account addresses are not
-  keys. V2 Xiongan remains distinct from the V3/default tenant.
+  keys. V2 standalone tenant remains distinct from the V3/default tenant.
 - The caller supplies the resolved `getReleaseProfile()` result. The avatar
   module revalidates its release identity, tenant and deployment, verifies the
   actual location against configured deployment URLs, and refuses opaque origins

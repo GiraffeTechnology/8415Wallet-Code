@@ -2,6 +2,8 @@
 import { msg, paint } from './i18n.mjs';
 import { WalletLoginError } from './login-core.mjs';
 let active = null;
+const walletProofs = new WeakMap(), caProofs = new WeakMap(), usedProofs = new WeakSet();
+const fingerprint = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const refused = code => new WalletLoginError(code);
 const token = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
 function node(tag, key, parent) {
@@ -40,6 +42,7 @@ function prompt(flow, { kind, emailMasked, state }) {
         const label = node('label', null, form); controls.recovery = node('input', null, label); controls.recovery.type = 'checkbox'; node('span', 'change.recoveryCode', label);
       }
       if (state.recovery.configured) { node('p', `recovery.question.${state.recovery.questionId}`, form); controls.answer = input(form, 'change.existingAnswer'); privateFields.push(controls.answer); }
+      for (const key of ['oldFingerprint', 'newFingerprint']) if (flow.intent[key]) paint(node('p', null, form), msg(`change.${key}`, { fingerprint: flow.intent[key] }));
       if (flow.intent.email) paint(node('p', null, form), msg('change.emailTarget', { email: flow.intent.email }));
       if (flow.intent.enabledMethods) paint(node('p', null, form), msg('change.enabledMethods', { methods: flow.intent.enabledMethods.join(', ') }));
     } else {
@@ -81,6 +84,21 @@ export function cancelMethodChangeUi() {
 }
 /** Returns only a proof scoped to the prepared change. TOTP seed is displayed by the management page. */
 export async function authorizeMethodChange({ client, intent, state, provider, isCurrent }) {
+  if (!state?.methods?.password?.bound && !state?.methods?.wallet?.enabled)
+    throw refused('AUTH_INDEPENDENT_METHOD_REQUIRED');
+  if (intent.action.startsWith('ca.')) {
+    const bindings = state.caBindings?.fingerprints;
+    if (state.caBindingManagement !== 'combined-v1' || !Array.isArray(bindings) ||
+      !['ca.initial', 'ca.replace', 'ca.unbind'].includes(intent.action) ||
+      (intent.action === 'ca.initial' ? bindings.length !== 0 || intent.oldFingerprint !== undefined : !fingerprint(intent.oldFingerprint) || !bindings.includes(intent.oldFingerprint)) ||
+      (intent.action === 'ca.unbind' ? intent.newFingerprint !== undefined : !fingerprint(intent.newFingerprint) || bindings.includes(intent.newFingerprint))) throw refused('AUTH_CHANGE_INPUT_REFUSED');
+  }
+  if (intent.action.startsWith('wallet.')) {
+    if (state.walletBindingManagement !== 'same-account-v1' || !['wallet.initial', 'wallet.unbind'].includes(intent.action) ||
+      Object.keys(intent).some(key => key !== 'action') || state.walletBinding?.account !== state.account || state.walletBinding?.chainId !== state.chainId ||
+      (intent.action === 'wallet.initial' ? state.walletBinding.bound !== false || !state.methods.password.bound : state.walletBinding.bound !== true)) throw refused('AUTH_CHANGE_INPUT_REFUSED');
+  }
+  if (intent.action.startsWith('ca.') || intent.action.startsWith('wallet.')) intent = { ...intent };
   cancelMethodChangeUi(); const flow = { client, intent, isCurrent, cancelled: false, expiresAt: state.management.reauthenticateBy }; active = flow;
   let identity;
   try {
@@ -112,21 +130,78 @@ export async function authorizeMethodChange({ client, intent, state, provider, i
     if (intent.action === 'totp.initial' || intent.action === 'totp.replace') {
       if (typeof result.secret !== 'string' || !/^[A-Z2-7]{32}$/.test(result.secret) || typeof result.uri !== 'string' || !result.uri.startsWith('otpauth://totp/')) throw refused('LOGIN_SERVER_RESPONSE_REFUSED');
     }
+    if (intent.action === 'ca.initial' || intent.action === 'ca.replace') {
+      const lines = typeof result.caMessage === 'string' ? result.caMessage.split('\n') : [];
+      const expected = [`Origin: ${state.origin}`, `Tenant: ${state.tenant}`, `Account: ${state.account}`, `Chain ID: ${state.chainId}`,
+        `Purpose: ${intent.action}; no login or transaction authority`, `Request: ${start.changeId}`,
+        'Proof purpose: new CA binding possession only', `Old certificate: ${intent.oldFingerprint ?? 'none'}`,
+        `New certificate: ${intent.newFingerprint}`, `Proof expires: ${new Date(result.expiresAt).toISOString()}`];
+      const nonceLines = lines.filter(line => line.startsWith('Nonce: '));
+      if (nonceLines.length !== 1 || !token(nonceLines[0].slice(7)) || expected.some(line => lines.filter(value => value.startsWith(line.slice(0, line.indexOf(':') + 1))).length !== 1 || !lines.includes(line))) throw refused('LOGIN_CHALLENGE_BINDING_REFUSED');
+      caProofs.set(result, Object.freeze({ id: start.changeId, method: 'ca', action: intent.action, origin: state.origin,
+        tenant: state.tenant, account: state.account, chainId: state.chainId, expiresAt: result.expiresAt,
+        message: result.caMessage, nonce: nonceLines[0].slice(7), oldFingerprint: intent.oldFingerprint ?? null, newFingerprint: intent.newFingerprint }));
+    }
+    if (intent.action === 'wallet.initial') {
+      const lines = typeof result.walletMessage === 'string' ? result.walletMessage.split('\n') : [];
+      const expected = [`Origin: ${state.origin}`, `Tenant: ${state.tenant}`, `Account: ${state.account}`, `Chain ID: ${state.chainId}`,
+        'Purpose: wallet.initial; no login or transaction authority', `Request: ${start.changeId}`,
+        'Proof purpose: same-account wallet binding possession only', `New wallet: ${state.account}`, `Proof expires: ${new Date(result.expiresAt).toISOString()}`];
+      const nonce = lines.filter(line => line.startsWith('Nonce: ')), exact = lines.filter(line => line.startsWith('Exact binding: '));
+      if (nonce.length !== 1 || !token(nonce[0].slice(7)) || exact.length !== 1 || !/^Exact binding: [a-f0-9]{64}$/.test(exact[0]) ||
+        expected.some(line => !lines.includes(line) || lines.filter(value => value.startsWith(line.slice(0, line.indexOf(':') + 1))).length !== 1)) throw refused('LOGIN_CHALLENGE_BINDING_REFUSED');
+      walletProofs.set(result, Object.freeze({ message: result.walletMessage, account: state.account, chainId: state.chainId, origin: state.origin, tenant: state.tenant }));
+    }
     active = null; return result;
   } catch (error) { if (active === flow) cancelMethodChangeUi(); throw error; }
   finally { intent.newPassword = ''; intent.answer = ''; if (identity) for (const key of Object.keys(identity)) identity[key] = ''; }
 }
-export async function commitMethodChange({ client, proof, state, isCurrent, code }) {
+export async function commitMethodChange({ client, proof, state, isCurrent, code, caBridge = globalThis.walletCaBridge, provider = globalThis.ethereum }) {
+  const caAction = proof.action.startsWith('ca.') || proof.action.startsWith('wallet.');
+  if ((caAction && usedProofs.has(proof)) || active) throw refused('AUTH_BUSY');
+  if (caAction) usedProofs.add(proof);
   const flow = { client, intent: { action: proof.action }, proof: proof.changeProof, isCurrent, cancelled: false, expiresAt: proof.expiresAt }; active = flow;
   let email;
   try {
     current(flow); if (proof.newEmailRequired) email = await prompt(flow, { kind: 'newEmail', emailMasked: proof.emailMasked, state });
     current(flow);
-    const result = await client.change('commit', { changeProof: proof.changeProof, ...(code === undefined ? {} : { code }), ...(email ? { newEmailCode: email.code } : {}) });
+    let ca = {};
+    if (proof.action === 'ca.initial' || proof.action === 'ca.replace') {
+      const challenge = caProofs.get(proof);
+      if (!challenge || challenge.message !== proof.caMessage || challenge.action !== proof.action ||
+        challenge.origin !== state.origin || challenge.tenant !== state.tenant || challenge.account !== state.account || challenge.chainId !== state.chainId)
+        throw refused('LOGIN_CHALLENGE_BINDING_REFUSED');
+      if (caBridge?.version !== '8415wallet-ca/1' || typeof caBridge.signChallenge !== 'function') throw refused('LOGIN_CA_BRIDGE_REQUIRED');
+      const signed = await caBridge.signChallenge(challenge); current(flow);
+      if (!signed || typeof signed.signature !== 'string' || typeof signed.certificateChain !== 'string' || typeof signed.algorithm !== 'string') throw refused('LOGIN_SERVER_RESPONSE_REFUSED');
+      ca = { signature: signed.signature, certificateChain: signed.certificateChain, algorithm: signed.algorithm };
+    }
+    if (proof.action === 'wallet.initial') {
+      const challenge = walletProofs.get(proof);
+      if (!challenge || challenge.message !== proof.walletMessage || challenge.account !== state.account || challenge.chainId !== state.chainId ||
+        challenge.origin !== state.origin || challenge.tenant !== state.tenant) throw refused('LOGIN_CHALLENGE_BINDING_REFUSED');
+      const checkProvider = async () => {
+        if (typeof provider?.request !== 'function') throw refused('LOGIN_PROVIDER_REQUIRED');
+        const chain = await provider.request({ method: 'eth_chainId' }); current(flow);
+        const accounts = await provider.request({ method: 'eth_accounts' }); current(flow);
+        if (typeof chain !== 'string' || !/^0x[0-9a-fA-F]+$/.test(chain) || BigInt(chain).toString() !== challenge.chainId ||
+          !Array.isArray(accounts) || typeof accounts[0] !== 'string' || accounts[0].toLowerCase() !== challenge.account.toLowerCase()) throw refused('LOGIN_CHALLENGE_BINDING_REFUSED');
+      };
+      await checkProvider();
+      const encoded = `0x${Array.from(new TextEncoder().encode(challenge.message), b => b.toString(16).padStart(2, '0')).join('')}`;
+      const signature = await provider.request({ method: 'personal_sign', params: [encoded, challenge.account] }); current(flow);
+      await checkProvider();
+      if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(signature)) throw refused('LOGIN_SERVER_RESPONSE_REFUSED');
+      ca = { signature };
+    }
+    const result = await client.change('commit', { changeProof: proof.changeProof, ...ca, ...(code === undefined ? {} : { code }), ...(email ? { newEmailCode: email.code } : {}) });
     // The service revokes sessions on success; do not try to authenticate again here.
     if (active !== flow || flow.cancelled || !isCurrent()) throw refused('LOGIN_CANCELLED');
     if (result.updated !== true || result.loggedOut !== true || result.action !== proof.action) throw refused('LOGIN_SERVER_RESPONSE_REFUSED');
     active = null; return result;
-  } catch (error) { if (active === flow) { active = null; flow.dismiss?.(); } throw error; }
+  } catch (error) {
+    if (active === flow) { if (caAction) cancelMethodChangeUi(); else { active = null; flow.dismiss?.(); } }
+    throw error;
+  }
   finally { if (email) email.code = ''; }
 }

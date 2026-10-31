@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { constants, closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,10 +14,13 @@ export const PUBLIC_LEGAL_FILES = Object.freeze(LEGAL_FILES.map(path => `web/leg
 
 export const AUTH_SCHEMA = '8415wallet-auth-runtime/1';
 export const AUTH_STATUS = 'NONPRODUCTION_PACKAGE_NOT_ACTIVATED';
-// State meaning is versioned independently of the unchanged AES envelope format.
-// Older code may discard factor fields or revive a superseded configured password
-// even though it can decrypt the unchanged v1 envelope.
-export const AUTH_STATE_SEMANTICS = '8415wallet-auth-state/4';
+// Capability floor 8 preserves origin continuation; generation7 remains readable.
+export const AUTH_STATE_SEMANTICS = '8415wallet-auth-state/8';
+export const WALLET_AUTH_STATE_SEMANTICS = '8415wallet-auth-state/7';
+export const ORIGIN_CONTINUATION_SOURCE_PATHS = Object.freeze(['server/origin-continuation.mjs', 'server/origin-continuation-context.mjs', 'server/origin-realm-router.mjs', 'server/owner-change-origin.mjs', 'web/authorization-context.mjs', 'deploy/auth-runtime/origin-continuation.mjs', 'deploy/auth-runtime/origin-continuation-core.mjs']);
+export const CA_AUTH_STATE_SEMANTICS = '8415wallet-auth-state/6';
+export const ASSET_AUTH_STATE_SEMANTICS = '8415wallet-auth-state/5';
+export const TASK_AUTH_STATE_SEMANTICS = '8415wallet-auth-state/4';
 export const PASSWORD_AUTH_STATE_SEMANTICS = '8415wallet-auth-state/3';
 export const REGISTRATION_AUTH_STATE_SEMANTICS = '8415wallet-auth-state/2';
 export const LEGACY_AUTH_STATE_SEMANTICS = '8415wallet-auth-state/1';
@@ -61,20 +64,28 @@ export function parseAuthVerifyArguments(args) {
 export function authStateSemantics(release) {
   const value = release?.runtime?.authStateSemantics;
   // An absent declaration is the pre-registration/recovery generation only.
-  fail(value === undefined || [LEGACY_AUTH_STATE_SEMANTICS, REGISTRATION_AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, AUTH_STATE_SEMANTICS].includes(value), 'STATE_SEMANTICS_REFUSED');
+  fail(value === undefined || [LEGACY_AUTH_STATE_SEMANTICS, REGISTRATION_AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, TASK_AUTH_STATE_SEMANTICS, ASSET_AUTH_STATE_SEMANTICS, CA_AUTH_STATE_SEMANTICS, WALLET_AUTH_STATE_SEMANTICS, AUTH_STATE_SEMANTICS].includes(value), 'STATE_SEMANTICS_REFUSED');
   return value ?? LEGACY_AUTH_STATE_SEMANTICS;
 }
 export function validateAuthStateTransition(current, candidate, { rollback = false } = {}) {
   const from = authStateSemantics(current), to = authStateSemantics(candidate);
   if (from === to) return;
-  const generations = [LEGACY_AUTH_STATE_SEMANTICS, REGISTRATION_AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, AUTH_STATE_SEMANTICS];
+  const generations = [LEGACY_AUTH_STATE_SEMANTICS, REGISTRATION_AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, TASK_AUTH_STATE_SEMANTICS, ASSET_AUTH_STATE_SEMANTICS, CA_AUTH_STATE_SEMANTICS, WALLET_AUTH_STATE_SEMANTICS, AUTH_STATE_SEMANTICS];
   fail(generations.indexOf(to) > generations.indexOf(from), 'STATE_SEMANTICS_DOWNGRADE_REFUSED');
   // Only the enumerated, reviewed forward generations are accepted. A rollback
   // cannot silently perform a forward migration; unknown future versions fail.
   fail(!rollback, 'STATE_SEMANTICS_TRANSITION_REFUSED');
 }
+// Added read projections are required for new generation-7 packages, not retroactively
+// imposed on immutable historical generation-6 packages during upgrade verification.
+const WALLET_READ_RUNTIME_SOURCE_PATHS=Object.freeze(['server/funds-service.mjs','src/wallet/currencyFunds.ts','server/nft-inventory-service.mjs','server/nft-inventory-reader.mjs','web/nft-inventory-client.mjs','web/nft-details-client.mjs','web/forward-progress-client.mjs','server/coordinated-forward-progress-reader.mjs','server/coordination-projection.mjs','web/coordination-view.mjs','src/controls/payments.ts','server/wallet-bindings.mjs']);
 export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
+  'web/account-auth.mjs', 'web/funds-client.mjs',
+  'server/origin-continuation.mjs', 'server/owner-change-origin.mjs', 'web/native-login-challenge.mjs', 'web/authorization-context.mjs',
+  'server/wallet-bindings.mjs', 'server/funds-service.mjs', 'src/wallet/currencyFunds.ts',
+  'server/nft-inventory-service.mjs', 'server/nft-inventory-reader.mjs', 'web/nft-inventory-client.mjs', 'web/nft-details-client.mjs', 'web/forward-progress-client.mjs',
   'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
+  'server/coordinated-forward-progress-reader.mjs', 'server/coordination-projection.mjs', 'web/coordination-view.mjs', 'src/controls/payments.ts',
   'server/forward-progress-reader.mjs', 'src/controls/detachedHistoryLocator.ts', 'src/controls/historyView.ts',
   'src/controls/historyEntitlement.ts', 'src/controls/historyMilestone.ts', 'src/controls/historyDiscovery.ts', 'src/sdk/conformance.ts',
   'server/forward-progress-service.mjs', 'src/wallet/forwardProgress.ts', 'src/wallet/linkedChainView.ts', 'src/sdk/types.ts',
@@ -90,15 +101,17 @@ export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
   'server/task-listing-results.mjs', 'web/task-listing-results.mjs', 'web/task-observer-context.mjs',
   'server/task-observation-sources.mjs',
   'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
-  'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
+  'server/task-business-fence-fd.mjs', 'server/task-business-dispatch-fence.mjs', 'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
   'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
   'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
   'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
+  // Shared standalone safety helpers retain the original V3 compatibility exports.
+  'src/standalone/authorization.ts', 'src/standalone/execution.ts',
   'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
 ]);
 // Retained source contracts are packaged but never counted as executable imports.
 export const TASK_TYPE_SOURCE_PATHS = Object.freeze(['src/sdk/linked.ts']);
-export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || TASK_RUNTIME_SOURCE_PATHS.includes(path) || TASK_TYPE_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/(?:login-core|wallet-entry)\.mjs|deploy\/auth-runtime\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
+export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || ORIGIN_CONTINUATION_SOURCE_PATHS.includes(path) || TASK_RUNTIME_SOURCE_PATHS.includes(path) || TASK_TYPE_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/(?:login-core|wallet-entry|tenant-path|native-login-challenge)\.mjs|deploy\/auth-runtime\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
 export function safePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length <= 240 && /^[A-Za-z0-9_@.+/=-]+$/.test(path)
     && path.split('/').every(part => part && part !== '.' && part !== '..');
@@ -231,8 +244,8 @@ export function verifyAuthDirectory(directory, options = {}) {
   for (const [original, packaged] of [['package.json', 'provenance/package.source.json'], ['package-lock.json', 'provenance/package-lock.source.json']]) {
     fail(sourceEntries.has(original) && objectHash('blob', readFileSync(join(directory, packaged))) === sourceEntries.get(original).object, 'SOURCE_PACKAGE_BLOB_MISMATCH');
   }
-  const required = ['server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', 'LICENSE'];
-  if (authStateSemantics(release) === AUTH_STATE_SEMANTICS) required.push('server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...TASK_RUNTIME_SOURCE_PATHS);
+  const required = ['server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'web/tenant-path.mjs', 'web/wallet-entry.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', 'LICENSE'];
+  if ([TASK_AUTH_STATE_SEMANTICS, ASSET_AUTH_STATE_SEMANTICS, CA_AUTH_STATE_SEMANTICS, WALLET_AUTH_STATE_SEMANTICS, AUTH_STATE_SEMANTICS].includes(authStateSemantics(release))) required.push('server/task-background-runner.mjs', 'server/task-authorization.mjs', 'server/task-receipt-adapter.mjs', 'server/method-change-service.mjs', ...([WALLET_AUTH_STATE_SEMANTICS, AUTH_STATE_SEMANTICS].includes(authStateSemantics(release))?TASK_RUNTIME_SOURCE_PATHS:TASK_RUNTIME_SOURCE_PATHS.filter(path=>!WALLET_READ_RUNTIME_SOURCE_PATHS.includes(path))));
   // The parameterized compatibility entry must not ship without its parser.
   // Historical immutable packages without this import retain their exact
   // inventory contract; no source or checksum assertion is relaxed.
@@ -240,6 +253,14 @@ export function verifyAuthDirectory(directory, options = {}) {
       readFileSync(join(directory, 'server/service-entry.mjs'), 'utf8').includes("from './credential-instance.mjs'")) {
     required.push('server/credential-instance.mjs');
   }
+  if ([ASSET_AUTH_STATE_SEMANTICS, CA_AUTH_STATE_SEMANTICS, WALLET_AUTH_STATE_SEMANTICS, AUTH_STATE_SEMANTICS].includes(authStateSemantics(release))) {
+    fail(release.runtime.credentialStoreFormat === (authStateSemantics(release) === AUTH_STATE_SEMANTICS ? 5 : authStateSemantics(release) === WALLET_AUTH_STATE_SEMANTICS ? 4 : authStateSemantics(release)===CA_AUTH_STATE_SEMANTICS?3:2), 'STATE_FORMAT_REFUSED');
+    required.push('server/store-state-generation.mjs', 'server/task-asset-control-state.mjs',
+      'server/task-asset-control-catalog.mjs', 'server/task-asset-control-policy.mjs');
+  }
+  if ([CA_AUTH_STATE_SEMANTICS,WALLET_AUTH_STATE_SEMANTICS,AUTH_STATE_SEMANTICS].includes(authStateSemantics(release))) required.push('server/ca-bindings.mjs');
+  if([WALLET_AUTH_STATE_SEMANTICS,AUTH_STATE_SEMANTICS].includes(authStateSemantics(release)))required.push('server/wallet-bindings.mjs');
+  if(authStateSemantics(release)===AUTH_STATE_SEMANTICS)required.push(...ORIGIN_CONTINUATION_SOURCE_PATHS);
   fail(required.every(file => expectedFiles.includes(file)), 'REQUIRED_FILE_MISSING');
   const sourcePackage = JSON.parse(readFileSync(join(directory, 'provenance/package.source.json'), 'utf8'));
   const sourceLock = JSON.parse(readFileSync(join(directory, 'provenance/package-lock.source.json'), 'utf8'));
@@ -305,7 +326,12 @@ export function readAuthArchive(bytes) {
 export function withArchiveTar(archive, inspect, verifyDigest) {
   const spool = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-spool-'));
   const tarPath = join(spool, 'payload.tar');
-  let input, descriptor;
+  let input, descriptor, originalError;
+  const ownedDescriptors = new Set();
+  const openOwned = (...args) => { const fd = openSync(...args); ownedDescriptors.add(fd); return fd; };
+  // Remove ownership before closing: a failed close must not be retried against
+  // a descriptor number that the OS may already have released and reused.
+  const closeOwned = fd => { ownedDescriptors.delete(fd); closeSync(fd); };
   try {
     const inputPath = join(spool, 'input.tar.gz');
     const digest = createHash('sha256');
@@ -313,50 +339,106 @@ export function withArchiveTar(archive, inspect, verifyDigest) {
       fail(archive.length <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
       writeFileSync(inputPath, archive, { flag: 'wx', mode: 0o600 }); digest.update(archive);
     } else {
-      const source = openSync(resolve(archive), 'r');
+      // Reject special files before a blocking read/open can consume the verifier deadline.
+      const source = openOwned(resolve(archive), constants.O_RDONLY | constants.O_NONBLOCK);
       let copy;
-      try {
-        fail(fstatSync(source).isFile() && fstatSync(source).size <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
-        copy = openSync(inputPath, 'wx', 0o600);
+      {
+        const stat = fstatSync(source);
+        fail(stat.isFile() && stat.size <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
+        copy = openOwned(inputPath, 'wx', 0o600);
         const block = Buffer.allocUnsafe(65536); let total = 0;
         for (let count; (count = readSync(source, block, 0, block.length, null)) > 0;) {
           total += count; fail(total <= 128 * 1024 * 1024, 'ARCHIVE_TOO_LARGE');
           digest.update(block.subarray(0, count));
-          for (let written = 0; written < count;) written += writeSync(copy, block, written, count - written);
+          for (let written = 0; written < count;) {
+            const n = writeSync(copy, block, written, count - written);
+            fail(Number.isInteger(n) && n > 0 && n <= count - written, 'ARCHIVE_COPY_SHORT_WRITE');
+            written += n;
+          }
         }
-      } finally { if (copy !== undefined) closeSync(copy); closeSync(source); }
+      }
+      closeOwned(copy); closeOwned(source);
     }
     if (verifyDigest) verifyDigest(digest.digest('hex'));
-    input = openSync(inputPath, 'r');
-    const output = openSync(tarPath, 'wx', 0o600);
-    try {
+    input = openOwned(inputPath, 'r');
+    const output = openOwned(tarPath, 'wx', 0o600);
+    {
       const script = `const {createReadStream,createWriteStream}=require('node:fs');const {createGunzip}=require('node:zlib');const {Transform}=require('node:stream');const {pipeline}=require('node:stream/promises');let n=0;pipeline(createReadStream(null,{fd:0,autoClose:false}),createGunzip(),new Transform({transform(b,e,c){n+=b.length;c(n>268435456?Error('AUTH_PACKAGE_TAR_LENGTH_REFUSED'):null,b)}}),createWriteStream(null,{fd:1,autoClose:false})).catch(e=>{console.error(e.message);process.exitCode=1});`;
       const env = { ...process.env, NODE_OPTIONS: '--max-old-space-size=96' }; delete env.NODE_PATH;
       execFileSync(process.execPath, ['-e', script], { env, stdio: [input, output, 'pipe'], timeout: 60000, maxBuffer: 65536 });
-    } finally { closeSync(output); }
-    descriptor = openSync(tarPath, 'r');
-    const read = (offset, size) => {
-      const bytes = Buffer.allocUnsafe(size); let received = 0;
+    }
+    closeOwned(output);
+    descriptor = openOwned(tarPath, 'r');
+    const read = (offset, size, target) => {
+      // Internal streaming consumers may reuse a bounded buffer. Existing callers
+      // still receive an independent exact-sized allocation.
+      fail(target === undefined || Buffer.isBuffer(target) && target.length >= size, 'READ_BUFFER_REFUSED');
+      const bytes = target === undefined ? Buffer.allocUnsafe(size) : target.subarray(0, size); let received = 0;
       while (received < size) { const n = readSync(descriptor, bytes, received, size - received, offset + received); fail(n > 0, 'TAR_LENGTH_REFUSED'); received += n; }
       return bytes;
     };
     return inspect(read, fstatSync(descriptor).size);
-  } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
-    if (input !== undefined) closeSync(input);
-    rmSync(spool, { recursive: true, force: true });
+  } catch (error) { originalError = error; throw error; }
+  finally {
+    const errors = [];
+    for (const fd of ownedDescriptors) {
+      try { closeOwned(fd); } catch (error) { errors.push(error); }
+    }
+    try { rmSync(spool, { recursive: true, force: true }); } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(originalError ? [originalError, ...errors] : errors,
+      'AUTH_PACKAGE_ARCHIVE_CLEANUP_NOT_CONFIRMED');
   }
 }
-export function unpackAuthArchive(archive) {
-  return withArchiveTar(archive, (read, length) => {
+export function authPathIdentity(stat) {
+  return Object.freeze(Object.fromEntries(['dev','ino','uid','gid','mode','nlink','size','mtimeNs','ctimeNs'].map(key => [key, stat[key].toString()])));
+}
+export function unpackAuthArchive(archive, { snapshot, expectedSha256 } = {}) {
+  fail(snapshot === undefined || snapshot && snapshot.files instanceof Map && snapshot.directories instanceof Map && snapshot.files.size === 0 && snapshot.directories.size === 0, 'SNAPSHOT_REFUSED');
+  fail(expectedSha256 === undefined || hashPattern.test(expectedSha256), 'ARCHIVE_PIN_REFUSED');
+  let directory, directoryIdentity;
+  try { return withArchiveTar(archive, (read, length) => {
     // Validate every header, duplicate, padding and terminator before writing.
     const entries = scanAuthTar(read, length);
-    const directory = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-'));
-    try {
-      for (const { path, offset, size } of entries) { mkdirSync(dirname(join(directory, path)), { recursive: true, mode: 0o755 }); writeFileSync(join(directory, path), read(offset, size), { flag: 'wx', mode: 0o644 }); }
+    directory = mkdtempSync(join(tmpdir(), 'wallet-auth-verify-'));
+    directoryIdentity = lstatSync(directory, { bigint: true });
+    {
+      for (const { path, offset, size } of entries) {
+        mkdirSync(dirname(join(directory, path)), { recursive: true, mode: 0o755 });
+        const bytes = read(offset, size);
+        const fd = openSync(join(directory, path), 'wx', 0o644);
+        let writeError;
+        try {
+          for (let offset=0;offset<bytes.length;) { const count=writeSync(fd,bytes,offset,bytes.length-offset);fail(count>0,'UNPACK_SHORT_WRITE');offset+=count; }
+          if (snapshot) snapshot.files.set(path, Object.freeze({ sha256: sha256(bytes), size, identity: authPathIdentity(fstatSync(fd, { bigint: true })) }));
+        } catch (error) { writeError = error; throw error; }
+        finally {
+          try { closeSync(fd); } catch (error) {
+            throw new AggregateError(writeError ? [writeError, error] : [error], 'AUTH_PACKAGE_UNPACK_FILE_CLEANUP_NOT_CONFIRMED');
+          }
+        }
+      }
+      if (snapshot) {
+        const dirs = new Set(['']);
+        for (const path of snapshot.files.keys()) for (let parent = dirname(path); parent !== '.'; parent = dirname(parent)) dirs.add(parent);
+        for (const path of dirs) snapshot.directories.set(path, authPathIdentity(lstatSync(join(directory, path), { bigint: true })));
+      }
       return directory;
-    } catch (error) { rmSync(directory, { recursive: true, force: true }); throw error; }
-  });
+    }
+  }, expectedSha256 === undefined ? undefined : digest => fail(digest === expectedSha256, 'ARCHIVE_DIGEST_MISMATCH'));
+  } catch (error) {
+    // A successful inspect can still fail while releasing its archive spool.
+    // Do not leak the already-unpacked directory before ownership is returned.
+    if (directory) {
+      try {
+        const current = lstatSync(directory, { bigint: true });
+        fail(current.isDirectory() && !current.isSymbolicLink() && directoryIdentity &&
+          current.dev === directoryIdentity.dev && current.ino === directoryIdentity.ino,
+          'UNPACK_CLEANUP_OWNERSHIP_LOST');
+        rmSync(directory, { recursive: true, force: true });
+      } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'AUTH_PACKAGE_UNPACK_CLEANUP_NOT_CONFIRMED'); }
+    }
+    throw error;
+  }
 }
 
 export function verifyAuthArchive(manifestPath, options = {}) {

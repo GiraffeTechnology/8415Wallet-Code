@@ -24,6 +24,7 @@ import { testSeriesMintRequest, verifyTestSeriesMintPreflight, readTestSeriesMin
 export const TASK_RECEIPT_RUNTIME_FILES = Object.freeze([
   'server/task-operation-verification.mjs',
   'server/task-verification-execution.mjs', 'server/task-verification-state.mjs',
+  'server/origin-continuation.mjs', 'server/owner-change-origin.mjs',
   // Approval selection, channel isolation, and the shared-store constructor
   // affect this port's trusted runtime; UI/build/test code does not.
   'server/task-authorization.mjs', 'server/task-observation-sources.mjs', 'web/task-observer-context.mjs',
@@ -32,7 +33,7 @@ export const TASK_RECEIPT_RUNTIME_FILES = Object.freeze([
   'server/task-exact-bootstrap.mjs', 'server/task-exact-config.mjs', 'server/task-exact-sign-only.mjs',
   'server/task-test-asset-authorization.mjs', 'server/task-test-mint-contract.mjs', 'server/task-test-nft721-contract.mjs', 'server/task-test-nft721-binding.mjs', 'server/task-test-nft721-metadata.mjs', 'server/task-receipt-adapter.mjs', 'server/task-operation-encoding.mjs', 'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts',
   'src/codec/abi.ts', 'src/codec/keccak.ts', 'src/controls/accounts.ts', 'src/controls/authorization.ts',
-  'src/controls/client.ts', 'src/controls/execution.ts', 'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
+  'src/controls/client.ts', 'src/controls/execution.ts', 'src/standalone/authorization.ts', 'src/standalone/execution.ts', 'src/sdk/errors.ts', 'src/sdk/interfaceIds.ts', 'src/xiongan/address.ts', 'src/xiongan/externalAssets.ts',
 ]);
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const implementationDigest = `0x${sha256(JSON.stringify(TASK_RECEIPT_RUNTIME_FILES.map(path => ({ path,

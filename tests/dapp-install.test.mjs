@@ -47,7 +47,7 @@ const passwordRoutingPaths = ['web/tenant-password-routing.mjs', 'web/tenant-pas
 function fixture(t, revision = 'first', routingMutation = {}, omittedAuthPath = null) {
   const root = mkdtempSync(join(tmpdir(), 'wallet-kit-test-')); t.after(() => rmSync(root, { recursive: true, force: true }));
   const sourceRoot = join(root, 'source'), runtime = join(root, 'runtime'), kit = join(root, 'kit'); mkdirSync(sourceRoot); mkdirSync(runtime); mkdirSync(kit);
-  const authPaths = ['server/credential-instance.mjs', 'server/task-listing-package-pin.mjs', 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'web/wallet-entry.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
+  const authPaths = ['server/credential-instance.mjs', 'server/task-listing-package-pin.mjs', 'server/main.mjs', 'server/service-entry.mjs', 'server/runtime-entry.mjs', 'server/auth-service.mjs', 'server/crypto.mjs', 'server/config-validation.mjs', 'server/ca-verifier.mjs', 'server/store.mjs', 'server/operator-init.mjs', 'server/operator-activate.mjs', 'web/login-core.mjs', 'web/tenant-path.mjs', 'web/wallet-entry.mjs', 'deploy/auth-runtime/install.mjs', 'deploy/auth-runtime/8415wallet-auth.service', 'deploy/auth-runtime/auth-location.nginx.conf', 'docs/AUTH-INSTALL.md', 'scripts/package/verify-auth.mjs', ...LEGAL_FILES];
   for (const path of new Set([...authPaths, ...DELIVERY_FILES, 'docs/ERC-8415-Wallet-PRD.md'])) put(sourceRoot, path, `Synthetic fixture ${revision}: ${path}\n`);
   for (const path of passwordRoutingPaths) put(sourceRoot, path, readFileSync(new URL(`../${path}`, import.meta.url)));
   const pkg = { name: '8415wallet', version: '0.1.0', license: 'SEE LICENSE IN LICENSE', dependencies: { ethers: '^6.17.0' } };
@@ -72,7 +72,7 @@ function fixture(t, revision = 'first', routingMutation = {}, omittedAuthPath = 
   artifacts.source = { artifact: sourceArchive, sha256: exportSource(sourceRoot, source, join(kit, 'artifacts', sourceArchive)) };
   for (const id of ['v2', 'v3']) {
     const ui = join(root, id); mkdirSync(ui); const cfg = template(id), profile = resolveReleaseProfile(cfg);
-    put(ui, 'web/index.html', '<meta http-equiv="Content-Security-Policy" content="default-src self">');
+    put(ui, 'web/index.html', '<meta http-equiv="Content-Security-Policy" content="default-src self; img-src self blob:">');
     put(ui, 'web/release-config.json', jsonBytes(cfg)); put(ui, 'web/release-profile.mjs', 'export {};\n'); put(ui, 'dist/browser/browser.js', `export const fixture = '${revision}';\n`);
     for (const path of passwordRoutingPaths) {
       if (path !== routingMutation.omit) put(ui, path, readFileSync(join(sourceRoot, path)));
@@ -108,6 +108,10 @@ test('complete synthetic kit verifies V2/V3, exact source, auth dependencies and
 });
 test('auth payload completeness rejects a missing source-pinned listing package pin', t => {
   const f = fixture(t, 'missing-auth-pin', {}, 'server/task-listing-package-pin.mjs');
+  assert.throws(() => verifyDeliveryArchive(f.archive, f.pins), /AUTH_PACKAGE_SOURCE_PAYLOAD_COMPLETENESS/);
+});
+test('auth payload completeness rejects a missing source-pinned tenant path helper', t => {
+  const f = fixture(t, 'missing-tenant-path', {}, 'web/tenant-path.mjs');
   assert.throws(() => verifyDeliveryArchive(f.archive, f.pins), /AUTH_PACKAGE_SOURCE_PAYLOAD_COMPLETENESS/);
 });
 test('external digest and tree pins are mandatory; self-consistent altered source/tool payload is refused', t => {
@@ -300,3 +304,9 @@ test('delivery installer and verifier imports are closed in an isolated stage an
   rmSync(join(directory, 'server/task-listing-package-pin.mjs'));
   assert.throws(() => verifyDeliveryEntryImports(directory), /ERR_MODULE_NOT_FOUND/);
 });
+
+ test('operator image capability transforms installed entry and is checked on receipt readback',t=>{
+  const f=fixture(t);f.input.config.imageOrigins=['https://media.example.com'];const installed=installDapp(f.input);
+  const html=readFileSync(join(f.input.target,'current/public/web/index.html'),'utf8');assert.match(html,/img-src 'self' blob: https:\/\/media\.example\.com/);
+  assert.equal(verifyInstalledRelease(f.input.target,installed.release,{expectedReceiptSha256:installed.receiptSha256}).receipt.release,installed.release);
+ });

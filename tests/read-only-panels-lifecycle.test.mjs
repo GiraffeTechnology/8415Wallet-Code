@@ -1,5 +1,7 @@
 import * as identityProjection from '../web/wallet-identity-display.mjs';
 import * as identityI18n from '../web/i18n.mjs';
+const { default: workspaceCopy, workspaceNarrative } = await import(new URL('../web/locales/workspace.mjs', import.meta.url).href);
+const { rendererMessages } = await import(new URL('../web/renderer-messages.mjs', import.meta.url).href);
 /** Pure synthetic DOM/login scheduling probe. No provider requests, sockets or browser. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,6 +17,11 @@ class Element extends EventTarget {
  click(){if(!this.disabled)this.dispatchEvent(new Event('click'));}
 }
 const drain=async()=>{for(let i=0;i<6;i++)await new Promise(r=>setImmediate(r));};
+function workspaceInput(panel){
+ const pending=[panel];
+ while(pending.length){const node=pending.shift();if(node.tagName==='input'&&node.inputMode==='numeric')return node;pending.push(...(node.children??[]));}
+ assert.fail('the actual workspace numeric input must exist');
+}
 function fixture(){
  const root=new Element('div'),token=new Element('input'),document=new EventTarget(),window=new EventTarget();
  document.visibilityState='visible';document.getElementById=id=>id==='tokenId'?token:root;document.createElement=tag=>new Element(tag);document.createTextNode=text=>({textContent:text});
@@ -26,13 +33,13 @@ function fixture(){
 for(const kind of ['asset-workspace','hoodi-journey']) test(`${kind}: rapid repeated click cannot leave a stale request holding the UI lock`,async()=>{
  const f=fixture();let source=readFileSync(join(root,`web/${kind}-panel.mjs`),'utf8');
  source=source.replace(/^import[\s\S]*?;\n/gm,'').replace('export function mountAssetWorkspace','function mountAssetWorkspace');
- const context={...identityProjection,...identityI18n,document:f.document,globalThis:f.window,walletLogin:f.login,readAssetWorkspace:async()=>({registerHistory:{state:'not-requested'}}),renderAssetWorkspace:()=> 'synthetic workspace',openHoodiJourneyRead:async()=>({}),compareHoodiReleaseHistory:async()=>({}),renderHoodiReleaseHistory:()=> 'synthetic history'};
+ const context={...identityProjection,...identityI18n,workspaceCopy,workspaceNarrative,rendererMessages,document:f.document,globalThis:f.window,walletLogin:f.login,readAssetWorkspace:async()=>({registerHistory:{state:'not-requested'}}),renderAssetWorkspace:()=> 'synthetic workspace',openHoodiJourneyRead:async()=>({}),compareHoodiReleaseHistory:async()=>({}),renderHoodiReleaseHistory:()=> 'synthetic history'};
  if(kind==='asset-workspace')source+='\nmountAssetWorkspace({root:document.getElementById("wallet-private"),login:walletLogin,getContext:()=>({wallet:{reader:{source:{chainId:560048n}}},tokenId:1n})});';
  // Stable wallet identity matters for publication; the fixture below supplies one object.
  if(kind==='asset-workspace')source=source.replace('mountAssetWorkspace({root:', 'const wallet={reader:{source:{chainId:560048n}}};mountAssetWorkspace({root:').replace('wallet:{reader:{source:{chainId:560048n}}},tokenId:1n','wallet,tokenId:1n');
  vm.runInNewContext(source,context);
  const panel=f.root.children[0];
- const input=panel.children[kind==='asset-workspace'?1:2],button=panel.children[kind==='asset-workspace'?4:3];
+ const input=(kind==='asset-workspace'?workspaceInput(panel):panel.children[2]),button=panel.children[kind==='asset-workspace'?4:3];
  if(kind==='asset-workspace')input.value='42';
  else input.files=[{size:100,text:async()=>JSON.stringify({original:{manifest:{wallets:[{account:f.session.account,tenant:'xiongan'}]}},laterV3:{}})}];
  button.click();button.click();await drain();const initialChecks=f.checks;
@@ -46,9 +53,9 @@ for(const kind of ['asset-workspace','hoodi-journey']) test(`${kind}: rapid repe
 for(const kind of ['asset-workspace','hoodi-journey']) test(`${kind}: pagehide/pageshow during read releases controls and rejects late content`,async()=>{
  const f=fixture();let source=readFileSync(join(root,`web/${kind}-panel.mjs`),'utf8');
  source=source.replace(/^import[\s\S]*?;\n/gm,'').replace('export function mountAssetWorkspace','function mountAssetWorkspace');
- const context={...identityProjection,...identityI18n,document:f.document,globalThis:f.window,walletLogin:f.login,readAssetWorkspace:async()=>({registerHistory:{state:'not-requested'}}),renderAssetWorkspace:()=> 'synthetic workspace',openHoodiJourneyRead:async()=>({}),compareHoodiReleaseHistory:async()=>({}),renderHoodiReleaseHistory:()=> 'synthetic history'};
+ const context={...identityProjection,...identityI18n,workspaceCopy,workspaceNarrative,rendererMessages,document:f.document,globalThis:f.window,walletLogin:f.login,readAssetWorkspace:async()=>({registerHistory:{state:'not-requested'}}),renderAssetWorkspace:()=> 'synthetic workspace',openHoodiJourneyRead:async()=>({}),compareHoodiReleaseHistory:async()=>({}),renderHoodiReleaseHistory:()=> 'synthetic history'};
  if(kind==='asset-workspace')source+='\nconst wallet={reader:{source:{chainId:560048n}}};mountAssetWorkspace({root:document.getElementById("wallet-private"),login:walletLogin,getContext:()=>({wallet,tokenId:1n})});';
- vm.runInNewContext(source,context);const panel=f.root.children[0],input=panel.children[kind==='asset-workspace'?1:2],button=panel.children[kind==='asset-workspace'?4:3],output=panel.children.at(-1);
+ vm.runInNewContext(source,context);const panel=f.root.children[0],input=(kind==='asset-workspace'?workspaceInput(panel):panel.children[2]),button=panel.children[kind==='asset-workspace'?4:3],output=panel.children.at(-1);
  if(kind==='asset-workspace')input.value='42';else input.files=[{size:100,text:async()=>JSON.stringify({original:{manifest:{wallets:[{account:f.session.account,tenant:'xiongan'}]}},laterV3:{}})}];
  button.click();await drain();f.gates[0]();await drain();assert.equal(button.disabled,true);
  f.window.dispatchEvent(new Event('pagehide'));f.window.dispatchEvent(new Event('pageshow'));f.gates[1]?.();await drain();

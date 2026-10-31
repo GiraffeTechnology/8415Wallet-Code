@@ -4,9 +4,9 @@ import { Eip1193ReadTransport } from '../adapters/signing/eip1193ReadTransport.t
 import { encodeWords } from '../codec/abi.ts';
 import { keccak256Utf8 } from '../codec/keccak.ts';
 import { ControlAdapterError, isControlProviderRejection, controlHex, controlRpc, controlPendingNonce, hashControlBytes, requireControlAdapter as check,
-  validateControlPin, verifyControlDeployment, type ControlDeploymentPin } from '../controls/authorization.ts';
-import { actorSelected, proveSupersededNonce, rpcObject, rpcQuantity, wordAddress, wordUint } from '../controls/execution.ts';
-import { sameDeployment } from '../controls/operationJournal.ts';
+  validateControlPin, verifyControlDeployment, type ControlDeploymentPin } from '../standalone/authorization.ts';
+import { actorSelected, proveSupersededNonce, rpcObject, rpcQuantity, wordAddress, wordUint } from '../standalone/execution.ts';
+import { sameDeployment } from '../standalone/authorization.ts';
 import { detectConformance } from '../sdk/conformance.ts';
 import { type TransactionIntent, type TransactionRequest } from '../sdk/transactions.ts';
 import { isAddressInput } from '../xiongan/address.ts';

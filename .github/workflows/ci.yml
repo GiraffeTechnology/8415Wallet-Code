@@ -17,6 +17,8 @@ jobs:
         with:
           node-version: '22.18.0'
           cache: npm
+      - name: Declare external private delivery gate (not evaluated by CI)
+        run: node scripts/ci/report-private-delivery-gates.mjs
       - name: Install pinned build dependencies
         run: npm ci
       - name: Build and verify standalone authentication package
@@ -51,6 +53,8 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
+      - name: Declare external private delivery gate (not evaluated by CI)
+        run: node scripts/ci/report-private-delivery-gates.mjs
       - name: Install
         run: npm ci
 

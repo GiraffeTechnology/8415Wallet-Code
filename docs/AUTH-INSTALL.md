@@ -442,3 +442,25 @@ protected-node `check` retains its existing in-memory credential validation, so
 do not invoke the default mode under a no-key-read preflight instruction.
 
 
+
+## Asset-policy and authentication state compatibility
+
+The integrated runtime declares auth-state semantics generation 5 and credential
+store capability 2. It reads existing generation-1 state without replacing the
+store key. Saved asset-control settings and explicit password-unbinding records
+require generation 2; subsequent writes retain that minimum generation.
+
+Code upgrade and rollback validate the declared state semantics and format
+before switching a runtime. A start attempt may already have persisted newer
+state. Do not restore older code, erase the credential store, remove its lock,
+or clear browser journals to make an incompatible rollback appear successful.
+
+Password unbinding is distinct from disabling a sign-in method. A verified
+unbind stores an explicit tombstone so the original configured password cannot
+reappear through a fallback. Binding a new password uses the existing verified
+initial-password procedure and removes that tombstone atomically. At least one
+independent enabled sign-in method must remain. All actual account changes still
+require the existing exact-change human verification; packaging grants none.
+
+These capabilities are source and package contracts, not evidence of deployment,
+real email delivery, hardware-CA management or physical-device acceptance.

@@ -26,19 +26,22 @@ export function createTaskVerificationPolicyClient({ client, walletLogin, docume
       changeDigest: value.changeDigest, mode: value.mode, previousRevision: value.expectedRevision });
   }
   async function requestStatus(binding, signal, session, account, reference = null) {
+    const authorizationContext=typeof client.authorizationContext==='function'?await client.authorizationContext():null;
+    current(binding,signal);
+    const protocol=authorizationContext?.continuation?'8415-task-policy-change-wire/2':TASK_POLICY_CHANGE_PROTOCOL;
     let raw;
     try {
-      raw = await client.taskVerification('status', reference ? taskPolicyChangeQuery(reference) :
-        { protocol: TASK_POLICY_CHANGE_PROTOCOL }, { signal });
+      raw = await client.taskVerification('status', reference ? taskPolicyChangeQuery(reference,protocol) :
+        { protocol }, { signal });
     } catch (error) {
       // An older exact-input reader may reject discovery. Only that explicit
       // input error permits a legacy read, never a mutation or auth fallback.
       current(binding, signal);
-      if (reference || error?.code !== 'TASK_VERIFICATION_INPUT_REFUSED' || error?.status !== 400) throw error;
+      if (authorizationContext?.continuation || reference || error?.code !== 'TASK_VERIFICATION_INPUT_REFUSED' || error?.status !== 400) throw error;
       raw = await client.taskVerification('status', {}, { signal });
     }
     current(binding, signal);
-    const decoded = await wire.status(raw, session, account, reference); current(binding, signal);
+    const decoded = await wire.status(raw, session, account, reference,authorizationContext); current(binding, signal);
     validateTaskVerificationPolicyView(decoded.view, session);
     return decoded;
   }
@@ -82,7 +85,7 @@ export function createTaskVerificationPolicyClient({ client, walletLogin, docume
         if (decoded.reconciliation?.state !== 'pending' || !slot || slot.stage === 'committing' ||
           slot.changeId !== reference.changeId || slot.changeDigest !== reference.changeDigest ||
           slot.expectedRevision !== reference.previousRevision || slot.mode !== reference.mode) return state.view;
-        const raw = await client.taskVerification('cancel', taskPolicyChangeQuery(reference), { signal }); current(binding, signal);
+        const raw = await client.taskVerification('cancel', taskPolicyChangeQuery(reference,decoded.changeProtocol), { signal }); current(binding, signal);
         if (typeof wire.cancelled !== 'function') throw refused('TASK_POLICY_WIRE_REFUSED');
         const result = wire.cancelled(raw, reference, decoded); current(binding, signal);
         resolve(reference, result);
@@ -99,7 +102,7 @@ export function createTaskVerificationPolicyClient({ client, walletLogin, docume
           throw refused('TASK_VERIFICATION_REVISION_CONFLICT');
         let preparedReference = null;
         return await runTaskVerificationPolicyChange({ document, window, walletLogin, client,
-          binding, signal, reviewed, mode, decoders: wire,
+          binding, signal, reviewed, mode, decoders: wire, authorizationContext:decoded.authorizationContext??null, changeProtocol:decoded.changeProtocol,
           onPrepared(prepared) {
             current(binding, signal);
             preparedReference = store.remember(taskPolicyPendingReference({ scopeKey: reviewed.scopeKey,

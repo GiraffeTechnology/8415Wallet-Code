@@ -48,7 +48,7 @@ function fixture(t, { approved = true, extras = {}, extraEntries = {} } = {}) {
   const policy = structuredClone(currentPolicy);
   policy.review = { status: approved ? 'approved-for-local-build' : 'pending', blockers: [], holds: approved ? [] : ['Synthetic pending review'] };
   policy.entries = [...data].sort(([a], [b]) => a < b ? -1 : 1).map(([path, bytes]) => ({ path, mode: '100644', git_blob_sha1: gitHash('blob', bytes), sha256: sha256(bytes) }));
-  for (const path of Object.keys(extraEntries)) policy.mandatory.application.push(path);
+  for (const path of Object.keys(extraEntries)) if (!Object.values(policy.mandatory).flat().includes(path)) policy.mandatory.application.push(path);
   const policyPath = join(directory, 'policy.json'); writeFileSync(policyPath, jsonBytes(policy));
   const options = { sourceRoot: source, allowlistPath: policyPath, expectedAllowlistSha256: sha256(readFileSync(policyPath)),
     expectedUpstreamCommit: commit, expectedUpstreamTree: tree, expectedToolingSha256: computeToolingPin(root), toolingRoot: root };
@@ -271,6 +271,44 @@ test('missing relative import and fixed document closure refuse in newly pinned 
   const a = fixture(t, { extraEntries: { 'src/broken.ts': "import './absent.ts';\n" } }); assert.throws(() => inspectSource(a.options), /IMPORT_MISSING/);
   const b = fixture(t, { extraEntries: { 'scripts/package/check-docs.mjs': "const doc = 'docs/ABSENT.md';\n" } }); assert.throws(() => inspectSource(b.options), /MANDATORY_DOCUMENT_MISSING/);
   const c = fixture(t, { extraEntries: { 'src/dynamic.ts': 'export async function load(path) { return import(path); }\n' } }); assert.throws(() => inspectSource(c.options), /NONLITERAL_IMPORT_REFUSED/);
+});
+
+const boundedSmokeSource = `import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+const root = '/tmp/synthetic-installed-package';
+export const INSTALLED_SMOKE_RUNTIME_FILES = Object.freeze(['server/store.mjs']);
+const load = path => {
+  assert.ok(INSTALLED_SMOKE_RUNTIME_FILES.includes(path), 'INSTALLED_SMOKE_MODULE_REFUSED');
+  return import(pathToFileURL(\`\${root}/\${path}\`).href);
+};
+await load('server/store.mjs');
+`;
+
+test('source import analysis reads syntax rather than import-shaped string or comment data', t => {
+  const f = fixture(t, { extraEntries: { 'src/import-example.ts':
+    `export const example = "await import('./absent.ts')";\n// await import(untrusted);\n` } });
+  assert.doesNotThrow(() => inspectSource(f.options));
+});
+
+test('the installed smoke has a finite immutable runtime module contract', t => {
+  const f = fixture(t, { extraEntries: { 'scripts/controls/task-auth-runtime-smoke.mjs': boundedSmokeSource } });
+  assert.doesNotThrow(() => inspectSource(f.options));
+});
+
+test('bounded smoke imports still refuse missing guards dynamic calls aliases mutable tables and other code', t => {
+  for (const source of [
+    boundedSmokeSource.replace('INSTALLED_SMOKE_RUNTIME_FILES.includes(path)', 'true'),
+    boundedSmokeSource.replace("await load('server/store.mjs');", 'await load(process.argv[3]);'),
+    boundedSmokeSource.replace("await load('server/store.mjs');", "const alias = load; await alias('server/store.mjs');"),
+    boundedSmokeSource.replace('export const INSTALLED_SMOKE_RUNTIME_FILES', 'export let INSTALLED_SMOKE_RUNTIME_FILES'),
+    boundedSmokeSource.replace("['server/store.mjs']", "['../escape.mjs']"),
+    boundedSmokeSource + 'await import(process.argv[4]);\n',
+  ]) {
+    const f = fixture(t, { extraEntries: { 'scripts/controls/task-auth-runtime-smoke.mjs': source } });
+    assert.throws(() => inspectSource(f.options), /BOUNDED_IMPORT_|NONLITERAL_IMPORT_REFUSED/);
+  }
+  const f = fixture(t, { extraEntries: { 'src/unrecognized-smoke.mjs': boundedSmokeSource } });
+  assert.throws(() => inspectSource(f.options), /NONLITERAL_IMPORT_REFUSED/);
 });
 
 test('omitting an existing source-family member fails despite changing policy digest', t => {

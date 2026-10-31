@@ -659,3 +659,37 @@ test('exact adapter requires the real serialized immediate-dispatch capability',
   const incomplete = { transactionMany: store.transactionMany.bind(store) };
   assert.throws(() => fixture({ ...syntheticAdapter(), store: incomplete }), /TASK_EXECUTION_GATE_NOT_CONFIGURED/);
 });
+
+// New planner-only API definitions. NOT_RUN in this source-edit environment.
+test('plan-reserve uses original planner once and reads original child without executing',async()=>{
+ const a=syntheticAdapter();let plans=0;const execution={...a.execution,async plan(input:any){plans++;return child(input.task);}};
+ const f=fixture({execution}),g=await f.grant();
+ const first=await f.call('plan-reserve',{taskDigest:g.task.digest,expectedBudgetRevision:g.budget.revision});
+ assert.equal(first.schema,'8415-task-plan-reservation/1');assert.equal(first.reservation.status,'reserved');
+ assert.equal(first.child.digest,first.reservation.childDigest);assert.equal(first.child.child.operationId,first.reservation.operationId);
+ const replay=await f.call('plan-reserve',{taskDigest:g.task.digest,expectedBudgetRevision:first.status.budget.revision});
+ assert.deepEqual(replay.child,first.child);assert.equal(plans,1);assert.equal(a.calls.send,0);assert.equal(a.calls.verify,0);
+ await assert.rejects(f.call('plan-reserve',{taskDigest:g.task.digest,expectedBudgetRevision:first.status.budget.revision,nonce:'8'}));
+});
+test('cancelled original child cannot be silently replanned',async()=>{
+ const a=syntheticAdapter();let plans=0;const f=fixture({execution:{...a.execution,async plan(input:any){plans++;return child(input.task);}}});
+ const g=await f.grant(),r=await f.call('plan-reserve',{taskDigest:g.task.digest,expectedBudgetRevision:g.budget.revision});
+ const cancelled=await f.call('cancel-reservation',{taskDigest:g.task.digest,operationId:r.child.child.operationId,childDigest:r.child.digest,expectedBudgetRevision:r.status.budget.revision});
+ await assert.rejects(f.call('plan-reserve',{taskDigest:g.task.digest,expectedBudgetRevision:cancelled.budget.revision}),/TASK_PLAN_EXISTING_OPERATION_REQUIRES_RECONCILIATION/);
+ assert.equal(plans,1);assert.equal(a.calls.send,0);
+});
+test('UNKNOWN planner child is returned unchanged without retrying planner or send',async()=>{
+ const a=syntheticAdapter({failSend:true});let plans=0;const f=fixture({execution:{...a.execution,async plan(input:any){plans++;return child(input.task);}}});
+ const g=await f.grant(),r=await f.call('plan-reserve',{taskDigest:g.task.digest,expectedBudgetRevision:g.budget.revision});
+ const unknown=await f.call('execute',{taskDigest:g.task.digest,operationId:r.child.child.operationId,childDigest:r.child.digest,expectedBudgetRevision:r.status.budget.revision});
+ const read=await f.call('plan-reserve',{taskDigest:g.task.digest,expectedBudgetRevision:unknown.budget.revision});
+ assert.equal(read.reservation.status,'outcome-unknown');assert.deepEqual(read.child,r.child);assert.equal(plans,1);assert.equal(a.calls.send,1);
+});
+test('concurrent plan-reserve has one original revision CAS winner and no send',async()=>{
+ const a=syntheticAdapter();let count=0,release!:()=>void;const gate=new Promise<void>(r=>{release=r;});
+ const f=fixture({execution:{...a.execution,async plan(input:any){if(++count===2)release();await gate;return child(input.task);}}});
+ const g=await f.grant(),body={taskDigest:g.task.digest,expectedBudgetRevision:g.budget.revision};
+ const results=await Promise.allSettled([f.call('plan-reserve',body),f.call('plan-reserve',body)]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(a.calls.send,0);
+ const current=await f.call('status',{taskDigest:g.task.digest});assert.equal(current.budget.reservations.length,1);
+});

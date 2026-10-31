@@ -44,3 +44,19 @@ test('policy purpose without exact canonical digest refuses before opening SMTP;
   await assert.rejects(send({ ...base, purpose: 'login' }), /AUTH_EMAIL_UNAVAILABLE/);
   assert.equal(smtp.connection.length, 0);
 });
+
+for (const mode of ['on', 'off']) test('asset policy ' + mode + ' uses SMTP composer and distinct setting', async () => {
+  const smtp = fakeSmtp(), send = createSmtpOtpSender({ port: 465, username: 'synthetic', password: 'synthetic', connect: smtp.connect });
+  assert.deepEqual(await send({ ...base, purpose: 'asset-control-policy-' + mode }), { accepted: true });
+  const wire = smtp.wire.join('');
+  assert.equal(smtp.connection.length, 1);
+  assert.ok(wire.includes('Setting: Agent and asset authorization controls ' + mode.toUpperCase()));
+  assert.ok(wire.includes('Change digest: ' + base.changeDigest));
+  assert.ok(wire.includes('MAIL FROM:<' + OTP_FROM + '>'));
+  assert.doesNotMatch(wire, /Setting: Per-operation human verification/);
+});
+test('asset policy missing digest refuses before SMTP', async () => {
+  const smtp = fakeSmtp(), send = createSmtpOtpSender({ port: 465, username: 'synthetic', password: 'synthetic', connect: smtp.connect });
+  for (const mode of ['on', 'off']) await assert.rejects(send({ ...base, purpose: 'asset-control-policy-' + mode, changeDigest: undefined }), /AUTH_EMAIL_UNAVAILABLE/);
+  assert.equal(smtp.connection.length, 0);
+});

@@ -221,12 +221,18 @@ const confirmation = (setup: any, now: number) => ({ changeProof: setup.changePr
 test('account management status is authenticated, account-bound and secret-free', async t => {
   const fingerprint = 'e'.repeat(64), f = await fixture({ fingerprints: [fingerprint], verifyCa: async () => ({ fingerprint }) });
   t.after(f.close); const c = f.client();
-  assert.equal((await c.call('account')).status, 401); await c.bootstrap();
-  assert.equal((await c.call('account')).status, 401); const login = await c.login();
+  const anonymous = await c.call('account'); assert.equal(anonymous.status, 401);
+  assert.doesNotMatch(JSON.stringify(anonymous.data), /fingerprint|caBindings|caBindingManagement|walletBinding|fundsAvailable|nftInventoryAvailable/);
+  await c.bootstrap();
+  const preauthenticated = await c.call('account'); assert.equal(preauthenticated.status, 401);
+  assert.doesNotMatch(JSON.stringify(preauthenticated.data), /fingerprint|caBindings|caBindingManagement|walletBinding|fundsAvailable|nftInventoryAvailable/);
+  const login = await c.login();
   const result = await c.call('account'); assert.equal(result.status, 200);
   assert.deepEqual(result.data, { schema: '8415wallet-account/1', tenant: 'xiongan', origin: f.origin,
     username: 'tester', account: f.signer.address, chainId: '1',
-    forwardProgressAvailable: false, taskHumanVerification: null,
+    caBindingManagement: 'combined-v1', caBindings: { fingerprints: [fingerprint] },
+    walletBindingManagement: 'same-account-v1', walletBinding: { account: f.signer.address, chainId: '1', bound: true },
+    forwardProgressAvailable: false, fundsAvailable: false, nftInventoryAvailable: false, taskHumanVerification: null,
     methods: { password: { available: true, enabled: true, bound: true }, wallet: { available: true, enabled: true, bound: true }, ca: { available: true, enabled: true, bound: true }, totp: { available: true, enabled: false, bound: false } },
     recovery: { configured: false, emailMasked: null, questionId: null, emailOtpAvailable: true, questions: ['recovery-phrase', 'first-school', 'childhood-place'] },
     registration: { required: false, complete: true, email: registration.email, emailMasked: 's***@example.invalid', emailOtpAvailable: true },
@@ -234,7 +240,12 @@ test('account management status is authenticated, account-bound and secret-free'
     methodChange: { available: true, factor: 'password', verifiedEmailRequired: false, emailMasked: 's***@example.invalid', existingCodeRequired: false, existingAnswerRequired: false, trustedDeviceSupported: false },
     management: { freshIndependentLogin: true, reauthenticateBy: login.data.issuedAt + 300000, existingCodeRequired: false } });
   assert.equal(result.headers.get('cache-control'), 'no-store');
-  assert.doesNotMatch(JSON.stringify(result.data), /passwordHash|recoveryHashes|recoverySalt|secret|fingerprint|csrf|session/);
+  // Authenticated public certificate identifiers are the exact management target,
+  // not private-key material. No other account field may disclose fingerprints.
+  const { caBindings, ...nonBindingFields } = result.data;
+  assert.deepEqual(caBindings, { fingerprints: [fingerprint] });
+  assert.doesNotMatch(JSON.stringify(nonBindingFields), /passwordHash|recoveryHashes|recoverySalt|secret|fingerprint|csrf|session/);
+  assert.doesNotMatch(JSON.stringify(result.data), /privateKey|private-key|seed/);
   assert.equal((await c.call('account', undefined, { 'X-Wallet-CSRF': 'wrong' })).status, 401);
   assert.equal((await c.call('account', undefined, { 'X-Wallet-Tenant': 'other' })).status, 403);
   assert.equal((await c.call('account', undefined, { 'Sec-Fetch-Site': 'cross-site' })).status, 403);
