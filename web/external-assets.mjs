@@ -28,6 +28,10 @@ function invalidate() {
 }
 async function run(fn) {
   if (busy) return; const uiLock = acquireWalletUi(); if (uiLock === null) return; busy = true; const current = generation;
+  // This controller owns the asset load trigger. Keep its visible busy state in
+  // sync with the operation without disabling login, logout or other panels.
+  const connect = el('asset-connect'), connectWasDisabled = connect.disabled;
+  connect.disabled = true;
 
   try {
     await walletLogin.check();
@@ -45,6 +49,7 @@ async function run(fn) {
       try { const state = await s.status(); if (s === session && current === generation) paint(el('asset-state'), format(state)); }
       catch { if (s === session && current === generation) paint(el('asset-state'), msg('message.026')); }
     }
+    connect.disabled = connectWasDisabled;
     busy = false; releaseWalletUi(uiLock);
   }
 }
