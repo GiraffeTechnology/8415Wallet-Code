@@ -22,16 +22,25 @@ function methods(port,names){check(port&&typeof port==='object','RECEIPT_PRINCIP
 const opaque=x=>typeof x==='string'&&x.length>0&&x.length<=512&&x.trim()===x&&!/[\u0000-\u001f\u007f]/.test(x);
 const uint=x=>typeof x==='string'&&/^(0|[1-9][0-9]{0,77})$/.test(x)&&BigInt(x)<1n<<256n;
 const actions=['freeze','settle','release'];
+// Preserve historical unknown evidence while reserving room for each original
+// action's eventual confirmed outcome. Identical readbacks add no new fact.
+const MAX_UNKNOWN_OBSERVATIONS=64,MAX_OBSERVATIONS=67;
 const eventId=(...values)=>keccak256Utf8(JSON.stringify(values));
 const bindings=new WeakMap();
 function resultFor(raw,purpose,action){
  const r=fields(raw,['schema','action','effectId','purposeDigest','outcome','reference','amountBaseUnits','recipient']);
- check(r.schema==='8415-receipt-principal-effect/1'&&r.action===action&&r.effectId===purpose.reservationId+':'+action&&
+ check(actions.includes(action)&&r.schema==='8415-receipt-principal-effect/1'&&r.action===action&&r.effectId===purpose.reservationId+':'+action&&
   r.purposeDigest===receiptPrincipalPurposeDigest(purpose)&&r.amountBaseUnits===purpose.amountBaseUnits&&
   r.recipient===(action==='settle'?purpose.payee:purpose.account),'RECEIPT_PRINCIPAL_EFFECT_BINDING_REFUSED');
  check(['confirmed','unknown'].includes(r.outcome)&&(r.reference===null||opaque(r.reference))&&
   (r.outcome!=='confirmed'||r.reference!==null),'RECEIPT_PRINCIPAL_EFFECT_RESULT_REFUSED');
  return Object.freeze(r);
+}
+function appendObservation(previous,result){
+ if(previous.some(item=>isDeepStrictEqual(item,result)))return previous;
+ if(result.outcome==='unknown')check(previous.filter(item=>item.outcome==='unknown').length<MAX_UNKNOWN_OBSERVATIONS,'RECEIPT_PRINCIPAL_OBSERVATION_LIMIT');
+ else check(!previous.some(item=>item.outcome==='confirmed'&&item.action===result.action),'RECEIPT_PRINCIPAL_EFFECT_OUTCOME_CONFLICT');
+ check(previous.length<MAX_OBSERVATIONS,'RECEIPT_PRINCIPAL_OBSERVATION_LIMIT');return [...previous,result];
 }
 function journal(raw,purpose){
  const r=fields(raw,['schema','state','dispatch','observations']);check(r.schema==='8415-receipt-principal-journal/1');
@@ -39,9 +48,12 @@ function journal(raw,purpose){
  let dispatch=null;
  if(r.dispatch!==null){dispatch=fields(r.dispatch,['action','effectId','eventId','entered']);check(actions.includes(dispatch.action)&&
   dispatch.effectId===purpose.reservationId+':'+dispatch.action&&opaque(dispatch.eventId)&&typeof dispatch.entered==='boolean');}
- check(Array.isArray(r.observations)&&r.observations.length<=64);
+ check(Array.isArray(r.observations)&&r.observations.length<=MAX_OBSERVATIONS);
  const descriptors=Object.getOwnPropertyDescriptors(r.observations);check(Reflect.ownKeys(descriptors).length===r.observations.length+1);
- const observations=Array.from({length:r.observations.length},(_,n)=>{check(Object.hasOwn(descriptors[n]??{},'value'));const observation=descriptors[n].value;return resultFor(observation,purpose,observation.action);});
+ const observations=Array.from({length:r.observations.length},(_,n)=>{check(Object.hasOwn(descriptors[n]??{},'value'));const observation=fields(descriptors[n].value,['schema','action','effectId','purposeDigest','outcome','reference','amountBaseUnits','recipient']);return resultFor(observation,purpose,observation.action);});
+ const action=state.activeEffect??(state.status==='held'?'freeze':state.status==='settled'?'settle':state.status==='released'?'release':null);
+ check(state.status==='unreserved'?dispatch===null&&observations.length===0:dispatch!==null&&dispatch.action===action&&state.history.some(item=>item.eventId===dispatch.eventId)&&
+  (dispatch.entered||state.status===dispatch.action+'-pending'),'RECEIPT_PRINCIPAL_JOURNAL_DISPATCH_CONFLICT');
  return {schema:r.schema,state,dispatch,observations};
 }
 
@@ -126,7 +138,7 @@ export function createReceiptPrincipalRuntime({store,authorization,fundsReader,f
    check(old&&old.dispatch?.effectId===p.reservationId+':'+action&&old.dispatch.eventId===started,'RECEIPT_PRINCIPAL_DISPATCH_CONFLICT');
    const state=advanceReceiptPrincipalState(old.state,{expectedRevision:old.state.revision,eventId:eventId(started,'result'),event:result?.outcome==='confirmed'?
     {kind:'effect-confirmed',action,effectId:result.effectId,reference:result.reference,purposeDigest:result.purposeDigest,amountBaseUnits:result.amountBaseUnits,recipient:result.recipient}:{kind:'effect-unknown',action}});
-   const observations=result===null?old.observations:[...old.observations,result];check(observations.length<=64,'RECEIPT_PRINCIPAL_OBSERVATION_LIMIT');
+   const observations=result===null?old.observations:appendObservation(old.observations,result);
    return {...old,state,observations};
   });
  }
@@ -210,9 +222,8 @@ export function createReceiptPrincipalRuntime({store,authorization,fundsReader,f
     const result=resultFor(await effects.reconcile(Object.freeze({purpose:p,purposeDigest:current.state.purposeDigest,effectId:current.dispatch.effectId,holdReference:current.state.holdReference})),p,action);
     heldCheck(revalidate,p,null);
     const saved=await update(p,revalidate,null,old=>{check(old&&old.state.status==='unknown'&&old.dispatch.effectId===result.effectId);
-     check(old.observations.length<64,'RECEIPT_PRINCIPAL_OBSERVATION_LIMIT');
      const state=result.outcome==='unknown'?old.state:advanceReceiptPrincipalState(old.state,{expectedRevision:old.state.revision,eventId:eventId(old.dispatch.eventId,'reconcile-confirmed'),event:{kind:'effect-reconciled',action,effectId:result.effectId,reference:result.reference,purposeDigest:result.purposeDigest,amountBaseUnits:result.amountBaseUnits,recipient:result.recipient}});
-     return {...old,state,observations:[...old.observations,result]};});return saved.state;
+     return {...old,state,observations:appendObservation(old.observations,result)};});return saved.state;
    });}finally{inFlight.delete(k);}
   }),
   stop(){if(stopPromise)return stopPromise;closing=true;stopPromise=(async()=>{while(pending.size)await Promise.allSettled([...pending]);realms.delete(realm);})();return stopPromise;}

@@ -175,3 +175,30 @@ test('source scope exit after a committed effect preserves its actual durable ou
   f.clock.revoked=true;assert.equal((await f.runtime.reconcile(f.p)).status,'held');assert.equal(f.calls.reconcile,0);assert.equal(f.calls.freeze,1);
  }finally{await close(f);}
 });
+test('repeated identical unknown readbacks cannot exhaust the later original-effect reconciliation',async()=>{
+ const f=fixture();let known=false;try{const original=f.fundsEffects.reconcile.bind(f.fundsEffects);await reinstall(f,{fundsEffects:{...f.fundsEffects,async reconcile(fixed){const actual=await original(fixed);return known?actual:{...actual,outcome:'unknown',reference:null};}}});
+  f.clock.throwAfterCommit=true;await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/OUTCOME_UNKNOWN_READ_FIRST/);
+  for(let n=0;n<70;n++)assert.equal((await f.runtime.reconcile(f.p)).status,'unknown');
+  known=true;assert.equal((await f.runtime.reconcile(f.p)).status,'held');assert.equal(f.calls.freeze,1);assert.equal(f.calls.reconcile,71);
+ }finally{await close(f);}
+});
+test('bounded distinct unknown evidence retains reserved capacity for the actual confirmed outcome',async()=>{
+ const f=fixture();let known=false,sequence=0;try{const original=f.fundsEffects.reconcile.bind(f.fundsEffects);await reinstall(f,{fundsEffects:{...f.fundsEffects,async reconcile(fixed){const actual=await original(fixed);return known?actual:{...actual,outcome:'unknown',reference:'TEST_ONLY_UNKNOWN_'+(++sequence)};}}});
+  f.clock.throwAfterCommit=true;await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/OUTCOME_UNKNOWN_READ_FIRST/);
+  for(let n=0;n<64;n++)assert.equal((await f.runtime.reconcile(f.p)).status,'unknown');
+  await assert.rejects(f.runtime.reconcile(f.p),/OBSERVATION_LIMIT/);assert.equal((await f.runtime.read(f.p)).status,'unknown');
+  known=true;assert.equal((await f.runtime.reconcile(f.p)).status,'held');assert.equal(f.calls.freeze,1);assert.equal(f.financial.holds.get(f.p.reservationId).status,'held');
+ }finally{await close(f);}
+});
+test('a mismatched persisted dispatch is refused before any original effect query',async()=>{
+ const f=fixture();try{f.clock.throwAfterCommit=true;await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/OUTCOME_UNKNOWN_READ_FIRST/);
+  const read=f.store.read.bind(f.store);f.store.read=async key=>{const actual=await read(key);return actual===null?null:{...actual,dispatch:{...actual.dispatch,action:'settle',effectId:f.p.reservationId+':settle'}};};
+  await assert.rejects(f.runtime.reconcile(f.p),/JOURNAL_DISPATCH_CONFLICT/);assert.equal(f.calls.reconcile,0);assert.equal(f.calls.freeze,1);assert.equal(f.calls.settle,0);
+ }finally{await close(f);}
+});
+test('journal observation accessors are rejected without invocation or funds query',async()=>{
+ const f=fixture();let getters=0;try{f.clock.throwAfterCommit=true;await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/OUTCOME_UNKNOWN_READ_FIRST/);
+  const read=f.store.read.bind(f.store),actualEffect=f.financial.effects.get(f.p.reservationId+':freeze');f.store.read=async key=>{const actual=await read(key);if(actual===null)return null;const unsafe={...actualEffect};Object.defineProperty(unsafe,'action',{enumerable:true,get(){getters++;return 'freeze';}});return {...actual,observations:[unsafe]};};
+  await assert.rejects(f.runtime.reconcile(f.p));assert.equal(getters,0);assert.equal(f.calls.reconcile,0);assert.equal(f.calls.freeze,1);
+ }finally{await close(f);}
+});

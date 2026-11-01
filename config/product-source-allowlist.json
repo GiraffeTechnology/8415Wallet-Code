@@ -1485,8 +1485,8 @@
     {
       "path": "server/receipt-principal-runtime.mjs",
       "mode": "100644",
-      "git_blob_sha1": "bed96bec5616f00a5c9446cb746905fb6360eb97",
-      "sha256": "e4a22c5e9b12042cd7341499c6f0e467d2b241fc7baf35c408441e6184f29737"
+      "git_blob_sha1": "e6cb5ce6bb465e6f70d12c57aba6bb4e802a81d2",
+      "sha256": "bcfc8d4e1fbcbea787217e368eaa971dbc526f91fadb15672221d41d5522bd4f"
     },
     {
       "path": "server/receipt-provider-handler.mjs",
