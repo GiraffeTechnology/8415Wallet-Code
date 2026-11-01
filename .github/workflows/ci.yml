@@ -301,3 +301,19 @@ jobs:
             ${{ steps.public_product.outputs.report_path }}
           if-no-files-found: error
           retention-days: 7
+
+      - name: Original receipt auth and SQL journal integration
+        id: receipt_sql
+        if: matrix.node-version == 24
+        timeout-minutes: 15
+        shell: bash
+        run: bash scripts/ci/whole-receipt-sql-client.sh
+
+      - name: Receipt SQL software evidence
+        if: always() && matrix.node-version == 24 && steps.receipt_sql.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: receipt-sql-software-node-24
+          path: dist/receipt-sql-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
