@@ -1,4 +1,5 @@
 export {createRpcNftInventoryReader} from './nft-inventory-reader.mjs';
+export {createExSepoliaReceiptContent} from './receipt-software-content.mjs';
 /** Explicitly configured auth service; listing is an additive server-only runtime. */
 import { createServer } from 'node:http';
 import { readFile, chmod, lstat } from 'node:fs/promises';
@@ -23,7 +24,7 @@ import { createWholeReceiptHost } from './whole-receipt-host.mjs';
 
 /** Reusable process-level entry for an already reviewed server capability object.
  * HTTP request data is never passed as listingRuntime or auth options. */
-export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, readSources = null, wholeReceipt = null, now = Date.now }) {
+export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, readSources = null, wholeReceipt = null, receiptTaskContentContext = null, now = Date.now }) {
   validateAuthConfig(config);
   const reads = composeWalletReadRuntime({ sources: readSources, fundsReader, nftInventoryReader, now });
   if (exactServerConfiguration !== null && config.exact?.enabled) throw Error('TASK_EXACT_DUPLICATE_CONFIG_REFUSED');
@@ -44,13 +45,14 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
   const listing = listingRuntime ?? await bootstrapTaskListingRuntime({ configuration: config.listing, store, authStatePath: config.statePath, now });
   let receipt = null;
   try {
-  receipt = createWholeReceiptHost({ binding: wholeReceipt, store, now });
+  receipt = createWholeReceiptHost({ binding: wholeReceipt, store, now, receiptTaskContentContext });
   const handler = createAuthService({ origin: config.origin, tenant: config.tenant, basePath: config.basePath ?? '', accounts: config.accounts, store, verifyCa, sendOtp, now,
     taskTestAuthorization: testAuthorization, forwardProgressReader, assetControlCatalogReader, fundsReader: reads.fundsReader, nftInventoryReader: reads.nftInventoryReader,
     ...composeTaskAuthOptions({ exact: exact.authOptions, listing: listing.runtime.authOptions, artfi: receipt?.authOptions ?? {} }),
     // The authenticated owner-policy API is part of the standard runtime.
     // Its persisted effective value and factors remain service-owned; this
     // exposes neither an execution capability nor a caller-selected flag.
+    taskReceiptContentContext: receiptTaskContentContext,
     taskVerificationPolicyEnabled: true });
   listing.runtime.connectAuthorization(handler.taskListingAuthorization);
   receipt?.connectAuthorization(handler.taskReceiptAuthorization);

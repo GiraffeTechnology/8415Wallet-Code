@@ -1,0 +1,144 @@
+import assert from 'node:assert/strict';
+import {Interface} from 'ethers';
+import {request} from 'node:http';
+import {once} from 'node:events';
+import {createSecureContext} from 'node:tls';
+import {readFile,mkdtemp,rm} from 'node:fs/promises';
+import {spawn,execFileSync} from 'node:child_process';
+import {createServer as createNetServer} from 'node:net';
+import {createInterface} from 'node:readline';
+import {resolve,join,dirname,isAbsolute} from 'node:path';
+import {createTaskJournalCapabilityListener} from '../server/task-listing-bootstrap-core.mjs';
+import {certificates} from './helpers/task-https-fixture.mjs';
+import {createHash} from 'node:crypto';
+import {createAuthRuntime} from '../server/main.mjs';
+import {openEncryptedStore} from '../server/store.mjs';
+import {hashPassword} from '../server/crypto.mjs';
+import {disabledTaskListingRuntime} from '../server/task-listing-runtime.mjs';
+import {createExSepoliaReceiptContent} from '../server/receipt-software-content.mjs';
+import {createWholeReceiptBootstrapBinding} from '../server/whole-receipt-host.mjs';
+import {prepareAuthenticatedReceiptContexts} from './helpers/receipt-authenticated-context.mjs';
+import {freezeReceiptTask,receiptTaskCopy,receiptPhaseScope,normalizeReceiptAttempts} from '../src/agent/receiptTask.ts';
+assert.equal(process.platform,'linux');assert.equal(process.env.CI,'true');assert.equal(process.env.RUNNER_OS,'Linux');
+const sourceRoot=resolve(process.env.ARTFI_RECEIPT_SOFTWARE_SOURCE??'');
+const helper=process.env.ARTFI_RECEIPT_SOFTWARE_HOST;
+assert.ok(helper&&helper.startsWith('/'),'ORIGINAL_SOFTWARE_HOST_REQUIRED');
+assert.ok(process.env.ARTFI_RECEIPT_SOFTWARE_SOURCE,'ORIGINAL_PINNED_SOURCE_REQUIRED');
+const sourceRaw=await readFile(join(sourceRoot,'test/fixtures/simulated-registry-v1.json'));
+const cleanup=[];const fixture={after(fn){cleanup.unshift(fn);}};
+const certs=await certificates(fixture);
+const root=await mkdtemp(resolve('.whole-receipt-sql-'));
+const sourceState=join(root,'source.simulated-registry.json');
+for(const action of ['init','TOKEN_TRANSFER','REGISTERED'])execFileSync(process.execPath,[join(sourceRoot,'registry-driver.mjs'),sourceState,action,'ex-sepolia-simulation'],{stdio:'pipe'});
+const probe=createNetServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const journalPort=probe.address().port;await new Promise(r=>probe.close(r));
+assert.equal(createHash('sha256').update(sourceRaw).digest('hex'),'154b15a85d9cdeed41138a8f77981521f778db7f97d54fbc9f221cb471c1fb3c');
+const {runtime,softwareReceiptBoundary,receiptTaskContentContext}=await createExSepoliaReceiptContent(sourceRaw.toString('utf8'));
+assert.equal(softwareReceiptBoundary.view,'ex-sepolia-simulation');assert.equal(softwareReceiptBoundary.chainId,11155111);
+const dataset=softwareReceiptBoundary.source;
+// Explicit original software fixture binding, independent of HTTP inputs.
+const binding=Object.freeze(structuredClone(dataset.association.journal));
+assert.equal(binding.actor,dataset.business.request.account);assert.equal(binding.escrow,dataset.business.wholeReceipt.domain.verifyingContract);assert.equal(dataset.business.chainId,11155111);
+const saleType='(address seller,address collection,uint256 tokenId,address paymentToken,uint256 price,address buyer,uint256 salt,uint48 startsAt,uint48 endsAt,uint256 epoch)';
+const correspondenceType='(bytes32 settlementId,bytes32 assetRecordHash,bytes32 oracleSourceId,bytes32 requestHash,bytes32 executionReferenceHash,bytes32 previousSegment,bytes32 oldCertificateHash,bytes32 warehouseReceiptHash)';
+const abi=new Interface(['function fund('+saleType+' sale,'+correspondenceType+' correspondence,bytes signature)']);
+const receipt=dataset.business.wholeReceipt;
+// Existing receipt software fixture bytes; not a verified real seller signature.
+const data=abi.encodeFunctionData('fund',[receipt.sale,receipt.correspondence,'0x1234']);
+const wire={account:binding.actor,chainId:'11155111',to:binding.escrow,data,value:'0',nonce:'1',gasLimit:'21000',maxFeePerGasWei:'2',maxPriorityFeePerGasWei:'1'};
+const statePath=join(root,'credentials.enc');
+const store=await openEncryptedStore(statePath,Buffer.alloc(32,0x52));
+const epoch=Date.now(),steps=[];let providerCalls=0,host,peer,child,childEnded;
+const password='synthetic-owner-passphrase';
+try {
+ host=await createAuthRuntime({config:{origin:binding.origin,tenant:binding.tenant,port:31999,statePath,accounts:[{username:'owner',passwordHash:await hashPassword(password),wallets:[{account:binding.actor,chainId:'11155111'}]}]},store,now:Date.now,receiptTaskContentContext,
+ listingRuntime:{runtime:disabledTaskListingRuntime(),async start(){},async stop(){}},
+ wholeReceipt:createWholeReceiptBootstrapBinding({createInstallation:options=>runtime.createWholeReceiptInstallation({...options,softwareReceiptBoundary}),createJournalTransport:runtime.createNftTaskJournalHttpsTransport,journalStore:{},consumerPeerId:'spiffe://artfi/journal',taskExecutorIdentity:{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:'0x'+'9'.repeat(64)},provider:{request(){providerCalls++;throw Error('NO_PROVIDER_IO');}},journal:{url:`https://127.0.0.1:${journalPort}/internal/v1/nft/operations`,peerId:'spiffe://artfi/wallet',secureContext:createSecureContext({cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes})}})});
+ peer=createTaskJournalCapabilityListener({peerId:'spiffe://artfi/journal',clientFingerprint256:certs.journal.fingerprint},{cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes},host.wholeReceipt);
+ peer.listen(0,'127.0.0.1');await once(peer,'listening');
+ host.server.listen(0,'127.0.0.1');await once(host.server,'listening');let jar=new Map(),csrf='';
+ async function callAuth(path,body){return new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:host.server.address().port,path:'/auth/'+path,method:body===undefined?'GET':'POST',agent:false,headers:{host:'artfi.example',origin:binding.origin,'x-wallet-tenant':binding.tenant,'x-wallet-csrf':csrf,cookie:[...jar].map(([k,v])=>k+'='+v).join('; '),...(body===undefined?{}:{'content-type':'application/json'})}},res=>{for(const cookie of res.headers['set-cookie']??[]){const[k,v]=cookie.split(';')[0].split('=');if(v)jar.set(k,v);else jar.delete(k);}const chunks=[];res.on('data',x=>chunks.push(x));res.on('end',()=>{const data=JSON.parse(Buffer.concat(chunks));if(data.csrf)csrf=data.csrf;steps.push({path,status:res.statusCode,error:data.error??null});resolve({status:res.statusCode,data});});});req.on('error',reject);req.end(body===undefined?undefined:JSON.stringify(body));});}
+ assert.equal((await callAuth('bootstrap')).status,200);
+ const login=await callAuth('password',{username:'owner',password,account:binding.actor,chainId:'11155111'});assert.equal(login.status,200,login.data.error);
+ const context=await prepareAuthenticatedReceiptContexts({runtime,softwareReceiptBoundary,receiptTaskContentContext,callAuth,business:dataset.business,installationBinding:binding,phaseInputs:[{phase:'funded',operationId:'receipt-funded',planId:'SIMULATED_REGISTRY_PLAN',wire}],expiresAt:String(Math.floor(epoch/1000)+600),fees:{perOperationWei:'100000',totalWei:'300000'}});
+ assert.equal(context.contexts.length,1);const selected=context.contexts[0];
+ assert.throws(()=>receiptTaskCopy(context.task),/TASK_RECEIPT_CHAIN_REFUSED/);
+ assert.throws(()=>receiptTaskCopy(context.task,structuredClone(receiptTaskContentContext)),/TASK_RECEIPT_CONTENT_CONTEXT_REFUSED/);
+ assert.deepEqual(receiptTaskCopy(context.task,receiptTaskContentContext),context.task);
+ assert.equal(receiptPhaseScope(context.task,'funded',receiptTaskContentContext).nonce,'1');
+ assert.deepEqual(normalizeReceiptAttempts(context.task,[],receiptTaskContentContext),[]);
+ for(const mutate of [p=>p.taskId+='-other',p=>p.actor='0x'+'1'.repeat(40),p=>p.intent.sale.price='99',
+  p=>p.intent.phases[0].planDigest='0x'+'1'.repeat(64),p=>p.chainId='31337']){
+  const changed=structuredClone(context.task.policy);mutate(changed);
+  assert.throws(()=>freezeReceiptTask(changed,receiptTaskContentContext));
+ }
+ const status=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(status.status,200,status.data.error);assert.equal(status.data.authorization.reference,selected.principal.grantReference);assert.deepEqual(status.data.receiptAttempts,[]);
+ assert.equal(providerCalls,0);assert.equal(selected.rawPlan.taskPrincipal.grantReference,status.data.authorization.reference);
+ const journalEnv={...process.env,ARTFI_SOFTWARE_TEST_HOST:'1',ARTFI_TASK_JOURNAL_ENABLED:'true',ARTFI_TASK_JOURNAL_ADDR:`127.0.0.1:${journalPort}`,ARTFI_TASK_JOURNAL_TLS_CERT_FILE:certs.journal.cert,ARTFI_TASK_JOURNAL_TLS_KEY_FILE:certs.journal.key,ARTFI_TASK_JOURNAL_CLIENT_CA_FILE:certs.ca,ARTFI_TASK_JOURNAL_PEER_URI:'spiffe://artfi/wallet',ARTFI_TASK_JOURNAL_AUTHORITY_CA_FILE:certs.ca,ARTFI_TASK_JOURNAL_AUTHORITY_CERT_FILE:certs.journal.cert,ARTFI_TASK_JOURNAL_AUTHORITY_KEY_FILE:certs.journal.key,ARTFI_TASK_JOURNAL_CAPABILITY_URL:`https://127.0.0.1:${peer.address().port}/internal/v1/task-journal-capabilities/consume`};
+ assert.ok(journalEnv.ARTFI_TASK_JOURNAL_MYSQL_DSN,'ORIGINAL_ISOLATED_SQL_FIXTURE_REQUIRED');
+ child=spawn(helper,['--isolated-software-test'],{env:journalEnv,stdio:['pipe','pipe','pipe']});
+ childEnded=once(child,'exit');let stderr='';child.stderr.on('data',b=>{stderr=(stderr+b).slice(-1024);});
+ const lines=createInterface({input:child.stdout});const ready=Promise.race([once(lines,'line').then(([line])=>JSON.parse(line)),childEnded.then(([code])=>{throw Error('ORIGINAL_JOURNAL_HOST_EXIT_'+code+':'+stderr);}),new Promise((_,reject)=>setTimeout(()=>reject(Error('ORIGINAL_JOURNAL_READY_TIMEOUT')),15000).unref())]);
+ child.stdin.write(JSON.stringify({schema:'artfi-task-journal-software-test-host/1',view:'ex-sepolia-simulation',datasetBase64:sourceRaw.toString('base64'),statePath:sourceState,principal:selected.principal})+'\n');
+ const bound=await ready;assert.equal(bound.schema,'artfi-task-journal-software-test-host/1');assert.equal(bound.mode,'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY');assert.equal(bound.address,`127.0.0.1:${journalPort}`);
+ const handle=host.wholeReceipt.operation({task:context.task,claimed:selected.claimed});
+ const created=await handle.create(selected.rawPlan,selected.rawWire);assert.equal(created.executionAuthorization,'NOT_ESTABLISHED');assert.equal(created.operation.id,selected.rawPlan.operationId);assert.equal(created.operation.revision,1);assert.equal(created.operation.status,'awaiting-wallet');assert.equal(created.operation.walletStarted,false);
+ const read=await handle.read('observe',selected.rawPlan);assert.deepEqual(read.operation,created.operation);assert.equal(providerCalls,0);
+ // This callable re-enters the original authenticated native journal on each
+ // accepted request. It never returns the earlier create/read object as a stub.
+ async function originalJournal(principal,action,body){
+  const keys=['kind','taskId','taskDigest','executorDigest','grantReference','grantPolicyVersion','operationId'];
+  assert.ok(principal&&[Object.prototype,null].includes(Object.getPrototypeOf(principal)));
+  const descriptors=Object.getOwnPropertyDescriptors(principal);
+  assert.equal(Reflect.ownKeys(descriptors).length,keys.length);
+  for(const key of keys){assert.ok(Object.hasOwn(descriptors[key]??{},'value')&&descriptors[key].enumerable);assert.equal(descriptors[key].value,selected.principal[key]);}
+  assert.equal(action,'get');assert.ok(body&&Object.getPrototypeOf(body)===Object.prototype);
+  const request=Object.getOwnPropertyDescriptors(body);assert.deepEqual(Reflect.ownKeys(request),['id']);assert.ok(Object.hasOwn(request.id,'value'));assert.equal(request.id.value,created.operation.id);
+  return (await handle.read('observe',selected.rawPlan)).operation;
+ }
+ const consumed=await originalJournal(selected.principal,'get',{id:created.operation.id});assert.deepEqual(consumed,created.operation);assert.equal(providerCalls,0);
+ console.log(JSON.stringify({stage:'ex-original-native-journal-ready',view:'ex-sepolia-simulation',chainId:11155111,
+  authSteps:steps,normalServiceGrant:true,journalCreate:'PASS',journalRead:'PASS',authenticatedCallableRead:'PASS',
+  nativeOperationId:consumed.id,revision:consumed.revision,status:consumed.status,walletStarted:consumed.walletStarted,
+  requestHash:consumed.requestHash,updatedAt:consumed.updatedAt,providerCalls,transactions:0}));
+ let exConsumer=null;
+ if(process.env.EX_ORIGINAL_JOURNAL_RUNNER){
+  const runnerPath=process.env.EX_ORIGINAL_JOURNAL_RUNNER,runnerHash=process.env.EX_ORIGINAL_JOURNAL_RUNNER_SHA256;
+  assert.ok(isAbsolute(runnerPath)&&/^[a-f0-9]{64}$/.test(runnerHash??''));
+  assert.equal(createHash('sha256').update(await readFile(runnerPath)).digest('hex'),runnerHash);
+  const runner=spawn('python3',['-I','-B',runnerPath],{cwd:dirname(runnerPath),env:{PATH:process.env.PATH,LANG:'C.UTF-8',PYTHONUTF8:'1'},stdio:['pipe','pipe','pipe']});
+  const ended=once(runner,'exit');let timedOut=false,readCalls=0,runnerError='';
+  runner.stderr.on('data',b=>{runnerError=(runnerError+b).slice(-1024);});
+  const timer=setTimeout(()=>{timedOut=true;runner.kill('SIGTERM');},60000).unref();
+  const seen=new Set();
+  try{
+   runner.stdin.write(JSON.stringify({schema:'ex-original-journal-consumer/1',canonical:softwareReceiptBoundary.source,principal:selected.principal,operationId:created.operation.id})+'\n');
+   for await(const line of createInterface({input:runner.stdout})){
+    assert.ok(line.length<=262144);const frame=JSON.parse(line);
+    if(frame.schema==='ex-original-journal-result/1'){
+     assert.equal(exConsumer,null);assert.ok(!['principal','operation','row','token','session','csrf'].some(k=>Object.hasOwn(frame,k)));exConsumer=frame;continue;
+    }
+    assert.equal(exConsumer,null);assert.deepEqual(Object.keys(frame).sort(),['schema','sequence','principal','action','body'].sort());assert.equal(frame.schema,'ex-original-journal-request/1');
+    assert.ok(Number.isSafeInteger(frame.sequence)&&frame.sequence>0&&!seen.has(frame.sequence));seen.add(frame.sequence);
+    try{const operation=await originalJournal(frame.principal,frame.action,frame.body);readCalls++;runner.stdin.write(JSON.stringify({schema:'ex-original-journal-response/1',sequence:frame.sequence,operation})+'\n');}
+    catch{runner.stdin.write(JSON.stringify({schema:'ex-original-journal-response/1',sequence:frame.sequence,error:'EX_JOURNAL_CALL_REFUSED'})+'\n');throw Error('EX_JOURNAL_CALL_REFUSED');}
+   }
+   const [code,signal]=await ended;
+   if(code!==0){
+    const kinds=['ValueError','TypeError','KeyError','RuntimeError','AssertionError','ImportError','ModuleNotFoundError'];
+    console.error(JSON.stringify({stage:'ex-original-consumer-failed',exitCode:code,signal,timedOut,hostCompletedReads:readCalls,
+     childStatus:exConsumer?.status==='REFUSED'?'REFUSED':'NOT_REPORTED',
+     childErrorType:kinds.includes(exConsumer?.errorType)?exConsumer.errorType:'NOT_REPORTED',
+     childReadCount:Number.isSafeInteger(exConsumer?.liveOriginalReads)&&exConsumer.liveOriginalReads>=0&&exConsumer.liveOriginalReads<=2?exConsumer.liveOriginalReads:null,
+     stderrPresent:runnerError.length>0,stderrErrorClass:kinds.find(kind=>runnerError.includes(kind+':'))??null}));
+   }
+   assert.equal(timedOut,false,'EX_RUNNER_TIMEOUT');assert.equal(code,0,'EX_RUNNER_EXIT_'+String(signal));assert.ok(exConsumer&&readCalls>0,'EX_RUNNER_ACTUAL_JOURNAL_READ_REQUIRED');
+  }finally{clearTimeout(timer);runner.stdin.end();if(runner.exitCode===null&&!runner.killed)runner.kill('SIGTERM');await ended;}
+ }
+ console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',view:'ex-sepolia-simulation',chainId:11155111,authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',authenticatedCallableRead:'PASS',nativeOperationId:consumed.id,revision:consumed.revision,status:consumed.status,walletStarted:consumed.walletStarted,requestHash:consumed.requestHash,updatedAt:consumed.updatedAt,exConsumer,providerCalls,transactions:0,EXMapping:exConsumer?'ORIGINAL_EX_RUNNER_RESULT_ATTACHED':'NOT_RUN_ORIGINAL_EX_ADAPTER_REQUIRED',CAS:'NOT_RUN',SEND:'NOT_RUN'}));
+
+}finally{
+ await host?.stop();
+ if(child&&!child.killed&&child.exitCode===null){child.stdin.end(JSON.stringify({command:'stop'})+'\n');const [code]=await Promise.race([childEnded,new Promise((_,reject)=>setTimeout(()=>reject(Error('ORIGINAL_JOURNAL_DRAIN_TIMEOUT')),15000).unref())]);assert.equal(code,0);}
+ if(peer?.listening)await new Promise(r=>peer.close(r));await store.close();
+ for(const fn of cleanup)await fn();await rm(root,{recursive:true,force:true});
+}
