@@ -229,7 +229,8 @@
       "server/whole-receipt-host.mjs",
       "vendor/artfi-task-listing-runtime-1.0.0.tgz",
       "server/receipt-principal-runtime.mjs",
-      "server/receipt-principal-grant.mjs"
+      "server/receipt-principal-grant.mjs",
+      "server/receipt-principal-composition.mjs"
     ],
     "application": [
       "server/forward-progress-service.mjs",
@@ -1057,8 +1058,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "3311285e6a1357ae4ddff1dfd7d9bf46d7464417",
-      "sha256": "167ede4f6ed223562b719864595b99f86571e21c139cd805014b29aa4e1a1119"
+      "git_blob_sha1": "d6462ebcd00edc20e7c16edb0dd36a85b13dbfce",
+      "sha256": "bbed2e8196b0ff3f3b92f7fe2e8e046925b0dad6dfd0f531571feae291b8b095"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1069,8 +1070,8 @@
     {
       "path": "scripts/controls/task-auth-runtime-smoke.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f06f2d2306b95895f49cbcc0694fca2d4d7f6fad",
-      "sha256": "e3dc3939b2dffaf026b063afc97fddaa0bbe699e65d970773219597832c694cc"
+      "git_blob_sha1": "29388c1a5e6dbcc190748e6ee37a55b9814eff35",
+      "sha256": "6c5045e19c78d333460dfa658c4d13e0c14f6f17eb9fe659aebcdc58582da5d2"
     },
     {
       "path": "scripts/package/archive-v2.mjs",
@@ -1195,8 +1196,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "6c11406e515de7ba439f8be18a88bd6806a6a132",
-      "sha256": "df0ad962b3becd30abbfa866c1abf6613c194ecacac580504162a347af117a0e"
+      "git_blob_sha1": "c1a4224650b6f2a6c0d82e40a35cf090168bea79",
+      "sha256": "c271a7e1ffaf1f524ccd23126380c6cdd6a36c8b859b66be54873e806b41f96c"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -1375,8 +1376,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "0a8feab9eca77147b95f614d486bee540acc6850",
-      "sha256": "ec9a5ca3bccca1d20cb25ca404f3da5327ef2697cd46aa778b26813b374f3b68"
+      "git_blob_sha1": "17cb51f6c2aeda77397c271430c3144f7955a76a",
+      "sha256": "3bbea0d3618dafda4bce328a79aa94b70915c4f1fa62a9344ef7d2e42d06298d"
     },
     {
       "path": "server/managed-business-runtime.mjs",
@@ -1467,6 +1468,12 @@
       "mode": "100644",
       "git_blob_sha1": "dfeaeeae92b0a680ab5d07e38637276ffbd26ee4",
       "sha256": "c940145fcda6591a41642fb07fb19a516478e0a0776de49ef27236ab01dc298b"
+    },
+    {
+      "path": "server/receipt-principal-composition.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "8d502c416159bb2b4d587cfa514d3b33ed5532a7",
+      "sha256": "6ab157c7f83215b13c7fe8097f3c935c6b46cb80d0d76254c97a3d420e184bce"
     },
     {
       "path": "server/receipt-principal-grant.mjs",
