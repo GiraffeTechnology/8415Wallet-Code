@@ -36,6 +36,10 @@ test('normal grant revocation refuses new effects and preserves original held ob
 test('changing the claimed original realm cannot create a funds effect',async t=>{
  const c=await composition(t);await assert.rejects(c.runtime.freeze({...c.p,origin:origin+':9446'},request()));assert.equal(c.state.calls,0);assert.equal(c.state.reads,0);
 });
+test('accessor request members are refused without invoking them or any inventory/effect port',async t=>{
+ const c=await composition(t);let getters=0;const r=request();Object.defineProperty(r,'eventId',{enumerable:true,get(){getters++;return 'unsafe';}});
+ assert.throws(()=>c.runtime.freeze(c.p,r),/COMPOSITION_REFUSED/);assert.equal(getters,0);assert.equal(c.state.calls,0);assert.equal(c.state.reads,0);
+});
 test('stop fences queued admission and drains the originally admitted normal grant effect',async t=>{
  const c=await composition(t);let unblock,entered;c.state.pause=new Promise(r=>unblock=r);const started=new Promise(r=>entered=r);c.state.entered=entered;
  const pending=c.runtime.freeze(c.p,request());await started;const stopped=c.runtime.stop();assert.throws(()=>c.runtime.read(c.p),/COMPOSITION_STOPPED/);unblock();assert.equal((await pending).status,'held');await stopped;assert.equal(c.state.calls,1);

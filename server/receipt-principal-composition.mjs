@@ -33,8 +33,17 @@ export function composeReceiptPrincipalRuntime({binding=null,authorization,funds
  function invoke(method,raw,request){
   if(closing)throw Error('RECEIPT_PRINCIPAL_COMPOSITION_STOPPED');
   const purpose=normalizeReceiptPrincipalPurpose(raw);check(purpose.tenant===tenant);
-  // Request normalization belongs to the runtime; detach before the first await.
-  const detached=request===undefined?undefined:structuredClone(request);
+  // Detach data properties without invoking getters before runtime validation.
+  // The three request members are primitives; arbitrary nested input is refused.
+  let detached;
+  if(method!=='read'&&method!=='reconcile'){
+   check(request&&[Object.prototype,null].includes(Object.getPrototypeOf(request)));
+   const d=Object.getOwnPropertyDescriptors(request),keys=['eventId','expectedRevision','evidenceReference'];
+   check(Reflect.ownKeys(d).length===keys.length&&keys.every(k=>Object.hasOwn(d[k]??{},'value')&&d[k].enumerable));
+   detached=Object.fromEntries(keys.map(k=>[k,d[k].value]));
+   check(typeof detached.eventId==='string'&&typeof detached.expectedRevision==='string'&&
+    (detached.evidenceReference===null||typeof detached.evidenceReference==='string'));
+  }
   const result=(async()=>{const runtime=await core(purpose);return method==='read'||method==='reconcile'?runtime[method](purpose):runtime[method](purpose,detached);})();
   pending.add(result);result.then(()=>pending.delete(result),()=>pending.delete(result));return result;
  }
