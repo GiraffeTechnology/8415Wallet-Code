@@ -41,9 +41,12 @@ export function createWholeReceiptHost({ binding, store, now = Date.now, receipt
       options => createReceiptProviderHandler({...options,receiptTaskContentContext}),
     store, journalStore: input.journalStore, consumerPeerId: input.consumerPeerId,
     taskExecutorIdentity: input.taskExecutorIdentity, provider: input.provider, journal: input.journal, now });
-  const api = fields(installation, ['authOptions', 'connectAuthorization', 'consumeCapability', 'operation', 'stop']);
+  const principalConnection=Object.getOwnPropertyDescriptor(installation??{},'connectPrincipalAuthorization');
+  const api = fields(installation, ['authOptions', 'connectAuthorization', 'consumeCapability', 'operation', 'stop',
+    ...(principalConnection?['connectPrincipalAuthorization']:[])]);
   if (!Object.isFrozen(installation) || ['connectAuthorization', 'consumeCapability', 'operation', 'stop']
     .some(key => typeof api[key] !== 'function')) refuse();
+  if(principalConnection&&typeof api.connectPrincipalAuthorization!=='function')refuse();
   let attempted = false, connected = false, connectionFailed = false, closing = false, stopPromise = null;
   const pending = new Set();
   function active() {
@@ -73,6 +76,13 @@ export function createWholeReceiptHost({ binding, store, now = Date.now, receipt
       // An already accepted operation may need its journal capability while
       // shutdown waits for the durable result. Never add an HTTP/bearer bridge.
       return api.consumeCapability.apply(installation, args);
+    },
+    connectPrincipalAuthorization(original) {
+      active();
+      // Older installations remain usable for their original receipt operations
+      // but cannot claim the new principal journal read bridge is connected.
+      if(!principalConnection)return false;
+      api.connectPrincipalAuthorization.call(installation,original);return true;
     },
     createCapabilityRequestHandler(configuration) {
       active();

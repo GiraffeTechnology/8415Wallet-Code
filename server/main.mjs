@@ -58,6 +58,7 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
     taskVerificationPolicyEnabled: true });
   listing.runtime.connectAuthorization(handler.taskListingAuthorization);
   receipt?.connectAuthorization(handler.taskReceiptAuthorization);
+  receipt?.connectPrincipalAuthorization(handler.receiptPrincipalAuthorization);
   principal=composeReceiptPrincipalRuntime({binding:receiptPrincipal,authorization:handler.receiptPrincipalAuthorization,fundsReader:reads.fundsReader,tenant:config.tenant,now});
   const background = createTaskBackgroundRunner({ store, continuation: handler.taskBackground, now });
   const server = createServer(handler);

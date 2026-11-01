@@ -22,6 +22,7 @@ function fixture(overrides = {}) {
       nativeDigest: () => '2'.repeat(64), now: input.now });
     return Object.freeze({ authOptions: Object.freeze({ taskReceiptHandlerId: 'artfi:whole-receipt:v1', taskExecutorIdentity: identity }),
       connectAuthorization(value) { authority = value; events.push('connect'); receiptRuntime.connectAuthorization(value); },
+      ...(overrides.principal?{connectPrincipalAuthorization(value){events.push('principal-connect');receiptRuntime.connectPrincipalAuthorization(value);}}:{}),
       consumeCapability(...args) { events.push(['consume', ...args]); return overrides.consume?.(...args) ?? 'consumed'; },
       operation(input) { events.push(['operation', input]); return { operationId: 'fixture:operation',
         create(...args) { return overrides.create?.(...args) ?? Promise.resolve('created'); },
@@ -40,6 +41,13 @@ function fixture(overrides = {}) {
 const config = () => ({ origin: 'https://wallet.example.invalid', tenant: 'fixture', port: 31999,
   statePath: '/fixture/credentials.enc', accounts: [{ username: 'tester', wallets: [{ account: '0x' + '1'.repeat(40), chainId: '560048' }] }] });
 const listing = () => ({ runtime: disabledTaskListingRuntime(), async start() {}, async stop() {} });
+
+test('standard host connects an explicitly supporting installation to its original principal snapshot port',async()=>{
+ const f=fixture({principal:true}),runtime=await createAuthRuntime({config:config(),store:f.store,listingRuntime:listing(),wholeReceipt:f.binding});
+ try{assert.equal(f.events.filter(x=>x==='principal-connect').length,1);
+  assert.throws(()=>runtime.wholeReceipt.connectPrincipalAuthorization(runtime.handler.receiptPrincipalAuthorization),/PRINCIPAL_CONNECTION_REFUSED/);
+ }finally{await runtime.stop();await f.store.close();}
+});
 
 test('original Wallet factories, stores and complete bootstrap capabilities reach the installation unchanged', async () => {
   const f = fixture(), now = () => 1800000000000;

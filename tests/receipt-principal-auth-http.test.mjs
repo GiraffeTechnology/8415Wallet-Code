@@ -5,6 +5,33 @@ import {fixture,policy,template,a,h,origin,epoch} from './helpers/principal-auth
 import {receiptPrincipalPurposeDigest} from '../src/agent/receiptPrincipal.ts';
 import {taskVerificationPolicyKey} from '../server/task-verification-state.mjs';
 import {digest} from '../server/crypto.mjs';
+import {createTaskReceiptRuntime} from '../server/task-receipt-runtime.mjs';
+import {MemoryCredentialStore} from '../server/store.mjs';
+import {createHash} from 'node:crypto';
+
+test('principal native get uses the original receipt registry once without reserving a send',async t=>{
+ const f=await fixture(t),c=await f.prepare();assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);
+ const p=c.receiptPrincipalPurpose,port=f.port(),journal=new MemoryCredentialStore(),hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+ const runtime=createTaskReceiptRuntime({store:f.store,journalStore:journal,peerId:'spiffe://test/wallet',consumerPeerId:'spiffe://test/native',digest:hash,nativeDigest:hash,now:()=>f.clock.now});
+ runtime.connectAuthorization(f.receiptPort());runtime.connectPrincipalAuthorization(port);t.after(async()=>{runtime.stop();await journal.close();});
+ const operation={id:'native_'+hash(p.task)},scope={peerId:'spiffe://test/wallet',principal:{kind:'task',...p.task},action:'get',nativeOperationId:operation.id,planDigest:'',requestDigest:hash({action:'get',operation}),operation};
+ const request=token=>({capability:token,peerId:scope.peerId,action:'get',nativeOperationId:operation.id,planDigest:'',requestDigest:scope.requestDigest});
+ let token,originalGuard;
+ await port.withPurposeAuthorization(p,'freeze',async(_scope,guard)=>{
+  originalGuard=guard;
+  await assert.rejects(runtime.withPrincipalJournalCapability(p,guard,{...scope,action:'create'},()=>assert.fail('write admitted')),/READ_ONLY/);
+  const result=await runtime.withPrincipalJournalCapability(p,guard,scope,async value=>{
+   token=value;await Promise.resolve();const claim=runtime.consumeCapability(request(value),'spiffe://test/native');
+   assert.deepEqual(claim.principal,scope.principal);assert.equal(claim.receiptPhase,'funded');assert.equal(claim.receiptNonce,'0');
+   assert.equal(claim.receiptPlanDigest,p.receipt.planDigest);assert.equal(claim.receiptJournalBindingHash,p.receipt.journalBindingHash);
+   assert.equal(claim.wallet,p.account);assert.equal(claim.chainId,Number(p.chainId));
+   assert.throws(()=>runtime.consumeCapability(request(value),'spiffe://test/native'),/CAPABILITY_REFUSED/);return 'TEST_ONLY_NATIVE_GET';
+  });assert.equal(result,'TEST_ONLY_NATIVE_GET');
+ });
+ assert.throws(()=>runtime.consumeCapability(request(token),'spiffe://test/native'),/CAPABILITY_REFUSED/);
+ await assert.rejects(runtime.withPrincipalJournalCapability(p,originalGuard,scope,()=>assert.fail('escaped get')));
+ const state=await f.receiptPort().readState({...p.task,phase:'funded',planDigest:p.receipt.planDigest,journalBindingHash:p.receipt.journalBindingHash});assert.equal(state.status,'not-attempted');assert.equal(state.transactionHash,null);
+});
 
 for(const gap of [0n,1n,2n])test('normal principal approval requires a usable rollback second before expiry: gap '+gap,async t=>{
  const f=await fixture(t),p=template(),original=policy();p.mintTerms.registrationDeadline=(BigInt(original.expiresAt)-gap).toString();

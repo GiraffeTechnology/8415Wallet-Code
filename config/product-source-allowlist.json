@@ -1377,8 +1377,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f2d07955e3e1fe01840d703109370118043e5c1e",
-      "sha256": "ae959297d1c76698a8ba81e9ad470b753dd352798dc7d3faa4f710b870ea5287"
+      "git_blob_sha1": "e72052fc0b17872db6a89db2ac1724df3692c9d2",
+      "sha256": "30459f3b7bd82e2d8adf70f1e3ef8ae2e6203da3b7b55564e5cf1f2c93abcadc"
     },
     {
       "path": "server/managed-business-runtime.mjs",
@@ -1731,8 +1731,8 @@
     {
       "path": "server/task-receipt-runtime.mjs",
       "mode": "100644",
-      "git_blob_sha1": "18a3f1c5e2f28e489a2271788edf60971a73bfb6",
-      "sha256": "3c80aeb1ca163745173f36d311f0805419e1a0f7344cc0bdbba1bb76adfc7a1d"
+      "git_blob_sha1": "8cc851fbaceaab7be78a5afbdbf3c6f8256a9c21",
+      "sha256": "f1467a110ec9d6fafad63a7d7d47c3073ea2b98634fb4431b5ab336650cc7962"
     },
     {
       "path": "server/task-runtime-composition.mjs",
@@ -1881,8 +1881,8 @@
     {
       "path": "server/whole-receipt-host.mjs",
       "mode": "100644",
-      "git_blob_sha1": "aba5b1119fc880f682fcac2a97e1b65d60a7600e",
-      "sha256": "dd888e0b90420183915f39e2b84ecef4b86e5bdec6db25ada805da299bf5c99d"
+      "git_blob_sha1": "48c57fb9b8a882dc9e71056f3efeb9450669a8b2",
+      "sha256": "f0811f554739f51df49ea10d90caed97b5b5c6be1fff7d6a430033dbbb9022d9"
     },
     {
       "path": "src/adapters/kit/kitApi.ts",
