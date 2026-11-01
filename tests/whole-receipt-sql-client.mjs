@@ -83,7 +83,18 @@ try {
  const restoredHandle=host.wholeReceipt.operation({task:context.task,claimed:selected.claimed});
  const restored=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(restored.operation,created.operation);
  const restoredStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(restoredStatus.status,200);assert.equal(restoredStatus.data.authorization.reference,selected.principal.grantReference);assert.equal(providerCalls,0);
- console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',journalHostRestartRead:'PASS',revision:restored.operation.revision,status:restored.operation.status,walletStarted:restored.operation.walletStarted,providerCalls,transactions:0,CAS:'NOT_RUN_PROVIDER_CODE_REVIEW_REQUIRED',SEND:'NOT_RUN_COMPILED_ESCROW_FIXTURE_REQUIRED'}));
+ // Revoke through the normal authenticated owner route. Existing durable
+ // state remains observable; the stale grant cannot create or reserve a send.
+ const revoked=await callAuth('tasks/revoke',{taskDigest:context.task.digest,expectedGrantPolicyVersion:selected.principal.grantPolicyVersion});
+ assert.equal(revoked.status,200);assert.equal(revoked.data.effectiveStatus,'revoked');
+ assert.equal(revoked.data.authorization.grantPolicyVersion,(BigInt(selected.principal.grantPolicyVersion)+1n).toString());
+ const afterRevoke=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(afterRevoke.operation,created.operation);
+ await assert.rejects(restoredHandle.create(selected.rawPlan,selected.rawWire),{message:'TASK_RECEIPT_GRANT_BINDING_REFUSED'});
+ const request={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
+ await assert.rejects(restoredHandle.execute(request),{message:'TASK_RECEIPT_GRANT_BINDING_REFUSED'});
+ const unchanged=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(unchanged.operation,created.operation);
+ const revokedStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(revokedStatus.status,200);assert.equal(revokedStatus.data.effectiveStatus,'revoked');assert.deepEqual(revokedStatus.data.receiptAttempts,[]);assert.equal(providerCalls,0);
+ console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',journalHostRestartRead:'PASS',revokedRead:'PASS',revokedCreate:'REFUSED',revokedExecute:'REFUSED',attemptsAfterRevoke:0,revision:restored.operation.revision,status:restored.operation.status,walletStarted:restored.operation.walletStarted,providerCalls,transactions:0,CAS:'NOT_RUN_PROVIDER_CODE_REVIEW_REQUIRED',SEND:'NOT_RUN_COMPILED_ESCROW_FIXTURE_REQUIRED'}));
 }finally{
  await host?.stop();
  await stopJournal();
