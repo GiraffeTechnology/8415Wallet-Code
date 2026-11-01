@@ -1449,8 +1449,8 @@
     {
       "path": "server/origin-realm-router.mjs",
       "mode": "100644",
-      "git_blob_sha1": "627e841ec10be38374f6433498928c4643154a47",
-      "sha256": "0ec003f838ef6fbe5597068b5d16571d9e0978d9a9159bee59f0c4f00d2793f0"
+      "git_blob_sha1": "4b6adcd33d284c1511c0bb95292f90c027c77b83",
+      "sha256": "383fd7d6a5872fe5a381541cd66f313ec61ca4446af3b501c8af9b88a997f719"
     },
     {
       "path": "server/origin-transition-state.mjs",
@@ -1473,8 +1473,8 @@
     {
       "path": "server/receipt-principal-composition.mjs",
       "mode": "100644",
-      "git_blob_sha1": "0e0c7342429bb306df0c0337865df8c928fc7247",
-      "sha256": "fd74ae552886b523dde5e4c2c6afb6d1f56646eb279803178722ba7f758835be"
+      "git_blob_sha1": "c1d5326a220f422c49c856c577a3e4bf602eb68d",
+      "sha256": "e987dcff67d2557d24c9c9c5e5b0a8cf1425efaf95c4c59f1828e2d45e729c70"
     },
     {
       "path": "server/receipt-principal-grant.mjs",
@@ -1575,8 +1575,8 @@
     {
       "path": "server/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "f7d03143e16cf3410c5f1fed12a6b0e547217a74",
-      "sha256": "365c8d9509a9bae14f3e28607096fcba24efd9b0e84e7b73e2e9e3aba9196d6d"
+      "git_blob_sha1": "5ae22567d631376ecb16b9f76260093dfd70f6c9",
+      "sha256": "fd91af298c838618c29f7a30847d1cf032493be8a8383b81c6f53b9d92a553da"
     },
     {
       "path": "server/task-background-runner.mjs",
@@ -2001,8 +2001,8 @@
     {
       "path": "src/agent/receiptPrincipal.ts",
       "mode": "100644",
-      "git_blob_sha1": "90756c05251810af01d24de630c2b7ec3e84782d",
-      "sha256": "93ae5fc1e8020982590b4473cea24578d2328af2cb6880eb0ba87834c3ce7122"
+      "git_blob_sha1": "06f656ed34b9c913c3319ea87415934f8e1de99d",
+      "sha256": "1e15c811d6bed862028be531d42f5dadda965ca76476ae2cd64df30352af65dd"
     },
     {
       "path": "src/agent/receiptTask.ts",
