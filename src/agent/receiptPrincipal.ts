@@ -26,6 +26,10 @@ function uint(value: unknown, positive = false): string {
 function id(value: unknown): string {
   requireThat(typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value)); return value;
 }
+/** Opaque provenance is never interpreted as a URL, module or filesystem path. */
+function reference(value: unknown): string {
+  requireThat(typeof value === 'string' && value.length > 0 && value.length <= 512 && value.trim() === value && !/[\u0000-\u001f\u007f]/.test(value)); return value;
+}
 function address(value: unknown): string {
   requireThat(typeof value === 'string' && /^0x[0-9a-f]{40}$/.test(value) && !/^0x0+$/.test(value)); return value;
 }
@@ -47,7 +51,7 @@ export function normalizeReceiptPrincipalPurpose(input: unknown) {
   const p = fields(input, ['schema','reservationId','tenant','origin','account','chainId','currency',
     'amountBaseUnits','payee','task','receipt','lineage','mintTerms']);
   requireThat(p.schema === '8415-receipt-principal-purpose/1');
-  const tenant = id(p.tenant); requireThat(/^[a-z][a-z0-9-]{0,47}$/.test(tenant));
+  const tenant = id(p.tenant), chainId = uint(p.chainId,true); requireThat(/^[a-z][a-z0-9-]{0,47}$/.test(tenant));
   requireThat(typeof p.origin === 'string'); const origin = new URL(p.origin);
   requireThat(origin.origin === p.origin && origin.protocol === 'https:');
   const c = fields(p.currency, ['kind','contract','decimals']);
@@ -64,12 +68,18 @@ export function normalizeReceiptPrincipalPurpose(input: unknown) {
   requireThat(BigInt(index) <= BigInt(Number.MAX_SAFE_INTEGER));
   requireThat(index === '0' ? l.previousReservationId === null : typeof l.previousReservationId === 'string');
   const lineage = { id: id(l.id), index, previousReservationId: l.previousReservationId === null ? null : id(l.previousReservationId) };
-  const m = fields(p.mintTerms, ['version','commitment','registrationDeadline']);
-  const mintTerms = { version: uint(m.version, true), commitment: hash(m.commitment), registrationDeadline: uint(m.registrationDeadline, true) };
+  const m = fields(p.mintTerms, ['policyVersion','assetId','tokenId','source','mintRecordCommitment','mintPolicyHash','registrationDeadline']);
+  const ms = fields(m.source, ['chainId','contract','registerId','sourceAuthority']);
+  const source = {chainId:uint(ms.chainId,true),contract:address(ms.contract),registerId:reference(ms.registerId),sourceAuthority:reference(ms.sourceAuthority)};
+  requireThat(source.chainId === chainId && uint(m.tokenId) === receipt.tokenId);
+  // These are the original source/codec fields: mintPolicyHash commits to the
+  // FULL original preimage, never a newly invented hash of extracted terms.
+  const mintTerms = { policyVersion: reference(m.policyVersion), assetId: reference(m.assetId), tokenId: uint(m.tokenId), source,
+    mintRecordCommitment: hash(m.mintRecordCommitment), mintPolicyHash: hash(m.mintPolicyHash), registrationDeadline: uint(m.registrationDeadline,true) };
   requireThat(BigInt(mintTerms.registrationDeadline) < 1n << 64n);
   const account = address(p.account), payee = address(p.payee); requireThat(account !== payee);
   return freeze({ schema: '8415-receipt-principal-purpose/1' as const, reservationId: id(p.reservationId), tenant,
-    origin: p.origin as string, account, chainId: uint(p.chainId, true), currency,
+    origin: p.origin as string, account, chainId, currency,
     amountBaseUnits: uint(p.amountBaseUnits, true), payee, task, receipt, lineage, mintTerms });
 }
 export type ReceiptPrincipalPurpose = ReturnType<typeof normalizeReceiptPrincipalPurpose>;
@@ -78,11 +88,11 @@ export type ReceiptPrincipalStatus = 'unreserved' | 'freeze-pending' | 'held' | 
 /** Internal application-facing facts. Only an original server-owned evidence
  * adapter may establish their provenance; accepting this shape does not do so. */
 export type ReceiptRegistrationFacts = Readonly<{
-  sourceReference: string; purposeDigest: string; mintTermsCommitment: string;
+  sourceReference: string; purposeDigest: string; mintPolicyHash: string;
   chainId: string; collection: string; tokenId: string; registeredHolder: string; registeredAt: string;
 }>;
 export type ReceiptRollbackFacts = Readonly<{
-  sourceReference: string; purposeDigest: string; mintTermsCommitment: string;
+  sourceReference: string; purposeDigest: string; mintPolicyHash: string;
   chainId: string; collection: string; tokenId: string; validHolder: string;
   observedAt: string; firstUnresolvedIndex: string; registrationCompleted: false;
 }>;
@@ -141,16 +151,16 @@ export function normalizeReceiptPrincipalState(input: unknown): ReceiptPrincipal
 /** Verified adapter outputs are checked AGAIN for exact purpose/asset binding by
  * the server. These shape checks alone never verify Oracle or financial evidence. */
 function registrationFacts(raw: unknown, p: ReceiptPrincipalPurpose, digest: string) {
-  const e = fields(raw, ['sourceReference','purposeDigest','mintTermsCommitment','chainId','collection','tokenId','registeredHolder','registeredAt']);
-  id(e.sourceReference); requireThat(e.purposeDigest === digest && e.mintTermsCommitment === p.mintTerms.commitment &&
+  const e = fields(raw, ['sourceReference','purposeDigest','mintPolicyHash','chainId','collection','tokenId','registeredHolder','registeredAt']);
+  reference(e.sourceReference); requireThat(e.purposeDigest === digest && e.mintPolicyHash === p.mintTerms.mintPolicyHash &&
     e.chainId === p.chainId && e.collection === p.receipt.collection && e.tokenId === p.receipt.tokenId && e.registeredHolder === p.account);
   requireThat(BigInt(uint(e.registeredAt)) <= BigInt(p.mintTerms.registrationDeadline), 'RECEIPT_PRINCIPAL_LATE_REGISTRATION_REFUSED');
   return e;
 }
 function rollbackFacts(raw: unknown, p: ReceiptPrincipalPurpose, digest: string) {
-  const e = fields(raw, ['sourceReference','purposeDigest','mintTermsCommitment','chainId','collection','tokenId','validHolder','observedAt','firstUnresolvedIndex','registrationCompleted']);
-  id(e.sourceReference); address(e.validHolder);
-  requireThat(e.purposeDigest === digest && e.mintTermsCommitment === p.mintTerms.commitment && e.chainId === p.chainId &&
+  const e = fields(raw, ['sourceReference','purposeDigest','mintPolicyHash','chainId','collection','tokenId','validHolder','observedAt','firstUnresolvedIndex','registrationCompleted']);
+  reference(e.sourceReference); address(e.validHolder);
+  requireThat(e.purposeDigest === digest && e.mintPolicyHash === p.mintTerms.mintPolicyHash && e.chainId === p.chainId &&
     e.collection === p.receipt.collection && e.tokenId === p.receipt.tokenId && e.registrationCompleted === false);
   requireThat(BigInt(uint(e.observedAt)) > BigInt(p.mintTerms.registrationDeadline), 'RECEIPT_PRINCIPAL_MINT_DEADLINE_REQUIRED');
   requireThat(BigInt(uint(e.firstUnresolvedIndex)) <= BigInt(p.lineage.index), 'RECEIPT_PRINCIPAL_SETTLED_PREFIX_REFUSED');
@@ -186,7 +196,7 @@ export function advanceReceiptPrincipalState(input: unknown, raw: unknown): Rece
       requireThat(event.kind === 'effect-reconciled' ? status === 'unknown' : status === event.action + '-pending');
       requireThat(event.effectId === state.purpose.reservationId + ':' + event.action && event.purposeDigest === state.purposeDigest &&
         event.amountBaseUnits === state.purpose.amountBaseUnits && event.recipient === (event.action === 'settle' ? state.purpose.payee : state.purpose.account));
-      id(event.reference);
+      reference(event.reference);
       if (event.action === 'freeze') holdReference = event.reference;
       else requireThat(holdReference !== null,'RECEIPT_PRINCIPAL_EXISTING_HOLD_REQUIRED');
       status = event.action === 'freeze' ? 'held' : event.action === 'settle' ? 'settled' : 'released'; activeEffect = null;

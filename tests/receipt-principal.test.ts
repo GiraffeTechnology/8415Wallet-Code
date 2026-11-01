@@ -12,7 +12,7 @@ function purpose() {
       grantPolicyVersion: '1', operationId: 'original-operation' },
     receipt: { collection: a('4'), tokenId: '7', segmentId: h('3'), planDigest: h('4'), journalBindingHash: h('5') },
     lineage: { id: 'original-lineage', index: '2', previousReservationId: 'preceding-reservation' },
-    mintTerms: { version: '1', commitment: h('6'), registrationDeadline: '2000000000' } });
+    mintTerms: { policyVersion: 'original-policy.v1', assetId: 'original-asset', tokenId: '7', source:{chainId:'31337',contract:a('6'),registerId:'registry:7',sourceAuthority:'original-source-authority'}, mintRecordCommitment:h('7'), mintPolicyHash: h('6'), registrationDeadline: '2000000000' } });
 }
 function step(s: ReceiptPrincipalState, event: unknown, eventId = 'event-' + s.revision) {
   return advanceReceiptPrincipalState(s, { expectedRevision: s.revision, eventId, event });
@@ -25,12 +25,12 @@ function effect(s: ReceiptPrincipalState, action: ReceiptPrincipalAction, kind =
 function held() { const s = step(newReceiptPrincipalState(purpose()), { kind: 'freeze-started' }); return step(s,effect(s,'freeze')); }
 function registration(s: ReceiptPrincipalState) {
   const p = s.purpose;
-  return { sourceReference: 'original-oracle-registration', purposeDigest: s.purposeDigest, mintTermsCommitment: p.mintTerms.commitment,
+  return { sourceReference: 'original-oracle-registration', purposeDigest: s.purposeDigest, mintPolicyHash: p.mintTerms.mintPolicyHash,
     chainId: p.chainId, collection: p.receipt.collection, tokenId: p.receipt.tokenId, registeredHolder: p.account, registeredAt: p.mintTerms.registrationDeadline };
 }
 function rollback(s: ReceiptPrincipalState) {
   const p = s.purpose;
-  return { sourceReference: 'original-oracle-rollback', purposeDigest: s.purposeDigest, mintTermsCommitment: p.mintTerms.commitment,
+  return { sourceReference: 'original-oracle-rollback', purposeDigest: s.purposeDigest, mintPolicyHash: p.mintTerms.mintPolicyHash,
     chainId: p.chainId, collection: p.receipt.collection, tokenId: p.receipt.tokenId, validHolder: a('5'),
     observedAt: '2000000001', firstUnresolvedIndex: '1', registrationCompleted: false };
 }
@@ -93,9 +93,9 @@ for (const field of ['effectId','purposeDigest','amountBaseUnits','recipient','a
   const bad = {...e,[field]:field==='recipient'?a('9'):field==='purposeDigest'?h('9'):field==='amountBaseUnits'?'1':field==='action'?'settle':'other-effect'};
   assert.throws(()=>step(s,bad)); assert.equal(s.status,'freeze-pending');
 });
-for (const field of ['purposeDigest','mintTermsCommitment','chainId','collection','tokenId','registeredHolder','registeredAt']) test('registration refuses wrong/late '+field, () => {
+for (const field of ['purposeDigest','mintPolicyHash','chainId','collection','tokenId','registeredHolder','registeredAt']) test('registration refuses wrong/late '+field, () => {
   const s = held(), e = registration(s);
-  const value = ['purposeDigest','mintTermsCommitment'].includes(field)?h('9'):['collection','registeredHolder'].includes(field)?a('9'):field==='registeredAt'?'2000000001':'9';
+  const value = ['purposeDigest','mintPolicyHash'].includes(field)?h('9'):['collection','registeredHolder'].includes(field)?a('9'):field==='registeredAt'?'2000000001':'9';
   assert.throws(()=>step(s,{kind:'settle-started',registration:{...e,[field]:value}}));
 });
 test('wall-clock expiry, an already registered receipt or a settled prefix does not authorize rollback', () => {
@@ -122,4 +122,13 @@ test('accessors, extra authority fields and malformed persisted state never supp
   assert.throws(()=>normalizeReceiptPrincipalState({...s,attemptedActions:['freeze','settle']}));
   assert.throws(()=>normalizeReceiptPrincipalState({...s,revision:'99'}));
   assert.throws(()=>normalizeReceiptPrincipalState({...s,history:[...s.history,s.history[0]]}));
+});
+
+test('mint provenance preserves full policy version/hash and original registry/genesis binding without inventing terms hashes',()=>{
+ const p=purpose();assert.equal(p.mintTerms.policyVersion,'original-policy.v1');
+ assert.notEqual(p.mintTerms.source.contract,p.receipt.collection);
+ assert.throws(()=>normalizeReceiptPrincipalPurpose({...p,mintTerms:{...p.mintTerms,tokenId:'8'}}));
+ assert.throws(()=>normalizeReceiptPrincipalPurpose({...p,mintTerms:{...p.mintTerms,source:{...p.mintTerms.source,chainId:'560048'}}}));
+ for(const change of [{mintPolicyHash:h('8')},{mintRecordCommitment:h('8')},{assetId:'other-asset'},{policyVersion:'other-policy.v2'}])
+  assert.notEqual(receiptPrincipalPurposeDigest({...p,mintTerms:{...p.mintTerms,...change}}),receiptPrincipalPurposeDigest(p));
 });
