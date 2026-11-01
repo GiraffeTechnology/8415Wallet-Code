@@ -1048,8 +1048,8 @@
     {
       "path": "package-lock.json",
       "mode": "100644",
-      "git_blob_sha1": "b1d1aa5a3146ff230bab008640d1b23fbfcc34f2",
-      "sha256": "191f85632c968566df72c445d8ca2896c22812644b499add529fc93dbf52a1f2"
+      "git_blob_sha1": "e6f7deeedc0fac47dd58b3b74d37be1a0b8894f1",
+      "sha256": "c944cc81c92fd4fd70fe62cf3b05fc4925c840716f04735325442957527caf2c"
     },
     {
       "path": "package.json",
@@ -1192,8 +1192,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "fe65e450c9a1e22ccd11acab457a12f17d7dfafc",
-      "sha256": "cfd4a169fcab5160b7cb4888e1ca73bcd082b7ad557c11392917d22dcd7142f4"
+      "git_blob_sha1": "95b78aba0d3e13024432f7363e57103e75838e9d",
+      "sha256": "aaefab4d6b735c9092077af6cdd77c13afa281aec3a8c0ce7457f12046cb6f17"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -1648,8 +1648,8 @@
     {
       "path": "server/task-listing-package-pin.mjs",
       "mode": "100644",
-      "git_blob_sha1": "5cf9c63f4ac02025ae57482db00cf107465bd75b",
-      "sha256": "a63c1beb44884a951eb97f7af8fc08ef7d861feb12b0198f3eb91475f2ae4c71"
+      "git_blob_sha1": "a6ac0e62488a97263bf58851cb1a7121b6a98d1b",
+      "sha256": "4498236b82e9b8661d0fc07f2bd8eb9ef4e60255ad6f7f962d7c109eb1f85452"
     },
     {
       "path": "server/task-listing-results.mjs",

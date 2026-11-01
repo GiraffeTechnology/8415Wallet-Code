@@ -18,6 +18,9 @@ test('local artifact and bundled metadata exceptions are exact, versioned and ne
  for(const mutate of [
   (p,l)=>{p.dependencies['@artfi/task-listing-runtime']='file:/tmp/other.tgz';l.packages[''].dependencies=structuredClone(p.dependencies);},
   (_p,l)=>l.packages['node_modules/@artfi/task-listing-runtime'].integrity='sha512-'+ 'A'.repeat(86)+'==',
+  (_p,l)=>l.packages['node_modules/@artfi/task-listing-runtime'].dependencies['@opensea/sdk']='0.0.0',
+  (_p,l)=>delete l.packages['node_modules/@artfi/task-listing-runtime'].dependencies.zod,
+  (_p,l)=>l.packages['node_modules/@artfi/task-listing-runtime'].bundleDependencies.pop(),
   (_p,l)=>l.packages['node_modules/@artfi/task-listing-runtime/node_modules/ws'].version='0.0.0',
   (_p,l)=>l.packages['node_modules/@artfi/task-listing-runtime/node_modules/ws'].hasInstallScript=true,
   (_p,l)=>l.packages['node_modules/@artfi/task-listing-runtime/node_modules/unknown']={version:'1.0.0',inBundle:true},
