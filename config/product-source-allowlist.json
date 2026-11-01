@@ -33,6 +33,7 @@
       "docs/INSTALLATION-ASSET-PUBLICATION.md",
       "docs/INTEGRATION-BOUNDARIES.md",
       "docs/INTEGRATION.md",
+      "docs/MANAGED-BUSINESS-RUNTIME.md",
       "docs/NATIVE-WALLET-LOGIN.md",
       "docs/NFT-IMAGE-ORIGIN-POLICY.md",
       "docs/NFT-INVENTORY-READ-CONTRACT.md",
@@ -146,6 +147,7 @@
       "server/mail-config.mjs",
       "server/mail-otp.mjs",
       "server/main.mjs",
+      "server/managed-business-runtime.mjs",
       "server/method-change-service.mjs",
       "server/native-login-stdio.mjs",
       "server/native-wallet-login.mjs",
@@ -862,6 +864,12 @@
       "sha256": "ec79c57eb12e3733e57ef26587a5cf8a09c78d13db0bdfca307b5f0e8ece7b24"
     },
     {
+      "path": "docs/MANAGED-BUSINESS-RUNTIME.md",
+      "mode": "100644",
+      "git_blob_sha1": "d1d69889a6ec1a82a04d2f003d7153444ac1828e",
+      "sha256": "c0af5864faf5f0463f902ac3d42d5bf4b9e7a43d6d72b96d61513b6ae06e35e0"
+    },
+    {
       "path": "docs/NATIVE-WALLET-LOGIN.md",
       "mode": "100644",
       "git_blob_sha1": "91369441583ed555c20cee37b0e08977cec99c9d",
@@ -1044,8 +1052,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "bdfba80341b42da396175e10ce07d64e067cbdb3",
-      "sha256": "f2572c73c609a425b6f46fb33a372c774a9dcbc6e0b1314b7ce613910566a2db"
+      "git_blob_sha1": "d7fe0709cc3196b3049bdf4cf92da78a45ec26a6",
+      "sha256": "9487e12f9f8a974b034555015dc2c26f367d29614b8781fa028ae07aa7b2bc89"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1236,8 +1244,8 @@
     {
       "path": "server/auth-integration-entry.mjs",
       "mode": "100644",
-      "git_blob_sha1": "6f9b9742073802a456c69352c807b12a88016757",
-      "sha256": "2d6f114adaa0f20b7566d4f0e1ec24ac8130fc68f7b945d1bf4cc4bbc0b813b7"
+      "git_blob_sha1": "c907f3c550da691bb5548d9c822502839e475354",
+      "sha256": "7da0d377256151d31801452d210d510a6e774d8781cf238424c466f5319e2bdb"
     },
     {
       "path": "server/auth-integration-provenance.mjs",
@@ -1364,6 +1372,12 @@
       "mode": "100644",
       "git_blob_sha1": "1cdadc03f548196a120432be1e2f78c6b0203ce9",
       "sha256": "ffd13988ded1ba350c12d62704f76cc17994b37d7dc2102d1675f9ba285d0b25"
+    },
+    {
+      "path": "server/managed-business-runtime.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "be3666141c5d8ed8d0935ad72be5a7add78f92c2",
+      "sha256": "4099607dedb5248940b621b6c523f12bf61b15fead58665b43d2cb0ea9c5574b"
     },
     {
       "path": "server/method-change-service.mjs",
