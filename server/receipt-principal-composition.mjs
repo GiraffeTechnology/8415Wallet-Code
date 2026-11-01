@@ -12,7 +12,9 @@ export function composeReceiptPrincipalRuntime({binding=null,authorization,funds
  check(Reflect.ownKeys(descriptors).length===3&&['store','fundsEffects',evidenceKey].every(k=>Object.hasOwn(descriptors[k]??{},'value')));
  const store=descriptors.store.value;
  check(store&&typeof store.read==='function'&&typeof store.transactionMany==='function'&&typeof now==='function');
- const originalAuthority=capture(authorization,['assertIndependentStore','withPurposeAuthorization','withPurposeObservation']);
+ const journalRead=Object.getOwnPropertyDescriptor(authorization??{},'withPurposeJournalSnapshot');
+ const originalAuthority=capture(authorization,['assertIndependentStore','withPurposeAuthorization','withPurposeObservation',
+  ...(journalRead&&Object.hasOwn(journalRead,'value')?['withPurposeJournalSnapshot']:[])]);
  originalAuthority.assertIndependentStore(store);
  const reader=capture(fundsReader,['readForPrincipal']);
  const effects=capture(descriptors.fundsEffects.value,['freezeExisting','settleHeld','releaseHeld','reconcile']);

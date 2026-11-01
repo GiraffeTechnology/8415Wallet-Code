@@ -77,8 +77,19 @@ export function createOriginRealmRouter({ store, tenant, transportOrigin, create
   const canonicalRealm = realm(transportOrigin);
   function port(name) {
     const sample = canonicalRealm.taskService[name];
+    const heldPrincipalGuards=new WeakMap();
     return Object.freeze(Object.fromEntries(Object.keys(sample).map(method => [method,
       method === 'assertIndependentStore' ? candidate => sample[method](candidate) :
+      name==='receiptPrincipalAuthorization'&&method==='withPurposeJournalSnapshot' ? (...args)=>{
+        const original=heldPrincipalGuards.get(args[1]);check(original);return original[method](...args);
+      } : name==='receiptPrincipalAuthorization'&&['withPurposeAuthorization','withPurposeObservation'].includes(method) ? async (...args)=>{
+        const original=(await forClaim(args[0]?.task)).taskService[name],callback=args.at(-1);check(typeof callback==='function');
+        args[args.length-1]=async(snapshot,guard)=>{
+          heldPrincipalGuards.set(guard,original);
+          try{return await callback(snapshot,guard);}finally{heldPrincipalGuards.delete(guard);}
+        };
+        return original[method](...args);
+      } :
       async (...args) => (await forClaim(name==='receiptPrincipalAuthorization'?args[0]?.task:args[0])).taskService[name][method](...args)])));
   }
   return Object.freeze({ ready, canonicalRealm,

@@ -5,6 +5,39 @@ import {fixture,policy,template,a,h,origin,epoch} from './helpers/principal-auth
 import {receiptPrincipalPurposeDigest} from '../src/agent/receiptPrincipal.ts';
 import {taskVerificationPolicyKey} from '../server/task-verification-state.mjs';
 import {digest} from '../server/crypto.mjs';
+
+test('native journal snapshot reuses the original held principal gate without another store read or grant',async t=>{
+ const f=await fixture(t),c=await f.prepare();assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);
+ const p=c.receiptPrincipalPurpose,port=f.port();let escaped,originalGuard;
+ await port.withPurposeAuthorization(p,'freeze',async(scope,guard)=>{
+  originalGuard=guard;const methods=['read','readMany','withReadGate','transactionMany'],saved=methods.map(k=>f.store[k]);
+  for(const k of methods)f.store[k]=()=>assert.fail('nested grant/store access');
+  try{
+   const actual=await port.withPurposeJournalSnapshot(p,guard,async(snapshot,revalidate)=>{
+    escaped=revalidate;assert.deepEqual(snapshot.task,c.task);assert.deepEqual(snapshot.executor,c.executor);
+    assert.equal(snapshot.grantReference,p.task.grantReference);assert.equal(snapshot.operationId,p.task.operationId);
+    assert.equal(snapshot.scope.phase,'funded');assert.equal(snapshot.scope.nonce,'0');assert.equal(snapshot.scope.planDigest,p.receipt.planDigest);
+    assert.equal(snapshot.scope.journalBindingHash,p.receipt.journalBindingHash);assert.equal(snapshot.scope.segmentId,p.receipt.segmentId);
+    assert.equal(snapshot.scope.actor,p.account);assert.equal(snapshot.scope.chainId,p.chainId);assert.equal(snapshot.expiresAtMs,scope.expiresAtMs);
+    await Promise.resolve();assert.equal(revalidate(),snapshot);assert.ok(Object.isFrozen(snapshot.task.policy));return snapshot;
+   });
+   assert.equal(actual.task.digest,p.task.taskDigest);assert.throws(escaped,/GATE_CLOSED/);
+  }finally{methods.forEach((k,i)=>{f.store[k]=saved[i];});}
+ });
+ await assert.rejects(port.withPurposeJournalSnapshot(p,originalGuard,()=>assert.fail('escaped scope')));
+ assert.throws(originalGuard,/GATE_CLOSED/);
+});
+
+test('journal snapshot refuses a cloned guard, changed purpose and an expired held principal',async t=>{
+ const f=await fixture(t),c=await f.prepare();assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);
+ const p=c.receiptPrincipalPurpose,port=f.port();await port.withPurposeAuthorization(p,'freeze',async(_scope,guard)=>{
+  await assert.rejects(port.withPurposeJournalSnapshot(p,()=>guard(),()=>assert.fail('forged guard')));
+  await assert.rejects(port.withPurposeJournalSnapshot({...p,amountBaseUnits:'1'},guard,()=>assert.fail('changed purpose')));
+  await port.withPurposeJournalSnapshot(p,guard,async(_snapshot,revalidate)=>{
+   const saved=f.clock.now;f.clock.now+=4000000;assert.throws(revalidate);f.clock.now=saved;assert.throws(revalidate,/GATE_CLOSED/);
+  });
+ });
+});
 test('normal password/CSRF/task approval persists the exact new purpose and reopens its original owner gate',async t=>{
  const f=await fixture(t),c=await f.prepare();assert.equal(c.approvalFactor,'preoperational-default-on');assert.equal(c.receiptPrincipalPurposeDigest,receiptPrincipalPurposeDigest(c.receiptPrincipalPurpose));
  assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);

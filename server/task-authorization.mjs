@@ -12,6 +12,7 @@ import { digest, equal, randomToken } from './crypto.mjs';
 import { createTaskObserverContextCodec } from '../web/task-observer-context.mjs';
 import { createTaskObservationSources } from './task-observation-sources.mjs';
 import { readFileSync } from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { fileURLToPath } from 'node:url';
 import {
   TaskContractError, freezeTaskPolicy, freezeChildOperation, emptyTaskBudget,
@@ -1573,6 +1574,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
   }
   // A separately requested and challenge-bound principal purpose. Old receipt
   // grants omit this field and cannot acquire funds authority from public JSON.
+  const principalScopes=new AsyncLocalStorage(),principalGuards=new WeakMap();
   async function principalGate(raw,action,callback){
     const p=normalizeReceiptPrincipalPurpose(raw);
     requireThat(typeof callback==='function'&&(action===null||['freeze','settle','release'].includes(action)),'TASK_RECEIPT_PRINCIPAL_ACTION_REFUSED',400);
@@ -1597,13 +1599,41 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         requireThat(Number.isSafeInteger(expiresAtMs),'TASK_RECEIPT_EXPIRY_REFUSED');
         return immutable({purpose:original,principal:{origin,tenant,...found.context},expiresAtMs});
       };
-      return callback(current(),current);
+      const held={live:true,p,current,values,found};
+      const revalidate=()=>{requireThat(held.live,'TASK_RECEIPT_PRINCIPAL_GATE_CLOSED',403);return current();};
+      principalGuards.set(revalidate,held);
+      try{return await principalScopes.run(held,()=>callback(revalidate(),revalidate));}
+      finally{held.live=false;principalGuards.delete(revalidate);}
     });
   }
   const receiptPrincipalAuthorization=Object.freeze({
     assertIndependentStore(candidate){requireThat(candidate!==store,'TASK_RECEIPT_STORE_REENTRY_REFUSED',500);},
     withPurposeAuthorization:(p,action,callback)=>principalGate(p,action,callback),
     withPurposeObservation:(p,callback)=>principalGate(p,null,callback),
+    /** Read the original native phase snapshot from this already-held grant.
+     * The callback's original guard identity is required; no lookup, second
+     * grant gate, nonce reservation or journal capability is created here. */
+    async withPurposeJournalSnapshot(raw,guard,callback){
+      const p=normalizeReceiptPrincipalPurpose(raw),held=principalGuards.get(guard);
+      requireThat(held?.live&&principalScopes.getStore()===held&&typeof callback==='function'&&
+        receiptPrincipalPurposeDigest(p)===receiptPrincipalPurposeDigest(held.p),'TASK_RECEIPT_PRINCIPAL_HELD_GATE_REQUIRED',403);
+      let live=true;
+      const current=()=>{
+        try{
+          requireThat(live&&held.live&&principalScopes.getStore()===held,'TASK_RECEIPT_PRINCIPAL_GATE_CLOSED',403);
+          const authorized=guard(),grant=readGrant(held.values[held.found.gkey],held.found.context,p.task.taskDigest);
+          const slot=receiptPhaseScope(grant.task,'funded');
+          return immutable(structuredClone({task:grant.task,executor:grant.executor,
+            grantReference:p.task.grantReference,grantPolicyVersion:p.task.grantPolicyVersion,operationId:p.task.operationId,
+            expiresAtMs:authorized.expiresAtMs,scope:{phase:slot.phase,nonce:slot.nonce,planDigest:slot.planDigest,
+              journalBindingHash:slot.journalBindingHash,actor:grant.task.policy.actor,chainId:grant.task.policy.chainId,
+              escrow:grant.task.policy.intent.escrow,runtimeCodeHash:grant.task.policy.intent.runtimeCodeHash,
+              segmentId:grant.task.policy.intent.segmentId,maximumFeeWei:(BigInt(slot.gasLimit)*BigInt(slot.maxFeePerGasWei)).toString()}}));
+        }catch(error){live=false;throw error;}
+      };
+      try{const snapshot=current();return await callback(snapshot,()=>{current();return snapshot;});}
+      finally{live=false;}
+    },
   });
   const receiptAuthorization=Object.freeze({
     assertIndependentStore(candidate){requireThat(candidate!==store,'TASK_RECEIPT_STORE_REENTRY_REFUSED',500);},
