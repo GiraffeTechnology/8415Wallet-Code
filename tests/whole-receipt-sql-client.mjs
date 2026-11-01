@@ -27,7 +27,7 @@ const sourceRaw=await readFile(join(sourceRoot,'test/fixtures/simulated-registry
 const cleanup=[];const fixture={after(fn){cleanup.unshift(fn);}};
 const certs=await certificates(fixture);
 const root=await mkdtemp(resolve('.whole-receipt-sql-'));
-const sourceState=join(root,'source.json');
+const sourceState=join(root,'source.simulated-registry.json');
 for(const action of ['init','TOKEN_TRANSFER','REGISTERED'])execFileSync(process.execPath,[join(sourceRoot,'registry-driver.mjs'),sourceState,action],{stdio:'pipe'});
 const probe=createNetServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const journalPort=probe.address().port;await new Promise(r=>probe.close(r));
 assert.equal(createHash('sha256').update(sourceRaw).digest('hex'),'154b15a85d9cdeed41138a8f77981521f778db7f97d54fbc9f221cb471c1fb3c');
