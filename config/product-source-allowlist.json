@@ -249,6 +249,7 @@
       "src/agent/assetAuthorization.ts",
       "src/agent/assetBudget.ts",
       "src/agent/receiptObservation.ts",
+      "src/agent/receiptPrincipal.ts",
       "src/agent/receiptTask.ts",
       "src/agent/taskContract.ts",
       "src/browser-v2.ts",
@@ -1970,6 +1971,12 @@
       "sha256": "dcc7b4e4ae4be6d731b7290b76c84ea7bc98aed1214eae994afa7878bf96b288"
     },
     {
+      "path": "src/agent/receiptPrincipal.ts",
+      "mode": "100644",
+      "git_blob_sha1": "90f6638cc477687964e9c6fa38f1b024c5698fe4",
+      "sha256": "4fb9de20931341158e2d0ebdf14d6104a4cf9a5925c0766c4f55dcbaacc9cf5c"
+    },
+    {
       "path": "src/agent/receiptTask.ts",
       "mode": "100644",
       "git_blob_sha1": "ff2e84aacfa1165cd9395f15f64f38cdfe2e179e",
@@ -1990,8 +1997,8 @@
     {
       "path": "src/browser.ts",
       "mode": "100644",
-      "git_blob_sha1": "494802e7d6bb6743afc9cb42ff48ccfe6944cb0d",
-      "sha256": "9b70930dc497e7dd5dd46fd9e946a929bef015aafc4c69f2bd718f41c1689c2d"
+      "git_blob_sha1": "dd74abe58816e5d3c4a30445d981b8d8b7a2184c",
+      "sha256": "33f5c0ebc93476381c0b0f8d8ca38176a42a9c2a8c12cd8bcda16f8481f4be01"
     },
     {
       "path": "src/cli/args.ts",
@@ -2134,8 +2141,8 @@
     {
       "path": "src/index.ts",
       "mode": "100644",
-      "git_blob_sha1": "9cc5c0f1b6cd7bab9d5aa8ceaaf13d2802ee5f37",
-      "sha256": "dfd803090ea59e108d7d6d55e9b474787b35065711a34a1f0ae70ab227cf9105"
+      "git_blob_sha1": "a72f0e4785ef7ee15b15a430fb7d805b6d2adbea",
+      "sha256": "b63c0f249e8c8a1e1908a3130c3f910f7ca6e3557dc14701c2c8537da177c220"
     },
     {
       "path": "src/kit/PROVENANCE.md",

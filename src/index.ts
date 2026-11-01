@@ -12,6 +12,7 @@
 
 // The application seam.
 export { WalletSession } from './wallet/session.ts';
+export * from './agent/receiptPrincipal.ts';
 
 // Read-only linked responsibility preview. Separate from ERC state and signing.
 export type * from './sdk/linked.ts';
