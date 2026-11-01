@@ -1048,8 +1048,8 @@
     {
       "path": "package-lock.json",
       "mode": "100644",
-      "git_blob_sha1": "e6f7deeedc0fac47dd58b3b74d37be1a0b8894f1",
-      "sha256": "c944cc81c92fd4fd70fe62cf3b05fc4925c840716f04735325442957527caf2c"
+      "git_blob_sha1": "e48a674bf217445053e3a8159dd186441c1a7bf8",
+      "sha256": "3acc9200e2ab9c120b5ee69e87ac011268826c996cd5d9d335c7b6211e591ec7"
     },
     {
       "path": "package.json",
@@ -1648,8 +1648,8 @@
     {
       "path": "server/task-listing-package-pin.mjs",
       "mode": "100644",
-      "git_blob_sha1": "a6ac0e62488a97263bf58851cb1a7121b6a98d1b",
-      "sha256": "4498236b82e9b8661d0fc07f2bd8eb9ef4e60255ad6f7f962d7c109eb1f85452"
+      "git_blob_sha1": "440fed6991ec401bbdc5061d9a3cd651cd4000ba",
+      "sha256": "1278b85445c37fc2605be227fa132080dcf0834189a4ba4536afb579ae0b7644"
     },
     {
       "path": "server/task-listing-results.mjs",
@@ -1714,8 +1714,8 @@
     {
       "path": "server/task-runtime-import-probe.mjs",
       "mode": "100644",
-      "git_blob_sha1": "7af9b869d85979c3c2098ba507ebd47cb7a72764",
-      "sha256": "61e413c7009e96d026708035a4f4f4638766e759a6186fd12e13018c15e1da3c"
+      "git_blob_sha1": "70f2510f963b922478ff48862519d63394ea62af",
+      "sha256": "385b6b3079e671455e7ae6771589797e74f3ed5531fd6ef75b6117cb46322139"
     },
     {
       "path": "server/task-test-asset-authorization.mjs",
@@ -2812,8 +2812,8 @@
     {
       "path": "vendor/artfi-task-listing-runtime-1.0.0.tgz",
       "mode": "100644",
-      "git_blob_sha1": "3369d0e4dedeedff482e28a66723dcb5bcfd33f4",
-      "sha256": "4dbc79138059d170c08a352e6ae8f7e5461232fd39317e3394a6c08353ba484c"
+      "git_blob_sha1": "e37d237e4f1aada33568111f585b4e3f6593a2a2",
+      "sha256": "32d4e482e1611b0f5cb522e6a9dda7febb759d176c2d5f2150b24ba27806a23c"
     },
     {
       "path": "web/about-entry.mjs",
