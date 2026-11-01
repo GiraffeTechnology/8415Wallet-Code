@@ -868,8 +868,8 @@
     {
       "path": "docs/MANAGED-BUSINESS-RUNTIME.md",
       "mode": "100644",
-      "git_blob_sha1": "0ba6c9607a54bdf5198f7b2b82518c76ea5cbe26",
-      "sha256": "3b40172c81710c6f1436153870183510606617d84e572a19d623644face76a60"
+      "git_blob_sha1": "1c641a54466f70e78ac897c199cac28f71590ab8",
+      "sha256": "a0c081c4070815e1c800f2eb5e9b96ea2b422965ef4ccf7008f84feff9e74b63"
     },
     {
       "path": "docs/NATIVE-WALLET-LOGIN.md",
@@ -1054,8 +1054,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "cc3f0ac658371e5fb300467935db288a4c096130",
-      "sha256": "56013c4f4e49d2863736e45275717d5641e49e5a494ad98d31aa2df740194a0c"
+      "git_blob_sha1": "bf94e0fca09a5121557371912ae9d8449beec84f",
+      "sha256": "ec57d84dabf032b4737dface16f0ba254c27c5604de253d8ce16f478f7604deb"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1852,8 +1852,8 @@
     {
       "path": "server/whole-receipt-host.mjs",
       "mode": "100644",
-      "git_blob_sha1": "d2b3e787b153ceb67f013bfb74a801087edb4da9",
-      "sha256": "69b964b991f957a5719bfcc77dc5f6ef1cbf19d7bb0c72aecc7ccfd0351ee524"
+      "git_blob_sha1": "7f6f13b65ce15fcddd3ef8eafe704a40f7c444b7",
+      "sha256": "a780e5769184254c2eb92685564d3bd532eb1bc6c0026cd7a9dc07aadf6bb31e"
     },
     {
       "path": "src/adapters/kit/kitApi.ts",
