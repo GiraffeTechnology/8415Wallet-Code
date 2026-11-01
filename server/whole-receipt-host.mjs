@@ -1,6 +1,7 @@
 /** Server-owned ArtFi installation binding. No loader, listener or resource ownership. */
 import { createTaskReceiptRuntime } from './task-receipt-runtime.mjs';
 import { createReceiptProviderHandler } from './receipt-provider-handler.mjs';
+import { createTaskJournalCapabilityHandler } from './task-listing-bootstrap-core.mjs';
 
 const refuse = () => { throw Error('WHOLE_RECEIPT_HOST_BINDING_REFUSED'); };
 function fields(value, keys) {
@@ -54,6 +55,14 @@ export function createWholeReceiptHost({ binding, store, now = Date.now }) {
       // An already accepted operation may need its journal capability while
       // shutdown waits for the durable result. Never add an HTTP/bearer bridge.
       return api.consumeCapability.apply(installation, args);
+    },
+    createCapabilityRequestHandler(configuration) {
+      active();
+      const peer = Object.getOwnPropertyDescriptor(configuration ?? {}, 'peerId');
+      if (!peer || !Object.hasOwn(peer, 'value') || peer.value !== input.consumerPeerId) refuse();
+      // The original bootstrap mounts this on its existing authenticated TLS
+      // listener, with one explicit registry owner. No listener or route is added.
+      return createTaskJournalCapabilityHandler(configuration, installation);
     },
     operation(input) {
       active();

@@ -20,22 +20,37 @@ export async function ensureTaskListingServerCondition(configuration) {
   for (const [signal, handler] of handlers) process.off(signal, handler);
   process.exit(code);
 }
-export function createTaskJournalCapabilityListener(configuration, tls, runtime) {
-  const server = createServer({ ...tls, requestCert: true, rejectUnauthorized: true, minVersion: 'TLSv1.2' }, async (req, res) => {
+/** Mount only on the original authenticated TLS listener. No listener is created
+ * here and no peer identity is accepted from HTTP headers or request JSON. */
+export function createTaskJournalCapabilityHandler(configuration, runtime) {
+  const peer = Object.getOwnPropertyDescriptor(configuration ?? {}, 'peerId');
+  const fingerprint = Object.getOwnPropertyDescriptor(configuration ?? {}, 'clientFingerprint256');
+  check(peer && Object.hasOwn(peer, 'value') && fingerprint && Object.hasOwn(fingerprint, 'value') &&
+    typeof peer.value === 'string' && /^spiffe:\/\/[A-Za-z0-9._/-]{1,240}$/.test(peer.value) &&
+    typeof fingerprint.value === 'string' && /^[a-f0-9]{64}$/.test(fingerprint.value) &&
+    typeof runtime?.consumeCapability === 'function', 'TASK_LISTING_PEER_CONFIG_REFUSED');
+  const peerId = peer.value, clientFingerprint256 = fingerprint.value;
+  const consume = runtime.consumeCapability.bind(runtime);
+  return async (req, res) => {
     res.setHeader('content-type', 'application/json'); res.setHeader('cache-control', 'no-store');
     try {
       const cert = req.socket.getPeerCertificate();
-      check(req.socket.authorized && cert.fingerprint256?.replaceAll(':', '').toLowerCase() === configuration.clientFingerprint256 &&
-        cert.subjectaltname?.split(', ').includes(`URI:${configuration.peerId}`), 'TASK_LISTING_PEER_REFUSED');
+      check(req.socket.encrypted === true && req.socket.authorized === true &&
+        cert.fingerprint256?.replaceAll(':', '').toLowerCase() === clientFingerprint256 &&
+        cert.subjectaltname?.split(', ').includes(`URI:${peerId}`), 'TASK_LISTING_PEER_REFUSED');
       check(req.method === 'POST' && req.url === TASK_JOURNAL_CAPABILITY_PATH && req.headers['content-type'] === 'application/json' &&
         !req.headers.origin && !req.headers['sec-fetch-site'], 'TASK_LISTING_INTERNAL_ROUTE_REFUSED');
       const chunks = []; let length = 0;
       for await (const chunk of req) { length += chunk.length; check(length <= 16384, 'TASK_LISTING_INTERNAL_BODY_REFUSED'); chunks.push(chunk); }
       const request = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      const result = runtime.consumeCapability(request, configuration.peerId);
+      const result = consume(request, peerId);
       res.statusCode = 200; res.end(JSON.stringify(result));
     } catch (error) { res.statusCode = error?.status === 503 ? 503 : 403; res.end(JSON.stringify({ error: 'TASK_JOURNAL_CAPABILITY_REFUSED' })); }
-  });
+  };
+}
+export function createTaskJournalCapabilityListener(configuration, tls, runtime) {
+  const server = createServer({ ...tls, requestCert: true, rejectUnauthorized: true, minVersion: 'TLSv1.2' },
+    createTaskJournalCapabilityHandler(configuration, runtime));
   server.requestTimeout = 5000; server.headersTimeout = 5000; server.timeout = 5000; server.maxHeadersCount = 20;
   return server;
 }
