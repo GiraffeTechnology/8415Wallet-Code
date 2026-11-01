@@ -90,8 +90,8 @@ try {
  assert.equal(revoked.data.authorization.grantPolicyVersion,(BigInt(selected.principal.grantPolicyVersion)+1n).toString());
  const afterRevoke=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(afterRevoke.operation,created.operation);
  await assert.rejects(restoredHandle.create(selected.rawPlan,selected.rawWire),{message:'TASK_RECEIPT_GRANT_BINDING_REFUSED'});
- const request={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
- await assert.rejects(restoredHandle.execute(request),{message:'TASK_RECEIPT_GRANT_BINDING_REFUSED'});
+ const executionRequest={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
+ await assert.rejects(restoredHandle.execute(executionRequest),{message:'TASK_RECEIPT_GRANT_BINDING_REFUSED'});
  const unchanged=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(unchanged.operation,created.operation);
  const revokedStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(revokedStatus.status,200);assert.equal(revokedStatus.data.effectiveStatus,'revoked');assert.deepEqual(revokedStatus.data.receiptAttempts,[]);assert.equal(providerCalls,0);
  console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',journalHostRestartRead:'PASS',revokedRead:'PASS',revokedCreate:'REFUSED',revokedExecute:'REFUSED',attemptsAfterRevoke:0,revision:restored.operation.revision,status:restored.operation.status,walletStarted:restored.operation.walletStarted,providerCalls,transactions:0,CAS:'NOT_RUN_PROVIDER_CODE_REVIEW_REQUIRED',SEND:'NOT_RUN_COMPILED_ESCROW_FIXTURE_REQUIRED'}));
