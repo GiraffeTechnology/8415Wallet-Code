@@ -1473,8 +1473,8 @@
     {
       "path": "server/receipt-principal-composition.mjs",
       "mode": "100644",
-      "git_blob_sha1": "73741dac635a0037cf27f2340babc9d8f804cf41",
-      "sha256": "8a19177aebac0bd83e31285cd634f6bc4f2ebbf1a75a2b3f08ca5b40f319e3b9"
+      "git_blob_sha1": "0e0c7342429bb306df0c0337865df8c928fc7247",
+      "sha256": "fd74ae552886b523dde5e4c2c6afb6d1f56646eb279803178722ba7f758835be"
     },
     {
       "path": "server/receipt-principal-grant.mjs",
