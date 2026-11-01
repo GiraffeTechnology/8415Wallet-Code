@@ -26,26 +26,49 @@ async function fixture(t) {
   gracefulDrainCompleted:true,storeFileAbsentBefore:true,storeFileAbsentAfterDrain:true,originalOpenLockVerified:true,priorMainPid:'900',priorSourceCommit:'3'.repeat(40),priorSourceTree:'4'.repeat(40),priorStoreSourceSha256:'5'.repeat(64),
   beforeDirectory:{...directory,ctimeNs:'150',mtimeNs:'150'},beforeLock:{inode:'101',ctimeNs:'150',mtimeNs:'150',uid:0,gid:0,mode:'0o600',size:0,links:1},afterDrainDirectory:directory};
  const receipt={schema:'8415wallet-prepared-source-install/1',status:'SOURCE_AND_PINNED_RUNTIME_DEPENDENCIES_INSTALLED_NOT_ACTIVATED',sourceCommit:sourceIdentity.commit,sourceTree:sourceIdentity.tree,sourceDirty:false,runtime:root,originalStoreWitness:witness};
- const journal=join(root,'source-receipt.first-write.json');let failPrepared=false,failCommitted=false,opened=[];
+ const journal=join(root,'source-receipt.first-write.json');let failPrepared=false,failCommitted=false,opened=[],syncFailure=null;const durabilityEvents=[];
  async function readJournal(){try{return JSON.parse(await readFile(journal,'utf8'));}catch(error){if(error.code==='ENOENT')return null;throw error;}}
  async function writeJournal(value){
   if(value.phase==='committed'&&failCommitted){failCommitted=false;throw Error('SYNTHETIC_COMMIT_ACK_LOST');}
-  const temporary=journal+'.pending';await writeFile(temporary,JSON.stringify(value),{mode:0o600});await rename(temporary,journal);
+  const temporary=journal+'.pending';await writeFile(temporary,JSON.stringify(value),{mode:0o600});await rename(temporary,journal);durabilityEvents.push('journal:'+value.phase);
   if(value.phase==='prepared'&&failPrepared){failPrepared=false;throw Error('SYNTHETIC_PREPARE_ACK_LOST');}
  }
  async function lifecycle(overrides={}) {
   const actual=await stat(stateDirectory,{bigint:true});Object.assign(currentDirectory,{inode:String(actual.ino),mtimeNs:String(actual.mtimeNs),mode:'0o'+(Number(actual.mode)&0o7777).toString(8)});
   const stateExists=await stat(config.statePath).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
   return createManagedFirstWrite({receipt,config,configurationSha256:'6'.repeat(64),transportOrigin:origin,directory:currentDirectory,stateExists,readJournal,writeJournal,
-   readDirectoryIdentity:async()=>{const value=await stat(stateDirectory,{bigint:true});return {inode:String(value.ino),mtimeNs:String(value.mtimeNs),uid:0,gid:0,mode:'0o'+(Number(value.mode)&0o7777).toString(8)};},...overrides});
+   readDirectoryIdentity:async()=>{const value=await stat(stateDirectory,{bigint:true});return {inode:String(value.ino),mtimeNs:String(value.mtimeNs),uid:0,gid:0,mode:'0o'+(Number(value.mode)&0o7777).toString(8)};},
+   directorySyncObserver:async({phase,when})=>{durabilityEvents.push('directory:'+phase+':'+when);if(syncFailure===phase+':'+when){syncFailure=null;throw Error('SYNTHETIC_DIRECTORY_SYNC_BOUNDARY_FAILURE');}},...overrides});
  }
  async function open(){const first=await lifecycle(),store=await openEncryptedStore(config.statePath,key,{firstWriteLifecycle:first.hooks});opened.push(store);return {first,store};}
  t.after(async()=>{for(const store of opened)await store.close();key.fill(0);await rm(root,{recursive:true,force:true});});
- return {root,stateDirectory,key,wallet,config,directory:currentDirectory,receipt,journal,readJournal,lifecycle,open,failPrepared:()=>{failPrepared=true;},failCommitted:()=>{failCommitted=true;}};
+ return {root,stateDirectory,key,wallet,config,directory:currentDirectory,receipt,journal,readJournal,lifecycle,open,durabilityEvents,failDirectorySync:(phase,when='before')=>{syncFailure=phase+':'+when;},failPrepared:()=>{failPrepared=true;},failCommitted:()=>{failCommitted=true;}};
 }
 test('admission records only provenance and creates no empty credential state',async t=>{
  const f=await fixture(t),{first,store}=await f.open();assert.equal(first.status(),'admitted');assert.equal(store.originTransitionBinding().stateEstablished,false);
  await assert.rejects(stat(f.config.statePath),{code:'ENOENT'});assert.equal((await f.readJournal()).phase,'admitted');assert.equal((await f.readJournal()).candidate,null);
+});
+test('directory durability precedes prepared and committed journal phases',async t=>{
+ const f=await fixture(t),{store}=await f.open();await store.transaction('original:record',()=>({revision:1}));
+ const order=f.durabilityEvents;
+ assert.ok(order.indexOf('directory:candidate-before-prepare:after')>=0);
+ assert.ok(order.indexOf('directory:candidate-before-prepare:after')<order.indexOf('journal:prepared'));
+ assert.ok(order.indexOf('journal:prepared')<order.indexOf('directory:state-after-replace:after'));
+ assert.ok(order.indexOf('directory:state-after-replace:after')<order.indexOf('journal:committed'));
+});
+test('candidate-directory sync failure cannot prepare or commit and preserves its candidate',async t=>{
+ const f=await fixture(t),{store}=await f.open();f.failDirectorySync('candidate-before-prepare');
+ await assert.rejects(store.transaction('original:record',()=>({revision:1})),/SYNTHETIC_DIRECTORY_SYNC_BOUNDARY_FAILURE/);
+ assert.equal((await f.readJournal()).phase,'admitted');await assert.rejects(stat(f.config.statePath),{code:'ENOENT'});await store.close();
+ await assert.rejects(f.open(),/AUTH_FIRST_WRITE_UNJOURNALED_CANDIDATE/);assert.equal(f.durabilityEvents.includes('journal:prepared'),false);
+});
+for(const when of ['before','after'])test('existing destination recovery sync '+when+' failure leaves prepared and never replays the mutation',async t=>{
+ const f=await fixture(t),{store}=await f.open();let mutations=0;f.failDirectorySync('state-after-replace');
+ await assert.rejects(store.transaction('original:record',()=>{mutations++;return {status:'outcome-unknown',reservedWei:'31'};}),/SYNTHETIC_DIRECTORY_SYNC_BOUNDARY_FAILURE/);
+ await stat(f.config.statePath);assert.equal((await f.readJournal()).phase,'prepared');await store.close();f.failDirectorySync('recovery-before-commit',when);
+ await assert.rejects(f.open(),/SYNTHETIC_DIRECTORY_SYNC_BOUNDARY_FAILURE/);assert.equal((await f.readJournal()).phase,'prepared');assert.equal(mutations,1);
+ const recovered=await f.open();assert.equal(recovered.first.status(),'committed');assert.equal((await recovered.store.read('original:record')).status,'outcome-unknown');assert.equal(mutations,1);
+ assert.ok(f.durabilityEvents.lastIndexOf('directory:recovery-before-commit:after')<f.durabilityEvents.lastIndexOf('journal:committed'));
 });
 test('a clean pre-transaction restart keeps admission without rebinding the old directory timestamp',async t=>{
  const f=await fixture(t),{store}=await f.open();await store.close();f.directory.mtimeNs='300';
@@ -83,6 +106,8 @@ test('prepared encrypted candidate survives metadata acknowledgement loss and re
  await stat(join(f.stateDirectory,prepared.candidate.temporaryName));await store.close();
  const recovered=await f.open();assert.equal(recovered.first.status(),'committed');assert.equal(mutations,1);
  assert.deepEqual(await recovered.store.read('task:synthetic'),{status:'outcome-unknown',nonce:'7',reservedWei:'31'});
+ assert.ok(f.durabilityEvents.lastIndexOf('directory:recovery-before-commit:after')>=0);
+ assert.ok(f.durabilityEvents.lastIndexOf('directory:recovery-before-commit:after')<f.durabilityEvents.lastIndexOf('journal:committed'));
 });
 test('renamed state survives commit-journal failure and is admitted after authenticated decoding',async t=>{
  const f=await fixture(t),{store}=await f.open();f.failCommitted();

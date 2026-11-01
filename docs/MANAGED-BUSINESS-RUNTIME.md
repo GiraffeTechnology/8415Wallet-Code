@@ -41,12 +41,15 @@ observation. An unjournaled encrypted candidate is preserved and refused.
 Every phase retains the original directory inode, root ownership and private
 mode. Recovery measures this identity again under the original writer lock;
 normal timestamp changes do not admit a substituted directory.
-After the encrypted candidate is durably written, its exact ciphertext digest,
-size and temporary name are saved as prepared. State replacement and directory
-sync precede committed metadata. Once preparation is attempted, a failed or
+After the encrypted candidate file and its containing state directory are
+synced, its exact ciphertext digest, size and temporary name are saved as
+prepared in the separate receipt directory. State replacement and state-directory
+sync precede committed metadata. Once first-write durability is attempted, a failed or
 uncertain acknowledgement preserves the encrypted candidate. Restart recovery
 holds the original writer lock, resumes only that candidate, decrypts/decodes it,
-then commits its establishment record. A committed record never permits a
+and syncs the state directory even when the destination already exists, then
+commits its establishment record. An uncertain sync acknowledgement leaves the
+record prepared and cannot release or replay the transaction. A committed record never permits a
 missing store to be replaced with an empty one. Subsequent ordinary encrypted
 writes retain normal storage and UNKNOWN semantics.
 

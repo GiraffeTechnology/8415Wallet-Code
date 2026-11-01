@@ -24,10 +24,11 @@ async function encryptedFile(path) {
 }
 /** readJournal/writeJournal are private, derived-receipt I/O supplied by the
  * managed entry. Neither callback nor an admission can be supplied by HTTP. */
-export async function createManagedFirstWrite({receipt,config,configurationSha256,transportOrigin,directory,stateExists,readJournal,writeJournal,readDirectoryIdentity}) {
+export async function createManagedFirstWrite({receipt,config,configurationSha256,transportOrigin,directory,stateExists,readJournal,writeJournal,readDirectoryIdentity,directorySyncObserver=null}) {
  check(receipt?.schema==='8415wallet-prepared-source-install/1'&&receipt.sourceDirty===false&&
   receipt.status==='SOURCE_AND_PINNED_RUNTIME_DEPENDENCIES_INSTALLED_NOT_ACTIVATED'&&hex(configurationSha256)&&
-  typeof readJournal==='function'&&typeof writeJournal==='function'&&typeof readDirectoryIdentity==='function','CONTEXT_REFUSED');
+  typeof readJournal==='function'&&typeof writeJournal==='function'&&typeof readDirectoryIdentity==='function'&&
+  (directorySyncObserver===null||typeof directorySyncObserver==='function'),'CONTEXT_REFUSED');
  const witness=receipt.originalStoreWitness;
  const sourceIdentity={commit:receipt.sourceCommit,tree:receipt.sourceTree};
  validateOriginalUninitializedWitness(witness,{tenant:config.tenant,statePath:config.statePath,transportOrigin,sourceIdentity,directory:witness?.afterDrainDirectory});
@@ -40,6 +41,7 @@ export async function createManagedFirstWrite({receipt,config,configurationSha25
   sourceCommit:receipt.sourceCommit,sourceTree:receipt.sourceTree,receiptSha256:digest(json(receipt)),
   witnessSha256:digest(json(witness)),configurationSha256};
  let record=await readJournal();
+ let candidateDirectoryDurable=false,stateDirectoryDurable=false,preparedRecoveryDurable=false;
  function validate(value) {
   check(value&&Object.keys(value).sort().join(',')==='candidate,phase,schema,scope'&&
    value.schema==='8415wallet-original-first-write/1'&&['admitted','prepared','committed'].includes(value.phase)&&same(value.scope,scope),'JOURNAL_BINDING_REFUSED');
@@ -59,10 +61,22 @@ export async function createManagedFirstWrite({receipt,config,configurationSha25
  async function compare(path,candidate) {
   const actual=await encryptedFile(path);check(actual&&actual.sha256===candidate.sha256&&actual.bytes===candidate.bytes,'CANDIDATE_CHANGED');
  }
+ async function syncDirectory({statePath,phase}) {
+  check(statePath===scope.statePath&&['candidate-before-prepare','state-after-replace','recovery-before-commit'].includes(phase),'SYNC_SEQUENCE_REFUSED');
+  stableDirectory(await readDirectoryIdentity());
+  // The optional service-private test observer can fail a boundary; it cannot
+  // replace or acknowledge the real directory fsync performed here.
+  await directorySyncObserver?.({statePath,phase,when:'before'});
+  const dir=await open(dirname(statePath),'r');try{await dir.sync();}finally{await dir.close();}
+  await directorySyncObserver?.({statePath,phase,when:'after'});
+  if(phase==='candidate-before-prepare')candidateDirectoryDurable=true;
+  else stateDirectoryDurable=true;
+ }
  const admission=Object.freeze({});admissions.set(admission,scope);
  const hooks=Object.freeze({
   // openEncryptedStore holds the original writer lock throughout recovery.
   async recover({statePath}) {
+   preparedRecoveryDurable=false;
    check(statePath===scope.statePath,'STATE_REFERENCE_CHANGED');
    stableDirectory(await readDirectoryIdentity());
    const actual=await encryptedFile(statePath);
@@ -87,27 +101,29 @@ export async function createManagedFirstWrite({receipt,config,configurationSha25
    } else {
     await compare(temporary,record.candidate);
     await rename(temporary,statePath);
-    const dir=await open(dirname(statePath),'r');try{await dir.sync();}finally{await dir.close();}
    }
+   // Both a newly renamed candidate and an already-present destination need a
+   // durable directory entry before decoding can commit prepared provenance.
+   await syncDirectory({statePath,phase:'recovery-before-commit'});preparedRecoveryDurable=true;
   },
   // Decryption/decoding must succeed before a prepared journal is committed.
   async opened({statePath,stateEstablished}) {
    check(statePath===scope.statePath,'STATE_REFERENCE_CHANGED');
    stableDirectory(await readDirectoryIdentity());
-   if(record?.phase==='prepared') {check(stateEstablished===true,'CANDIDATE_NOT_OPENED');await save({...record,phase:'committed'});}
+   if(record?.phase==='prepared') {check(stateEstablished===true&&preparedRecoveryDurable,'CANDIDATE_NOT_OPENED');await save({...record,phase:'committed'});}
    else check(record?.phase==='admitted'?!stateEstablished:stateEstablished,'STATE_LIFECYCLE_CHANGED');
   },
   async prepare({statePath,temporaryPath,sha256,bytes}) {
    stableDirectory(await readDirectoryIdentity());
-   check(record?.phase==='admitted'&&statePath===scope.statePath&&dirname(temporaryPath)===dirname(statePath),'ALREADY_PREPARED');
+   check(record?.phase==='admitted'&&candidateDirectoryDurable&&statePath===scope.statePath&&dirname(temporaryPath)===dirname(statePath),'ALREADY_PREPARED');
    const value={schema:'8415wallet-original-first-write/1',phase:'prepared',scope,candidate:{temporaryName:basename(temporaryPath),sha256,bytes}};
    validate(value);await compare(temporaryPath,value.candidate);await save(value);
   },
   async committed({statePath}) {
    stableDirectory(await readDirectoryIdentity());
-   check(record?.phase==='prepared'&&statePath===scope.statePath,'COMMIT_SEQUENCE_REFUSED');
+   check(record?.phase==='prepared'&&stateDirectoryDurable&&statePath===scope.statePath,'COMMIT_SEQUENCE_REFUSED');
    await compare(statePath,record.candidate);await save({...record,phase:'committed'});
-  }
+  },syncDirectory
  });
  return Object.freeze({admission,hooks,status:()=>record?.phase??'awaiting-first-transaction'});
 }

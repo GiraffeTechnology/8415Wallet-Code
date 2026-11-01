@@ -169,7 +169,7 @@ export class MemoryCredentialStore {
 }
 export async function openEncryptedStore(path, key, { firstWriteLifecycle = null } = {}) {
   if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('AUTH_STORE_KEY_REQUIRED');
-  if (firstWriteLifecycle !== null && !['recover','opened','prepare','committed'].every(name => typeof firstWriteLifecycle[name] === 'function'))
+  if (firstWriteLifecycle !== null && !['recover','opened','prepare','committed','syncDirectory'].every(name => typeof firstWriteLifecycle[name] === 'function'))
     throw Error('AUTH_STORE_FIRST_WRITE_LIFECYCLE_REFUSED');
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   // Never infer that an existing lock is stale. Operators must establish that the
@@ -210,13 +210,15 @@ export async function openEncryptedStore(path, key, { firstWriteLifecycle = null
         await file.writeFile(raw);
         await file.sync(); await file.close();
         if (!stateEstablished && firstWriteLifecycle !== null) {
-          // Once preparation is attempted, an uncertain metadata write must not
-          // delete the durable encrypted candidate needed for reconciliation.
+          // Once first-write durability is attempted, an uncertain sync or
+          // metadata acknowledgement must not delete its encrypted candidate.
           firstWritePrepared = true;
+          await firstWriteLifecycle.syncDirectory({ statePath: path, phase: 'candidate-before-prepare' });
           await firstWriteLifecycle.prepare({ statePath: path, temporaryPath: temp, sha256: createHash('sha256').update(raw).digest('hex'), bytes: Buffer.byteLength(raw) });
         }
         await rename(temp, path);
-        const directory = await open(dirname(path), 'r'); try { await directory.sync(); } finally { await directory.close(); }
+        if (firstWritePrepared) await firstWriteLifecycle.syncDirectory({ statePath: path, phase: 'state-after-replace' });
+        else { const directory = await open(dirname(path), 'r'); try { await directory.sync(); } finally { await directory.close(); } }
         if (firstWritePrepared) await firstWriteLifecycle.committed({ statePath: path });
         minimumGeneration = generation;
         stateEstablished = true;
