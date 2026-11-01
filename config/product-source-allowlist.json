@@ -226,6 +226,7 @@
       "server/wallet-bindings.d.mts",
       "server/wallet-bindings.mjs",
       "server/wallet-read-runtime.mjs",
+      "server/whole-receipt-host.mjs",
       "vendor/artfi-task-listing-runtime-1.0.0.tgz"
     ],
     "application": [
@@ -867,8 +868,8 @@
     {
       "path": "docs/MANAGED-BUSINESS-RUNTIME.md",
       "mode": "100644",
-      "git_blob_sha1": "19714217e19ff6bb8928b8b0e7e2f23e73fde701",
-      "sha256": "ef71591dd052b4b2628baf410ffc384dc6a5712ff312aa53c3c413798012bcf2"
+      "git_blob_sha1": "c3a861c9208fe1d88e56fceaf8df768b4b579327",
+      "sha256": "127a0c71833b3eb14eb7f3f18167dae0163ac5144a69f7b8fb388c5e9c61dc02"
     },
     {
       "path": "docs/NATIVE-WALLET-LOGIN.md",
@@ -1053,8 +1054,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "bd46308e5ddb0ebb879dbe5fc0750efcad2e4580",
-      "sha256": "716ab6d16c077fbfa2c537055e7c24f948f13a82beddf3ab2bcfbdbf3314cfb0"
+      "git_blob_sha1": "94cedf6206420e9d8af98b7792e354b46ebfa2f7",
+      "sha256": "2a6b28bce06f97b9c9110ace4921065f25e552a51e3ae3e682d8b6873e24cfde"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1371,8 +1372,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "1cdadc03f548196a120432be1e2f78c6b0203ce9",
-      "sha256": "ffd13988ded1ba350c12d62704f76cc17994b37d7dc2102d1675f9ba285d0b25"
+      "git_blob_sha1": "0cfa9995250b5034c698b9f73b0b98ee1e77d63f",
+      "sha256": "3a02774dce65d0ec80df46de3cb1b813fcc01597f135196d7609baeaf215a4e9"
     },
     {
       "path": "server/managed-business-runtime.mjs",
@@ -1847,6 +1848,12 @@
       "mode": "100644",
       "git_blob_sha1": "76727f31fe2efd7b636dd19844b7e2be7528dc6c",
       "sha256": "cf515b98f976655cd7b49fd9e6ec865eb3ae074ab313a13b067b6c755e764c0e"
+    },
+    {
+      "path": "server/whole-receipt-host.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "6db54bf2789e5a7f2d8310dd7cdb4c3c4c57332b",
+      "sha256": "ff6bc1b62061d4dce529bc56dc6502ee4d018aefbd069e227ecff901ce6d0305"
     },
     {
       "path": "src/adapters/kit/kitApi.ts",
