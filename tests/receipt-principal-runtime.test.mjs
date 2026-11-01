@@ -169,3 +169,9 @@ test('mismatched reconciliation evidence cannot erase an unknown settlement or r
   const unknown=await f.runtime.read(f.p);await assert.rejects(f.runtime.reconcile(f.p),/EFFECT_BINDING_REFUSED/);assert.deepEqual(await f.runtime.read(f.p),unknown);assert.equal(f.calls.settle,1);assert.equal(f.calls.release,0);assert.equal(f.financial.payee,500000000n);
  }finally{await close(f);}
 });
+test('source scope exit after a committed effect preserves its actual durable outcome for readback',async()=>{
+ const f=fixture();try{await reinstall(f,{evidence:{...f.evidence,async withMintTerms(p,fn){await fn(p.mintTerms,()=>p.mintTerms);throw Error('TEST_SCOPE_EXPIRED_AFTER_COMMIT');}}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/SCOPE_EXPIRED_AFTER_COMMIT/);assert.equal((await f.runtime.read(f.p)).status,'held');assert.equal(f.calls.freeze,1);assert.equal(f.financial.holds.get(f.p.reservationId).status,'held');
+  f.clock.revoked=true;assert.equal((await f.runtime.reconcile(f.p)).status,'held');assert.equal(f.calls.reconcile,0);assert.equal(f.calls.freeze,1);
+ }finally{await close(f);}
+});
