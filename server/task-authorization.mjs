@@ -1581,7 +1581,14 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         const principalCheck=assertPrincipal(found.context,values[found.ckey]);
         requireThat(!principalCheck||typeof principalCheck.then!=='function','TASK_BACKGROUND_CONFIG_REFUSED',500);
         const original=requireSameReceiptPrincipalPurpose(p,grant);
-        if(action!==null){requireActive(grant,values[found.ckey]);requireThat(grant.grantPolicyVersion===p.task.grantPolicyVersion,'TASK_RECEIPT_PRINCIPAL_REAUTHORIZATION_REQUIRED',403);}
+        if(action!==null){
+          requireActive(grant,values[found.ckey]);
+          requireThat(grant.grantPolicyVersion===p.task.grantPolicyVersion,'TASK_RECEIPT_PRINCIPAL_REAUTHORIZATION_REQUIRED',403);
+          // Preserve the same effective owner lock as receipt dispatch. An
+          // ordinary child proof cannot authorize a distinct principal effect.
+          const verification=taskOperationVerificationRequirement(values[found.ckey],grant,operationTestExempt(grant));
+          requireThat(!verification.required,'TASK_RECEIPT_PRINCIPAL_OPERATION_VERIFICATION_NOT_CONNECTED',503);
+        }
         const expiresAtMs=Number(BigInt(grant.task.policy.expiresAt)*1000n);
         requireThat(Number.isSafeInteger(expiresAtMs),'TASK_RECEIPT_EXPIRY_REFUSED');
         return immutable({purpose:original,principal:{origin,tenant,...found.context},expiresAtMs});

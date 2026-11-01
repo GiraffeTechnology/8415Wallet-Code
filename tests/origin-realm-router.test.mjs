@@ -22,7 +22,7 @@ function fixture() {
     predicates.set(realmOrigin,assertPrincipal);
     const authorization = { assertIndependentStore: candidate => assert.notEqual(candidate,store),
       async inspect(claimed) { calls.push(['inspect',realmOrigin,claimed]); return realmOrigin; } };
-    return { realmOrigin, taskService: { cancel() {}, receiptAuthorization: authorization, listingAuthorization: authorization,
+    return { realmOrigin, taskService: { cancel() {}, receiptPrincipalAuthorization: authorization, receiptAuthorization: authorization, listingAuthorization: authorization,
       background: { async resume(entry) { calls.push(['resume',realmOrigin,entry]); return { continuation: { state: 'outcome-unknown' } }; } } } };
   } });
   return { router, store, m, original, calls, predicates };
