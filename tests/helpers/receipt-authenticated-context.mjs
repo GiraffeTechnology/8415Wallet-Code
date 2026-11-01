@@ -28,7 +28,7 @@ async function authenticatedCall(callAuth, path, body) {
  */
 export async function prepareAuthenticatedReceiptContexts({
   runtime, callAuth, business, installationBinding, phaseInputs, expiresAt,
-  fees, approvalInput,
+  fees, approvalInput, softwareReceiptBoundary,
 }) {
   if (!runtime || ['createWholeReceiptApprovalCommitments', 'assertWholeReceiptApprovalPlan',
     'kernelRequestDigest'].some(name => typeof runtime[name] !== 'function')) {
@@ -43,7 +43,7 @@ export async function prepareAuthenticatedReceiptContexts({
     const rawBusiness = clone(originalBusiness);
     rawBusiness.wholeReceipt.phase = input.phase;
     // Always use the original algorithm via its verified public export.
-    const commitment = runtime.createWholeReceiptApprovalCommitments(rawBusiness, binding);
+    const commitment = runtime.createWholeReceiptApprovalCommitments(rawBusiness, binding, softwareReceiptBoundary);
     if (commitment.authorization !== 'NOT_ESTABLISHED') fail('RECEIPT_CLIENT_CONTENT_AUTHORITY_REFUSED');
     const wire = clone(input.wire);
     if (wire.account !== binding.actor || wire.chainId !== String(commitment.business.chainId) ||
@@ -102,7 +102,7 @@ export async function prepareAuthenticatedReceiptContexts({
     const checked = runtime.assertWholeReceiptApprovalPlan(rawPlan, binding, {
       receiptPlanDigest: commitment.receiptPlanDigest,
       receiptJournalBindingHash: commitment.receiptJournalBindingHash,
-    });
+    }, softwareReceiptBoundary);
     if (checked.authorization !== 'NOT_ESTABLISHED') fail('RECEIPT_CLIENT_PLAN_AUTHORITY_REFUSED');
     return Object.freeze({ task: grant.task, claimed: Object.freeze(claimed),
       principal: Object.freeze(principal), rawPlan: checked.nativePlan, rawWire: Object.freeze(wire) });
