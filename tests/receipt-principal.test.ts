@@ -106,8 +106,9 @@ test('wall-clock expiry, an already registered receipt or a settled prefix does 
 });
 test('canonical currency, amount and original purpose bindings are included independently of gas budgets', () => {
   const p = purpose(), digest = receiptPrincipalPurposeDigest(p);
-  for (const update of [{amountBaseUnits:'500000001'},{chainId:'560048'},{account:a('8')},{payee:a('8')},{reservationId:'other-reservation'}])
+  for (const update of [{amountBaseUnits:'500000001'},{account:a('8')},{payee:a('8')},{reservationId:'other-reservation'}])
     assert.notEqual(receiptPrincipalPurposeDigest({...p,...update}),digest);
+  assert.throws(()=>receiptPrincipalPurposeDigest({...p,chainId:'560048'}));
   for (const amount of ['0','01','1.0','-1',500000000,(1n<<256n).toString()])
     assert.throws(()=>normalizeReceiptPrincipalPurpose({...p,amountBaseUnits:amount}));
   assert.throws(()=>normalizeReceiptPrincipalPurpose({...p,fees:{totalWei:'1'}}));
