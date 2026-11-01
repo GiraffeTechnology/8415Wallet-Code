@@ -167,14 +167,17 @@ export class MemoryCredentialStore {
     return this.#closePromise ??= this.#queue.then(() => {});
   }
 }
-export async function openEncryptedStore(path, key) {
+export async function openEncryptedStore(path, key, { firstWriteLifecycle = null } = {}) {
   if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('AUTH_STORE_KEY_REQUIRED');
+  if (firstWriteLifecycle !== null && !['recover','opened','prepare','committed'].every(name => typeof firstWriteLifecycle[name] === 'function'))
+    throw Error('AUTH_STORE_FIRST_WRITE_LIFECYCLE_REFUSED');
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   // Never infer that an existing lock is stale. Operators must establish that the
   // prior process stopped before removing it; concurrent replicas are unsupported.
   const lock = await open(`${path}.lock`, 'wx', 0o600);
   let initial = {}, minimumGeneration = 1, stateEstablished = false;
   try {
+    await firstWriteLifecycle?.recover({ statePath: path });
     try {
       const raw = await readFile(path, 'utf8');
       if (Buffer.byteLength(raw) > MAX_STORE_BYTES) throw new Error('AUTH_STORE_TOO_LARGE');
@@ -186,6 +189,7 @@ export async function openEncryptedStore(path, key) {
       minimumGeneration = envelope.version;
       stateEstablished = true;
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await firstWriteLifecycle?.opened({ statePath: path, stateEstablished });
   } catch (error) { await lock.close(); await unlink(`${path}.lock`); throw error; }
   class EncryptedStore extends MemoryCredentialStore {
     #releasePromise;
@@ -200,13 +204,23 @@ export async function openEncryptedStore(path, key) {
       const ciphertext = Buffer.concat([encrypt.update(JSON.stringify(encodeStorePayload(data, generation))), encrypt.final()]);
       const temp = `${path}.${randomBytes(12).toString('hex')}.tmp`;
       const file = await open(temp, 'wx', 0o600);
+      let firstWritePrepared = false;
       try {
-        await file.writeFile(JSON.stringify({ version: generation, iv: iv.toString('base64'), tag: encrypt.getAuthTag().toString('base64'), data: ciphertext.toString('base64') }));
-        await file.sync(); await file.close(); await rename(temp, path);
+        const raw = JSON.stringify({ version: generation, iv: iv.toString('base64'), tag: encrypt.getAuthTag().toString('base64'), data: ciphertext.toString('base64') });
+        await file.writeFile(raw);
+        await file.sync(); await file.close();
+        if (!stateEstablished && firstWriteLifecycle !== null) {
+          // Once preparation is attempted, an uncertain metadata write must not
+          // delete the durable encrypted candidate needed for reconciliation.
+          firstWritePrepared = true;
+          await firstWriteLifecycle.prepare({ statePath: path, temporaryPath: temp, sha256: createHash('sha256').update(raw).digest('hex'), bytes: Buffer.byteLength(raw) });
+        }
+        await rename(temp, path);
         const directory = await open(dirname(path), 'r'); try { await directory.sync(); } finally { await directory.close(); }
+        if (firstWritePrepared) await firstWriteLifecycle.committed({ statePath: path });
         minimumGeneration = generation;
         stateEstablished = true;
-      } catch (error) { await file.close().catch(() => {}); await unlink(temp).catch(() => {}); throw error; }
+      } catch (error) { await file.close().catch(() => {}); if (!firstWritePrepared) await unlink(temp).catch(() => {}); throw error; }
     }
     close() {
       const drained = super.close();

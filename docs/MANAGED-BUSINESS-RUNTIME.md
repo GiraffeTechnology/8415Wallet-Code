@@ -12,13 +12,14 @@ checks. Preparing a pending authorization is distinct from approving that
 authorization and executing a child operation. Missing signer or chain adapters
 do not become a universal prerequisite for constructing the authentication API.
 
-Activation requires the already initialized original encrypted store, its exact
-configured state reference, writable transactional store methods, and a
-configuration origin identical to the canonical HTTPS transport origin. The
-entry refuses uninitialized-store witnesses and origin migration requirements;
-it does not create an empty replacement store or translate existing grants.
-First persistence and durable origin continuation remain separate operator work
-under their actual authority. The original systemd credential route is retained;
+Activation requires the exact original state reference and writable transactional
+store methods. An initialized instance retains the existing canonical-origin
+admission. A genuinely uninitialized original instance can instead use the
+managed first-write lifecycle bound to its retained witness, source receipt,
+configuration digest, tenant and canonical transport. It constructs no persistent
+empty seed. Normal authentication and pending-task preparation still enforce
+their existing identity and scope checks; the first genuine transaction writes
+the encrypted state with the original key. The original systemd credential route is retained;
 no new key argument, key export or ambient credential fallback is introduced.
 
 Business startup identifies the installed source and configured exact/listing
@@ -30,3 +31,25 @@ reconciliation semantics remain enforced by the standard services.
 Requirements: complete PRD sections 6.2, 6.5, 6.5.1 and 10.3. The regression suite
 uses an explicitly synthetic temporary encrypted store; its successful API
 checks are not acceptance of an operational user's store or execution authority.
+
+The first-write journal is derived beside the protected source receipt, outside
+an immutable packaged runtime. It retains that receipt and witness unchanged.
+Opening under the original writer lock saves admission provenance only, without
+creating a credential file. This supports a clean restart before any genuine
+transaction, without falsely reusing the old directory timestamp as a fresh
+observation. An unjournaled encrypted candidate is preserved and refused.
+After the encrypted candidate is durably written, its exact ciphertext digest,
+size and temporary name are saved as prepared. State replacement and directory
+sync precede committed metadata. Once preparation is attempted, a failed or
+uncertain acknowledgement preserves the encrypted candidate. Restart recovery
+holds the original writer lock, resumes only that candidate, decrypts/decodes it,
+then commits its establishment record. A committed record never permits a
+missing store to be replaced with an empty one. Subsequent ordinary encrypted
+writes retain normal storage and UNKNOWN semantics.
+
+The narrow original-first-write path can use the canonical transport origin
+without editing the original configuration: its witness establishes that no
+prior durable authority existed, and its journal binds both configured and
+effective origins. Existing initialized origin-scoped grants still require the
+separate durable continuation mechanism; they cannot select this path. A plain
+JSON object is not a first-write admission capability.

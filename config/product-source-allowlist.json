@@ -148,6 +148,7 @@
       "server/mail-otp.mjs",
       "server/main.mjs",
       "server/managed-business-runtime.mjs",
+      "server/managed-first-write.mjs",
       "server/method-change-service.mjs",
       "server/native-login-stdio.mjs",
       "server/native-wallet-login.mjs",
@@ -866,8 +867,8 @@
     {
       "path": "docs/MANAGED-BUSINESS-RUNTIME.md",
       "mode": "100644",
-      "git_blob_sha1": "d1d69889a6ec1a82a04d2f003d7153444ac1828e",
-      "sha256": "c0af5864faf5f0463f902ac3d42d5bf4b9e7a43d6d72b96d61513b6ae06e35e0"
+      "git_blob_sha1": "4ec88e0c8f4664ebcb1767530078e74cee398a1c",
+      "sha256": "c7ce3e7b64c34fae25af5403173d18e7c83892a8af86c64ec42d4cdaf41753c8"
     },
     {
       "path": "docs/NATIVE-WALLET-LOGIN.md",
@@ -1052,8 +1053,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "40e4e6d172fb90968ef842a5928d24a971e4d69c",
-      "sha256": "06a6ab8217670f834b5315441492b563d4669e7b0af23dc58add3d2916238a99"
+      "git_blob_sha1": "bd46308e5ddb0ebb879dbe5fc0750efcad2e4580",
+      "sha256": "716ab6d16c077fbfa2c537055e7c24f948f13a82beddf3ab2bcfbdbf3314cfb0"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1244,8 +1245,8 @@
     {
       "path": "server/auth-integration-entry.mjs",
       "mode": "100644",
-      "git_blob_sha1": "941a6699d2f72bd8988844cbbb178c1fd90f4fa6",
-      "sha256": "7874da4940700eed76c3c5d4a99a8265397b141e63d794408477ce559845a28f"
+      "git_blob_sha1": "a2f075dbfc0eaff3e666577f6c7c78eb6ef5636e",
+      "sha256": "199539e780e8f0c5aec8cfe77bd81256cb5d81a5586aabcaa83ce8c46eab939c"
     },
     {
       "path": "server/auth-integration-provenance.mjs",
@@ -1376,8 +1377,14 @@
     {
       "path": "server/managed-business-runtime.mjs",
       "mode": "100644",
-      "git_blob_sha1": "be3666141c5d8ed8d0935ad72be5a7add78f92c2",
-      "sha256": "4099607dedb5248940b621b6c523f12bf61b15fead58665b43d2cb0ea9c5574b"
+      "git_blob_sha1": "67854a43cefcd78cb4bd70c4b7a199f9b86f8155",
+      "sha256": "5f75fc3ffbfdc68e90b71ac92d929c11d7661421ce82c99092e8039b14346314"
+    },
+    {
+      "path": "server/managed-first-write.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "182c2cdda29f5a51e676c5c8850adc3616c41517",
+      "sha256": "9807f834050c5e19b76a5bbe8522e663f9989c8a26ab20b8fde6e252407f70af"
     },
     {
       "path": "server/method-change-service.mjs",
@@ -1514,8 +1521,8 @@
     {
       "path": "server/store.mjs",
       "mode": "100644",
-      "git_blob_sha1": "bbc1eafa7c00ca09cdd2dd22eed3967e7ddcfa87",
-      "sha256": "fca26b1a3974309ee0766fb7fb366455500d4a2c4d9263db3382d145223fa48a"
+      "git_blob_sha1": "296c548eb00f1b8a7f092311b9aa2dcbf3c0ed30",
+      "sha256": "263a4924b38d226bf31232e4f36eee23a5e7cac5d4b698a604893fe99591c004"
     },
     {
       "path": "server/task-asset-control-catalog.mjs",
