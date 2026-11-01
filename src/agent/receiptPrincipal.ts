@@ -105,7 +105,10 @@ export function normalizeReceiptPrincipalState(input: unknown): ReceiptPrincipal
   const holdReference = s.holdReference === null ? null : id(s.holdReference);
   const pending = s.status.endsWith('-pending') || s.status === 'unknown';
   requireThat(pending ? actions.includes(s.activeEffect) && attemptedActions.includes(s.activeEffect) : s.activeEffect === null);
-  requireThat(['held','settle-pending','settled','release-pending','released'].includes(s.status) ? holdReference !== null : true);
+  const pathAction = pending ? s.activeEffect : s.status === 'settled' ? 'settle' : s.status === 'released' ? 'release' : null;
+  const expectedActions = s.status === 'unreserved' ? [] : pathAction === null || pathAction === 'freeze' ? ['freeze'] : ['freeze',pathAction];
+  requireThat(attemptedActions.length === expectedActions.length && attemptedActions.every((a,n) => a === expectedActions[n]));
+  requireThat(s.status === 'unreserved' || pathAction === 'freeze' ? holdReference === null : holdReference !== null);
   requireThat(s.status !== 'unreserved' || attemptedActions.length === 0 && history.length === 0 && holdReference === null);
   return freeze({ schema: '8415-receipt-principal-state/1' as const, purpose, purposeDigest, revision: s.revision as string,
     status: s.status as ReceiptPrincipalStatus, holdReference, activeEffect: s.activeEffect as ReceiptPrincipalAction | null, attemptedActions, history });

@@ -1973,8 +1973,8 @@
     {
       "path": "src/agent/receiptPrincipal.ts",
       "mode": "100644",
-      "git_blob_sha1": "c91f6480711b995cf61900f70f0997bff553ac17",
-      "sha256": "c1a63bfdfd9cac706b0a5a7a480387d6823eaa3e9eea8097a8a226853b5fbf54"
+      "git_blob_sha1": "81228278fdb16406dc40bc595cb102cb2a3acf2d",
+      "sha256": "e1f6c1b3490e81b7a2026669c2d42849cb51981887c6490c756632c0befdc5ea"
     },
     {
       "path": "src/agent/receiptTask.ts",

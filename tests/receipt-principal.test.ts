@@ -118,6 +118,8 @@ test('accessors, extra authority fields and malformed persisted state never supp
   assert.throws(()=>normalizeReceiptPrincipalPurpose(bad)); assert.equal(invoked,0);
   assert.throws(()=>normalizeReceiptPrincipalPurpose({...p,approved:true}));
   const s=held(); assert.throws(()=>normalizeReceiptPrincipalState({...s,holdReference:null}));
+  assert.throws(()=>normalizeReceiptPrincipalState({...s,attemptedActions:[]}));
+  assert.throws(()=>normalizeReceiptPrincipalState({...s,attemptedActions:['freeze','settle']}));
   assert.throws(()=>normalizeReceiptPrincipalState({...s,revision:'99'}));
   assert.throws(()=>normalizeReceiptPrincipalState({...s,history:[...s.history,s.history[0]]}));
 });
