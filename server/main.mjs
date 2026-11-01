@@ -1,3 +1,4 @@
+export {createReceiptPrincipalRuntime} from './receipt-principal-runtime.mjs';
 export {createRpcNftInventoryReader} from './nft-inventory-reader.mjs';
 /** Explicitly configured auth service; listing is an additive server-only runtime. */
 import { createServer } from 'node:http';
