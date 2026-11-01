@@ -79,7 +79,7 @@ export function createOriginRealmRouter({ store, tenant, transportOrigin, create
     const sample = canonicalRealm.taskService[name];
     return Object.freeze(Object.fromEntries(Object.keys(sample).map(method => [method,
       method === 'assertIndependentStore' ? candidate => sample[method](candidate) :
-      async (...args) => (await forClaim(args[0])).taskService[name][method](...args)])));
+      async (...args) => (await forClaim(name==='receiptPrincipalAuthorization'?args[0]?.task:args[0])).taskService[name][method](...args)])));
   }
   return Object.freeze({ ready, canonicalRealm,
     async forSession(session) { await stable(); return realm(selected(session)); },
@@ -95,5 +95,5 @@ export function createOriginRealmRouter({ store, tenant, transportOrigin, create
         return { entries, nextCursor: offset + entries.length < all.length ? String(offset + entries.length) : null };
       },
       async resume(entry) { return (await forStoredGrant(entry)).taskService.background.resume(entry); }
-    }), receiptAuthorization: port('receiptAuthorization'), listingAuthorization: port('listingAuthorization') });
+    }), receiptPrincipalAuthorization: port('receiptPrincipalAuthorization'), receiptAuthorization: port('receiptAuthorization'), listingAuthorization: port('listingAuthorization') });
 }

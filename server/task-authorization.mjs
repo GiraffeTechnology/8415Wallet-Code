@@ -23,6 +23,8 @@ import { TaskObservationError, freezeTaskObservationPolicy, normalizeObservation
 
 import { ReceiptTaskError, freezeReceiptTask as freezeReceiptTaskContent, receiptPhaseScope as receiptPhaseContentScope, normalizeReceiptAttempts as normalizeReceiptContentAttempts, assertReceiptTaskContentContext } from '../src/agent/receiptTask.ts';
 import { validateReceiptWire } from './receipt-operation-encoding.mjs';
+import {ReceiptPrincipalGrantError,prepareReceiptPrincipalPurpose,assertReceiptPrincipalTaskBinding,requireSameReceiptPrincipalPurpose} from './receipt-principal-grant.mjs';
+import {ReceiptPrincipalError,normalizeReceiptPrincipalPurpose,receiptPrincipalPurposeDigest} from '../src/agent/receiptPrincipal.ts';
 import { testMintInventoryKey } from './task-test-asset-authorization.mjs';
 function freezeAuthorizedTask(policy, contentContext = null) {
   const descriptor = policy && typeof policy === 'object' ? Object.getOwnPropertyDescriptor(policy, 'intent') : null;
@@ -429,6 +431,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       typeof raw.reference === 'string' && Number.isSafeInteger(raw.issuedAt) && raw.issuedAt >= 0,
     'TASK_GRANT_STATE_REFUSED', 503);
     version(raw.grantPolicyVersion);
+    if(raw.receiptPrincipalPurpose!==undefined)assertReceiptPrincipalTaskBinding(raw.receiptPrincipalPurpose,raw);
     if (raw.status !== 'pending') { version(raw.credentialRevisionAtApproval); normalizeTaskBudget(raw.budget); }
     publicApprovalEvidence(raw);
     return raw;
@@ -479,7 +482,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     if (grant.task.policy.intent.kind === 'nft-sale') gaps.push(grant.schema !== '8415-task-grant/2' ? 'TASK_VALUATION_POLICY_AUTHORIZATION_REQUIRED' :
       grant.valuationPolicy.policy.priceAt === 'settlement' ? 'TASK_FUTURE_USD_PRICE_NOT_GUARANTEED' :
       listingExecution === null ? 'TASK_LISTING_ADAPTER_NOT_CONNECTED' : 'TASK_LISTING_VERIFICATION_REQUIRED');
-    return { ...(grant.schema === '8415-task-grant/2' ? { valuationPolicy: grant.valuationPolicy, listing: {
+    return { ...(grant.receiptPrincipalPurpose===undefined?{}:{receiptPrincipalPurpose:grant.receiptPrincipalPurpose,receiptPrincipalPurposeDigest:receiptPrincipalPurposeDigest(grant.receiptPrincipalPurpose)}), ...(grant.schema === '8415-task-grant/2' ? { valuationPolicy: grant.valuationPolicy, listing: {
       revocationCancelsPublishedOrder: false, settlementObservationConfigured: Boolean(listingResults), ...(listingResults ? { result: null } : {}) } } : {}), task: grant.task, executor: grant.executor, observationPolicy: grant.observationPolicy, receiptVerifier: grant.receiptVerifier,
       observations: publicObservations, observationRevision: grant.observationRevision,
       ...(v2Observation ? { observationView: { schema: '8415-task-observation-view/2',
@@ -563,7 +566,10 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       revision: index.revision, nextCursor: cursor + selected.length < index.taskDigests.length ? String(cursor + selected.length) : null };
   }
   async function prepare(body, session) {
-    const withValuation = body !== null && typeof body === 'object' && Object.hasOwn(body, 'valuationPolicy'); fields(body, withValuation ? ['policy', 'valuationPolicy'] : ['policy']);
+    const withValuation = body !== null && typeof body === 'object' && Object.hasOwn(body, 'valuationPolicy');
+    const withPrincipal=body!==null&&typeof body==='object'&&Object.hasOwn(body,'receiptPrincipal');
+    fields(body,['policy',...(withValuation?['valuationPolicy']:[]),...(withPrincipal?['receiptPrincipal']:[])]);
+    requireThat(!withValuation||!withPrincipal,'TASK_RECEIPT_PRINCIPAL_BINDING_REFUSED',400);
     const task = freezeAuthorizedTask(body.policy,receiptTaskContentContext); checkTask(task, session);
     requireThat(!['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation?.kind) || testFactorAllowed(task),
       'TASK_TEST_MINT_INVENTORY_REQUIRED', 403);
@@ -573,6 +579,9 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const { executor, approvedObservationPolicy, receiptVerifier } = approvalContext(task);
     requireThat(task.policy.intent.kind !== 'artfi-receipt' || receiptHandlerId !== null, 'TASK_RECEIPT_GATE_NOT_CONFIGURED', 503);
     const valuationPolicy = withValuation ? freezeNftValuationPolicy(body.valuationPolicy) : null;
+    // Detach the complete proposal before the first asynchronous credential read.
+    const principalProposal=withPrincipal?prepareReceiptPrincipalPurpose(body.receiptPrincipal,{task,executor,reference:'grant:proposal'}):null;
+    const principalTemplate=principalProposal===null?null:{...principalProposal,task:{operationId:principalProposal.task.operationId}};
     requireThat(valuationPolicy === null || task.policy.intent.kind === 'nft-sale' && valuationPolicy.policy.base.chainId === task.policy.chainId, 'TASK_VALUATION_POLICY_BINDING_REFUSED', 400);
     await credentialFor(session); assertSession(session); sweep();
     const time = stamp(); requireThat(BigInt(task.policy.expiresAt) > seconds(), 'TASK_EXPIRED', 400);
@@ -584,15 +593,18 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       if (values[gkey] !== null) {
         const prior = readGrant(values[gkey], session, task.digest); requireThat(prior.status === 'pending', 'TASK_ALREADY_EXISTS');
         requireThat((prior.valuationPolicy?.digest ?? null) === (valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_REAUTHORIZATION_REQUIRED');
+        const proposedPrincipal=principalTemplate===null?null:prepareReceiptPrincipalPurpose(principalTemplate,prior);
+        requireThat((prior.receiptPrincipalPurpose===undefined?null:receiptPrincipalPurposeDigest(prior.receiptPrincipalPurpose))===(proposedPrincipal===null?null:receiptPrincipalPurposeDigest(proposedPrincipal)),'TASK_RECEIPT_PRINCIPAL_REAUTHORIZATION_REQUIRED');
         requireThat(prior.executor.digest === executor.digest && prior.observationPolicy?.digest === approvedObservationPolicy?.digest &&
           sameVerifier(prior.receiptVerifier, receiptVerifier), 'TASK_EXECUTOR_REVALIDATION_REQUIRED');
         return values;
       }
+      const reference=`grant:${randomToken()}`,receiptPrincipalPurpose=principalTemplate===null?null:prepareReceiptPrincipalPurpose(principalTemplate,{task,executor,reference});
       const index = values[lkey] ?? { revision: '0', taskDigests: [] };
       version(index.revision); requireThat(BigInt(index.revision) < (1n << 256n) - 1n, 'TASK_REVISION_EXHAUSTED');
       return { [ckey]: values[ckey], [gkey]: { schema: valuationPolicy === null ? '8415-task-grant/1' : '8415-task-grant/2', ...(valuationPolicy === null ? {} : { valuationPolicy }), principal: JSON.stringify(principal(session)), task, executor, observationPolicy: approvedObservationPolicy, receiptVerifier,
         observations: [], observationRevision: '0',
-        reference: `grant:${randomToken()}`, status: 'pending', grantPolicyVersion: '0', credentialRevisionAtApproval: null,
+        ...(receiptPrincipalPurpose===null?{}:{receiptPrincipalPurpose}),reference, status: 'pending', grantPolicyVersion: '0', credentialRevisionAtApproval: null,
         issuedAt: time, revokedAt: null, budget: null }, [ikey]: { taskDigest: task.digest },
       [lkey]: { revision: (BigInt(index.revision) + 1n).toString(), taskDigests: [...index.taskDigests, task.digest] } };
     });
@@ -603,13 +615,15 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const approvalPolicy = taskApprovalPolicy(preparedState[ckey], preparedState[gkey]);
     const approvalEvaluation = approvalPolicy.factor === 'preoperational-default-on' ?
       { state: 'NOT_EVALUATED', reason: 'pre-operational-default-on', policyRevision: '0' } : null;
-    challenges.set(challengeId, { task, executor, valuationPolicy, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), testFactorExempt: approvalPolicy.factor === 'server-test-scope', approvalPolicy, issuedAt: time, expiresAt, attempts: 0 });
-    return { challengeId, task, executor, ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, approvalFactor: approvalPolicy.factor,
+    const receiptPrincipalPurpose=preparedState[gkey].receiptPrincipalPurpose??null;
+    challenges.set(challengeId, { task, executor, valuationPolicy, receiptPrincipalPurpose, observationPolicy: approvedObservationPolicy, receiptVerifier, sessionId: session.id, binding: binding(session), testFactorExempt: approvalPolicy.factor === 'server-test-scope', approvalPolicy, issuedAt: time, expiresAt, attempts: 0 });
+    return { challengeId, task, executor, ...(receiptPrincipalPurpose===null?{}:{receiptPrincipalPurpose,receiptPrincipalPurposeDigest:receiptPrincipalPurposeDigest(receiptPrincipalPurpose)}), ...(valuationPolicy === null ? {} : { valuationPolicy }), observationPolicy: approvedObservationPolicy, receiptVerifier, expiresAt, approvalFactor: approvalPolicy.factor,
       ...(approvalEvaluation === null ? {} : { approvalEvaluation }), purpose: 'authorize-task' };
   }
   async function authorize(body, session) {
     const withValuation = body !== null && typeof body === 'object' && (Object.hasOwn(body, 'valuationPolicyDigest') || Object.hasOwn(body, 'priceAt'));
-    fields(body, ['challengeId', 'taskDigest', 'executorDigest', 'observationPolicyDigest', 'code', ...(withValuation ? ['valuationPolicyDigest', 'priceAt'] : [])]); hash(body.taskDigest); hash(body.executorDigest); if (body.observationPolicyDigest !== null) hash(body.observationPolicyDigest); sweep();
+    const withPrincipal=body!==null&&typeof body==='object'&&Object.hasOwn(body,'receiptPrincipalPurposeDigest');
+    fields(body, ['challengeId', 'taskDigest', 'executorDigest', 'observationPolicyDigest', 'code', ...(withPrincipal?['receiptPrincipalPurposeDigest']:[]), ...(withValuation ? ['valuationPolicyDigest', 'priceAt'] : [])]); hash(body.taskDigest); hash(body.executorDigest); if (body.observationPolicyDigest !== null) hash(body.observationPolicyDigest); sweep();
     const challenge = challenges.get(body.challengeId);
     const current = () => {
       assertSession(session); sweep();
@@ -620,6 +634,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
         equal(challenge.task.digest, body.taskDigest) && equal(challenge.executor.digest, body.executorDigest) && equal(executor.digest, body.executorDigest) &&
         (challenge.valuationPolicy === null ? !withValuation : withValuation && challenge.valuationPolicy.digest === body.valuationPolicyDigest &&
           challenge.valuationPolicy.policy.priceAt === body.priceAt) &&
+        (challenge.receiptPrincipalPurpose===null?!withPrincipal:withPrincipal&&receiptPrincipalPurposeDigest(challenge.receiptPrincipalPurpose)===body.receiptPrincipalPurposeDigest) &&
         (challenge.observationPolicy?.digest ?? null) === body.observationPolicyDigest &&
         (approvedObservationPolicy?.digest ?? null) === body.observationPolicyDigest, 'TASK_APPROVAL_CHALLENGE_REFUSED', 403);
     };
@@ -630,6 +645,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       const proposal = readGrant(values[gkey], session, body.taskDigest);
       requireThat(proposal.status === 'pending' && proposal.executor.digest === body.executorDigest && values[ikey]?.taskDigest === body.taskDigest, 'TASK_ALREADY_EXISTS');
       requireThat((proposal.valuationPolicy?.digest ?? null) === (challenge.valuationPolicy?.digest ?? null), 'TASK_VALUATION_POLICY_REAUTHORIZATION_REQUIRED');
+      requireThat((proposal.receiptPrincipalPurpose===undefined?null:receiptPrincipalPurposeDigest(proposal.receiptPrincipalPurpose))===(challenge.receiptPrincipalPurpose===null?null:receiptPrincipalPurposeDigest(challenge.receiptPrincipalPurpose)),'TASK_RECEIPT_PRINCIPAL_REAUTHORIZATION_REQUIRED');
       // Compare the live saved policy in the same atomic commit as the bounded
       // task grant. A saved ON/OFF arriving after prepare cannot use revision 0.
       const approvalPolicy = taskApprovalPolicy(values[ckey], proposal);
@@ -640,6 +656,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       // No new credential or owner-setting write for the native unlocked state.
       const credential = approvalPolicy.factor === 'totp' ? consumeTotp(session, values[ckey], body.code) : values[ckey];
       const grant = { schema: challenge.valuationPolicy === null ? '8415-task-grant/1' : '8415-task-grant/2',
+        ...(challenge.receiptPrincipalPurpose===null?{}:{receiptPrincipalPurpose:challenge.receiptPrincipalPurpose}),
         ...(challenge.valuationPolicy === null ? {} : { valuationPolicy: challenge.valuationPolicy }), principal: JSON.stringify(principal(session)),
         task: challenge.task, executor: challenge.executor, observationPolicy: challenge.observationPolicy, receiptVerifier: challenge.receiptVerifier,
         observations: [], observationRevision: '0', reference: proposal.reference, status: 'authorized', grantPolicyVersion: '1',
@@ -1367,7 +1384,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       }
       throw new TaskAuthorizationError('TASK_ROUTE_REFUSED', 404);
     } catch (error) {
-      if (error instanceof TaskContractError || error instanceof ReceiptTaskError || error instanceof TaskObservationError) throw new TaskAuthorizationError(error.code, 400);
+      if (error instanceof TaskContractError || error instanceof ReceiptTaskError || error instanceof TaskObservationError || error instanceof ReceiptPrincipalError || error instanceof ReceiptPrincipalGrantError) throw new TaskAuthorizationError(error.code, 400);
       throw error;
     }
   }
@@ -1554,6 +1571,40 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     requireThat(Number.isSafeInteger(snapshot.expiresAtMs),'TASK_RECEIPT_EXPIRY_REFUSED');
     return snapshot;
   }
+  // A separately requested and challenge-bound principal purpose. Old receipt
+  // grants omit this field and cannot acquire funds authority from public JSON.
+  async function principalGate(raw,action,callback){
+    const p=normalizeReceiptPrincipalPurpose(raw);
+    requireThat(typeof callback==='function'&&(action===null||['freeze','settle','release'].includes(action)),'TASK_RECEIPT_PRINCIPAL_ACTION_REFUSED',400);
+    const found=await locateReceipt({...p.task,phase:'funded',planDigest:p.receipt.planDigest,journalBindingHash:p.receipt.journalBindingHash});
+    const keys=[queueKey,found.ckey,found.gkey];
+    return store.withReadGate(keys,async values=>{
+      const current=()=>{
+        requireThat(values[queueKey]?.entries?.includes(found.gkey),'TASK_GRANT_NOT_FOUND',404);
+        const grant=readGrant(values[found.gkey],found.context,p.task.taskDigest);
+        const principalCheck=assertPrincipal(found.context,values[found.ckey]);
+        requireThat(!principalCheck||typeof principalCheck.then!=='function','TASK_BACKGROUND_CONFIG_REFUSED',500);
+        const original=requireSameReceiptPrincipalPurpose(p,grant);
+        if(action!==null){
+          requireActive(grant,values[found.ckey]);
+          requireThat(grant.grantPolicyVersion===p.task.grantPolicyVersion,'TASK_RECEIPT_PRINCIPAL_REAUTHORIZATION_REQUIRED',403);
+          // Preserve the same effective owner lock as receipt dispatch. An
+          // ordinary child proof cannot authorize a distinct principal effect.
+          const verification=taskOperationVerificationRequirement(values[found.ckey],grant,operationTestExempt(grant));
+          requireThat(!verification.required,'TASK_RECEIPT_PRINCIPAL_OPERATION_VERIFICATION_NOT_CONNECTED',503);
+        }
+        const expiresAtMs=Number(BigInt(grant.task.policy.expiresAt)*1000n);
+        requireThat(Number.isSafeInteger(expiresAtMs),'TASK_RECEIPT_EXPIRY_REFUSED');
+        return immutable({purpose:original,principal:{origin,tenant,...found.context},expiresAtMs});
+      };
+      return callback(current(),current);
+    });
+  }
+  const receiptPrincipalAuthorization=Object.freeze({
+    assertIndependentStore(candidate){requireThat(candidate!==store,'TASK_RECEIPT_STORE_REENTRY_REFUSED',500);},
+    withPurposeAuthorization:(p,action,callback)=>principalGate(p,action,callback),
+    withPurposeObservation:(p,callback)=>principalGate(p,null,callback),
+  });
   const receiptAuthorization=Object.freeze({
     assertIndependentStore(candidate){requireThat(candidate!==store,'TASK_RECEIPT_STORE_REENTRY_REFUSED',500);},
 
@@ -1672,5 +1723,5 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       return resume({ taskDigest: raw.task.digest }, context);
     },
   });
-  return { handler, cancel, background, listingAuthorization, receiptAuthorization, observationDetails };
+  return { handler, cancel, background, listingAuthorization, receiptAuthorization, receiptPrincipalAuthorization, observationDetails };
 }
