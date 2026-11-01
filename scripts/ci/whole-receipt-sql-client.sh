@@ -15,7 +15,7 @@ on_exit() {
 }
 trap on_exit EXIT
 exec > >(tee "$EVIDENCE/run.raw.log") 2>&1
-for tool in node go docker curl tar python3 openssl; do
+for tool in node go docker git python3 openssl; do
   command -v "$tool" >/dev/null || { echo "RECEIPT_SQL_EXISTING_TOOL_MISSING:$tool" >&2; exit 1; }
 done
 export GOTOOLCHAIN=local CGO_ENABLED=0
@@ -23,20 +23,14 @@ node --version
 go version
 docker compose version
 SOURCE_COMMIT=4e7fb01add1c527e0fd88ffb6240bbfb3b05ef72
-curl --fail --location --connect-timeout 20 --max-time 120 \
-  "https://codeload.github.com/GiraffeTechnology/ArtFi/tar.gz/$SOURCE_COMMIT" \
-  --output "$WORK/source.tar.gz"
 mkdir "$WORK/source"
-python3 -I -B - "$WORK/source.tar.gz" <<'PY'
-import pathlib,sys,tarfile
-with tarfile.open(sys.argv[1]) as archive:
-    for member in archive.getmembers():
-        parts=pathlib.PurePosixPath(member.name).parts
-        if not parts or member.name.startswith('/') or '..' in parts or member.issym() or member.islnk():
-            raise SystemExit('RECEIPT_SQL_SOURCE_ARCHIVE_PATH_REFUSED')
-PY
-tar --no-same-owner --no-same-permissions -xzf "$WORK/source.tar.gz" -C "$WORK/source" --strip-components=1
 SOURCE="$WORK/source"
+export GIT_TERMINAL_PROMPT=0
+git -C "$SOURCE" init --quiet
+git -C "$SOURCE" fetch --quiet --depth=1 https://github.com/GiraffeTechnology/ArtFi.git "$SOURCE_COMMIT"
+git -C "$SOURCE" checkout --quiet --detach FETCH_HEAD
+test "$(git -C "$SOURCE" rev-parse HEAD)" = "$SOURCE_COMMIT"
+test "$(git -C "$SOURCE" rev-parse 'HEAD^{tree}')" = cf33564cfa351661f056e83db7eb7ee5eff12ba0
 python3 -I -B - "$SOURCE" "$EVIDENCE/source-pins.json" <<'PY'
 import hashlib,json,pathlib,sys
 root=pathlib.Path(sys.argv[1])
@@ -52,8 +46,9 @@ PY
 HOST="$WORK/artfi-task-journal-software-test"
 (
   cd "$SOURCE/apps/api"
-  go build -trimpath -o "$HOST" ./cmd/task-journal-software-test
+  go build -mod=readonly -trimpath -ldflags="-s -w" -o "$HOST" ./cmd/task-journal-software-test
 )
+sha256sum "$HOST" | tee "$EVIDENCE/host-sha256.txt"
 "$HOST" --help
 export ARTFI_RECEIPT_SOFTWARE_HOST="$HOST"
 export ARTFI_RECEIPT_SOFTWARE_SOURCE="$SOURCE/apps/api/internal/httpapi/testdata/oracle-simulated-registry"
