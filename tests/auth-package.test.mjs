@@ -432,7 +432,7 @@ test('task runtime source closure has the exact planner, signer, encoding, contr
     'server/task-native-listing-composition.mjs', 'server/task-listing-observation-consumer.mjs',
     'server/task-business-fence-fd.mjs', 'server/task-business-dispatch-fence.mjs',
     'server/task-exact-operation-planner.mjs', 'server/task-exact-signer-adapter.mjs', 'server/task-operation-encoding.mjs',
-    'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'src/agent/receiptTask.ts',
+    'server/receipt-operation-encoding.mjs', 'server/receipt-provider-handler.mjs', 'server/receipt-software-content.mjs', 'src/agent/receiptTask.ts',
   'server/receipt-principal-runtime.mjs', 'server/receipt-principal-grant.mjs', 'server/receipt-principal-composition.mjs', 'src/agent/receiptPrincipal.ts',
     'src/agent/receiptObservation.ts', 'src/agent/taskContract.ts', 'src/codec/abi.ts', 'src/codec/keccak.ts',
     'src/controls/accounts.ts', 'src/controls/authorization.ts', 'src/controls/client.ts', 'src/controls/execution.ts',
