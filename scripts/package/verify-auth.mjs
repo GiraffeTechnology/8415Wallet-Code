@@ -182,6 +182,8 @@ export function runtimePackage(sourcePackage, sourceLock) {
     if (listing && path === 'node_modules/@artfi/task-listing-runtime') {
       fail(info.version === TASK_LISTING_PACKAGE_PIN.packageVersion && info.resolved === `file:${TASK_LISTING_PACKAGE_PIN.artifactPath}` &&
         info.integrity === TASK_LISTING_PACKAGE_PIN.artifactIntegrity, 'LISTING_ARTIFACT_LOCK_REFUSED');
+      assert.deepEqual(info.dependencies, TASK_LISTING_PACKAGE_PIN.dependencies, 'AUTH_PACKAGE_LISTING_ROOT_DEPENDENCIES_MISMATCH');
+      assert.deepEqual(info.bundleDependencies, TASK_LISTING_PACKAGE_PIN.bundleDependencies, 'AUTH_PACKAGE_LISTING_ROOT_BUNDLES_MISMATCH');
     } else if (listing && bundlePins.has(path)) {
       const pin = bundlePins.get(path);
       fail(info.inBundle === true && info.version === pin.version && !info.resolved && !info.integrity, 'LISTING_BUNDLE_LOCK_REFUSED');
