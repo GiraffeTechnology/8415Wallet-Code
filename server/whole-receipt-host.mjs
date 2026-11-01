@@ -31,13 +31,14 @@ export function createWholeReceiptBootstrapBinding(raw) {
 
 /** The existing ArtFi bootstrap supplies its factory and original provider/journal
  * capabilities. The original auth host supplies its own credential store. */
-export function createWholeReceiptHost({ binding, store, now = Date.now }) {
+export function createWholeReceiptHost({ binding, store, now = Date.now, receiptTaskContentContext = null }) {
   if (binding === null) return null;
   const input = fields(binding, ['createInstallation', 'journalStore', 'consumerPeerId',
     'taskExecutorIdentity', 'provider', 'journal']);
   if (typeof input.createInstallation !== 'function' || typeof now !== 'function' ||
       !store || !input.journalStore || store === input.journalStore) refuse();
-  const installation = input.createInstallation({ createTaskReceiptRuntime, createProviderHandler: createReceiptProviderHandler,
+  const installation = input.createInstallation({ createTaskReceiptRuntime, createProviderHandler: receiptTaskContentContext === null ? createReceiptProviderHandler :
+      options => createReceiptProviderHandler({...options,receiptTaskContentContext}),
     store, journalStore: input.journalStore, consumerPeerId: input.consumerPeerId,
     taskExecutorIdentity: input.taskExecutorIdentity, provider: input.provider, journal: input.journal, now });
   const api = fields(installation, ['authOptions', 'connectAuthorization', 'consumeCapability', 'operation', 'stop']);

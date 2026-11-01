@@ -8,6 +8,7 @@ import {spawn,execFileSync} from 'node:child_process';
 import {createServer as createNetServer} from 'node:net';
 import {createInterface} from 'node:readline';
 import {resolve,join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {createTaskJournalCapabilityListener} from '../server/task-listing-bootstrap-core.mjs';
 import {certificates} from './helpers/task-https-fixture.mjs';
 import {createHash} from 'node:crypto';
@@ -29,6 +30,8 @@ const certs=await certificates(fixture);
 const root=await mkdtemp(resolve('.whole-receipt-sql-'));
 const sourceState=join(root,'source.simulated-registry.json');
 for(const action of ['init','TOKEN_TRANSFER','REGISTERED'])execFileSync(process.execPath,[join(sourceRoot,'registry-driver.mjs'),sourceState,action],{stdio:'pipe'});
+const {FileSimulatedRegistryStore,SimulatedRegistrySource}=await import(pathToFileURL(join(sourceRoot,'test/support/simulated-registry.mjs')));
+const originalReadOnlyProvider=new SimulatedRegistrySource(new FileSimulatedRegistryStore(sourceState),{view:'artfi-local'}).rpc();
 const probe=createNetServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const journalPort=probe.address().port;await new Promise(r=>probe.close(r));
 assert.equal(createHash('sha256').update(sourceRaw).digest('hex'),'154b15a85d9cdeed41138a8f77981521f778db7f97d54fbc9f221cb471c1fb3c');
 const dataset=JSON.parse(sourceRaw),runtime=await loadInstalledTaskListingModules();
@@ -53,7 +56,7 @@ async function stopJournal(){
 try {
  host=await createAuthRuntime({config:{origin:binding.origin,tenant:binding.tenant,port:31999,statePath,accounts:[{username:'owner',passwordHash:await hashPassword(password),wallets:[{account:binding.actor,chainId:'31337'}]}]},store,now:Date.now,
  listingRuntime:{runtime:disabledTaskListingRuntime(),async start(){},async stop(){}},
- wholeReceipt:createWholeReceiptBootstrapBinding({createInstallation:options=>runtime.createWholeReceiptInstallation({...options,softwareReceiptBoundary}),createJournalTransport:runtime.createNftTaskJournalHttpsTransport,journalStore:{},consumerPeerId:'spiffe://artfi/journal',taskExecutorIdentity:{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:'0x'+'9'.repeat(64)},provider:{request({method}){providerCalls++;providerMethods.push(method);if(method==='eth_accounts')return [binding.actor];if(method==='eth_chainId')return '0x7a69';if(method==='eth_sendTransaction')sendCalls++;throw Error('SIMULATED_PROVIDER_UNAVAILABLE');}},journal:{url:`https://127.0.0.1:${journalPort}/internal/v1/nft/operations`,peerId:'spiffe://artfi/wallet',secureContext:createSecureContext({cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes})}})});
+ wholeReceipt:createWholeReceiptBootstrapBinding({createInstallation:options=>runtime.createWholeReceiptInstallation({...options,softwareReceiptBoundary}),createJournalTransport:runtime.createNftTaskJournalHttpsTransport,journalStore:{},consumerPeerId:'spiffe://artfi/journal',taskExecutorIdentity:{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:'0x'+'9'.repeat(64)},provider:{request({method,params}){providerCalls++;providerMethods.push(method);if(method==='eth_accounts')return [binding.actor];if(method==='eth_chainId')return '0x7a69';if(method==='eth_getBlockByNumber')return originalReadOnlyProvider.request({method,params});if(method==='eth_sendTransaction')sendCalls++;throw Error('SIMULATED_PROVIDER_UNAVAILABLE');}},journal:{url:`https://127.0.0.1:${journalPort}/internal/v1/nft/operations`,peerId:'spiffe://artfi/wallet',secureContext:createSecureContext({cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes})}})});
  peer=createTaskJournalCapabilityListener({peerId:'spiffe://artfi/journal',clientFingerprint256:certs.journal.fingerprint},{cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes},host.wholeReceipt);
  peer.listen(0,'127.0.0.1');await once(peer,'listening');
  host.server.listen(0,'127.0.0.1');await once(host.server,'listening');let jar=new Map(),csrf='';
@@ -88,7 +91,7 @@ try {
  // the native wallet-start CAS. Reconcile that durable attempt; never resend.
  const executionRequest={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
  await assert.rejects(restoredHandle.execute(executionRequest),{message:'TASK_RECEIPT_OUTCOME_UNKNOWN_RECONCILE_ONLY'});
- assert.ok(providerMethods.includes('eth_getCode'));assert.equal(sendCalls,0);
+ assert.ok(providerMethods.includes('eth_getBlockByNumber'));assert.ok(providerMethods.includes('eth_getCode'));assert.ok(providerMethods.indexOf('eth_getBlockByNumber')<providerMethods.indexOf('eth_getCode'));assert.equal(sendCalls,0);
  const started=await restoredHandle.read('observe',selected.rawPlan);
  assert.equal(started.operation.id,created.operation.id);assert.deepEqual(started.operation.plan,created.operation.plan);
  assert.equal(started.operation.requestHash,created.operation.requestHash);assert.equal(started.operation.revision,2);assert.equal(started.operation.status,'awaiting-wallet');assert.equal(started.operation.walletStarted,true);assert.equal(started.operation.transactionHash,undefined);

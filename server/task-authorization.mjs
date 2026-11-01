@@ -21,16 +21,16 @@ import {
 } from '../src/agent/taskContract.ts';
 import { TaskObservationError, freezeTaskObservationPolicy, normalizeObservationVerifier, normalizeTaskObservation, bindTaskObservation } from '../src/agent/receiptObservation.ts';
 
-import { ReceiptTaskError, freezeReceiptTask, receiptPhaseScope, normalizeReceiptAttempts } from '../src/agent/receiptTask.ts';
+import { ReceiptTaskError, freezeReceiptTask as freezeReceiptTaskContent, receiptPhaseScope as receiptPhaseContentScope, normalizeReceiptAttempts as normalizeReceiptContentAttempts, assertReceiptTaskContentContext } from '../src/agent/receiptTask.ts';
 import { validateReceiptWire } from './receipt-operation-encoding.mjs';
 import {ReceiptPrincipalGrantError,prepareReceiptPrincipalPurpose,assertReceiptPrincipalTaskBinding,requireSameReceiptPrincipalPurpose} from './receipt-principal-grant.mjs';
 import {ReceiptPrincipalError,normalizeReceiptPrincipalPurpose,receiptPrincipalPurposeDigest} from '../src/agent/receiptPrincipal.ts';
 import { testMintInventoryKey } from './task-test-asset-authorization.mjs';
-function freezeAuthorizedTask(policy) {
+function freezeAuthorizedTask(policy, contentContext = null) {
   const descriptor = policy && typeof policy === 'object' ? Object.getOwnPropertyDescriptor(policy, 'intent') : null;
   const intent = descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : null;
   const kind = intent && typeof intent === 'object' ? Object.getOwnPropertyDescriptor(intent, 'kind') : null;
-  return kind && Object.hasOwn(kind, 'value') && kind.value === 'artfi-receipt' ? freezeReceiptTask(policy) : freezeTaskPolicy(policy);
+  return kind && Object.hasOwn(kind, 'value') && kind.value === 'artfi-receipt' ? freezeReceiptTaskContent(policy,contentContext) : freezeTaskPolicy(policy);
 }
 const CHALLENGE_LIFE = 2 * 60_000;
 export class TaskAuthorizationError extends Error {
@@ -118,7 +118,11 @@ const isListing = child => child.child.schema === '8415-nft-listing-child/1';
  */
 export function createTaskAuthorizationService({ origin, tenant, store, now = Date.now,
   assertSession, credentialFor, consumeTotp, assertPrincipal = null, principalReady = null,
-  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null, channelBindings = null, testAuthorization = null, operationVerificationEnabled = false }) {
+  execution = null, executorIdentity = null, observationPolicy = null, receipt = null, listingExecution = null, listingResults = null, receiptHandlerId = null, receiptTaskContentContext = null, channelBindings = null, testAuthorization = null, operationVerificationEnabled = false }) {
+  assertReceiptTaskContentContext(receiptTaskContentContext);
+  const freezeReceiptTask = policy => freezeReceiptTaskContent(policy,receiptTaskContentContext);
+  const receiptPhaseScope = (task,phase) => receiptPhaseContentScope(task,phase,receiptTaskContentContext);
+  const normalizeReceiptAttempts = (task,raw) => normalizeReceiptContentAttempts(task,raw,receiptTaskContentContext);
   requireThat(typeof operationVerificationEnabled === 'boolean' && (!operationVerificationEnabled || typeof store?.withReadSnapshot === 'function'),
     'TASK_OPERATION_VERIFICATION_CONFIG_REFUSED', 500);
   requireThat(receiptHandlerId === null || receiptHandlerId === 'artfi:whole-receipt:v1', 'TASK_RECEIPT_CONFIG_REFUSED', 500);
@@ -416,7 +420,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       requireThat(raw.task.policy.intent.kind === 'nft-sale' && valuation.policy.base.chainId === raw.task.policy.chainId &&
         (raw.status === 'pending' || raw.budget?.schema === '8415-task-budget/2'), 'TASK_VALUATION_POLICY_STATE_REFUSED', 503);
     } else requireThat(raw.valuationPolicy === undefined && (raw.status === 'pending' || raw.budget?.schema === '8415-task-budget/1'), 'TASK_GRANT_STATE_REFUSED', 503);
-    const task = freezeAuthorizedTask(raw.task.policy); checkTask(task, session); executorCopy(raw.executor); observationPolicyCopy(raw.observationPolicy);
+    const task = freezeAuthorizedTask(raw.task.policy,receiptTaskContentContext); checkTask(task, session); executorCopy(raw.executor); observationPolicyCopy(raw.observationPolicy);
     if (raw.observationSources !== undefined) observationSources.registry(raw.observationSources, observerSourceScope(raw));
     if (raw.receiptVerifier !== null) normalizeObservationVerifier(raw.receiptVerifier);
     requireThat(Array.isArray(raw.observations), 'TASK_OBSERVATION_STATE_REFUSED', 503); version(raw.observationRevision);
@@ -566,7 +570,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const withPrincipal=body!==null&&typeof body==='object'&&Object.hasOwn(body,'receiptPrincipal');
     fields(body,['policy',...(withValuation?['valuationPolicy']:[]),...(withPrincipal?['receiptPrincipal']:[])]);
     requireThat(!withValuation||!withPrincipal,'TASK_RECEIPT_PRINCIPAL_BINDING_REFUSED',400);
-    const task = freezeAuthorizedTask(body.policy); checkTask(task, session);
+    const task = freezeAuthorizedTask(body.policy,receiptTaskContentContext); checkTask(task, session);
     requireThat(!['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation?.kind) || testFactorAllowed(task),
       'TASK_TEST_MINT_INVENTORY_REQUIRED', 403);
     requireThat(!['artfi-test-series-mint','artfi-test-nft721-mint'].includes(task.policy.intent.operation?.kind) || typeof receipt?.observeMintResult === 'function',
@@ -1506,7 +1510,7 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
     const verificationRequirement = taskOperationVerificationRequirement(credential, grant, operationTestExempt(grant));
     if (verificationRequirement.required)
       throw new TaskAuthorizationError('TASK_RECEIPT_OPERATION_VERIFICATION_NOT_CONNECTED', 503);
-    const scope=validateReceiptWire(grant.task,claimed.phase,wire);
+    const scope=validateReceiptWire(grant.task,claimed.phase,wire,receiptTaskContentContext);
     requireThat(scope.planDigest===claimed.planDigest && scope.journalBindingHash===claimed.journalBindingHash,
       'TASK_RECEIPT_PLAN_BINDING_REFUSED',403);
     const attempts=normalizeReceiptAttempts(grant.task,grant.receiptAttempts??[]);

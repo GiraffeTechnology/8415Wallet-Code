@@ -3,27 +3,27 @@ import assert from 'node:assert/strict';
 import { Interface, AbiCoder, TypedDataEncoder, keccak256 } from 'ethers';
 import { createTaskAuthorizationService } from '../server/task-authorization.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
-import { freezeReceiptTask } from '../src/agent/receiptTask.ts';
+import { freezeReceiptTask, receiptTaskCopy, receiptPhaseScope, normalizeReceiptAttempts, createReceiptTaskContentContext } from '../src/agent/receiptTask.ts';
 const a=n=>'0x'+n.repeat(40),h=n=>'0x'+n.repeat(64),epoch=1800000000000;
 const saleType='(address seller,address collection,uint256 tokenId,address paymentToken,uint256 price,address buyer,uint256 salt,uint48 startsAt,uint48 endsAt,uint256 epoch)';
 const correspondenceType='(bytes32 settlementId,bytes32 assetRecordHash,bytes32 oracleSourceId,bytes32 requestHash,bytes32 executionReferenceHash,bytes32 previousSegment,bytes32 oldCertificateHash,bytes32 warehouseReceiptHash)';
 const abi=new Interface(['function fund('+saleType+' sale,'+correspondenceType+' correspondence,bytes signature)','function confirmRegistration(bytes32 id,bytes evidence)','function paySeller(bytes32 id)']);
 const saleFields=[['seller','address'],['collection','address'],['tokenId','uint256'],['paymentToken','address'],['price','uint256'],['buyer','address'],['salt','uint256'],['startsAt','uint48'],['endsAt','uint48'],['epoch','uint256']].map(([name,type])=>({name,type}));
-function fixture({handler='artfi:whole-receipt:v1',store:configuredStore=null}={}){
+function fixture({handler='artfi:whole-receipt:v1',store:configuredStore=null,receiptTaskContentContext=null,chainId='560048'}={}){
  const state={now:epoch},store=configuredStore??new MemoryCredentialStore({'xiongan:tester':{revision:1,synthetic:true}});
- const session={username:'tester',account:a('1'),chainId:'560048',id:'synthetic-session',revision:1,issuedAt:epoch,expiresAt:epoch+900000};
+ const session={username:'tester',account:a('1'),chainId,id:'synthetic-session',revision:1,issuedAt:epoch,expiresAt:epoch+900000};
  const sale={seller:a('2'),collection:a('3'),tokenId:'7',paymentToken:a('4'),price:'100',buyer:a('1'),salt:'9',startsAt:'1',endsAt:'2000000000',epoch:'0'};
  const correspondence={settlementId:h('1'),assetRecordHash:h('2'),oracleSourceId:h('3'),requestHash:h('4'),executionReferenceHash:h('5'),previousSegment:h('0'),oldCertificateHash:h('6'),warehouseReceiptHash:h('7')};
- const segment=TypedDataEncoder.hash({name:'ArtFi Whole Artwork Receipt Settlement',version:'1',chainId:560048,verifyingContract:a('5')},{ReceiptAuthorization:[{name:'saleIntentHash',type:'bytes32'},...Object.keys(correspondence).map(name=>({name,type:'bytes32'}))]},{saleIntentHash:TypedDataEncoder.hashStruct('SaleIntent',{SaleIntent:saleFields},sale),...correspondence});
+ const segment=TypedDataEncoder.hash({name:'ArtFi Whole Artwork Receipt Settlement',version:'1',chainId,verifyingContract:a('5')},{ReceiptAuthorization:[{name:'saleIntentHash',type:'bytes32'},...Object.keys(correspondence).map(name=>({name,type:'bytes32'}))]},{saleIntentHash:TypedDataEncoder.hashStruct('SaleIntent',{SaleIntent:saleFields},sale),...correspondence});
  const data={funded:abi.encodeFunctionData('fund',[sale,correspondence,'0x1234']),registered:abi.encodeFunctionData('confirmRegistration',[segment,AbiCoder.defaultAbiCoder().encode([saleType,correspondenceType,'uint64','bytes'],[sale,correspondence,2,'0x5678'])]),paid:abi.encodeFunctionData('paySeller',[segment])};
- const policy={schema:'8415-agent-task/1',taskId:'synthetic-receipt',tenant:'xiongan',origin:'https://wallet.example.invalid',chainId:'560048',actor:a('1'),expiresAt:String(epoch/1000+600),fees:{perOperationWei:'100000',totalWei:'300000'},intent:{kind:'artfi-receipt',handlerId:'artfi:whole-receipt:v1',escrow:a('5'),runtimeCodeHash:h('8'),segmentId:segment,sale,correspondence,phases:Object.keys(data).map((phase,n)=>({phase,nonce:String(n),calldataHash:keccak256(data[phase]),planDigest:h(String(n+1)),journalBindingHash:h(String(n+4)),gasLimit:'21000',maxFeePerGasWei:'2',maxPriorityFeePerGasWei:'1'})),recovery:{funding:'once',payout:'once',unknownOutcome:'reconcile-only'}}};
+ const policy={schema:'8415-agent-task/1',taskId:'synthetic-receipt',tenant:'xiongan',origin:'https://wallet.example.invalid',chainId,actor:a('1'),expiresAt:String(epoch/1000+600),fees:{perOperationWei:'100000',totalWei:'300000'},intent:{kind:'artfi-receipt',handlerId:'artfi:whole-receipt:v1',escrow:a('5'),runtimeCodeHash:h('8'),segmentId:segment,sale,correspondence,phases:Object.keys(data).map((phase,n)=>({phase,nonce:String(n),calldataHash:keccak256(data[phase]),planDigest:h(String(n+1)),journalBindingHash:h(String(n+4)),gasLimit:'21000',maxFeePerGasWei:'2',maxPriorityFeePerGasWei:'1'})),recovery:{funding:'once',payout:'once',unknownOutcome:'reconcile-only'}}};
  let approvals=0,sends=0;
  const assertSession=(s,c)=>{if(s!==session || state.now>=session.expiresAt || c!==undefined&&c?.revision!==1)throw Error('AUTH_REFUSED');};
  const service=createTaskAuthorizationService({origin:policy.origin,tenant:'xiongan',store,now:()=>state.now,assertSession,
   credentialFor:async s=>{const c=await store.read('xiongan:tester');assertSession(s,c);return c;},
   consumeTotp:(s,c,code)=>{assertSession(s,c);assert.equal(code,'123456');approvals++;return c;},
-  assertPrincipal:(p,c)=>{if(p.username!=='tester'||p.account!==a('1')||p.chainId!=='560048'||c?.revision!==1)throw Error('AUTH_PRINCIPAL_REFUSED');},
-  receiptHandlerId:handler,executorIdentity:handler?{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:h('9')}:null});
+  assertPrincipal:(p,c)=>{if(p.username!=='tester'||p.account!==a('1')||p.chainId!==chainId||c?.revision!==1)throw Error('AUTH_PRINCIPAL_REFUSED');},
+  receiptTaskContentContext,receiptHandlerId:handler,executorIdentity:handler?{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:h('9')}:null});
  const call=(path,body)=>service.handler('tasks/'+path,body,session);
  async function grant(){
   const c=await call('prepare',{policy});
@@ -32,7 +32,7 @@ function fixture({handler='artfi:whole-receipt:v1',store:configuredStore=null}={
  function operation(g,phase){
   const p=g.task.policy.intent.phases.find(p=>p.phase===phase);
   return {claimed:{taskId:g.task.policy.taskId,taskDigest:g.task.digest,executorDigest:g.executor.digest,grantReference:g.authorization.reference,grantPolicyVersion:g.authorization.grantPolicyVersion,operationId:'receipt-'+phase,phase,planDigest:p.planDigest,journalBindingHash:p.journalBindingHash},
-   wire:{account:a('1'),chainId:'560048',to:a('5'),data:data[phase],value:'0',nonce:p.nonce,gasLimit:p.gasLimit,maxFeePerGasWei:p.maxFeePerGasWei,maxPriorityFeePerGasWei:p.maxPriorityFeePerGasWei}};
+   wire:{account:a('1'),chainId,to:a('5'),data:data[phase],value:'0',nonce:p.nonce,gasLimit:p.gasLimit,maxFeePerGasWei:p.maxFeePerGasWei,maxPriorityFeePerGasWei:p.maxPriorityFeePerGasWei}};
  }
  const send=async(g,phase,callback=async()=>h('a'))=>{const x=operation(g,phase);return service.receiptAuthorization.withAuthorization(x.claimed,x.wire,async(snapshot,revalidate)=>{sends++;revalidate();assert.equal(snapshot.scope.phase,phase);return callback(snapshot,revalidate);});};
  return {state,store,session,policy,service,call,grant,operation,send,count:()=>({approvals,sends})};
@@ -94,32 +94,44 @@ test('unconfigured receipt gate fails closed before human challenge creation',as
 
 import { createReceiptProviderHandler } from '../server/receipt-provider-handler.mjs';
 function providerFixture(f, scenario='valid'){
-  let sends=0,accounts=0;
+  let sends=0,accounts=0,blocks=0,codeReads=0,blockGetterCalls=0;const calls=[];
   const provider={request:async({method,params})=>{
+    calls.push({method,params});
     if(method==='eth_accounts'){accounts++;return scenario==='switch'&&accounts>1?[a('6')]:scenario==='disconnect'?[]:[a('1')];}
-    if(method==='eth_chainId')return scenario==='chain'?'0x1':'0x88bb0';
-    if(method==='eth_getCode')return scenario==='code'?'0x6001':'0x6000';
+    if(method==='eth_chainId')return scenario==='chain'||scenario==='code-chain'&&codeReads>0?'0x1':'0x88bb0';
+    if(method==='eth_getBlockByNumber'){
+      blocks++;assert.deepEqual(params,[blocks===1?'latest':'0x1',false]);
+      if(scenario==='block')return {hash:'0x1234',number:'0x1'};
+      if(scenario==='block-accessor')return Object.defineProperty({number:'0x1'},'hash',{enumerable:true,get(){blockGetterCalls++;return h('c');}});
+      return {hash:scenario==='reorg'&&blocks>1?h('d'):h('c'),number:scenario==='block-number'&&blocks>1?'0x2':'0x1'};
+    }
+    if(method==='eth_getCode'){
+      codeReads++;assert.deepEqual(params,[a('5'),{blockHash:h('c'),requireCanonical:true}]);
+      if(scenario==='canonical')throw Error('SYNTHETIC_NONCANONICAL_BLOCK');
+      return scenario==='code'?'0x6001':'0x6000';
+    }
     if(method==='eth_getTransactionCount')return scenario==='nonce'?'0x99':'0x0';
     if(method==='eth_call'){if(scenario==='simulation')throw Error('synthetic revert');return '0x';}
     if(method==='eth_sendTransaction'){sends++;assert.equal(params[0].nonce,'0x0');assert.equal(params[0].value,'0x0');assert.equal(params[0].chainId,'0x88bb0');return h('b');}
     throw Error('UNEXPECTED_PROVIDER_METHOD');
   }};
-  return {provider,count:()=>sends};
+  return {provider,count:()=>sends,inspect:()=>({blocks,codeReads,blockGetterCalls,calls})};
 }
 test('fixed provider handler carries the exact approved transaction through existing lease',async()=>{
  const f=fixture();f.policy.intent.runtimeCodeHash=keccak256('0x6000');const g=await f.grant(),x=f.operation(g,'funded'),p=providerFixture(f);
  const handler=createReceiptProviderHandler({authorization:f.service.receiptAuthorization,provider:p.provider,task:g.task,claimed:x.claimed,now:()=>f.state.now});
  assert.deepEqual(await handler.identity(),{account:a('1'),chainId:560048});
  const req={account:a('1'),chainId:560048,to:a('5'),data:x.wire.data,value:0n};
- assert.equal(await handler.sendTransaction(req),h('b'));assert.equal(p.count(),1);
+ assert.equal(await handler.sendTransaction(req),h('b'));assert.equal(p.count(),1);assert.equal(p.inspect().blocks,2);assert.equal(p.inspect().codeReads,1);
+ assert.deepEqual(p.inspect().calls.find(x=>x.method==='eth_getCode').params,[a('5'),{blockHash:h('c'),requireCanonical:true}]);
  await assert.rejects(handler.sendTransaction(req),/TASK_RECEIPT_ALREADY_ATTEMPTED/);assert.equal(p.count(),1);await f.store.close();
 });
-for(const scenario of ['switch','disconnect','chain','code','nonce','simulation']){
+for(const scenario of ['switch','disconnect','chain','code','nonce','simulation','block','block-accessor','canonical','reorg','block-number','code-chain']){
  test('fixed provider handler '+scenario+' refusal occurs before send',async()=>{
  const f=fixture();f.policy.intent.runtimeCodeHash=keccak256('0x6000');const g=await f.grant(),x=f.operation(g,'funded'),p=providerFixture(f,scenario);
  const handler=createReceiptProviderHandler({authorization:f.service.receiptAuthorization,provider:p.provider,task:g.task,claimed:x.claimed,now:()=>f.state.now});
  await assert.rejects(handler.sendTransaction({account:a('1'),chainId:560048,to:a('5'),data:x.wire.data,value:0n}));
- assert.equal(p.count(),0);await f.store.close();
+ assert.equal(p.count(),0);assert.equal(p.inspect().blockGetterCalls,0);await f.store.close();
  });
 }
 test('receipt scope refuses nonce reuse, excess phase fees and recovery-policy change',()=>{
@@ -223,4 +235,31 @@ test('encrypted restart preserves new-grant unknown phase and nonce without anot
   await assert.rejects(restored.send(g,'funded'),/TASK_RECEIPT_ALREADY_ATTEMPTED/);
   assert.equal(restored.count().approvals,0);assert.equal(restored.count().sends,0);
  }finally{await store.close();assert.ok(root.startsWith(join(tmpdir(),'wallet-receipt-grant-')));await rm(root,{recursive:true,force:true});}
+});
+
+test('explicit content context survives normal grant reparse, scope, wire and attempt checks without authorizing a different source',async()=>{
+ // Synthetic validator tests Wallet plumbing; the joint SQL client separately
+ // uses only the fixed installed original source factory and opaque boundary.
+ const context=createReceiptTaskContentContext(p=>p.chainId==='11155111'&&p.taskId==='synthetic-receipt'&&p.actor===a('1'));
+ const f=fixture({receiptTaskContentContext:context,chainId:'11155111'});
+ assert.throws(()=>freezeReceiptTask(f.policy),/TASK_RECEIPT_CHAIN_REFUSED/);
+ assert.throws(()=>freezeReceiptTask(f.policy,structuredClone(context)),/TASK_RECEIPT_CONTENT_CONTEXT_REFUSED/);
+ const frozen=freezeReceiptTask(f.policy,context);
+ assert.deepEqual(receiptTaskCopy(frozen,context),frozen);
+ assert.equal(receiptPhaseScope(frozen,'funded',context).nonce,'0');
+ assert.deepEqual(normalizeReceiptAttempts(frozen,[],context),[]);
+ for(const fn of [()=>receiptTaskCopy(frozen),()=>receiptPhaseScope(frozen,'funded'),()=>normalizeReceiptAttempts(frozen,[])])
+  assert.throws(fn,/TASK_RECEIPT_CHAIN_REFUSED/);
+ const changed=structuredClone(f.policy);changed.taskId='different-source';
+ assert.throws(()=>freezeReceiptTask(changed,context),/TASK_RECEIPT_CONTENT_SOURCE_REFUSED/);
+ const arbitrary=structuredClone(f.policy);arbitrary.chainId='8453';
+ assert.throws(()=>freezeReceiptTask(arbitrary,context),/TASK_RECEIPT_CHAIN_REFUSED/);
+ const g=await f.grant();assert.equal(g.task.digest,frozen.digest);
+ const status=await f.call('status',{taskDigest:g.task.digest});assert.deepEqual(status.receiptAttempts,[]);
+ const x=f.operation(g,'funded');x.wire.chainId='560048';
+ await assert.rejects(f.service.receiptAuthorization.withAuthorization(x.claimed,x.wire,async()=>h('a')));
+ assert.equal(f.count().sends,0);
+ await f.send(g,'funded');await assert.rejects(f.send(g,'funded'),/TASK_RECEIPT_ALREADY_ATTEMPTED/);
+ const after=await f.call('status',{taskDigest:g.task.digest});assert.equal(after.receiptAttempts.length,1);
+ assert.equal(after.receiptAttempts[0].nonce,'0');assert.equal(f.count().sends,1);await f.store.close();
 });
