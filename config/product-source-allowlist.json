@@ -1054,8 +1054,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "933475732646e9ac38f2a6e625a2636a43214dc9",
-      "sha256": "f9086c131826d57e1638595200f5f2db920c3273e8192c3dc1f72e7af3d19bb8"
+      "git_blob_sha1": "1781036c0e0f436e34bcd3a64b4b0b5539df8fa6",
+      "sha256": "05e41ce3b126928acededfda10a40eca4539245222855a591fe86ae317cd36e3"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
