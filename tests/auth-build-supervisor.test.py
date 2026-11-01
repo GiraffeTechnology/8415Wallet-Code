@@ -3,6 +3,7 @@ Run only on approved Linux execution (SIN or the exact-head GitHub CI).
 No local/container/Windows syntax/import/test run.
 """
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('auth_supervisor', Path(__file__).resolve().parents[1] / 'scripts/package/supervise-auth.py')
@@ -21,6 +23,47 @@ spec.loader.exec_module(supervisor)
 
 @unittest.skipUnless(sys.platform == 'linux', 'approved Linux only')
 class SupervisorTests(unittest.TestCase):
+    def snapshot_with_proc_entries(self, entries):
+        output = io.StringIO()
+        with patch.object(supervisor.Path, 'iterdir', return_value=iter(entries)), redirect_stdout(output):
+            supervisor._snapshot(12345)
+        return json.loads(output.getvalue())
+
+    def proc_entry(self, pid, content):
+        class ProcEntry:
+            name = str(pid)
+
+            def __truediv__(self, key):
+                return self
+
+            def read_text(self):
+                if isinstance(content, OSError):
+                    raise content
+                return content
+
+        return ProcEntry()
+
+    def test_exited_proc_race_does_not_make_empty_snapshot_unknown(self):
+        for error in (FileNotFoundError(2, 'gone'), ProcessLookupError(3, 'gone')):
+            result = self.snapshot_with_proc_entries([self.proc_entry(123, error)])
+            self.assertTrue(result['complete'])
+            self.assertEqual(result['unreadable'], 0)
+            self.assertEqual(result['members'], [])
+
+    def test_exited_proc_race_preserves_live_group_member(self):
+        stat = '456 (fixture) ' + ' '.join(['S', '1', '12345'] + ['0'] * 16 + ['99'])
+        result = self.snapshot_with_proc_entries([
+            self.proc_entry(123, ProcessLookupError(3, 'gone')),
+            self.proc_entry(456, stat),
+        ])
+        self.assertTrue(result['complete'])
+        self.assertEqual(result['members'], [{'pid': 456, 'state': 'S', 'startTicks': 99}])
+
+    def test_unreadable_live_proc_remains_unknown(self):
+        result = self.snapshot_with_proc_entries([self.proc_entry(123, PermissionError(13, 'denied'))])
+        self.assertFalse(result['complete'])
+        self.assertEqual(result['unreadable'], 1)
+
     def test_release_command_preserves_external_identity_for_both_phases(self):
         commit, tree = '1' * 40, '2' * 40
         for phase in ('build', 'verify'):
