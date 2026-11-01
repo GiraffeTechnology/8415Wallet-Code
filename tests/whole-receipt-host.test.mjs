@@ -7,6 +7,7 @@ import { createReceiptProviderHandler } from '../server/receipt-provider-handler
 import { createAuthRuntime } from '../server/main.mjs';
 import { MemoryCredentialStore } from '../server/store.mjs';
 import { disabledTaskListingRuntime } from '../server/task-listing-runtime.mjs';
+import { get } from 'node:http';
 
 const identity = Object.freeze({ schema: '8415-task-executor/1', agentId: 'fixture:artfi', agentVersion: '1',
   adapterId: 'artfi:whole-receipt:v1', adapterVersion: '1', implementationDigest: '0x' + '7'.repeat(64) });
@@ -99,6 +100,38 @@ test('runtime stop drains receipt writes before its caller closes the original s
   await Promise.resolve(); assert.deepEqual(events, []);
   gate.resolve(); await accepted; await stopping;
   assert.deepEqual(events, ['recorded', 'listing-stop', 'store-close', 'transport-close']);
+});
+
+test('an accepted HTTP response and receipt result both drain before outer resource closure', async () => {
+  const release = deferred(), arrived = deferred(), events = [];
+  const f = fixture({ execute: async () => { await release.promise; events.push('receipt-recorded'); } });
+  const runtime = await createAuthRuntime({ config: config(), store: f.store, listingRuntime: listing(), wholeReceipt: f.binding });
+  // Hold an ordinary response until its accepted fixture operation has recorded
+  // its result. This tests the real HTTP close/drain boundary without adding a
+  // receipt HTTP endpoint, authenticating a synthetic user or calling a provider.
+  runtime.server.prependListener('request', (_request, response) => {
+    const accepted = runtime.wholeReceipt.operation({}).execute();
+    const end = response.end;
+    response.end = function (...args) {
+      accepted.then(() => { events.push('response-ended'); end.apply(this, args); }, error => this.destroy(error));
+      return this;
+    };
+    arrived.resolve();
+  });
+  await new Promise(resolve => runtime.server.listen(0, '127.0.0.1', resolve));
+  const response = new Promise((resolve, reject) => {
+    const request = get({ host: '127.0.0.1', port: runtime.server.address().port, path: '/auth/bootstrap',
+      agent: false, headers: { host: 'wallet.example.invalid', 'x-wallet-tenant': 'fixture' } }, result => {
+      result.resume(); result.once('end', () => resolve(result.statusCode)); result.once('error', reject);
+    }); request.once('error', reject);
+  });
+  await arrived.promise;
+  const stopping = runtime.stop().then(() => { events.push('store-close'); events.push('transport-close'); });
+  assert.equal(runtime.server.listening, false, 'listener admission closes before either drain finishes');
+  assert.throws(() => runtime.wholeReceipt.operation({}), /NOT_ACCEPTING/);
+  await Promise.resolve(); assert.deepEqual(events, []);
+  release.resolve(); assert.equal(await response, 200); await stopping;
+  assert.deepEqual(events, ['receipt-recorded', 'response-ended', 'store-close', 'transport-close']);
 });
 
 test('binding refuses accessors, symbols, extra fields and reentrant journal before calling a factory', () => {
