@@ -78,7 +78,9 @@ export function createReceiptPrincipalRuntime({store,authorization,fundsReader,f
  async function readJournal(p){const raw=await store.read(key(p));return raw===null?null:journal(raw,p);}
  async function update(p,revalidate,action,fn){
   const k=key(p);const values=await store.transactionMany([k],async current=>{
-   heldCheck(revalidate,p,action);const old=current[k]===null?null:journal(current[k],p);const next=await fn(old);journal(next,p);return {[k]:next};
+   heldCheck(revalidate,p,action);const old=current[k]===null?null:journal(current[k],p);const next=await fn(old);
+   // fn may yield. Revalidate again at the last caller-controlled commit point.
+   heldCheck(revalidate,p,action);journal(next,p);return {[k]:next};
   });return journal(values[k],p);
  }
  async function recordOutcome(p,fn){
@@ -98,6 +100,27 @@ export function createReceiptPrincipalRuntime({store,authorization,fundsReader,f
   check(BigInt(matches[0].availableBaseUnits)>=BigInt(p.amountBaseUnits),'RECEIPT_PRINCIPAL_INSUFFICIENT_EXISTING_FUNDS');
  }
  function request(raw){const r=fields(raw,['eventId','expectedRevision','evidenceReference']);check(opaque(r.eventId)&&uint(r.expectedRevision)&&(r.evidenceReference===null||opaque(r.evidenceReference)),'RECEIPT_PRINCIPAL_REQUEST_REFUSED',400);return Object.freeze(r);}
+ async function withEvidence(method,args,consume){
+  let open=true,called=false,settled=false,work=null;
+  try{
+   const returned=await method(...args,(value,revalidate)=>{
+    if(!open||called){open=false;throw new ReceiptPrincipalRuntimeError('RECEIPT_PRINCIPAL_EVIDENCE_CALLBACK_REFUSED',503);}
+    called=true;
+    const current=()=>{check(open,'RECEIPT_PRINCIPAL_EVIDENCE_SCOPE_CLOSED',503);check(typeof revalidate==='function','RECEIPT_PRINCIPAL_EVIDENCE_GATE_REQUIRED',503);return revalidate();};
+    work=Promise.resolve(consume(value,current));
+    work.then(()=>{settled=true;},()=>{settled=true;});return work;
+   });
+   // A provider must join the callback while its original source scope is held.
+   // Its outer return cannot replace the runtime's own durable result.
+   check(called&&settled,'RECEIPT_PRINCIPAL_EVIDENCE_CALLBACK_NOT_JOINED',503);
+   const result=await work;check(returned===result,'RECEIPT_PRINCIPAL_EVIDENCE_RESULT_SUBSTITUTED',503);return result;
+  }finally{
+   open=false;
+   // Fence and drain any callback already admitted by a faulty provider. Never
+   // leave detached work able to mutate funds after scope failure is returned.
+   if(work!==null)await Promise.allSettled([work]);
+  }
+ }
  async function finish(p,action,started,result){
   return recordOutcome(p,old=>{
    check(old&&old.dispatch?.effectId===p.reservationId+':'+action&&old.dispatch.eventId===started,'RECEIPT_PRINCIPAL_DISPATCH_CONFLICT');
@@ -152,10 +175,13 @@ export function createReceiptPrincipalRuntime({store,authorization,fundsReader,f
    }
    }
    if(action==='freeze'){
-    return facts.withMintTerms(p,async(terms,revalidateTerms)=>{
+    return withEvidence(facts.withMintTerms,[p],async(terms,revalidateTerms)=>{
      check(typeof revalidateTerms==='function','RECEIPT_PRINCIPAL_MINT_TERMS_GATE_REQUIRED',503);
-     check(receiptPrincipalPurposeDigest({...p,mintTerms:terms})===receiptPrincipalPurposeDigest(p),'RECEIPT_PRINCIPAL_MINT_TERMS_REFUSED');heldCheck(revalidate,p,action);
-     if(await readJournal(p)===null)await existingFunds(p,s,revalidate);return runWithEvent({kind:'freeze-started'},revalidateTerms);
+     check(receiptPrincipalPurposeDigest({...p,mintTerms:terms})===receiptPrincipalPurposeDigest(p),'RECEIPT_PRINCIPAL_MINT_TERMS_REFUSED');
+     const currentTerms=()=>{const fresh=revalidateTerms();check(!fresh||typeof fresh.then!=='function','RECEIPT_PRINCIPAL_ASYNC_EVIDENCE_REVALIDATION_REFUSED',500);check(receiptPrincipalPurposeDigest({...p,mintTerms:fresh})===receiptPrincipalPurposeDigest(p),'RECEIPT_PRINCIPAL_MINT_TERMS_CHANGED');heldCheck(revalidate,p,action);};
+     currentTerms();const existing=await readJournal(p);currentTerms();
+     if(existing===null){await existingFunds(p,s,revalidate);currentTerms();}
+     return runWithEvent({kind:'freeze-started'},revalidateTerms);
     });
    }
    check(r.evidenceReference!==null,'RECEIPT_PRINCIPAL_EVIDENCE_REFERENCE_REQUIRED',400);
@@ -163,7 +189,7 @@ export function createReceiptPrincipalRuntime({store,authorization,fundsReader,f
    // mint-defined unresolved suffix. It must not reopen this already held
    // Wallet grant gate or independently ingest an offline document.
    const method=action==='settle'?facts.withRegistrationAuthorization:facts.withRollbackAuthorization;
-   return method(p,r.evidenceReference,async(verified,revalidateEvidence)=>{
+   return withEvidence(method,[p,r.evidenceReference],async(verified,revalidateEvidence)=>{
     check(typeof revalidateEvidence==='function','RECEIPT_PRINCIPAL_EVIDENCE_GATE_REQUIRED',503);
     const normalized=action==='settle'?normalizeReceiptRegistrationFacts(verified,p):normalizeReceiptRollbackFacts(verified,p);
     return runWithEvent(action==='settle'?{kind:'settle-started',registration:normalized}:{kind:'release-started',rollback:normalized},revalidateEvidence);
