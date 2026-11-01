@@ -1,7 +1,7 @@
 /** Synthetic metadata only, not an inspection of any real process memory. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateOriginalUninitializedWitness } from '../server/auth-integration-provenance.mjs';
+import { validateOriginalUninitializedWitness,sourceInstallationReference,validatePackagedSourceReceipt,loadSourceInstallationReceipt,SOURCE_RECEIPT_LAYOUT } from '../server/auth-integration-provenance.mjs';
 import { originalAuthenticationStoreView } from '../server/auth-integration-runtime.mjs';
 import { openEncryptedStore } from '../server/store.mjs';
 import { mkdtemp,lstat,rm } from 'node:fs/promises';
@@ -39,4 +39,28 @@ test('encrypted original uninitialized path remains absent through the nonpersis
  assert.equal(store.originTransitionBinding().stateEstablished,false);const view=originalAuthenticationStoreView(store,{uninitialized:true});
  assert.equal(await view.read('configured-user'),null);assert.throws(()=>view.transaction('new',()=>({})),/INITIALIZATION_NOT_AUTHORIZED/);
  await assert.rejects(lstat(path),{code:'ENOENT'});
+});
+
+
+test('packaged receipt is outside immutable payload, legacy source keeps its original location',()=>{
+ const runtime='/opt/8415wallet-auth-fixture/releases/'+'2'.repeat(40),external=sourceInstallationReference(runtime,{packaged:true});
+ assert.equal(external.receiptPath,'/opt/8415wallet-auth-fixture/source-installations/'+'2'.repeat(40)+'.json');assert.equal(external.receiptPath.startsWith(runtime+'/'),false);
+ assert.equal(sourceInstallationReference(runtime,{packaged:false}).receiptPath,runtime+'/SOURCE-INSTALLATION.json');
+ const legacyRuntime='/opt/fixture/approved-source-workspace';assert.equal(sourceInstallationReference(legacyRuntime,{packaged:false}).receiptPath,legacyRuntime+'/SOURCE-INSTALLATION.json');
+ for(const path of ['/opt/../other/releases/'+'2'.repeat(40),'/opt/fixture/current','relative/releases/'+'2'.repeat(40)])assert.throws(()=>sourceInstallationReference(path,{packaged:true}));
+});
+test('packaged external receipt requires exact release source, runtime and explicit layout capability',()=>{
+ const runtime='/opt/fixture/releases/'+'2'.repeat(40),receipt={runtime,sourceDirty:false,sourceCommit:'1'.repeat(40),sourceTree:'2'.repeat(40)},release={schema:'8415wallet-auth-runtime/1',runtime:{sourceInstallationReceiptLayout:SOURCE_RECEIPT_LAYOUT},source:{commit:'1'.repeat(40),tree:'2'.repeat(40),dirty:false}};
+ assert.equal(validatePackagedSourceReceipt(receipt,release,runtime).sourceTree,receipt.sourceTree);
+ for(const mutate of [r=>r.source.commit='3'.repeat(40),r=>r.source.tree='3'.repeat(40),r=>r.source.dirty=true,r=>delete r.runtime.sourceInstallationReceiptLayout]){const r=structuredClone(release);mutate(r);assert.throws(()=>validatePackagedSourceReceipt(receipt,r,runtime));}
+ assert.throws(()=>validatePackagedSourceReceipt({...receipt,runtime:'/other'},release,runtime));
+});
+test('missing or invalid packaged metadata never falls back to an available legacy payload receipt',async()=>{
+ const runtime='/opt/fixture/releases/'+'2'.repeat(40),receipt={runtime,sourceDirty:false,sourceCommit:'1'.repeat(40),sourceTree:'2'.repeat(40)},release={schema:'8415wallet-auth-runtime/1',runtime:{sourceInstallationReceiptLayout:SOURCE_RECEIPT_LAYOUT},source:{commit:receipt.sourceCommit,tree:receipt.sourceTree,dirty:false}},attempts=[];
+ const legacy=runtime+'/SOURCE-INSTALLATION.json';
+ await assert.rejects(loadSourceInstallationReceipt(runtime,{packaged:true,release,readReceipt:async ref=>{attempts.push(ref.receiptPath);if(ref.receiptPath===legacy)return receipt;throw Object.assign(Error('missing external receipt'),{code:'ENOENT'});}}),{code:'ENOENT'});
+ assert.equal(attempts.length,1);assert.notEqual(attempts[0],legacy);
+ await assert.rejects(loadSourceInstallationReceipt(runtime,{packaged:true,release:null,readReceipt:async()=>receipt}),/PACKAGE_IDENTITY_REFUSED/);
+ assert.equal(await loadSourceInstallationReceipt(runtime,{packaged:false,release:null,readReceipt:async ref=>{assert.equal(ref.receiptPath,legacy);return receipt;}}),receipt);
+ assert.equal(await loadSourceInstallationReceipt(runtime,{packaged:true,release,readReceipt:async ref=>{assert.equal(ref.metadataDirectory,'/opt/fixture/source-installations');return receipt;}}),receipt);
 });

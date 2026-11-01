@@ -111,7 +111,11 @@ export const TASK_RUNTIME_SOURCE_PATHS = Object.freeze([
 ]);
 // Retained source contracts are packaged but never counted as executable imports.
 export const TASK_TYPE_SOURCE_PATHS = Object.freeze(['src/sdk/linked.ts']);
-export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || ORIGIN_CONTINUATION_SOURCE_PATHS.includes(path) || TASK_RUNTIME_SOURCE_PATHS.includes(path) || TASK_TYPE_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/(?:login-core|wallet-entry|tenant-path|native-login-challenge)\.mjs|deploy\/auth-runtime\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
+// Optional on immutable historical releases; new source-mode helpers ship together.
+export const SOURCE_MODE_UPGRADE_SOURCE_PATHS = Object.freeze([
+  'deploy/auth-runtime/source-mode-upgrade.mjs', 'docs/SOURCE-MODE-UPGRADE.md',
+]);
+export const sourcePathAllowed = path => path === TASK_LISTING_PACKAGE_PIN.artifactPath || ORIGIN_CONTINUATION_SOURCE_PATHS.includes(path) || SOURCE_MODE_UPGRADE_SOURCE_PATHS.includes(path) || TASK_RUNTIME_SOURCE_PATHS.includes(path) || TASK_TYPE_SOURCE_PATHS.includes(path) || LEGAL_FILES.includes(path) || /^(?:server\/[a-z][a-z0-9-]*\.mjs|web\/(?:login-core|wallet-entry|tenant-path|native-login-challenge)\.mjs|deploy\/auth-runtime\/(?:(?:install|migrate-legacy)\.mjs|8415wallet-auth\.service|auth-location\.nginx\.conf)|docs\/AUTH-INSTALL\.md|scripts\/package\/verify-auth\.mjs|LICENSE)$/.test(path);
 export function safePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length <= 240 && /^[A-Za-z0-9_@.+/=-]+$/.test(path)
     && path.split('/').every(part => part && part !== '.' && part !== '..');
@@ -261,6 +265,8 @@ export function verifyAuthDirectory(directory, options = {}) {
   if ([CA_AUTH_STATE_SEMANTICS,WALLET_AUTH_STATE_SEMANTICS,AUTH_STATE_SEMANTICS].includes(authStateSemantics(release))) required.push('server/ca-bindings.mjs');
   if([WALLET_AUTH_STATE_SEMANTICS,AUTH_STATE_SEMANTICS].includes(authStateSemantics(release)))required.push('server/wallet-bindings.mjs');
   if(authStateSemantics(release)===AUTH_STATE_SEMANTICS)required.push(...ORIGIN_CONTINUATION_SOURCE_PATHS);
+  if (SOURCE_MODE_UPGRADE_SOURCE_PATHS.some(file => expectedFiles.includes(file)))
+    required.push(...SOURCE_MODE_UPGRADE_SOURCE_PATHS);
   fail(required.every(file => expectedFiles.includes(file)), 'REQUIRED_FILE_MISSING');
   const sourcePackage = JSON.parse(readFileSync(join(directory, 'provenance/package.source.json'), 'utf8'));
   const sourceLock = JSON.parse(readFileSync(join(directory, 'provenance/package-lock.source.json'), 'utf8'));

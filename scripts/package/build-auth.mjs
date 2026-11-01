@@ -5,6 +5,7 @@ import { appendFileSync, chmodSync, closeSync, cpSync, lstatSync, mkdirSync, mkd
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SOURCE_RECEIPT_LAYOUT } from '../../server/auth-integration-provenance.mjs';
 import { cleanupNpmContinuation, consumeNpmContinuation, prepareOrRestoreNpmCLI } from './auth-npm-continuation.mjs';
 import { AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, authSourcePolicy, verifyAuthSourcePolicy, TASK_RUNTIME_SOURCE_PATHS, jsonBytes, packagePathAllowed, runtimePackage, safePath, sha256, sourcePathAllowed, sourceTree, verifyAuthDirectory, verifyTaskListingArtifact, verifyInstalledTaskListingPackage, walkAuth } from './verify-auth.mjs';
 
@@ -253,7 +254,7 @@ export function buildAuthPackage({ root = process.cwd(), offline = false, output
       const files = diagnostics.phase('runtime-inventory', () => Object.fromEntries(walkAuth(stage).map(file => [file, sha256(readFileSync(join(stage, file)))])));
       const npmVersion = diagnostics.phase('npm-version', () => execFileSync('npm', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: authNpmEnvironment(process.env, npmLogs) }).trim(), { child: true });
       const release = { schema: AUTH_SCHEMA, name: '8415wallet-auth-runtime', version: runtime.manifest.version, status: AUTH_STATUS,
-        source, runtime: { node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, entry: 'server/runtime-entry.mjs', tenantArgumentRequired: true, credentialStoreFormat: 5, legacyImportProtocol: 1, authStateSemantics: AUTH_STATE_SEMANTICS, openssl: 'External OpenSSL 3 required only for configured hardware CA verification' },
+        source, runtime: { sourceInstallationReceiptLayout: SOURCE_RECEIPT_LAYOUT, node: '>=22.18.0', bundledNode: false, bundledProductionDependencies: true, entry: 'server/runtime-entry.mjs', tenantArgumentRequired: true, credentialStoreFormat: 5, legacyImportProtocol: 1, authStateSemantics: AUTH_STATE_SEMANTICS, openssl: 'External OpenSSL 3 required only for configured hardware CA verification' },
         build: { node: process.version, npm: npmVersion,
           sourcePolicy: { mode: sourcePolicy.release ? 'release-clean-pinned' : 'development-snapshot',
             ...(sourcePolicy.expectedCommit === undefined ? {} : { expectedCommit: sourcePolicy.expectedCommit }),

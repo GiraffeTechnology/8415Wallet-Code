@@ -13,6 +13,7 @@ export const INSTALLED_SMOKE_RUNTIME_FILES = Object.freeze([
   'server/method-change-service.mjs', 'server/task-background-runner.mjs',
   'src/agent/taskContract.ts', 'server/auth-service.mjs', 'server/main.mjs',
   'server/store.mjs', 'server/crypto.mjs',
+  'server/auth-integration-provenance.mjs', 'deploy/auth-runtime/source-mode-upgrade.mjs',
 ]);
 const load = path => {
   assert.ok(INSTALLED_SMOKE_RUNTIME_FILES.includes(path), 'INSTALLED_SMOKE_MODULE_REFUSED');
@@ -21,6 +22,12 @@ const load = path => {
 const { verifyAuthDirectory, TASK_RUNTIME_SOURCE_PATHS, AUTH_STATE_SEMANTICS } = await load('scripts/package/verify-auth.mjs');
 const release = verifyAuthDirectory(root);
 assert.equal(release.runtime.authStateSemantics, AUTH_STATE_SEMANTICS);
+const { SOURCE_RECEIPT_LAYOUT } = await load('server/auth-integration-provenance.mjs');
+assert.equal(release.runtime.sourceInstallationReceiptLayout, SOURCE_RECEIPT_LAYOUT);
+const sourceUpgrade = await load('deploy/auth-runtime/source-mode-upgrade.mjs');
+assert.equal(typeof sourceUpgrade.planSourceModeUpgrade, 'function');
+assert.equal(typeof sourceUpgrade.finalizeSourceModeUpgrade, 'function');
+assert.ok(Object.hasOwn(release.files, 'docs/SOURCE-MODE-UPGRADE.md'));
 // Keep an explicit installed-source inventory independent of the package manifest.
 // Read APIs and their shared view/standalone dependencies belong to this runtime.
 assert.deepEqual(TASK_RUNTIME_SOURCE_PATHS, [
