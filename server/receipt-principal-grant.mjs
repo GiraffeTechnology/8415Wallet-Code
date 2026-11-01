@@ -21,7 +21,9 @@ export function assertReceiptPrincipalTaskBinding(raw,{task,executor,reference})
   p.receipt.segmentId===policy.intent.segmentId&&p.receipt.planDigest===slot.planDigest&&p.receipt.journalBindingHash===slot.journalBindingHash&&
   p.task.taskId===policy.taskId&&p.task.taskDigest===task.digest&&p.task.executorDigest===executor.digest&&
   p.task.grantReference===reference&&p.task.grantPolicyVersion==='1'&&
-  BigInt(p.mintTerms.registrationDeadline)<=BigInt(policy.expiresAt));
+  // Rollback evidence is expressed in integer seconds strictly after the
+  // registration deadline; that second must still precede grant expiry.
+  BigInt(p.mintTerms.registrationDeadline)+1n<BigInt(policy.expiresAt));
  check(p.currency.kind==='native'?sale.paymentToken==='0x'+'0'.repeat(40):p.currency.contract===sale.paymentToken);
  return p;
 }

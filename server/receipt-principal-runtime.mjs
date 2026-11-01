@@ -82,7 +82,7 @@ export function createReceiptPrincipalRuntime({store,authorization,fundsReader,f
    owner.account===p.account&&owner.chainId===p.chainId&&typeof owner.username==='string'&&owner.username.length>0,'RECEIPT_PRINCIPAL_AUTHORITY_BINDING_REFUSED',403);
   check(Number.isSafeInteger(s.expiresAtMs)&&s.expiresAtMs>=0,'RECEIPT_PRINCIPAL_AUTHORITY_EXPIRY_REFUSED',500);
   if(action!==null){check(now()<s.expiresAtMs,'RECEIPT_PRINCIPAL_AUTHORITY_EXPIRED',403);
-   if(action==='freeze')check(BigInt(s.expiresAtMs)>=BigInt(p.mintTerms.registrationDeadline)*1000n&&BigInt(Math.floor(now()/1000))<=BigInt(p.mintTerms.registrationDeadline),'RECEIPT_PRINCIPAL_MINT_WINDOW_REFUSED');}
+   if(action==='freeze')check(BigInt(s.expiresAtMs)>(BigInt(p.mintTerms.registrationDeadline)+1n)*1000n&&BigInt(Math.floor(now()/1000))<=BigInt(p.mintTerms.registrationDeadline),'RECEIPT_PRINCIPAL_MINT_WINDOW_REFUSED');}
   return Object.freeze({...s,purpose:p,principal:Object.freeze(owner)});
  }
  function heldCheck(revalidate,p,action){const current=revalidate();check(!current||typeof current.then!=='function','RECEIPT_PRINCIPAL_ASYNC_REVALIDATION_REFUSED',500);return scope(current,p,action);}

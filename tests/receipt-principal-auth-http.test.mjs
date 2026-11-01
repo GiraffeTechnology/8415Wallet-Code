@@ -5,6 +5,13 @@ import {fixture,policy,template,a,h,origin,epoch} from './helpers/principal-auth
 import {receiptPrincipalPurposeDigest} from '../src/agent/receiptPrincipal.ts';
 import {taskVerificationPolicyKey} from '../server/task-verification-state.mjs';
 import {digest} from '../server/crypto.mjs';
+
+for(const gap of [0n,1n,2n])test('normal principal approval requires a usable rollback second before expiry: gap '+gap,async t=>{
+ const f=await fixture(t),p=template(),original=policy();p.mintTerms.registrationDeadline=(BigInt(original.expiresAt)-gap).toString();
+ const r=await f.call('tasks/prepare',{policy:original,receiptPrincipal:p});
+ if(gap<2n)assert.notEqual(r.status,200);
+ else{assert.equal(r.status,200);assert.equal((await f.call('tasks/authorize',f.approval(r.data))).status,200);}
+});
 test('normal password/CSRF/task approval persists the exact new purpose and reopens its original owner gate',async t=>{
  const f=await fixture(t),c=await f.prepare();assert.equal(c.approvalFactor,'preoperational-default-on');assert.equal(c.receiptPrincipalPurposeDigest,receiptPrincipalPurposeDigest(c.receiptPrincipalPurpose));
  assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);

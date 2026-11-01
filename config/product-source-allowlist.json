@@ -1479,14 +1479,14 @@
     {
       "path": "server/receipt-principal-grant.mjs",
       "mode": "100644",
-      "git_blob_sha1": "26e5e70cac518310a292959d1240a0a087c0966e",
-      "sha256": "b8342f86ddf7e762871b49e5b1a89c2f42ac68f742b0861ad98f4e1bca13975c"
+      "git_blob_sha1": "3bd48da6471fbbb156c9649b8512875f5c328e4a",
+      "sha256": "7716943bd9c5b4470fc13e3254d6f0a758de7512092d0125c26f3c871c6cd73d"
     },
     {
       "path": "server/receipt-principal-runtime.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e6cb5ce6bb465e6f70d12c57aba6bb4e802a81d2",
-      "sha256": "bcfc8d4e1fbcbea787217e368eaa971dbc526f91fadb15672221d41d5522bd4f"
+      "git_blob_sha1": "7607ca656470246889dc91541481c1066b5a9339",
+      "sha256": "5f135cb4b07ca5ed5a2dc8212eceaa0863da89c9c3712661cf6241cadc7b1496"
     },
     {
       "path": "server/receipt-provider-handler.mjs",
