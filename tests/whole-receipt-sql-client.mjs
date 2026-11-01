@@ -85,8 +85,8 @@ try {
  const restoredStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(restoredStatus.status,200);assert.equal(restoredStatus.data.authorization.reference,selected.principal.grantReference);assert.equal(providerCalls,0);
  // The original provider transport fails at its first code read, after
  // the native wallet-start CAS. Reconcile that durable attempt; never resend.
- const request={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
- await assert.rejects(restoredHandle.execute(request),{message:'TASK_RECEIPT_OUTCOME_UNKNOWN_RECONCILE_ONLY'});
+ const executionRequest={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
+ await assert.rejects(restoredHandle.execute(executionRequest),{message:'TASK_RECEIPT_OUTCOME_UNKNOWN_RECONCILE_ONLY'});
  assert.ok(providerMethods.includes('eth_getCode'));assert.equal(sendCalls,0);
  const started=await restoredHandle.read('observe',selected.rawPlan);
  assert.equal(started.operation.id,created.operation.id);assert.deepEqual(started.operation.plan,created.operation.plan);
@@ -96,7 +96,7 @@ try {
  const reconcileHandle=host.wholeReceipt.operation({task:context.task,claimed:selected.claimed});
  const reconciled=await reconcileHandle.read('observe',selected.rawPlan);assert.deepEqual(reconciled.operation,started.operation);
  const beforeRetry=providerCalls;
- await assert.rejects(reconcileHandle.execute(request),{message:'RECEIPT_RECOVER_EXISTING_OPERATION'});assert.equal(providerCalls,beforeRetry);assert.equal(sendCalls,0);
+ await assert.rejects(reconcileHandle.execute(executionRequest),{message:'RECEIPT_RECOVER_EXISTING_OPERATION'});assert.equal(providerCalls,beforeRetry);assert.equal(sendCalls,0);
  const finalStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(finalStatus.status,200);assert.deepEqual(finalStatus.data.receiptAttempts,unknownStatus.data.receiptAttempts);
  console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',journalHostRestartRead:'PASS',revision:reconciled.operation.revision,status:reconciled.operation.status,walletStarted:reconciled.operation.walletStarted,providerCalls,providerMethods,sendCalls,transactions:0,CAS:'PASS',unknownBeforeSend:'PASS',restartReconciliation:'PASS',repeatExecute:'REFUSED_NO_NEW_PROVIDER_IO',SEND:'NOT_RUN_COMPILED_ESCROW_FIXTURE_REQUIRED'}));
 }finally{
