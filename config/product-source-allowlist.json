@@ -1814,14 +1814,14 @@
     {
       "path": "server/v2/runtime-files.json",
       "mode": "100644",
-      "git_blob_sha1": "a86e4b4837ec136476fe3a0ca102b3a8fa98d2c6",
-      "sha256": "e5ce86c3a3fb603f91e0193b66f24cf9fff668a2ed67b18be0a76a850c2f5e61"
+      "git_blob_sha1": "1d4c7a3b41cf7e13b695ea7398a1967092cb82d8",
+      "sha256": "c244bf597f573021f8b55b08175c8325cf857c6d2625a5ae24b87b7b3e06b4bc"
     },
     {
       "path": "server/v2/task-exact-operation-planner.mjs",
       "mode": "100644",
-      "git_blob_sha1": "606fac9eccc7398b47f47f3ee9dba5dbf7852130",
-      "sha256": "a466345e081632b31174d3fcac4030b62542b31690fdf3984b381a75db2ecb21"
+      "git_blob_sha1": "024fd886ef82f929ce5ab4d52172a5aef9054c5d",
+      "sha256": "de3609767fe245c3b4dded87d88ffbdc7435b3e1605762bd843bb4cf57d9ea06"
     },
     {
       "path": "server/v2/task-exact-runtime.mjs",
@@ -1832,8 +1832,8 @@
     {
       "path": "server/v2/task-exact-signer-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "65a7ca0418fb94feedd77417a11076e088eead14",
-      "sha256": "650ad0fde9b54ebabe0f13b9856a4ca2b5518e592f4b2f30a2666f57bfec531b"
+      "git_blob_sha1": "673c3584c871022d541eb36089ffd1fcb18250e7",
+      "sha256": "f2576a559eba7fdfcc3605e14cd5ca47acfad866871aaabbfbd5d48d0d2d24be"
     },
     {
       "path": "server/v2/task-listing-installed.mjs",
@@ -1850,8 +1850,8 @@
     {
       "path": "server/v2/task-receipt-adapter.mjs",
       "mode": "100644",
-      "git_blob_sha1": "8b16def53108059aeaa81a8bd75c23cd0002af85",
-      "sha256": "742eabc736497cc73068d33b5ebbdc207d7a51b848e2c085d30b0fdcc440cd4e"
+      "git_blob_sha1": "77f6555582e99e405d6f00a195dd2a6bccc62c20",
+      "sha256": "a8f8cf1254b31627da1d4e9850dc7df31ec98f71c731c650348559cb14ad2b5a"
     },
     {
       "path": "server/wallet-bindings.d.mts",
