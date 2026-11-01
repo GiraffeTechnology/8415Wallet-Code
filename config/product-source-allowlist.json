@@ -1479,8 +1479,8 @@
     {
       "path": "server/receipt-principal-grant.mjs",
       "mode": "100644",
-      "git_blob_sha1": "3bd48da6471fbbb156c9649b8512875f5c328e4a",
-      "sha256": "7716943bd9c5b4470fc13e3254d6f0a758de7512092d0125c26f3c871c6cd73d"
+      "git_blob_sha1": "a00d93aba473e1c7a4fce76dcd3e1842bccc5546",
+      "sha256": "c10a77b46d929349b27cadd3b3e77d65edbadc10de7f1dd9156b6accd67928f3"
     },
     {
       "path": "server/receipt-principal-runtime.mjs",
