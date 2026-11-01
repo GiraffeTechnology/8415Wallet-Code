@@ -54,6 +54,6 @@ test('altered persisted mapping or queued principal refuses without fallback to 
 test('generation5 missing its exact mapping refuses startup rather than selecting canonical default authority',async()=>{
   const store=new MemoryCredentialStore();store.originTransitionBinding=()=>({minimumGeneration:5});
   const router=createOriginRealmRouter({store,tenant,transportOrigin:origin,createRealm:()=>({taskService:{
-    receiptAuthorization:{},listingAuthorization:{},cancel(){},background:{}}})});
+    receiptPrincipalAuthorization:{},receiptAuthorization:{},listingAuthorization:{},cancel(){},background:{}}})});
   await assert.rejects(router.ready,/AUTH_ORIGIN_REALM_REFUSED/);await assert.rejects(router.forSession(alice),/AUTH_ORIGIN_REALM_REFUSED/);
 });
