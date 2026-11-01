@@ -1067,8 +1067,8 @@
     {
       "path": "scripts/controls/task-auth-runtime-smoke.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b42ed4046632b8a6a4a29ffb4cd5aed41c8d490e",
-      "sha256": "1ad2b095a6e8020297e957250862b413ed7d5b71f04a074d0418b0bd61c45432"
+      "git_blob_sha1": "026b3f9b75086a601834c371d4d86b679286d596",
+      "sha256": "293df0b0ea211a250fd4da265dab4f2e7ca336810746b08e08449a0f62fd323c"
     },
     {
       "path": "scripts/package/archive-v2.mjs",
