@@ -7,7 +7,7 @@ import { validateAuthConfig } from './config-validation.mjs';
 import { installedMailEnvironment } from './mail-config.mjs';
 import { assertAuthConfigurationStable } from './configuration-transition.mjs';
 /** Fixed functions from a profile's reviewed composition, never JSON module paths. */
-export async function runCredentialEntry({ ensureRuntimeCondition, startAuthFromEnvironment, readSources = null }) {
+export async function runCredentialEntry({ ensureRuntimeCondition, startAuthFromEnvironment, readSources = null, wholeReceipt = null }) {
 if (typeof ensureRuntimeCondition !== 'function' || typeof startAuthFromEnvironment !== 'function') throw Error('AUTH_RUNTIME_COMPOSITION_REQUIRED');
 if (process.argv.length !== 4 || process.argv[2] !== '--tenant' || !/^[a-z][a-z0-9-]{0,47}$/.test(process.argv[3])) throw Error('AUTH_SERVICE_TENANT_REQUIRED');
 const tenant = process.argv[3], name = `8415wallet-auth-${tenant}`;
@@ -46,7 +46,7 @@ try {
   if (!/^[a-fA-F0-9]{64}$/.test(text)) throw Error('AUTH_CREDENTIAL_FORMAT_REFUSED');
   process.env.WALLET_AUTH_STORE_KEY = text; process.env.WALLET_AUTH_CONFIG = configPath;
   Object.assign(process.env, await installedMailEnvironment(config.mail, credentialDirectory, privateFile));
-  await startAuthFromEnvironment({ readSources });
+  await startAuthFromEnvironment({ readSources, wholeReceipt });
 } finally {
   key?.fill(0); delete process.env.WALLET_AUTH_STORE_KEY; delete process.env.WALLET_AUTH_CONFIG;
   for (const name of ['WALLET_AUTH_SMTP_PORT', 'WALLET_AUTH_SMTP_USERNAME', 'WALLET_AUTH_SMTP_PASSWORD']) delete process.env[name];

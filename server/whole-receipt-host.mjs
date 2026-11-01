@@ -12,6 +12,23 @@ function fields(value, keys) {
   return Object.fromEntries(keys.map(key => [key, descriptors[key].value]));
 }
 
+/** The original bootstrap imports both factories through its existing module
+ * route. This composition passes the host's existing opaque TLS context only
+ * to the transport factory; it never reads key material or creates a listener. */
+export function createWholeReceiptBootstrapBinding(raw) {
+  const input = fields(raw, ['createInstallation', 'createJournalTransport', 'journalStore',
+    'consumerPeerId', 'taskExecutorIdentity', 'provider', 'journal']);
+  const journal = fields(input.journal, ['url', 'peerId', 'secureContext']);
+  if (typeof input.createInstallation !== 'function' || typeof input.createJournalTransport !== 'function' ||
+      typeof journal.url !== 'string' || typeof journal.peerId !== 'string' ||
+      !journal.secureContext || typeof journal.secureContext !== 'object') refuse();
+  const transport = input.createJournalTransport({ url: journal.url, secureContext: journal.secureContext });
+  if (typeof transport !== 'function') refuse();
+  return Object.freeze({ createInstallation: input.createInstallation, journalStore: input.journalStore,
+    consumerPeerId: input.consumerPeerId, taskExecutorIdentity: input.taskExecutorIdentity, provider: input.provider,
+    journal: Object.freeze({ url: journal.url, peerId: journal.peerId, transport }) });
+}
+
 /** The existing ArtFi bootstrap supplies its factory and original provider/journal
  * capabilities. The original auth host supplies its own credential store. */
 export function createWholeReceiptHost({ binding, store, now = Date.now }) {

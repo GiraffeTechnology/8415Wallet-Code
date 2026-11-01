@@ -341,7 +341,7 @@ test('candidate protocol must declare its persistent migration startup fence', a
   assert.match(transition, /AUTH_CONFIG_TRANSITION_IN_PROGRESS/);
   const fence = core.indexOf('await assertAuthConfigurationStable(configPath)');
   const readConfig = core.indexOf('const config = JSON.parse');
-  const start = core.indexOf('await startAuthFromEnvironment({ readSources })');
+  const start = core.indexOf('await startAuthFromEnvironment(');
   assert.ok(fence >= 0 && readConfig > fence && start > readConfig);
   const release = JSON.parse(await readFile(join(f.options.packageDirectory, 'AUTH-RELEASE.json'))); assert.equal(release.runtime.legacyImportProtocol, 1);
 });

@@ -22,7 +22,10 @@ import './task-receipt-runtime.mjs';
 import './task-listing-results.mjs';
 import '../web/task-listing-results.mjs';
 import { loadInstalledTaskListingModules } from './task-listing-installed.mjs';
-await loadInstalledTaskListingModules();
+const installedListingModules = await loadInstalledTaskListingModules();
+for (const name of ['createWholeReceiptInstallation', 'createNftTaskJournalHttpsTransport']) {
+  if (typeof installedListingModules[name] !== 'function') throw Error('TASK_RECEIPT_INSTALLED_FACTORY_REQUIRED');
+}
 import './main.mjs';
 
 

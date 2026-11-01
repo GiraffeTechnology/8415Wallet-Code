@@ -1,12 +1,12 @@
 /** Exact reviewed product-artifact identity, generated from its complete manifest. */
 export const TASK_LISTING_PACKAGE_PIN = Object.freeze({
   "artifactPath": "vendor/artfi-task-listing-runtime-1.0.0.tgz",
-  "artifactSha256": "02280e223272fa3be30718352195a75fcc3a8d23ae500c5b124154361b4a7bf2",
-  "artifactIntegrity": "sha512-3KwP1ENRzFfzWHuLXLKwOH5gbjU81lzTzf5itwucLpx2sMkLG1D35p0batNFMIz3lRkHkwJ8VVjFUsDV/OuaQA==",
-  "manifestSha256": "7322af3b54aa068fd95ba1289be3b69a719dbf66d5b70d1ca3fbbf67a784ef0b",
+  "artifactSha256": "4dbc79138059d170c08a352e6ae8f7e5461232fd39317e3394a6c08353ba484c",
+  "artifactIntegrity": "sha512-OfBHDOhP1hD+uEDuC+RuPbhDHN1iqTw2Aw+Lt45ExfcwX0yIl2yozZi8VBdu5jm2xd8qtiSbo5IcF064E8QpPA==",
+  "manifestSha256": "48cc6208eef99e6640db2a9b99b20137b336b434274488a4d71d92085b8ee444",
   "packageName": "@artfi/task-listing-runtime",
   "packageVersion": "1.0.0",
-  "sourceFingerprint": "608b32f8cd27558516478745928e5390bdfd3382f42c478bcec0076bec7d3faf",
+  "sourceFingerprint": "1506d9a87b3ee76e0a2e9264ebafef0e1d05e3494285f661ade5914850aab2b1",
   "packages": [
     {
       "path": "node_modules/@adraffy/ens-normalize",
@@ -81,42 +81,42 @@ export const TASK_LISTING_PACKAGE_PIN = Object.freeze({
     {
       "path": "node_modules/@opensea/api-types",
       "name": "@opensea/api-types",
-      "version": "0.15.1",
-      "originalPackageSha256": "1c20af4a798d63e5a118d06ee28651dd6be14dbe7b26c7d6a32434c633834c3a",
-      "normalizedPackageSha256": "1c20af4a798d63e5a118d06ee28651dd6be14dbe7b26c7d6a32434c633834c3a",
+      "version": "0.16.1",
+      "originalPackageSha256": "5f54c5901f479d0405e11e20fa351215395746f734bfda9bc0cf3294c87cacbe",
+      "normalizedPackageSha256": "5f54c5901f479d0405e11e20fa351215395746f734bfda9bc0cf3294c87cacbe",
       "source": {
         "kind": "pnpm-lock-integrity",
-        "lockKey": "@opensea/api-types@0.15.1",
-        "integrity": "sha512-fMgHl0MxiTO7uTpB8yD47yzWCFKpVVkV1E+bM8eSxQmZ2hb6ktPVssJg911m3HW7mPTV5FyI/v2iH/FAEQ5TNA==",
-        "registryTarball": "https://registry.npmjs.org/@opensea/api-types/-/api-types-0.15.1.tgz",
+        "lockKey": "@opensea/api-types@0.16.1",
+        "integrity": "sha512-sina5GBj+ERlX5BJ6ydJo2ShAUixTtbGpb3KJEpPwaY6SAUTMidZ/xeOC9lhQW8DWN3UJjIT6vGTuKT6PNoE4g==",
+        "registryTarball": "https://registry.npmjs.org/@opensea/api-types/-/api-types-0.16.1.tgz",
         "registryURLDerived": true
       }
     },
     {
       "path": "node_modules/@opensea/sdk",
       "name": "@opensea/sdk",
-      "version": "12.11.2",
-      "originalPackageSha256": "9066b3d44502b45c357e8fb10a8b19ee7cfc52a7116ae3b73b9e6b45ff439040",
-      "normalizedPackageSha256": "9066b3d44502b45c357e8fb10a8b19ee7cfc52a7116ae3b73b9e6b45ff439040",
+      "version": "12.12.0",
+      "originalPackageSha256": "e9eb8fb5fbb843aa5a9d894b86e007b1469ee2ce7d85f3199a39a241c301e61e",
+      "normalizedPackageSha256": "e9eb8fb5fbb843aa5a9d894b86e007b1469ee2ce7d85f3199a39a241c301e61e",
       "source": {
         "kind": "pnpm-lock-integrity",
-        "lockKey": "@opensea/sdk@12.11.2",
-        "integrity": "sha512-JTZqbXyJ5HySJsQtkbEvwokcjvb88fMczjXu7NT8974KJssnP1DQPQCCn8aikWOXWy12dnSJomsGdiLRd1H5zA==",
-        "registryTarball": "https://registry.npmjs.org/@opensea/sdk/-/sdk-12.11.2.tgz",
+        "lockKey": "@opensea/sdk@12.12.0",
+        "integrity": "sha512-YnXarhNYrwUwNAd5OxSjwfJPaW7FbDqFLKLtz3645NkZksGPgZZ1z8FDrX9nOYkwSwhuKPXWv7pNhFg56e4cNA==",
+        "registryTarball": "https://registry.npmjs.org/@opensea/sdk/-/sdk-12.12.0.tgz",
         "registryURLDerived": true
       }
     },
     {
       "path": "node_modules/@opensea/seaport-js",
       "name": "@opensea/seaport-js",
-      "version": "4.3.0",
-      "originalPackageSha256": "642f75bed88af94885e50c6ddd7ad4c50b42b79dc7f72538dddcc08cc8d19c37",
-      "normalizedPackageSha256": "920d187ef0407af013b0e9708979f5df6beb2651e6e1bd4bf23ed4e8078df31e",
+      "version": "4.4.0",
+      "originalPackageSha256": "b789921857672cda5917753195044392837e7bf83f36f7fecda1a39eb5e2928f",
+      "normalizedPackageSha256": "d1bdf03287a889deca29f99de9b327a298a1fbdcfda42e769053d8be98c4b0f2",
       "source": {
         "kind": "pnpm-lock-integrity",
-        "lockKey": "@opensea/seaport-js@4.3.0",
-        "integrity": "sha512-rRUiqMX9Dqo7bj+UYRZtO5mOZeRTfFQpCan21qgWCWDNno+PV7KYHsGJCWsxJc5ga84+o60uAxPP6achZE6C3g==",
-        "registryTarball": "https://registry.npmjs.org/@opensea/seaport-js/-/seaport-js-4.3.0.tgz",
+        "lockKey": "@opensea/seaport-js@4.4.0",
+        "integrity": "sha512-KxObdPbLzSyFC4Yw4WmnOetI9RnbbaBrdNid0hn22QA/SIIlm73mFDOP8KCimt73OVl/MeLMApXNiiUk1rLZ/A==",
+        "registryTarball": "https://registry.npmjs.org/@opensea/seaport-js/-/seaport-js-4.4.0.tgz",
         "registryURLDerived": true
       }
     },
@@ -408,12 +408,12 @@ export const TASK_LISTING_PACKAGE_PIN = Object.freeze({
       "normalizedPackageSha256": "e4b0cc01e2e0349c51c694fa97d8a642eb8322521ca1444b20bd1842594b4339",
       "source": {
         "kind": "next-compiled",
-        "sourcePackage": "next@16.3.5",
+        "sourcePackage": "next@16.4.2",
         "parent": {
           "kind": "pnpm-lock-integrity",
-          "lockKey": "next@16.3.5",
-          "integrity": "sha512-MdtsTgzyfCPRLC6uJ1mN8ao7lyJ4BB0U6Inhnx3gta1UcCIdHK3yxLG0E8OWQteWD8/Q0qb8A5o7wJaL8M9y2w==",
-          "registryTarball": "https://registry.npmjs.org/next/-/next-16.3.5.tgz",
+          "lockKey": "next@16.4.2",
+          "integrity": "sha512-r+oBJojfefUjOiWkBhXgLS+igxX/7BWyK59uHnyOyplMSLtBZ+QLP3okrdYTbrfrbrmNTVWLBPaHDX9KRaIt3w==",
+          "registryTarball": "https://registry.npmjs.org/next/-/next-16.4.2.tgz",
           "registryURLDerived": true
         },
         "markerFiles": {
@@ -520,6 +520,36 @@ export const TASK_LISTING_PACKAGE_PIN = Object.freeze({
         "registryTarball": "https://registry.npmjs.org/ws/-/ws-8.21.0.tgz",
         "registryURLDerived": true
       }
+    },
+    {
+      "path": "node_modules/zod",
+      "name": "zod",
+      "version": "4.6.5",
+      "originalPackageSha256": "a046ed85fa09571dba539fee9ef236152d12dabd1f229b014ec3bd2ebaad9000",
+      "normalizedPackageSha256": "a046ed85fa09571dba539fee9ef236152d12dabd1f229b014ec3bd2ebaad9000",
+      "source": {
+        "kind": "pnpm-lock-integrity",
+        "lockKey": "zod@4.6.5",
+        "integrity": "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==",
+        "registryTarball": "https://registry.npmjs.org/zod/-/zod-4.6.5.tgz",
+        "registryURLDerived": true
+      }
     }
+  ],
+  "dependencies": {
+    "@opensea/sdk": "12.12.0",
+    "@opensea/seaport-js": "4.4.0",
+    "ethers": "6.17.0",
+    "server-only": "0.0.1",
+    "viem": "2.56.0",
+    "zod": "4.6.5"
+  },
+  "bundleDependencies": [
+    "@opensea/sdk",
+    "@opensea/seaport-js",
+    "ethers",
+    "server-only",
+    "viem",
+    "zod"
   ]
 });
