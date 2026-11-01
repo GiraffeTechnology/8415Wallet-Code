@@ -1049,8 +1049,8 @@
     {
       "path": "package-lock.json",
       "mode": "100644",
-      "git_blob_sha1": "c069f9bc6ece79d7060fc216aa9d342d5b78effa",
-      "sha256": "ecdd531ce2aefc99a02a9df59e9f8917b2b21762c07f5d7259c99cff0cd06427"
+      "git_blob_sha1": "15186f6c9a02055239ab7b813fb286667a27e97a",
+      "sha256": "934c80f12c763962389adbbdba7342cc50e3688a3717896bfd75f1de964499b1"
     },
     {
       "path": "package.json",
@@ -1163,8 +1163,8 @@
     {
       "path": "scripts/package/supervise-auth.py",
       "mode": "100644",
-      "git_blob_sha1": "08898aa9d497e4e43da18ba78ab031048477f20c",
-      "sha256": "3fa9d91bed2157e059582a4f86885650bb404e321b9b255e764c1336f8a1820b"
+      "git_blob_sha1": "09cb56b937d6001e3b8f64b197d4188431ee14da",
+      "sha256": "50a3cce2dc9dedcaadf001f81972192c6b7238e7277f13fe358806f0b0a0da87"
     },
     {
       "path": "scripts/package/v2-public-isolation.mjs",
@@ -1655,8 +1655,8 @@
     {
       "path": "server/task-listing-package-pin.mjs",
       "mode": "100644",
-      "git_blob_sha1": "420d17e944d6787c060e7af5395ced8c7eced0e0",
-      "sha256": "9e3045066f6f032c68e00b3800757f7832bbe9ac135a43ee55a20a78a0052455"
+      "git_blob_sha1": "273627528b8c866a06c378da880e050e93d3ad9d",
+      "sha256": "bab4ad759cfb7c1c205d92197598da9fcf3b2502b151db966fa418288263269b"
     },
     {
       "path": "server/task-listing-results.mjs",
@@ -2819,8 +2819,8 @@
     {
       "path": "vendor/artfi-task-listing-runtime-1.0.0.tgz",
       "mode": "100644",
-      "git_blob_sha1": "cfbafd9df5bf86b16a2c1182655ee7f5afef52d6",
-      "sha256": "961d0b1183aa083b6177c115243fcf6992a8cfa6cd35a1acc52cf87e7ec21630"
+      "git_blob_sha1": "0c7b4fa4d5dd62a708d1d1f6cc1d6b43ba36b003",
+      "sha256": "46cd102dd97aed5c8539b4497676a32f8641a3774784430d6337b271264cced8"
     },
     {
       "path": "web/about-entry.mjs",

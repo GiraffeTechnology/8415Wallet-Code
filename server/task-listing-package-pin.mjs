@@ -1,12 +1,12 @@
 /** Exact reviewed product-artifact identity, generated from its complete manifest. */
 export const TASK_LISTING_PACKAGE_PIN = Object.freeze({
   "artifactPath": "vendor/artfi-task-listing-runtime-1.0.0.tgz",
-  "artifactSha256": "961d0b1183aa083b6177c115243fcf6992a8cfa6cd35a1acc52cf87e7ec21630",
-  "artifactIntegrity": "sha512-KBuY8ZPwvtEabrJ3uXrr4O6jjNWqi+RRmMqCBqdNaeviowd956nUJC80FtyMGvov+uDr/xIzqR6qjXM7gvv7fQ==",
-  "manifestSha256": "8551879038c3b145b70aee129b770c9a83b869a7cee627d8456c02bbf961aa05",
+  "artifactSha256": "46cd102dd97aed5c8539b4497676a32f8641a3774784430d6337b271264cced8",
+  "artifactIntegrity": "sha512-cDYPbgH5oKofDHJLn3T+zivxLff50pvRcoi5xzTQRPxX4ivWvuFgxKo9B5X9HXsEe4ifKHIf/wCBcQ5unuJUJQ==",
+  "manifestSha256": "e1f58eb98bc18565ffd617c1ff938148f5b962f7a981d93be78c085f492891cf",
   "packageName": "@artfi/task-listing-runtime",
   "packageVersion": "1.0.0",
-  "sourceFingerprint": "b38c4b928bf7deb87b595db83874569932df5b66b12416c54abd59f9d8e3564b",
+  "sourceFingerprint": "8761d191ab4fd31da8d565591c4bcd57e8778ac035f077ba6ce36b2079824072",
   "packages": [
     {
       "path": "node_modules/@adraffy/ens-normalize",

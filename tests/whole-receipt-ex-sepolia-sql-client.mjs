@@ -96,6 +96,10 @@ try {
   return (await handle.read('observe',selected.rawPlan)).operation;
  }
  const consumed=await originalJournal(selected.principal,'get',{id:created.operation.id});assert.deepEqual(consumed,created.operation);assert.equal(providerCalls,0);
+ console.log(JSON.stringify({stage:'ex-original-native-journal-ready',view:'ex-sepolia-simulation',chainId:11155111,
+  authSteps:steps,normalServiceGrant:true,journalCreate:'PASS',journalRead:'PASS',authenticatedCallableRead:'PASS',
+  nativeOperationId:consumed.id,revision:consumed.revision,status:consumed.status,walletStarted:consumed.walletStarted,
+  requestHash:consumed.requestHash,updatedAt:consumed.updatedAt,providerCalls,transactions:0}));
  let exConsumer=null;
  if(process.env.EX_ORIGINAL_JOURNAL_RUNNER){
   const runnerPath=process.env.EX_ORIGINAL_JOURNAL_RUNNER,runnerHash=process.env.EX_ORIGINAL_JOURNAL_RUNNER_SHA256;
@@ -118,7 +122,16 @@ try {
     try{const operation=await originalJournal(frame.principal,frame.action,frame.body);readCalls++;runner.stdin.write(JSON.stringify({schema:'ex-original-journal-response/1',sequence:frame.sequence,operation})+'\n');}
     catch{runner.stdin.write(JSON.stringify({schema:'ex-original-journal-response/1',sequence:frame.sequence,error:'EX_JOURNAL_CALL_REFUSED'})+'\n');throw Error('EX_JOURNAL_CALL_REFUSED');}
    }
-   const [code,signal]=await ended;assert.equal(timedOut,false,'EX_RUNNER_TIMEOUT');assert.equal(code,0,'EX_RUNNER_EXIT_'+String(signal));assert.ok(exConsumer&&readCalls>0,'EX_RUNNER_ACTUAL_JOURNAL_READ_REQUIRED');
+   const [code,signal]=await ended;
+   if(code!==0){
+    const kinds=['ValueError','TypeError','KeyError','RuntimeError','AssertionError','ImportError','ModuleNotFoundError'];
+    console.error(JSON.stringify({stage:'ex-original-consumer-failed',exitCode:code,signal,timedOut,hostCompletedReads:readCalls,
+     childStatus:exConsumer?.status==='REFUSED'?'REFUSED':'NOT_REPORTED',
+     childErrorType:kinds.includes(exConsumer?.errorType)?exConsumer.errorType:'NOT_REPORTED',
+     childReadCount:Number.isSafeInteger(exConsumer?.liveOriginalReads)&&exConsumer.liveOriginalReads>=0&&exConsumer.liveOriginalReads<=2?exConsumer.liveOriginalReads:null,
+     stderrPresent:runnerError.length>0,stderrErrorClass:kinds.find(kind=>runnerError.includes(kind+':'))??null}));
+   }
+   assert.equal(timedOut,false,'EX_RUNNER_TIMEOUT');assert.equal(code,0,'EX_RUNNER_EXIT_'+String(signal));assert.ok(exConsumer&&readCalls>0,'EX_RUNNER_ACTUAL_JOURNAL_READ_REQUIRED');
   }finally{clearTimeout(timer);runner.stdin.end();if(runner.exitCode===null&&!runner.killed)runner.kill('SIGTERM');await ended;}
  }
  console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',view:'ex-sepolia-simulation',chainId:11155111,authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',authenticatedCallableRead:'PASS',nativeOperationId:consumed.id,revision:consumed.revision,status:consumed.status,walletStarted:consumed.walletStarted,requestHash:consumed.requestHash,updatedAt:consumed.updatedAt,exConsumer,providerCalls,transactions:0,EXMapping:exConsumer?'ORIGINAL_EX_RUNNER_RESULT_ATTACHED':'NOT_RUN_ORIGINAL_EX_ADAPTER_REQUIRED',CAS:'NOT_RUN',SEND:'NOT_RUN'}));

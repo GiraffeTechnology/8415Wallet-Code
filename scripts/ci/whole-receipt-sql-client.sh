@@ -6,7 +6,16 @@ set -euo pipefail
 }
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
-EVIDENCE="$ROOT/dist/receipt-sql-ci-evidence"
+CLIENT=tests/whole-receipt-sql-client.mjs
+EVIDENCE_NAME=receipt-sql-ci-evidence
+if (( $# > 1 )) || { (( $# == 1 )) && [[ $1 != --revoked ]]; }; then
+  echo "RECEIPT_SQL_CLIENT_SELECTION_REFUSED" >&2; exit 1
+fi
+if (( $# == 1 )); then
+  CLIENT=tests/whole-receipt-sql-revoked-client.mjs
+  EVIDENCE_NAME=receipt-revoked-sql-ci-evidence
+fi
+EVIDENCE="$ROOT/dist/$EVIDENCE_NAME"
 mkdir -p "$EVIDENCE"
 WORK=$(mktemp -d "$ROOT/.receipt-sql-ci.XXXXXX")
 on_exit() {
@@ -54,4 +63,4 @@ sha256sum "$HOST" | tee "$EVIDENCE/host-sha256.txt"
 export ARTFI_RECEIPT_SOFTWARE_HOST="$HOST"
 export ARTFI_RECEIPT_SOFTWARE_SOURCE="$SOURCE/apps/api/internal/httpapi/testdata/oracle-simulated-registry"
 bash "$SOURCE/scripts/agent/test-mysql-docker.sh" --client \
-  node --conditions=react-server "$ROOT/tests/whole-receipt-sql-client.mjs"
+  node --conditions=react-server "$ROOT/$CLIENT"
