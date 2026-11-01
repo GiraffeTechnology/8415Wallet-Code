@@ -1468,8 +1468,8 @@
     {
       "path": "server/receipt-provider-handler.mjs",
       "mode": "100644",
-      "git_blob_sha1": "e4538c00b8c869f22362937ab4a84316c601ffe3",
-      "sha256": "5ee85276496f5dce13c2c4de11a1b05979d27a263b545445cd91f98fcd08c393"
+      "git_blob_sha1": "0e2dcbb4195aa588468a59c7814804c2d5ae0840",
+      "sha256": "78b64ded025a93d70065e3df735043a71133befa628f859aaf2c733e2b4a80a7"
     },
     {
       "path": "server/recovery-service.mjs",
