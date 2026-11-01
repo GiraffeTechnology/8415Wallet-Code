@@ -88,3 +88,29 @@ The outer process closes its original store and transport only after runtime
 shutdown succeeds. The host does not close the externally owned journal store,
 provider or transport. Failed connection cleanup stays with the original factory,
 including its protection of an unexpected runtime owned by another installation.
+
+### Existing authenticated capability-consumption entry
+
+`createTaskJournalCapabilityHandler(configuration, runtime)` in
+`server/task-listing-bootstrap-core.mjs` is the request handler already used by
+the listing capability listener. It requires an encrypted, verified TLS socket,
+the pinned client fingerprint and exact workload URI SAN before consuming a
+capability. Only POST `/internal/v1/task-journal-capabilities/consume`, JSON,
+non-browser requests of at most 16 KiB are accepted. Its authenticated peer is
+the frozen server configuration identity, never a request header or JSON field.
+
+After connecting the whole-receipt host, its
+`createCapabilityRequestHandler({peerId, clientFingerprint256})` binds this same
+handler to the receipt installation's registry. The peer must be the installation's
+original `consumerPeerId`. This creates no listener and does not mount a route:
+the existing bootstrap must attach the returned handler to its original mTLS
+listener with one explicit registry owner. It must not overwrite an active
+listing registry or try another registry after a consume failure. The public
+auth listener remains outside this internal route. An absent original listener
+binding is still an integration gap; exporting a handler is not a deployed URL.
+
+The bootstrap retains its consume listener during accepted receipt operations.
+It awaits `runtime.stop()` before closing that listener, the external journal
+transport or original stores, so in-flight result recording can consume its
+capability. Existing listing-only bootstrap and its single-registry listener
+continue using the same authenticated handler.

@@ -868,8 +868,8 @@
     {
       "path": "docs/MANAGED-BUSINESS-RUNTIME.md",
       "mode": "100644",
-      "git_blob_sha1": "c3a861c9208fe1d88e56fceaf8df768b4b579327",
-      "sha256": "127a0c71833b3eb14eb7f3f18167dae0163ac5144a69f7b8fb388c5e9c61dc02"
+      "git_blob_sha1": "0ba6c9607a54bdf5198f7b2b82518c76ea5cbe26",
+      "sha256": "3b40172c81710c6f1436153870183510606617d84e572a19d623644face76a60"
     },
     {
       "path": "docs/NATIVE-WALLET-LOGIN.md",
@@ -1054,8 +1054,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "94cedf6206420e9d8af98b7792e354b46ebfa2f7",
-      "sha256": "2a6b28bce06f97b9c9110ace4921065f25e552a51e3ae3e682d8b6873e24cfde"
+      "git_blob_sha1": "cc3f0ac658371e5fb300467935db288a4c096130",
+      "sha256": "56013c4f4e49d2863736e45275717d5641e49e5a494ad98d31aa2df740194a0c"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1618,14 +1618,14 @@
     {
       "path": "server/task-listing-bootstrap-core.mjs",
       "mode": "100644",
-      "git_blob_sha1": "347f9cf3c453532affe492b61e03b27d067c6cee",
-      "sha256": "3560e308468a669802d874a6e6990c5c6ae84a6e03a99450b0e3da9b9607b263"
+      "git_blob_sha1": "acd5683f8a84e414a71fb5af7e07ce3c0ed65542",
+      "sha256": "f3585a299fa1e5af9ff2fdf153ae9646bf6f7e7bafef86e2a100b401d2a3b11f"
     },
     {
       "path": "server/task-listing-bootstrap.mjs",
       "mode": "100644",
-      "git_blob_sha1": "4f89deb4f08aba4505c908e04bf7def82f7d72c7",
-      "sha256": "2b5fe16f82e5b706017aeb195326dc4e1d0339456f3732effd59a533851d44ba"
+      "git_blob_sha1": "da0d932b33d4c6e1ab768d2c822f437efd759a29",
+      "sha256": "e967559ce12ed9a085efb467ecb80c8b7f7f654c0107b1a00f565e6048b8dc98"
     },
     {
       "path": "server/task-listing-config.mjs",
@@ -1852,8 +1852,8 @@
     {
       "path": "server/whole-receipt-host.mjs",
       "mode": "100644",
-      "git_blob_sha1": "6db54bf2789e5a7f2d8310dd7cdb4c3c4c57332b",
-      "sha256": "ff6bc1b62061d4dce529bc56dc6502ee4d018aefbd069e227ecff901ce6d0305"
+      "git_blob_sha1": "d2b3e787b153ceb67f013bfb74a801087edb4da9",
+      "sha256": "69b964b991f957a5719bfcc77dc5f6ef1cbf19d7bb0c72aecc7ccfd0351ee524"
     },
     {
       "path": "src/adapters/kit/kitApi.ts",
