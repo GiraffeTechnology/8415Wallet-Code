@@ -114,3 +114,26 @@ It awaits `runtime.stop()` before closing that listener, the external journal
 transport or original stores, so in-flight result recording can consume its
 capability. Existing listing-only bootstrap and its single-registry listener
 continue using the same authenticated handler.
+
+### Host-owned journal transport construction
+
+`createWholeReceiptBootstrapBinding` accepts the existing installation factory,
+the existing journal transport factory, the original journal store, consumer
+peer, executor identity, provider, and `journal: {url, peerId, secureContext}`.
+The original bootstrap obtains the two factories through its existing module
+route. It passes `createWholeReceiptInstallation` as `createInstallation` and
+`createNftTaskJournalHttpsTransport` as `createJournalTransport`.
+
+The helper constructs the transport once with `{url, secureContext}`. The TLS
+context remains the host's existing opaque object: no key/certificate files are
+read, identity created, resource closed or transport implementation copied.
+The resulting immutable binding is passed as `wholeReceipt` to the existing
+auth runtime. Its journal has exactly `{url, peerId, transport}`; TLS construction
+options do not enter the installation factory's journal schema, configuration
+JSON or a caller request. The transport receives the consumer's original
+request and errors without retries, body rewriting or exception translation.
+
+This source composition does not load a module, select a provider or mount the
+capability listener. Those original bootstrap bindings and their actual
+instances must still be verified separately. The host's existing stop/drain and
+resource ownership rules remain in force.
