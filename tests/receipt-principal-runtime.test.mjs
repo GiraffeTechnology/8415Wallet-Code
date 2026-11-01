@@ -217,7 +217,7 @@ for(const reference of ['ledger/hold/123','ledger/hold/'+ 'x'.repeat(500)]){
   const root=await mkdtemp(join(tmpdir(),'wallet-principal-opaque-')),path=join(root,'TEST_ONLY.enc'),secret=Buffer.alloc(32,0x59);let store=await openEncryptedStore(path,secret),f=fixture(store,reference),resumed;
   try{f.clock.throwAfterCommit=true;await assert.rejects(f.runtime.freeze(f.p,request('opaque-lost')),/OUTCOME_UNKNOWN_READ_FIRST/);await f.runtime.stop();await store.close();store=await openEncryptedStore(path,secret);
    resumed=createReceiptPrincipalRuntime({...f.options(),store});assert.equal((await resumed.read(f.p)).status,'unknown');const held=await resumed.reconcile(f.p);assert.equal(held.status,'held');assert.equal(held.holdReference,reference);assert.deepEqual(await resumed.read(f.p),held);assert.equal(f.calls.freeze,1);assert.equal(f.calls.reconcile,1);
-   const settled=await resumed.settle(f.p,request('opaque-after-restart',held.revision,'test-registration'));assert.equal(settled.status,'settled');assert.equal(settled.holdReference,reference);assert.equal(f.calls.freeze,1);assert.equal(f.calls.settle,1);
+   f.clock.throwAfterCommit=false;const settled=await resumed.settle(f.p,request('opaque-after-restart',held.revision,'test-registration'));assert.equal(settled.status,'settled');assert.equal(settled.holdReference,reference);assert.equal(f.calls.freeze,1);assert.equal(f.calls.settle,1);
   }finally{await resumed?.stop();await f.runtime.stop();await store.close();assert.ok(root.startsWith(join(tmpdir(),'wallet-principal-opaque-')));await rm(root,{recursive:true,force:true});}
  });
 }
