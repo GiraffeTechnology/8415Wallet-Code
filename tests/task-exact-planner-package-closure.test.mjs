@@ -95,7 +95,7 @@ test('actual checked-in source inspection resolves the installed runtime import 
       'origin-continuation-context', 'origin-realm-router', 'origin-transition-state', 'rpc-funds-reader', 'store-state-generation',
       'task-asset-control-catalog', 'task-asset-control-policy', 'task-asset-control-state', 'task-listing-bootstrap-core', 'wallet-read-runtime',
       'method-change-service', 'recovery-service', 'registration-service', 'socket-path', 'store',
-      'task-authorization', 'task-background-runner', 'task-verification-policy'].map(name => `server/${name}.mjs`), 'web/login-core.mjs', 'web/tenant-path.mjs', 'web/wallet-entry.mjs'])].sort());
+      'task-authorization', 'task-background-runner', 'task-verification-policy', 'whole-receipt-host'].map(name => `server/${name}.mjs`), 'web/login-core.mjs', 'web/tenant-path.mjs', 'web/wallet-entry.mjs'])].sort());
   assert.deepEqual(graph.dependencies, ['@artfi/task-listing-runtime/server', 'ethers']);
 });
 

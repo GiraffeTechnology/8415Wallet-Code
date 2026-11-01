@@ -59,3 +59,32 @@ prior durable authority existed, and its journal binds both configured and
 effective origins. Existing initialized origin-scoped grants still require the
 separate durable continuation mechanism; they cannot select this path. A plain
 JSON object is not a first-write admission capability.
+
+## Whole-receipt host composition
+
+The process composition may supply `wholeReceipt` with exactly
+`createInstallation`, `journalStore`, `consumerPeerId`, `taskExecutorIdentity`,
+`provider`, and `journal`. The existing ArtFi bootstrap owns these original
+capabilities and its existing module loading route. Configuration JSON and HTTP
+requests cannot supply them. The host supplies its original credential `store`,
+`createTaskReceiptRuntime`, and `createReceiptProviderHandler` to that factory.
+The journal store must be independent. Its auth options enter the existing
+artfi channel composer, and the original handler's four-method
+`taskReceiptAuthorization` is connected once without an authority proxy.
+
+The returned service-private `wholeReceipt` exposes operation composition and
+authenticated-peer capability consumption to the existing bootstrap. It adds
+no HTTP route, listener, loader, identity or credentials. A deployment still
+needs its genuine provider, native journal, mTLS transport and peer bindings;
+source composition and contract fixtures do not establish those bindings.
+
+Shutdown initiates HTTP listener closure and fences new receipt operations,
+then waits for accepted create/read/execute promises, including their result
+recording. Capability consumption remains forwarded during that drain.
+Installation `stop()` is synchronous and is called only after accepted operations
+settle; it is not itself evidence of a drain. UNKNOWN rejections remain the
+original errors and never trigger cancellation, resend or reservation release.
+The outer process closes its original store and transport only after runtime
+shutdown succeeds. The host does not close the externally owned journal store,
+provider or transport. Failed connection cleanup stays with the original factory,
+including its protection of an unexpected runtime owned by another installation.
