@@ -37,7 +37,7 @@ const softwareReceiptBoundary=runtime.createSimulatedRegistryReceiptBusinessBoun
 const binding=Object.freeze(structuredClone(softwareReceiptBoundary.source.association.journal));
 assert.equal(binding.runtimeCodeHash,'0xf662c0028b6ce5ed175ece4da97f0ca45a5e4230ea73c5c6592cd80b4d12f9ff');
 const beforeRPC=await readFile(sourceState);
-const rpcResult=execFileSync(process.execPath,[join(sourceRoot,'rpc-read-check.mjs'),sourceState,join(root,'separate-v1-source.json')],{encoding:'utf8'});
+const rpcResult=execFileSync(process.execPath,[join(sourceRoot,'rpc-read-check.mjs'),sourceState,join(root,'separate-v1-source.simulated-registry.json')],{encoding:'utf8'});
 assert.equal(rpcResult.trim(),'ORIGINAL_V2_CANONICAL_RUNTIME_READ_ONLY_PASS');assert.deepEqual(await readFile(sourceState),beforeRPC);
 console.log(JSON.stringify({stage:'original-v2-canonical-rpc-read',result:rpcResult.trim(),runtimeBytes:9286,readOnly:true,accountsAndSend:'REFUSED_BY_ORIGINAL_SOURCE',stateMutation:false}));
 assert.deepEqual(dataset.association.journal,binding);assert.equal(dataset.business.chainId,31337);
