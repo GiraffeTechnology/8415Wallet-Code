@@ -10,7 +10,7 @@ import {normalizeReceiptPrincipalPurpose,receiptPrincipalPurposeDigest} from '..
 const a=n=>'0x'+n.repeat(40),h=n=>'0x'+n.repeat(64);
 function input(){return normalizeReceiptPrincipalPurpose({schema:'8415-receipt-principal-purpose/1',reservationId:'test-reservation',tenant:'test-wallet',origin:'https://wallet.example',account:a('1'),chainId:'31337',currency:{kind:'erc20',contract:a('2'),decimals:6},amountBaseUnits:'500000000',payee:a('3'),task:{taskId:'test-parent',taskDigest:h('1'),executorDigest:h('2'),grantReference:'TEST_ONLY_SYNTHETIC_AUTHORITY',grantPolicyVersion:'1',operationId:'test-operation'},receipt:{collection:a('4'),tokenId:'7',segmentId:h('3'),planDigest:h('4'),journalBindingHash:h('5')},lineage:{id:'test-lineage',index:'2',previousReservationId:'test-previous'},mintTerms:{policyVersion:'test-policy.v1',assetId:'test-asset',tokenId:'7',source:{chainId:'31337',contract:a('6'),registerId:'registry:7',sourceAuthority:'TEST_ONLY_SOURCE'},mintRecordCommitment:h('7'),mintPolicyHash:h('6'),registrationDeadline:'2000000000'}});}
 const request=(eventId,expectedRevision='0',evidenceReference=null)=>({eventId,expectedRevision,evidenceReference});
-function fixture(store=new MemoryCredentialStore()){
+function fixture(store=new MemoryCredentialStore(),holdReference='test-original-hold'){
  const p=input(),digest=receiptPrincipalPurposeDigest(p),clock={now:1800000000000,revoked:false,readSource:'ready',evidenceRefused:false,evidenceChanged:false,throwAfterCommit:false,skipCommitGuard:false};
  const financial={balance:1000000000n,payee:0n,holds:new Map(),effects:new Map()},calls={freeze:0,settle:0,release:0,reconcile:0,reads:0};
  const authStore={TEST_ONLY:true};
@@ -23,9 +23,9 @@ function fixture(store=new MemoryCredentialStore()){
  const fundsReader={async readForPrincipal(context){calls.reads++;return {schema:'8415-authoritative-funds/1',scope:{...context.principal},readId:context.readId,observedAt:clock.now,validUntil:clock.now+60000,inventoryState:clock.readSource==='partial'?'partial':'complete',currencies:[{currency,state:clock.readSource==='unavailable'?'unavailable':'ready',balanceBasis:'total-includes-escrow',balanceBaseUnits:financial.balance.toString(),blockHash:h('a'),escrowState:'complete',escrows:[...financial.holds.values()].map(v=>({kind:'financial-principal',reservationId:p.reservationId,nftId:'test-nft:7',currency,amountBaseUnits:p.amountBaseUnits,state:v.status,blockHash:h('a')}))}]};}};
  const result=(action,reference)=>({schema:'8415-receipt-principal-effect/1',action,effectId:p.reservationId+':'+action,purposeDigest:digest,outcome:'confirmed',reference,amountBaseUnits:p.amountBaseUnits,recipient:action==='settle'?p.payee:p.account});
  const fundsEffects={
-  async freezeExisting(fixed,guard){calls.freeze++;assert.equal(fixed.purposeDigest,digest);assert.equal(fixed.holdReference,null);if(!clock.skipCommitGuard)guard();checkPurpose(fixed.purpose);checkAvailable();financial.holds.set(p.reservationId,{status:'held',reference:'test-original-hold'});financial.effects.set(fixed.effectId,result('freeze','test-original-hold'));if(clock.pause){clock.entered();await clock.pause;}if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('freeze','test-original-hold');},
-  async settleHeld(fixed,guard){calls.settle++;guard();assert.equal(fixed.holdReference,'test-original-hold');const held=financial.holds.get(p.reservationId);assert.equal(held.status,'held');financial.balance-=BigInt(p.amountBaseUnits);financial.payee+=BigInt(p.amountBaseUnits);held.status='released';financial.effects.set(fixed.effectId,result('settle','test-settlement'));if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('settle','test-settlement');},
-  async releaseHeld(fixed,guard){calls.release++;guard();assert.equal(fixed.holdReference,'test-original-hold');assert.equal(financial.holds.get(p.reservationId).status,'held');financial.holds.get(p.reservationId).status='refunded';financial.effects.set(fixed.effectId,result('release','test-release'));if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('release','test-release');},
+  async freezeExisting(fixed,guard){calls.freeze++;assert.equal(fixed.purposeDigest,digest);assert.equal(fixed.holdReference,null);if(!clock.skipCommitGuard)guard();checkPurpose(fixed.purpose);checkAvailable();financial.holds.set(p.reservationId,{status:'held',reference:holdReference});financial.effects.set(fixed.effectId,result('freeze',holdReference));if(clock.pause){clock.entered();await clock.pause;}if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('freeze',holdReference);},
+  async settleHeld(fixed,guard){calls.settle++;guard();assert.equal(fixed.holdReference,holdReference);const held=financial.holds.get(p.reservationId);assert.equal(held.status,'held');financial.balance-=BigInt(p.amountBaseUnits);financial.payee+=BigInt(p.amountBaseUnits);held.status='released';financial.effects.set(fixed.effectId,result('settle','test-settlement'));if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('settle','test-settlement');},
+  async releaseHeld(fixed,guard){calls.release++;guard();assert.equal(fixed.holdReference,holdReference);assert.equal(financial.holds.get(p.reservationId).status,'held');financial.holds.get(p.reservationId).status='refunded';financial.effects.set(fixed.effectId,result('release','test-release'));if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('release','test-release');},
   async reconcile(fixed){calls.reconcile++;assert.equal(fixed.purposeDigest,digest);const effect=financial.effects.get(fixed.effectId);assert.ok(effect,'TEST_ONLY_ORIGINAL_EFFECT_EVIDENCE_REQUIRED');return structuredClone(effect);}
  };
  function checkAvailable(){const held=[...financial.holds.values()].filter(x=>x.status==='held').length*Number(p.amountBaseUnits);assert.ok(financial.balance-BigInt(held)>=BigInt(p.amountBaseUnits));}
@@ -202,3 +202,22 @@ test('journal observation accessors are rejected without invocation or funds que
   await assert.rejects(f.runtime.reconcile(f.p));assert.equal(getters,0);assert.equal(f.calls.reconcile,0);assert.equal(f.calls.freeze,1);
  }finally{await close(f);}
 });
+
+for(const reference of ['ledger/hold/123','ledger/hold/'+ 'x'.repeat(500)]){
+ for(const action of ['settle','release'])test('opaque hold '+reference.length+' characters persists and reaches '+action+' unchanged',async()=>{
+  const f=fixture(new MemoryCredentialStore(),reference);try{
+   const held=await f.runtime.freeze(f.p,request('opaque-freeze'));assert.equal(held.status,'held');assert.equal(held.holdReference,reference);
+   assert.equal((await f.runtime.read(f.p)).holdReference,reference);
+   if(action==='release')f.clock.now=2000000001000;
+   const terminal=action==='settle'?await f.runtime.settle(f.p,request('opaque-settle',held.revision,'test-registration')):await f.runtime.rollback(f.p,request('opaque-release',held.revision,'test-rollback'));
+   assert.equal(terminal.status,action==='settle'?'settled':'released');assert.equal(terminal.holdReference,reference);assert.equal(f.calls.freeze,1);assert.equal(f.calls[action],1);
+  }finally{await close(f);}
+ });
+ test('opaque hold '+reference.length+' characters survives encrypted restart and original-effect reconciliation',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'wallet-principal-opaque-')),path=join(root,'TEST_ONLY.enc'),secret=Buffer.alloc(32,0x59);let store=await openEncryptedStore(path,secret),f=fixture(store,reference),resumed;
+  try{f.clock.throwAfterCommit=true;await assert.rejects(f.runtime.freeze(f.p,request('opaque-lost')),/OUTCOME_UNKNOWN_READ_FIRST/);await f.runtime.stop();await store.close();store=await openEncryptedStore(path,secret);
+   resumed=createReceiptPrincipalRuntime({...f.options(),store});assert.equal((await resumed.read(f.p)).status,'unknown');const held=await resumed.reconcile(f.p);assert.equal(held.status,'held');assert.equal(held.holdReference,reference);assert.deepEqual(await resumed.read(f.p),held);assert.equal(f.calls.freeze,1);assert.equal(f.calls.reconcile,1);
+   f.clock.throwAfterCommit=false;const settled=await resumed.settle(f.p,request('opaque-after-restart',held.revision,'test-registration'));assert.equal(settled.status,'settled');assert.equal(settled.holdReference,reference);assert.equal(f.calls.freeze,1);assert.equal(f.calls.settle,1);
+  }finally{await resumed?.stop();await f.runtime.stop();await store.close();assert.ok(root.startsWith(join(tmpdir(),'wallet-principal-opaque-')));await rm(root,{recursive:true,force:true});}
+ });
+}

@@ -2001,8 +2001,8 @@
     {
       "path": "src/agent/receiptPrincipal.ts",
       "mode": "100644",
-      "git_blob_sha1": "90756c05251810af01d24de630c2b7ec3e84782d",
-      "sha256": "93ae5fc1e8020982590b4473cea24578d2328af2cb6880eb0ba87834c3ce7122"
+      "git_blob_sha1": "06f656ed34b9c913c3319ea87415934f8e1de99d",
+      "sha256": "1e15c811d6bed862028be531d42f5dadda965ca76476ae2cd64df30352af65dd"
     },
     {
       "path": "src/agent/receiptTask.ts",

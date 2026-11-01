@@ -133,3 +133,13 @@ test('mint provenance preserves full policy version/hash and original registry/g
  for(const change of [{mintPolicyHash:h('8')},{mintRecordCommitment:h('8')},{assetId:'other-asset'},{policyVersion:'other-policy.v2'}])
   assert.notEqual(receiptPrincipalPurposeDigest({...p,mintTerms:{...p.mintTerms,...change}}),receiptPrincipalPurposeDigest(p));
 });
+
+test('opaque hold reference validation agrees at confirmation and persisted-state readback',()=>{
+ for(const reference of ['ledger/hold/123','x'.repeat(512)]){
+  const pending=step(newReceiptPrincipalState(purpose()),{kind:'freeze-started'}),state=step(pending,{...effect(pending,'freeze'),reference});
+  assert.equal(state.holdReference,reference);assert.deepEqual(normalizeReceiptPrincipalState(JSON.parse(JSON.stringify(state))),state);
+ }
+ const good=held();for(const reference of ['', 'x'.repeat(513),' hold','hold ','hold\u0000bad','hold\u007fbad']){
+  const pending=step(newReceiptPrincipalState(purpose()),{kind:'freeze-started'});assert.throws(()=>step(pending,{...effect(pending,'freeze'),reference}));assert.throws(()=>normalizeReceiptPrincipalState({...good,holdReference:reference}));
+ }
+});
