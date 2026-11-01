@@ -75,6 +75,30 @@ export function normalizeReceiptPrincipalPurpose(input: unknown) {
 export type ReceiptPrincipalPurpose = ReturnType<typeof normalizeReceiptPrincipalPurpose>;
 export type ReceiptPrincipalAction = 'freeze' | 'settle' | 'release';
 export type ReceiptPrincipalStatus = 'unreserved' | 'freeze-pending' | 'held' | 'settle-pending' | 'settled' | 'release-pending' | 'released' | 'unknown';
+/** Internal application-facing facts. Only an original server-owned evidence
+ * adapter may establish their provenance; accepting this shape does not do so. */
+export type ReceiptRegistrationFacts = Readonly<{
+  sourceReference: string; purposeDigest: string; mintTermsCommitment: string;
+  chainId: string; collection: string; tokenId: string; registeredHolder: string; registeredAt: string;
+}>;
+export type ReceiptRollbackFacts = Readonly<{
+  sourceReference: string; purposeDigest: string; mintTermsCommitment: string;
+  chainId: string; collection: string; tokenId: string; validHolder: string;
+  observedAt: string; firstUnresolvedIndex: string; registrationCompleted: false;
+}>;
+export type ReceiptPrincipalEffectFacts = Readonly<{
+  action: ReceiptPrincipalAction; effectId: string; reference: string; purposeDigest: string;
+  amountBaseUnits: string; recipient: string;
+}>;
+export type ReceiptPrincipalEvent =
+  | Readonly<{kind: 'freeze-started'}>
+  | Readonly<{kind: 'settle-started'; registration: ReceiptRegistrationFacts}>
+  | Readonly<{kind: 'release-started'; rollback: ReceiptRollbackFacts}>
+  | Readonly<{kind: 'effect-unknown'; action: ReceiptPrincipalAction}>
+  | (Readonly<{kind: 'effect-confirmed' | 'effect-reconciled'}> & ReceiptPrincipalEffectFacts);
+export type ReceiptPrincipalTransition = Readonly<{
+  expectedRevision: string; eventId: string; event: ReceiptPrincipalEvent;
+}>;
 export type ReceiptPrincipalState = Readonly<{
   schema: '8415-receipt-principal-state/1'; purpose: ReceiptPrincipalPurpose; purposeDigest: string;
   revision: string; status: ReceiptPrincipalStatus; holdReference: string | null;
