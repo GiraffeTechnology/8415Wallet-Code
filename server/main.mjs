@@ -1,4 +1,5 @@
 export {createRpcNftInventoryReader} from './nft-inventory-reader.mjs';
+export {createExSepoliaReceiptContent} from './receipt-software-content.mjs';
 /** Explicitly configured auth service; listing is an additive server-only runtime. */
 import { createServer } from 'node:http';
 import { readFile, chmod, lstat } from 'node:fs/promises';
