@@ -11,10 +11,10 @@ const a=n=>'0x'+n.repeat(40),h=n=>'0x'+n.repeat(64);
 function input(){return normalizeReceiptPrincipalPurpose({schema:'8415-receipt-principal-purpose/1',reservationId:'test-reservation',tenant:'test-wallet',origin:'https://wallet.example',account:a('1'),chainId:'31337',currency:{kind:'erc20',contract:a('2'),decimals:6},amountBaseUnits:'500000000',payee:a('3'),task:{taskId:'test-parent',taskDigest:h('1'),executorDigest:h('2'),grantReference:'TEST_ONLY_SYNTHETIC_AUTHORITY',grantPolicyVersion:'1',operationId:'test-operation'},receipt:{collection:a('4'),tokenId:'7',segmentId:h('3'),planDigest:h('4'),journalBindingHash:h('5')},lineage:{id:'test-lineage',index:'2',previousReservationId:'test-previous'},mintTerms:{policyVersion:'test-policy.v1',assetId:'test-asset',tokenId:'7',source:{chainId:'31337',contract:a('6'),registerId:'registry:7',sourceAuthority:'TEST_ONLY_SOURCE'},mintRecordCommitment:h('7'),mintPolicyHash:h('6'),registrationDeadline:'2000000000'}});}
 const request=(eventId,expectedRevision='0',evidenceReference=null)=>({eventId,expectedRevision,evidenceReference});
 function fixture(store=new MemoryCredentialStore(),holdReference='test-original-hold'){
- const p=input(),digest=receiptPrincipalPurposeDigest(p),clock={now:1800000000000,revoked:false,readSource:'ready',evidenceRefused:false,evidenceChanged:false,throwAfterCommit:false,skipCommitGuard:false};
+ const p=input(),digest=receiptPrincipalPurposeDigest(p),clock={expiresAtMs:2000000600000,now:1800000000000,revoked:false,readSource:'ready',evidenceRefused:false,evidenceChanged:false,throwAfterCommit:false,skipCommitGuard:false};
  const financial={balance:1000000000n,payee:0n,holds:new Map(),effects:new Map()},calls={freeze:0,settle:0,release:0,reconcile:0,reads:0};
  const authStore={TEST_ONLY:true};
- const snapshot=()=>({purpose:p,principal:{origin:p.origin,tenant:p.tenant,username:'test-owner',account:p.account,chainId:p.chainId},expiresAtMs:2000000600000});
+ const snapshot=()=>({purpose:p,principal:{origin:p.origin,tenant:p.tenant,username:'test-owner',account:p.account,chainId:p.chainId},expiresAtMs:clock.expiresAtMs});
  const checkPurpose=purpose=>assert.equal(receiptPrincipalPurposeDigest(purpose),digest);
  const authorization={assertIndependentStore(candidate){assert.notEqual(candidate,authStore);},
   async withPurposeAuthorization(purpose,action,fn){checkPurpose(purpose);const check=()=>{if(clock.revoked)throw Error('TEST_AUTHORITY_REVOKED');return snapshot();};return fn(check(),check);},
@@ -221,3 +221,10 @@ for(const reference of ['ledger/hold/123','ledger/hold/'+ 'x'.repeat(500)]){
   }finally{await resumed?.stop();await f.runtime.stop();await store.close();assert.ok(root.startsWith(join(tmpdir(),'wallet-principal-opaque-')));await rm(root,{recursive:true,force:true});}
  });
 }
+
+for(const gap of [0,1000])test('freeze refuses a deadline without a usable rollback window: gap '+gap,async()=>{
+ const f=fixture();try{f.clock.expiresAtMs=2000000000000+gap;await assert.rejects(f.runtime.freeze(f.p,request('no-rollback-window')),/MINT_WINDOW_REFUSED/);assert.equal(f.calls.freeze,0);assert.equal(f.calls.reads,0);assert.equal(await f.runtime.read(f.p),null);}finally{await close(f);}
+});
+test('a two-second grant margin permits freeze then original rollback strictly after deadline and before expiry',async()=>{
+ const f=fixture();try{f.clock.expiresAtMs=2000000002000;const held=await f.runtime.freeze(f.p,request('usable-window-freeze'));f.clock.now=2000000001000;const released=await f.runtime.rollback(f.p,request('usable-window-release',held.revision,'test-rollback'));assert.equal(released.status,'released');assert.equal(f.calls.freeze,1);assert.equal(f.calls.release,1);assert.equal(f.financial.balance,1000000000n);assert.equal(f.financial.payee,0n);assert.equal(f.financial.holds.get(f.p.reservationId).status,'refunded');}finally{await close(f);}
+});
