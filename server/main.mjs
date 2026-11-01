@@ -21,10 +21,11 @@ import { createTaskReceiptAdapter } from './task-receipt-adapter.mjs';
 import { composeWalletReadRuntime } from './wallet-read-runtime.mjs';
 import { assertAuthConfigurationStable } from './configuration-transition.mjs';
 import { createWholeReceiptHost } from './whole-receipt-host.mjs';
+import {composeReceiptPrincipalRuntime} from './receipt-principal-composition.mjs';
 
 /** Reusable process-level entry for an already reviewed server capability object.
  * HTTP request data is never passed as listingRuntime or auth options. */
-export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, readSources = null, wholeReceipt = null, now = Date.now }) {
+export async function createAuthRuntime({ config, store, verifyCa = null, sendOtp = null, listingRuntime = null, exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, readSources = null, wholeReceipt = null, receiptPrincipal = null, now = Date.now }) {
   validateAuthConfig(config);
   const reads = composeWalletReadRuntime({ sources: readSources, fundsReader, nftInventoryReader, now });
   if (exactServerConfiguration !== null && config.exact?.enabled) throw Error('TASK_EXACT_DUPLICATE_CONFIG_REFUSED');
@@ -43,7 +44,7 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
     ...fixedExact, testAssetPins: testAuthorization?.executionPins ?? [], testMint721Bindings: testAuthorization?.mint721Bindings ?? [],
     testNFT721Metadata: testAuthorization?.metadataVerifier ?? null }, now, testAuthorization });
   const listing = listingRuntime ?? await bootstrapTaskListingRuntime({ configuration: config.listing, store, authStatePath: config.statePath, now });
-  let receipt = null;
+  let receipt = null, principal = null;
   try {
   receipt = createWholeReceiptHost({ binding: wholeReceipt, store, now });
   const handler = createAuthService({ origin: config.origin, tenant: config.tenant, basePath: config.basePath ?? '', accounts: config.accounts, store, verifyCa, sendOtp, now,
@@ -55,6 +56,7 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
     taskVerificationPolicyEnabled: true });
   listing.runtime.connectAuthorization(handler.taskListingAuthorization);
   receipt?.connectAuthorization(handler.taskReceiptAuthorization);
+  principal=composeReceiptPrincipalRuntime({binding:receiptPrincipal,authorization:handler.receiptPrincipalAuthorization,fundsReader:reads.fundsReader,tenant:config.tenant,now});
   const background = createTaskBackgroundRunner({ store, continuation: handler.taskBackground, now });
   const server = createServer(handler);
   server.requestTimeout = 10000; server.headersTimeout = 10000; server.timeout = 15000; server.maxHeadersCount = 40;
@@ -65,7 +67,7 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
       // Begin listener closure before waiting for background or receipt work.
       const listenerClosed = server.listening ? new Promise((resolve, reject) =>
         server.close(error => error ? reject(error) : resolve())) : Promise.resolve();
-      const ended = await Promise.allSettled([listenerClosed, background.stop(), receipt?.stop()]);
+      const ended = await Promise.allSettled([listenerClosed, background.stop(), receipt?.stop(), principal?.stop()]);
       const failure = ended.find(result => result.status === 'rejected');
       if (failure) throw failure.reason;
       await listing.stop();
@@ -89,15 +91,16 @@ export async function createAuthRuntime({ config, store, verifyCa = null, sendOt
       started = true; background.start();
     } catch (error) { await stop(); throw error; }
   }
-  return Object.freeze({ handler, server, background, wholeReceipt: receipt, exactState: exact.state, exactCode: exact.code, listingState: listing.runtime.state, listingCode: listing.runtime.code, readState: reads.state, readCodes: reads.codes, start, stop });
-  } catch (error) { try { await receipt?.stop(); } catch { /* Preserve construction failure. */ }
+  return Object.freeze({ handler, server, background, wholeReceipt: receipt, receiptPrincipal: principal, exactState: exact.state, exactCode: exact.code, listingState: listing.runtime.state, listingCode: listing.runtime.code, readState: reads.state, readCodes: reads.codes, start, stop });
+  } catch (error) { try { await principal?.stop(); } catch { /* Preserve construction failure. */ }
+    try { await receipt?.stop(); } catch { /* Preserve construction failure. */ }
     try { await listing.stop(); } catch { /* Preserve the original construction failure. */ } throw error; }
 }
 /** Ports can only come from reviewed server code, never the JSON configuration.
  * Read capabilities and confirmed-mint evidence verification likewise come only
  * from the reviewed process composition; configuration does not fabricate either.
  * CLI/installed defaults remain disabled until the fixed capability is bound. */
-export async function startAuthFromEnvironment({ exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, readSources = null, wholeReceipt = null } = {}) {
+export async function startAuthFromEnvironment({ exactServerConfiguration = null, testAssetEvidenceVerifier = null, forwardProgressReader = null, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, readSources = null, wholeReceipt = null, receiptPrincipal = null } = {}) {
   const configPath = process.env.WALLET_AUTH_CONFIG;
   if (!configPath) throw Error('WALLET_AUTH_CONFIG_REQUIRED');
   await assertAuthConfigurationStable(configPath);
@@ -112,7 +115,7 @@ export async function startAuthFromEnvironment({ exactServerConfiguration = null
     const verifyCa = config.ca ? await createCaVerifier(config.ca) : null;
     const sendOtp = createOtpSenderFromEnvironment(process.env, config.mail);
     runtime = await createAuthRuntime({ config, store, verifyCa, sendOtp, exactServerConfiguration, testAssetEvidenceVerifier,
-      forwardProgressReader, assetControlCatalogReader, fundsReader, nftInventoryReader, readSources, wholeReceipt });
+      forwardProgressReader, assetControlCatalogReader, fundsReader, nftInventoryReader, readSources, wholeReceipt, receiptPrincipal });
     runtime.server.on('error', async error => {
       process.stderr.write(`AUTH_LISTENER_FAILED_${/^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : 'UNKNOWN'}\n`);
       await runtime.stop(); await store.close(); process.exitCode = 1;
