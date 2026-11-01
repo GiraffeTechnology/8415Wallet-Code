@@ -45,12 +45,15 @@ const data=abi.encodeFunctionData('fund',[receipt.sale,receipt.correspondence,'0
 const wire={account:binding.actor,chainId:'31337',to:binding.escrow,data,value:'0',nonce:'1',gasLimit:'21000',maxFeePerGasWei:'2',maxPriorityFeePerGasWei:'1'};
 const statePath=join(root,'credentials.enc');
 const store=await openEncryptedStore(statePath,Buffer.alloc(32,0x52));
-const epoch=Date.now(),steps=[];let providerCalls=0,host,peer,child,childEnded;
+const epoch=Date.now(),steps=[];let providerCalls=0,sendCalls=0,host,peer,child,childEnded;const providerMethods=[];
 const password='synthetic-owner-passphrase';
+async function stopJournal(){
+ if(child&&!child.killed&&child.exitCode===null){child.stdin.end(JSON.stringify({command:'stop'})+'\n');const [code]=await Promise.race([childEnded,new Promise((_,reject)=>setTimeout(()=>reject(Error('ORIGINAL_JOURNAL_DRAIN_TIMEOUT')),15000).unref())]);assert.equal(code,0);}
+}
 try {
  host=await createAuthRuntime({config:{origin:binding.origin,tenant:binding.tenant,port:31999,statePath,accounts:[{username:'owner',passwordHash:await hashPassword(password),wallets:[{account:binding.actor,chainId:'31337'}]}]},store,now:Date.now,
  listingRuntime:{runtime:disabledTaskListingRuntime(),async start(){},async stop(){}},
- wholeReceipt:createWholeReceiptBootstrapBinding({createInstallation:options=>runtime.createWholeReceiptInstallation({...options,softwareReceiptBoundary}),createJournalTransport:runtime.createNftTaskJournalHttpsTransport,journalStore:{},consumerPeerId:'spiffe://artfi/journal',taskExecutorIdentity:{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:'0x'+'9'.repeat(64)},provider:{request(){providerCalls++;throw Error('NO_PROVIDER_IO');}},journal:{url:`https://127.0.0.1:${journalPort}/internal/v1/nft/operations`,peerId:'spiffe://artfi/wallet',secureContext:createSecureContext({cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes})}})});
+ wholeReceipt:createWholeReceiptBootstrapBinding({createInstallation:options=>runtime.createWholeReceiptInstallation({...options,softwareReceiptBoundary}),createJournalTransport:runtime.createNftTaskJournalHttpsTransport,journalStore:{},consumerPeerId:'spiffe://artfi/journal',taskExecutorIdentity:{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:'0x'+'9'.repeat(64)},provider:{request({method}){providerCalls++;providerMethods.push(method);if(method==='eth_accounts')return [binding.actor];if(method==='eth_chainId')return '0x7a69';if(method==='eth_sendTransaction')sendCalls++;throw Error('SIMULATED_PROVIDER_UNAVAILABLE');}},journal:{url:`https://127.0.0.1:${journalPort}/internal/v1/nft/operations`,peerId:'spiffe://artfi/wallet',secureContext:createSecureContext({cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes})}})});
  peer=createTaskJournalCapabilityListener({peerId:'spiffe://artfi/journal',clientFingerprint256:certs.journal.fingerprint},{cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes},host.wholeReceipt);
  peer.listen(0,'127.0.0.1');await once(peer,'listening');
  host.server.listen(0,'127.0.0.1');await once(host.server,'listening');let jar=new Map(),csrf='';
@@ -63,18 +66,43 @@ try {
  assert.equal(providerCalls,0);assert.equal(selected.rawPlan.taskPrincipal.grantReference,status.data.authorization.reference);
  const journalEnv={...process.env,ARTFI_SOFTWARE_TEST_HOST:'1',ARTFI_TASK_JOURNAL_ENABLED:'true',ARTFI_TASK_JOURNAL_ADDR:`127.0.0.1:${journalPort}`,ARTFI_TASK_JOURNAL_TLS_CERT_FILE:certs.journal.cert,ARTFI_TASK_JOURNAL_TLS_KEY_FILE:certs.journal.key,ARTFI_TASK_JOURNAL_CLIENT_CA_FILE:certs.ca,ARTFI_TASK_JOURNAL_PEER_URI:'spiffe://artfi/wallet',ARTFI_TASK_JOURNAL_AUTHORITY_CA_FILE:certs.ca,ARTFI_TASK_JOURNAL_AUTHORITY_CERT_FILE:certs.journal.cert,ARTFI_TASK_JOURNAL_AUTHORITY_KEY_FILE:certs.journal.key,ARTFI_TASK_JOURNAL_CAPABILITY_URL:`https://127.0.0.1:${peer.address().port}/internal/v1/task-journal-capabilities/consume`};
  assert.ok(journalEnv.ARTFI_TASK_JOURNAL_MYSQL_DSN,'ORIGINAL_ISOLATED_SQL_FIXTURE_REQUIRED');
+ async function startJournal(){
  child=spawn(helper,['--isolated-software-test'],{env:journalEnv,stdio:['pipe','pipe','pipe']});
  childEnded=once(child,'exit');let stderr='';child.stderr.on('data',b=>{stderr=(stderr+b).slice(-1024);});
  const lines=createInterface({input:child.stdout});const ready=Promise.race([once(lines,'line').then(([line])=>JSON.parse(line)),childEnded.then(([code])=>{throw Error('ORIGINAL_JOURNAL_HOST_EXIT_'+code+':'+stderr);}),new Promise((_,reject)=>setTimeout(()=>reject(Error('ORIGINAL_JOURNAL_READY_TIMEOUT')),15000).unref())]);
  child.stdin.write(JSON.stringify({schema:'artfi-task-journal-software-test-host/1',datasetBase64:sourceRaw.toString('base64'),statePath:sourceState,principal:selected.principal})+'\n');
  const bound=await ready;assert.equal(bound.schema,'artfi-task-journal-software-test-host/1');assert.equal(bound.mode,'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY');assert.equal(bound.address,`127.0.0.1:${journalPort}`);
+ }
+ await startJournal();
  const handle=host.wholeReceipt.operation({task:context.task,claimed:selected.claimed});
  const created=await handle.create(selected.rawPlan,selected.rawWire);assert.equal(created.executionAuthorization,'NOT_ESTABLISHED');assert.equal(created.operation.id,selected.rawPlan.operationId);assert.equal(created.operation.revision,1);assert.equal(created.operation.status,'awaiting-wallet');assert.equal(created.operation.walletStarted,false);
  const read=await handle.read('observe',selected.rawPlan);assert.deepEqual(read.operation,created.operation);assert.equal(providerCalls,0);
- console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',revision:read.operation.revision,status:read.operation.status,walletStarted:read.operation.walletStarted,providerCalls,transactions:0,CAS:'NOT_RUN_PROVIDER_CODE_REVIEW_REQUIRED',SEND:'NOT_RUN_COMPILED_ESCROW_FIXTURE_REQUIRED'}));
+ console.log(JSON.stringify({stage:'first-create-read',journalCreate:'PASS',journalRead:'PASS',revision:read.operation.revision,status:read.operation.status,walletStarted:read.operation.walletStarted,providerCalls,transactions:0}));
+ // Reconstruct the original native host and producer handle over the same SQL,
+ // source and service-created grant. A confirmed create is never replayed.
+ await stopJournal();await startJournal();
+ const restoredHandle=host.wholeReceipt.operation({task:context.task,claimed:selected.claimed});
+ const restored=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(restored.operation,created.operation);
+ const restoredStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(restoredStatus.status,200);assert.equal(restoredStatus.data.authorization.reference,selected.principal.grantReference);assert.equal(providerCalls,0);
+ // The original provider transport fails at its first code read, after
+ // the native wallet-start CAS. Reconcile that durable attempt; never resend.
+ const executionRequest={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
+ await assert.rejects(restoredHandle.execute(executionRequest),{message:'TASK_RECEIPT_OUTCOME_UNKNOWN_RECONCILE_ONLY'});
+ assert.ok(providerMethods.includes('eth_getCode'));assert.equal(sendCalls,0);
+ const started=await restoredHandle.read('observe',selected.rawPlan);
+ assert.equal(started.operation.id,created.operation.id);assert.deepEqual(started.operation.plan,created.operation.plan);
+ assert.equal(started.operation.requestHash,created.operation.requestHash);assert.equal(started.operation.revision,2);assert.equal(started.operation.status,'awaiting-wallet');assert.equal(started.operation.walletStarted,true);assert.equal(started.operation.transactionHash,undefined);
+ const unknownStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(unknownStatus.status,200);assert.equal(unknownStatus.data.receiptAttempts.length,1);assert.equal(unknownStatus.data.receiptAttempts[0].status,'outcome-unknown');assert.equal(unknownStatus.data.receiptAttempts[0].transactionHash,null);
+ await stopJournal();await startJournal();
+ const reconcileHandle=host.wholeReceipt.operation({task:context.task,claimed:selected.claimed});
+ const reconciled=await reconcileHandle.read('observe',selected.rawPlan);assert.deepEqual(reconciled.operation,started.operation);
+ const beforeRetry=providerCalls;
+ await assert.rejects(reconcileHandle.execute(executionRequest),{message:'RECEIPT_RECOVER_EXISTING_OPERATION'});assert.equal(providerCalls,beforeRetry);assert.equal(sendCalls,0);
+ const finalStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(finalStatus.status,200);assert.deepEqual(finalStatus.data.receiptAttempts,unknownStatus.data.receiptAttempts);
+ console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',journalHostRestartRead:'PASS',revision:reconciled.operation.revision,status:reconciled.operation.status,walletStarted:reconciled.operation.walletStarted,providerCalls,providerMethods,sendCalls,transactions:0,CAS:'PASS',unknownBeforeSend:'PASS',restartReconciliation:'PASS',repeatExecute:'REFUSED_NO_NEW_PROVIDER_IO',SEND:'NOT_RUN_COMPILED_ESCROW_FIXTURE_REQUIRED'}));
 }finally{
  await host?.stop();
- if(child&&!child.killed&&child.exitCode===null){child.stdin.end(JSON.stringify({command:'stop'})+'\n');const [code]=await Promise.race([childEnded,new Promise((_,reject)=>setTimeout(()=>reject(Error('ORIGINAL_JOURNAL_DRAIN_TIMEOUT')),15000).unref())]);assert.equal(code,0);}
+ await stopJournal();
  if(peer?.listening)await new Promise(r=>peer.close(r));await store.close();
  for(const fn of cleanup)await fn();await rm(root,{recursive:true,force:true});
 }
