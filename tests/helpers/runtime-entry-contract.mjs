@@ -7,14 +7,14 @@ import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import { validateAuthConfig } from '../../server/config-validation.mjs';
 
 const source = readFileSync(new URL('../../server/runtime-entry-core.mjs', import.meta.url), 'utf8');
-async function invoke(options, uid = 0) {
+async function invoke(options, uid = 0, transitioning = false) {
   const tenant = 'fixture', name = '8415wallet-auth-' + tenant;
   const configDirectory = '/etc/' + name, credentialDirectory = '/run/credentials/' + name + '.service';
   const config = { tenant, origin: 'https://wallet.example.invalid',
     statePath: '/var/lib/' + name + '/credentials.enc', socketPath: '/run/' + name + '/auth.sock',
     accounts: [{ username: 'owner', wallets: [{ account: '0x' + '1'.repeat(40), chainId: '31337' }] }] };
   const env = { CREDENTIALS_DIRECTORY: credentialDirectory };
-  let reads = 0, starts = 0, forwarded;
+  let reads = 0, starts = 0, forwarded; const events = [];
   const simulated = { argv: ['node', 'fixed-entry.mjs', '--tenant', tenant], platform: 'linux',
     getuid: () => uid, geteuid: () => uid, env };
   const context = createContext({ process: simulated, Buffer });
@@ -25,7 +25,7 @@ async function invoke(options, uid = 0) {
   };
   const dependencies = {
     'node:fs/promises': {
-      async open(path) { const bytes = bytesFor(path); reads++;
+      async open(path) { const bytes = bytesFor(path); reads++; events.push(path === configDirectory + '/auth.json' ? 'config-read' : 'key-read');
         return { async stat() { return { isFile: () => true, nlink: 1, uid: 0, gid: 0,
           mode: 0o600, size: bytes.length }; }, async readFile() { return Buffer.from(bytes); }, async close() {} }; },
       async lstat(path) { return { isDirectory: () => true, isSymbolicLink: () => false,
@@ -40,7 +40,8 @@ async function invoke(options, uid = 0) {
       return validateAuthConfig(JSON.parse(JSON.stringify(value))); } },
     './mail-config.mjs': { async installedMailEnvironment() { return {}; } },
     './configuration-transition.mjs': { async assertAuthConfigurationStable(path) {
-      assert.equal(path, configDirectory + '/auth.json'); } },
+      assert.equal(path, configDirectory + '/auth.json'); events.push('fence');
+      if (transitioning) throw Error('AUTH_CONFIG_TRANSITION_IN_PROGRESS'); } },
   };
   const module = new SourceTextModule(source, { context });
   await module.link(async specifier => {
@@ -52,12 +53,18 @@ async function invoke(options, uid = 0) {
   await module.evaluate();
   const action = module.namespace.runCredentialEntry({ ...options,
     async ensureRuntimeCondition(value) { assert.equal(value, undefined); },
-    async startAuthFromEnvironment(value) { starts++; forwarded = value; } });
+    async startAuthFromEnvironment(value) { events.push('start'); starts++; forwarded = value; } });
   if (uid !== 0) {
     await assert.rejects(action, /AUTH_SERVICE_IDENTITY_REQUIRED/);
     assert.equal(reads, 0); assert.equal(starts, 0); return;
   }
+  if (transitioning) {
+    await assert.rejects(action, /AUTH_CONFIG_TRANSITION_IN_PROGRESS/);
+    assert.equal(reads, 0); assert.equal(starts, 0); assert.deepEqual(events, ['fence']);
+    assert.equal(env.WALLET_AUTH_STORE_KEY, undefined); assert.equal(env.WALLET_AUTH_CONFIG, undefined); return;
+  }
   await action; assert.equal(starts, 1); assert.equal(reads, 2);
+  assert.deepEqual(events, ['fence', 'config-read', 'key-read', 'start']);
   assert.strictEqual(forwarded.readSources, options.readSources ?? null);
   assert.strictEqual(forwarded.wholeReceipt, options.wholeReceipt ?? null);
   assert.equal(env.WALLET_AUTH_STORE_KEY, undefined); assert.equal(env.WALLET_AUTH_CONFIG, undefined);
@@ -66,4 +73,5 @@ await invoke({});
 await invoke({ readSources: Object.freeze({ opaqueReadCapability: true }),
   wholeReceipt: Object.freeze({ opaqueReceiptCapability: true }) });
 await invoke({ wholeReceipt: Object.freeze({ opaqueReceiptCapability: true }) }, 1000);
+await invoke({ wholeReceipt: Object.freeze({ opaqueReceiptCapability: true }) }, 0, true);
 console.log('CREDENTIAL_ENTRY_WHOLE_RECEIPT_PASS');
