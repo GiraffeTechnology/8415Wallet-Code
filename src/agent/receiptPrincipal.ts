@@ -157,6 +157,9 @@ function registrationFacts(raw: unknown, p: ReceiptPrincipalPurpose, digest: str
   requireThat(BigInt(uint(e.registeredAt)) <= BigInt(p.mintTerms.registrationDeadline), 'RECEIPT_PRINCIPAL_LATE_REGISTRATION_REFUSED');
   return e;
 }
+export function normalizeReceiptRegistrationFacts(raw: unknown, input: unknown) {
+  const p = normalizeReceiptPrincipalPurpose(input); return freeze(registrationFacts(raw,p,receiptPrincipalPurposeDigest(p)));
+}
 function rollbackFacts(raw: unknown, p: ReceiptPrincipalPurpose, digest: string) {
   const e = fields(raw, ['sourceReference','purposeDigest','mintPolicyHash','chainId','collection','tokenId','validHolder','observedAt','firstUnresolvedIndex','registrationCompleted']);
   reference(e.sourceReference); address(e.validHolder);
@@ -165,6 +168,9 @@ function rollbackFacts(raw: unknown, p: ReceiptPrincipalPurpose, digest: string)
   requireThat(BigInt(uint(e.observedAt)) > BigInt(p.mintTerms.registrationDeadline), 'RECEIPT_PRINCIPAL_MINT_DEADLINE_REQUIRED');
   requireThat(BigInt(uint(e.firstUnresolvedIndex)) <= BigInt(p.lineage.index), 'RECEIPT_PRINCIPAL_SETTLED_PREFIX_REFUSED');
   return e;
+}
+export function normalizeReceiptRollbackFacts(raw: unknown, input: unknown) {
+  const p = normalizeReceiptPrincipalPurpose(input); return freeze(rollbackFacts(raw,p,receiptPrincipalPurposeDigest(p)));
 }
 export function advanceReceiptPrincipalState(input: unknown, raw: unknown): ReceiptPrincipalState {
   const state = normalizeReceiptPrincipalState(input), r = fields(raw, ['expectedRevision','eventId','event']);

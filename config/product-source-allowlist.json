@@ -227,7 +227,8 @@
       "server/wallet-bindings.mjs",
       "server/wallet-read-runtime.mjs",
       "server/whole-receipt-host.mjs",
-      "vendor/artfi-task-listing-runtime-1.0.0.tgz"
+      "vendor/artfi-task-listing-runtime-1.0.0.tgz",
+      "server/receipt-principal-runtime.mjs"
     ],
     "application": [
       "server/forward-progress-service.mjs",
@@ -1055,8 +1056,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "1781036c0e0f436e34bcd3a64b4b0b5539df8fa6",
-      "sha256": "05e41ce3b126928acededfda10a40eca4539245222855a591fe86ae317cd36e3"
+      "git_blob_sha1": "6bf3398247d106254fa5da3a271158e2a4691f96",
+      "sha256": "1e1513758aeb8ec29bc6da73cfdc6e2fe349d18c205fb3a895809f17c33aabac"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1067,8 +1068,8 @@
     {
       "path": "scripts/controls/task-auth-runtime-smoke.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b42ed4046632b8a6a4a29ffb4cd5aed41c8d490e",
-      "sha256": "1ad2b095a6e8020297e957250862b413ed7d5b71f04a074d0418b0bd61c45432"
+      "git_blob_sha1": "8942a1b2e02a5cd96a3f843a31031dcbe0b80e40",
+      "sha256": "3f13ce373382cf26a3d0601bbbef7818760a8fcaaeab0debfbe9e9ca9fc8da07"
     },
     {
       "path": "scripts/package/archive-v2.mjs",
@@ -1193,8 +1194,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "95b78aba0d3e13024432f7363e57103e75838e9d",
-      "sha256": "aaefab4d6b735c9092077af6cdd77c13afa281aec3a8c0ce7457f12046cb6f17"
+      "git_blob_sha1": "2b6628446f1f01c595cb02a221e088f3489e4651",
+      "sha256": "afa8626d11333240b0101138200085a146a3b12224f7197148ba3a049293e7d9"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -1373,8 +1374,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "0cfa9995250b5034c698b9f73b0b98ee1e77d63f",
-      "sha256": "3a02774dce65d0ec80df46de3cb1b813fcc01597f135196d7609baeaf215a4e9"
+      "git_blob_sha1": "0a8feab9eca77147b95f614d486bee540acc6850",
+      "sha256": "ec9a5ca3bccca1d20cb25ca404f3da5327ef2697cd46aa778b26813b374f3b68"
     },
     {
       "path": "server/managed-business-runtime.mjs",
@@ -1465,6 +1466,12 @@
       "mode": "100644",
       "git_blob_sha1": "dfeaeeae92b0a680ab5d07e38637276ffbd26ee4",
       "sha256": "c940145fcda6591a41642fb07fb19a516478e0a0776de49ef27236ab01dc298b"
+    },
+    {
+      "path": "server/receipt-principal-runtime.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "64f6d06f27be4bd04bf3fd5516f9d2f0159d987c",
+      "sha256": "fa3aa476d6f9e3f0520dda4104b50288f7c0099776c637ec278d7e5b8b375c20"
     },
     {
       "path": "server/receipt-provider-handler.mjs",
@@ -1973,8 +1980,8 @@
     {
       "path": "src/agent/receiptPrincipal.ts",
       "mode": "100644",
-      "git_blob_sha1": "90f6638cc477687964e9c6fa38f1b024c5698fe4",
-      "sha256": "4fb9de20931341158e2d0ebdf14d6104a4cf9a5925c0766c4f55dcbaacc9cf5c"
+      "git_blob_sha1": "90756c05251810af01d24de630c2b7ec3e84782d",
+      "sha256": "93ae5fc1e8020982590b4473cea24578d2328af2cb6880eb0ba87834c3ce7122"
     },
     {
       "path": "src/agent/receiptTask.ts",
