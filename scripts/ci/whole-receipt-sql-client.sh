@@ -22,7 +22,7 @@ export GOTOOLCHAIN=local CGO_ENABLED=0
 node --version
 go version
 docker compose version
-SOURCE_COMMIT=4e7fb01add1c527e0fd88ffb6240bbfb3b05ef72
+SOURCE_COMMIT=0403388645cdd799a0899e00b734718bcf1b3297
 mkdir "$WORK/source"
 SOURCE="$WORK/source"
 export GIT_TERMINAL_PROMPT=0
@@ -30,18 +30,19 @@ git -C "$SOURCE" init --quiet
 git -C "$SOURCE" fetch --quiet --depth=1 https://github.com/GiraffeTechnology/ArtFi.git "$SOURCE_COMMIT"
 git -C "$SOURCE" checkout --quiet --detach FETCH_HEAD
 test "$(git -C "$SOURCE" rev-parse HEAD)" = "$SOURCE_COMMIT"
-test "$(git -C "$SOURCE" rev-parse 'HEAD^{tree}')" = cf33564cfa351661f056e83db7eb7ee5eff12ba0
+test "$(git -C "$SOURCE" rev-parse 'HEAD^{tree}')" = c9d377646f41f1464db9182c957ae323b5a56b7c
 python3 -I -B - "$SOURCE" "$EVIDENCE/source-pins.json" <<'PY'
 import hashlib,json,pathlib,sys
 root=pathlib.Path(sys.argv[1])
 expected={
+ 'apps/api/internal/httpapi/nft_operation_store.go':'2e97281c3471f23e8f711c1538ffd4acb40e18d8d3db4c2fa73155876a281f82',
  'apps/api/cmd/task-journal-software-test/main.go':'74eadb906fe364d34a5bb5459ec9260b5b5f39633d39376ed61fdc6a27332711',
- 'scripts/agent/test-mysql-docker.sh':'a6c6930fd58c1cb03795e69d68c3f323c9fe2e6cecc824c0987f472bfeac8ed5',
+ 'scripts/agent/test-mysql-docker.sh':'68ab762a4d1cd5c93156d79a98617d3d322914af622a2850640308a5e6412b29',
  'apps/api/internal/httpapi/testdata/oracle-simulated-registry/test/fixtures/simulated-registry-v1.json':'154b15a85d9cdeed41138a8f77981521f778db7f97d54fbc9f221cb471c1fb3c',
 }
 actual={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in expected}
 if actual!=expected:raise SystemExit('RECEIPT_SQL_ORIGINAL_SOURCE_HASH_MISMATCH')
-pathlib.Path(sys.argv[2]).write_text(json.dumps({'commit':'4e7fb01add1c527e0fd88ffb6240bbfb3b05ef72','sha256':actual},indent=2)+'\n')
+pathlib.Path(sys.argv[2]).write_text(json.dumps({'commit':'0403388645cdd799a0899e00b734718bcf1b3297','sha256':actual},indent=2)+'\n')
 PY
 HOST="$WORK/artfi-task-journal-software-test"
 (
