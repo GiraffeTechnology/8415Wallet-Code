@@ -12,7 +12,7 @@ function input(){return normalizeReceiptPrincipalPurpose({schema:'8415-receipt-p
 const request=(eventId,expectedRevision='0',evidenceReference=null)=>({eventId,expectedRevision,evidenceReference});
 function fixture(store=new MemoryCredentialStore()){
  const p=input(),digest=receiptPrincipalPurposeDigest(p),clock={now:1800000000000,revoked:false,readSource:'ready',evidenceRefused:false,evidenceChanged:false,throwAfterCommit:false,skipCommitGuard:false};
- const financial={balance:1000000000n,payee:0n,holds:new Map()},calls={freeze:0,settle:0,release:0,reconcile:0,reads:0};
+ const financial={balance:1000000000n,payee:0n,holds:new Map(),effects:new Map()},calls={freeze:0,settle:0,release:0,reconcile:0,reads:0};
  const authStore={TEST_ONLY:true};
  const snapshot=()=>({purpose:p,principal:{origin:p.origin,tenant:p.tenant,username:'test-owner',account:p.account,chainId:p.chainId},expiresAtMs:2000000600000});
  const checkPurpose=purpose=>assert.equal(receiptPrincipalPurposeDigest(purpose),digest);
@@ -23,10 +23,10 @@ function fixture(store=new MemoryCredentialStore()){
  const fundsReader={async readForPrincipal(context){calls.reads++;return {schema:'8415-authoritative-funds/1',scope:{...context.principal},readId:context.readId,observedAt:clock.now,validUntil:clock.now+60000,inventoryState:clock.readSource==='partial'?'partial':'complete',currencies:[{currency,state:clock.readSource==='unavailable'?'unavailable':'ready',balanceBasis:'total-includes-escrow',balanceBaseUnits:financial.balance.toString(),blockHash:h('a'),escrowState:'complete',escrows:[...financial.holds.values()].map(v=>({kind:'financial-principal',reservationId:p.reservationId,nftId:'test-nft:7',currency,amountBaseUnits:p.amountBaseUnits,state:v.status,blockHash:h('a')}))}]};}};
  const result=(action,reference)=>({schema:'8415-receipt-principal-effect/1',action,effectId:p.reservationId+':'+action,purposeDigest:digest,outcome:'confirmed',reference,amountBaseUnits:p.amountBaseUnits,recipient:action==='settle'?p.payee:p.account});
  const fundsEffects={
-  async freezeExisting(fixed,guard){calls.freeze++;assert.equal(fixed.purposeDigest,digest);assert.equal(fixed.holdReference,null);if(!clock.skipCommitGuard)guard();checkPurpose(fixed.purpose);checkAvailable();financial.holds.set(p.reservationId,{status:'held',reference:'test-original-hold'});if(clock.pause){clock.entered();await clock.pause;}if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('freeze','test-original-hold');},
-  async settleHeld(fixed,guard){calls.settle++;guard();assert.equal(fixed.holdReference,'test-original-hold');const held=financial.holds.get(p.reservationId);assert.equal(held.status,'held');financial.balance-=BigInt(p.amountBaseUnits);financial.payee+=BigInt(p.amountBaseUnits);held.status='released';if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('settle','test-settlement');},
-  async releaseHeld(fixed,guard){calls.release++;guard();assert.equal(fixed.holdReference,'test-original-hold');assert.equal(financial.holds.get(p.reservationId).status,'held');financial.holds.get(p.reservationId).status='refunded';return result('release','test-release');},
-  async reconcile(fixed){calls.reconcile++;assert.equal(fixed.effectId,p.reservationId+':freeze');assert.equal(financial.holds.get(p.reservationId)?.status,'held');return result('freeze','test-original-hold');}
+  async freezeExisting(fixed,guard){calls.freeze++;assert.equal(fixed.purposeDigest,digest);assert.equal(fixed.holdReference,null);if(!clock.skipCommitGuard)guard();checkPurpose(fixed.purpose);checkAvailable();financial.holds.set(p.reservationId,{status:'held',reference:'test-original-hold'});financial.effects.set(fixed.effectId,result('freeze','test-original-hold'));if(clock.pause){clock.entered();await clock.pause;}if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('freeze','test-original-hold');},
+  async settleHeld(fixed,guard){calls.settle++;guard();assert.equal(fixed.holdReference,'test-original-hold');const held=financial.holds.get(p.reservationId);assert.equal(held.status,'held');financial.balance-=BigInt(p.amountBaseUnits);financial.payee+=BigInt(p.amountBaseUnits);held.status='released';financial.effects.set(fixed.effectId,result('settle','test-settlement'));if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('settle','test-settlement');},
+  async releaseHeld(fixed,guard){calls.release++;guard();assert.equal(fixed.holdReference,'test-original-hold');assert.equal(financial.holds.get(p.reservationId).status,'held');financial.holds.get(p.reservationId).status='refunded';financial.effects.set(fixed.effectId,result('release','test-release'));if(clock.throwAfterCommit)throw Error('TEST_LOST_ADAPTER_RESPONSE');return result('release','test-release');},
+  async reconcile(fixed){calls.reconcile++;assert.equal(fixed.purposeDigest,digest);const effect=financial.effects.get(fixed.effectId);assert.ok(effect,'TEST_ONLY_ORIGINAL_EFFECT_EVIDENCE_REQUIRED');return structuredClone(effect);}
  };
  function checkAvailable(){const held=[...financial.holds.values()].filter(x=>x.status==='held').length*Number(p.amountBaseUnits);assert.ok(financial.balance-BigInt(held)>=BigInt(p.amountBaseUnits));}
  const registration=()=>({sourceReference:'TEST_ONLY_APPLICATION_REGISTRATION',purposeDigest:digest,mintPolicyHash:p.mintTerms.mintPolicyHash,chainId:p.chainId,collection:p.receipt.collection,tokenId:p.receipt.tokenId,registeredHolder:p.account,registeredAt:clock.evidenceChanged?'2000000001':'2000000000'});
@@ -140,5 +140,32 @@ test('scope loss inside the entered funds adapter blocks its commit and remains 
 test('provider result substitution cannot replace the actual durable outcome',async()=>{
  const f=fixture();try{await reinstall(f,{evidence:{...f.evidence,async withMintTerms(p,fn){await fn(p.mintTerms,()=>p.mintTerms);return {status:'released'};}}});
   await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/EVIDENCE_RESULT_SUBSTITUTED/);assert.equal((await f.runtime.read(f.p)).status,'held');assert.equal(f.calls.freeze,1);
+ }finally{await close(f);}
+});
+for(const action of ['settle','release'])test('lost '+action+' result reconciles only its original effect, never dispatches the other outcome',async()=>{
+ const f=fixture();try{const held=await f.runtime.freeze(f.p,request('freeze'));f.clock.now=2000000001000;f.clock.throwAfterCommit=true;
+  const method=action==='settle'?'settle':'rollback',proof=action==='settle'?'test-registration':'test-rollback',r=request(action,held.revision,proof);
+  await assert.rejects(f.runtime[method](f.p,r),/OUTCOME_UNKNOWN_READ_FIRST/);assert.equal((await f.runtime.read(f.p)).status,'unknown');
+  assert.equal((await f.runtime[method](f.p,r)).status,'unknown');assert.equal(f.calls[action],1);
+  const other=action==='settle'?'rollback':'settle',otherProof=action==='settle'?'test-rollback':'test-registration';
+  await assert.rejects(f.runtime[other](f.p,request('other-outcome',(await f.runtime.read(f.p)).revision,otherProof)));assert.equal(f.calls[action==='settle'?'release':'settle'],0);
+  f.clock.revoked=true;const state=await f.runtime.reconcile(f.p);assert.equal(state.status,action==='settle'?'settled':'released');assert.equal(state.holdReference,'test-original-hold');
+  assert.equal(f.calls.freeze,1);assert.equal(f.calls[action],1);assert.equal(f.calls.reconcile,1);assert.deepEqual(await f.runtime.reconcile(f.p),state);assert.equal(f.calls.reconcile,1);
+  assert.equal(f.financial.balance,action==='settle'?500000000n:1000000000n);assert.equal(f.financial.payee,action==='settle'?500000000n:0n);
+ }finally{await close(f);}
+});
+for(const action of ['settle','release'])test('encrypted restart retains unknown '+action+' and reconciles the existing TEST_ONLY ledger without another mutation',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'wallet-principal-terminal-test-')),path=join(root,'TEST_ONLY.enc'),secret=Buffer.alloc(32,0x47);let store=await openEncryptedStore(path,secret),f=fixture(store),resumed;
+ try{const held=await f.runtime.freeze(f.p,request('freeze'));f.clock.now=2000000001000;f.clock.throwAfterCommit=true;
+  await assert.rejects(f.runtime[action==='settle'?'settle':'rollback'](f.p,request(action,held.revision,action==='settle'?'test-registration':'test-rollback')),/OUTCOME_UNKNOWN_READ_FIRST/);
+  await f.runtime.stop();await store.close();store=await openEncryptedStore(path,secret);resumed=createReceiptPrincipalRuntime({...f.options(),store});
+  const before={balance:f.financial.balance,payee:f.financial.payee,freeze:f.calls.freeze,effect:f.calls[action]};assert.equal((await resumed.read(f.p)).status,'unknown');f.clock.revoked=true;
+  assert.equal((await resumed.reconcile(f.p)).status,action==='settle'?'settled':'released');assert.deepEqual({balance:f.financial.balance,payee:f.financial.payee,freeze:f.calls.freeze,effect:f.calls[action]},before);
+ }finally{await resumed?.stop();await f.runtime.stop();await store.close();assert.ok(root.startsWith(join(tmpdir(),'wallet-principal-terminal-test-')));await rm(root,{recursive:true,force:true});}
+});
+test('mismatched reconciliation evidence cannot erase an unknown settlement or release its original hold',async()=>{
+ const f=fixture();try{const original=f.fundsEffects.reconcile.bind(f.fundsEffects);await reinstall(f,{fundsEffects:{...f.fundsEffects,async reconcile(fixed){const actual=await original(fixed);return {...actual,amountBaseUnits:'1'};}}});
+  const held=await f.runtime.freeze(f.p,request('freeze'));f.clock.throwAfterCommit=true;await assert.rejects(f.runtime.settle(f.p,request('settle',held.revision,'test-registration')),/OUTCOME_UNKNOWN_READ_FIRST/);
+  const unknown=await f.runtime.read(f.p);await assert.rejects(f.runtime.reconcile(f.p),/EFFECT_BINDING_REFUSED/);assert.deepEqual(await f.runtime.read(f.p),unknown);assert.equal(f.calls.settle,1);assert.equal(f.calls.release,0);assert.equal(f.financial.payee,500000000n);
  }finally{await close(f);}
 });
