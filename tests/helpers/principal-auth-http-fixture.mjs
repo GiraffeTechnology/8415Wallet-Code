@@ -23,7 +23,7 @@ async function fixture(t){
  assert.equal((await call('bootstrap')).status,200);assert.equal((await call('password',{username:'tester',password:'TEST_ONLY_owner_password',account:a('1'),chainId:'560048'})).status,200);
  const prepare=async(principal=template())=>{const r=await call('tasks/prepare',{policy:policy(),...(principal===null?{}:{receiptPrincipal:principal})});assert.equal(r.status,200,r.data.error);return r.data;};
  const approval=c=>({challengeId:c.challengeId,taskDigest:c.task.digest,executorDigest:c.executor.digest,observationPolicyDigest:null,code:'',...(c.receiptPrincipalPurposeDigest===undefined?{}:{receiptPrincipalPurposeDigest:c.receiptPrincipalPurposeDigest})});
- return {store,clock,call,prepare,approval,port:()=>handler.receiptPrincipalAuthorization,restart(){handler=createAuthService(options);}};
+ return {store,clock,call,prepare,approval,port:()=>handler.receiptPrincipalAuthorization,receiptPort:()=>handler.taskReceiptAuthorization,restart(){handler=createAuthService(options);}};
 }
 
 export {fixture,policy,template,a,h,origin,epoch};

@@ -26,12 +26,32 @@ export function disabledTaskReceiptRuntime(code = 'TASK_RECEIPT_NOT_CONFIGURED')
 export function createTaskReceiptRuntime({ store, journalStore, peerId, consumerPeerId, digest, nativeDigest, now = Date.now } = {}) {
   check(store && journalStore && store !== journalStore, 'TASK_RECEIPT_STORE_REENTRY_REFUSED');
   const capabilities = createTaskJournalCapabilities({ peerId, consumerPeerId, digest, nativeDigest, now });
-  let authority = null, connected = false, stopped = false, pendingSends = 0;
+  let authority = null, connected = false, stopped = false, pendingSends = 0, principalSnapshot = null;
   const active = () => { if (stopped) {
     const error = Error('TASK_RECEIPT_RUNTIME_STOPPED'); error.status = 503; throw error; } };
   return Object.freeze({
     state: 'configured', code: null,
     get authority() { return authority; },
+    connectPrincipalAuthorization(original) {
+      active();
+      check(connected && principalSnapshot === null && typeof original?.withPurposeJournalSnapshot === 'function',
+        'TASK_RECEIPT_PRINCIPAL_CONNECTION_REFUSED');
+      principalSnapshot=original.withPurposeJournalSnapshot.bind(original);
+    },
+    /** Only the original already-held principal guard can admit this read. The
+     * existing registry and consume endpoint retain peer/native/request/TTL
+     * checks. Never expose a raw withHeld accepting caller-supplied snapshots. */
+    async withPrincipalJournalCapability(purpose, originalGuard, scope, use) {
+      active();check(connected && principalSnapshot !== null,'TASK_RECEIPT_PRINCIPAL_NOT_CONNECTED');
+      const action=Object.getOwnPropertyDescriptor(scope??{},'action');
+      check(action && Object.hasOwn(action,'value') && action.value==='get' && typeof use==='function',
+        'TASK_RECEIPT_PRINCIPAL_READ_ONLY');
+      check(!capabilities.inHeldGate(),'TASK_RECEIPT_GATE_REENTRY_REFUSED');
+      return principalSnapshot(purpose,originalGuard,(snapshot,recheck)=>{
+        const liveRecheck=()=>{active();return recheck();};
+        return capabilities.withHeld(snapshot,liveRecheck,'observe',()=>capabilities.withCapability(scope,use));
+      });
+    },
     connectAuthorization(configured) {
       active();
       check(!connected && authorityKeys.every(key => typeof configured?.[key] === 'function'),
