@@ -8,6 +8,7 @@ import {spawn,execFileSync} from 'node:child_process';
 import {createServer as createNetServer} from 'node:net';
 import {createInterface} from 'node:readline';
 import {resolve,join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {createTaskJournalCapabilityListener} from '../server/task-listing-bootstrap-core.mjs';
 import {certificates} from './helpers/task-https-fixture.mjs';
 import {createHash} from 'node:crypto';
@@ -29,9 +30,12 @@ const certs=await certificates(fixture);
 const root=await mkdtemp(resolve('.whole-receipt-sql-'));
 const sourceState=join(root,'source.simulated-registry.json');
 for(const action of ['init','TOKEN_TRANSFER','REGISTERED'])execFileSync(process.execPath,[join(sourceRoot,'registry-driver.mjs'),sourceState,action],{stdio:'pipe'});
+const {FileSimulatedRegistryStore,SimulatedRegistrySource}=await import(pathToFileURL(join(sourceRoot,'test/support/simulated-registry.mjs')));
+const originalReadOnlyProvider=new SimulatedRegistrySource(new FileSimulatedRegistryStore(sourceState),{view:'artfi-local'}).rpc();
 const probe=createNetServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const journalPort=probe.address().port;await new Promise(r=>probe.close(r));
 assert.equal(createHash('sha256').update(sourceRaw).digest('hex'),'154b15a85d9cdeed41138a8f77981521f778db7f97d54fbc9f221cb471c1fb3c');
 const dataset=JSON.parse(sourceRaw),runtime=await loadInstalledTaskListingModules();
+const softwareReceiptBoundary=runtime.createSimulatedRegistryReceiptBusinessBoundary(sourceRaw.toString('utf8'),'artfi-local');
 // Explicit original software fixture binding, independent of HTTP inputs.
 const binding=Object.freeze({tenant:'simulated-registry',origin:'https://artfi.example',taskId:'SIMULATED_REGISTRY:task:7',actor:'0x'+'b'.repeat(40),escrow:'0x'+'3'.repeat(40),runtimeCodeHash:'0x24956c1bf0c8d57e1c73b73cb695f8045e3b94feb615f92ea281c039ecf9c56d'});
 assert.deepEqual(dataset.association.journal,binding);assert.equal(dataset.business.chainId,31337);
@@ -44,7 +48,7 @@ const data=abi.encodeFunctionData('fund',[receipt.sale,receipt.correspondence,'0
 const wire={account:binding.actor,chainId:'31337',to:binding.escrow,data,value:'0',nonce:'1',gasLimit:'21000',maxFeePerGasWei:'2',maxPriorityFeePerGasWei:'1'};
 const statePath=join(root,'credentials.enc');
 const store=await openEncryptedStore(statePath,Buffer.alloc(32,0x52));
-const epoch=Date.now(),steps=[];let providerCalls=0,host,peer,child,childEnded;
+const epoch=Date.now(),steps=[];let providerCalls=0,sendCalls=0,host,peer,child,childEnded;const providerMethods=[];
 const password='synthetic-owner-passphrase';
 async function stopJournal(){
  if(child&&!child.killed&&child.exitCode===null){child.stdin.end(JSON.stringify({command:'stop'})+'\n');const [code]=await Promise.race([childEnded,new Promise((_,reject)=>setTimeout(()=>reject(Error('ORIGINAL_JOURNAL_DRAIN_TIMEOUT')),15000).unref())]);assert.equal(code,0);}
@@ -52,14 +56,14 @@ async function stopJournal(){
 try {
  host=await createAuthRuntime({config:{origin:binding.origin,tenant:binding.tenant,port:31999,statePath,accounts:[{username:'owner',passwordHash:await hashPassword(password),wallets:[{account:binding.actor,chainId:'31337'}]}]},store,now:Date.now,
  listingRuntime:{runtime:disabledTaskListingRuntime(),async start(){},async stop(){}},
- wholeReceipt:createWholeReceiptBootstrapBinding({createInstallation:runtime.createWholeReceiptInstallation,createJournalTransport:runtime.createNftTaskJournalHttpsTransport,journalStore:{},consumerPeerId:'spiffe://artfi/journal',taskExecutorIdentity:{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:'0x'+'9'.repeat(64)},provider:{request(){providerCalls++;throw Error('NO_PROVIDER_IO');}},journal:{url:`https://127.0.0.1:${journalPort}/internal/v1/nft/operations`,peerId:'spiffe://artfi/wallet',secureContext:createSecureContext({cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes})}})});
+ wholeReceipt:createWholeReceiptBootstrapBinding({createInstallation:options=>runtime.createWholeReceiptInstallation({...options,softwareReceiptBoundary}),createJournalTransport:runtime.createNftTaskJournalHttpsTransport,journalStore:{},consumerPeerId:'spiffe://artfi/journal',taskExecutorIdentity:{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:'0x'+'9'.repeat(64)},provider:{request({method,params}){providerCalls++;providerMethods.push(method);if(method==='eth_accounts')return [binding.actor];if(method==='eth_chainId')return '0x7a69';if(method==='eth_getBlockByNumber')return originalReadOnlyProvider.request({method,params});if(method==='eth_sendTransaction')sendCalls++;throw Error('SIMULATED_PROVIDER_UNAVAILABLE');}},journal:{url:`https://127.0.0.1:${journalPort}/internal/v1/nft/operations`,peerId:'spiffe://artfi/wallet',secureContext:createSecureContext({cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes})}})});
  peer=createTaskJournalCapabilityListener({peerId:'spiffe://artfi/journal',clientFingerprint256:certs.journal.fingerprint},{cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes},host.wholeReceipt);
  peer.listen(0,'127.0.0.1');await once(peer,'listening');
  host.server.listen(0,'127.0.0.1');await once(host.server,'listening');let jar=new Map(),csrf='';
  async function callAuth(path,body){return new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:host.server.address().port,path:'/auth/'+path,method:body===undefined?'GET':'POST',agent:false,headers:{host:'artfi.example',origin:binding.origin,'x-wallet-tenant':binding.tenant,'x-wallet-csrf':csrf,cookie:[...jar].map(([k,v])=>k+'='+v).join('; '),...(body===undefined?{}:{'content-type':'application/json'})}},res=>{for(const cookie of res.headers['set-cookie']??[]){const[k,v]=cookie.split(';')[0].split('=');if(v)jar.set(k,v);else jar.delete(k);}const chunks=[];res.on('data',x=>chunks.push(x));res.on('end',()=>{const data=JSON.parse(Buffer.concat(chunks));if(data.csrf)csrf=data.csrf;steps.push({path,status:res.statusCode,error:data.error??null});resolve({status:res.statusCode,data});});});req.on('error',reject);req.end(body===undefined?undefined:JSON.stringify(body));});}
  assert.equal((await callAuth('bootstrap')).status,200);
  const login=await callAuth('password',{username:'owner',password,account:binding.actor,chainId:'31337'});assert.equal(login.status,200,login.data.error);
- const context=await prepareAuthenticatedReceiptContexts({runtime,callAuth,business:dataset.business,installationBinding:binding,phaseInputs:[{phase:'funded',operationId:'receipt-funded',planId:'SIMULATED_REGISTRY_PLAN',wire}],expiresAt:String(Math.floor(epoch/1000)+600),fees:{perOperationWei:'100000',totalWei:'300000'}});
+ const context=await prepareAuthenticatedReceiptContexts({runtime,softwareReceiptBoundary,callAuth,business:dataset.business,installationBinding:binding,phaseInputs:[{phase:'funded',operationId:'receipt-funded',planId:'SIMULATED_REGISTRY_PLAN',wire}],expiresAt:String(Math.floor(epoch/1000)+600),fees:{perOperationWei:'100000',totalWei:'300000'}});
  assert.equal(context.contexts.length,1);const selected=context.contexts[0];
  const status=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(status.status,200,status.data.error);assert.equal(status.data.authorization.reference,selected.principal.grantReference);assert.deepEqual(status.data.receiptAttempts,[]);
  assert.equal(providerCalls,0);assert.equal(selected.rawPlan.taskPrincipal.grantReference,status.data.authorization.reference);
@@ -83,7 +87,22 @@ try {
  const restoredHandle=host.wholeReceipt.operation({task:context.task,claimed:selected.claimed});
  const restored=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(restored.operation,created.operation);
  const restoredStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(restoredStatus.status,200);assert.equal(restoredStatus.data.authorization.reference,selected.principal.grantReference);assert.equal(providerCalls,0);
- console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',journalHostRestartRead:'PASS',revision:restored.operation.revision,status:restored.operation.status,walletStarted:restored.operation.walletStarted,providerCalls,transactions:0,CAS:'NOT_RUN_PROVIDER_CODE_REVIEW_REQUIRED',SEND:'NOT_RUN_COMPILED_ESCROW_FIXTURE_REQUIRED'}));
+ // The original provider transport fails at its first code read, after
+ // the native wallet-start CAS. Reconcile that durable attempt; never resend.
+ const executionRequest={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
+ await assert.rejects(restoredHandle.execute(executionRequest),{message:'TASK_RECEIPT_OUTCOME_UNKNOWN_RECONCILE_ONLY'});
+ assert.ok(providerMethods.includes('eth_getBlockByNumber'));assert.ok(providerMethods.includes('eth_getCode'));assert.ok(providerMethods.indexOf('eth_getBlockByNumber')<providerMethods.indexOf('eth_getCode'));assert.equal(sendCalls,0);
+ const started=await restoredHandle.read('observe',selected.rawPlan);
+ assert.equal(started.operation.id,created.operation.id);assert.deepEqual(started.operation.plan,created.operation.plan);
+ assert.equal(started.operation.requestHash,created.operation.requestHash);assert.equal(started.operation.revision,2);assert.equal(started.operation.status,'awaiting-wallet');assert.equal(started.operation.walletStarted,true);assert.equal(started.operation.transactionHash,undefined);
+ const unknownStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(unknownStatus.status,200);assert.equal(unknownStatus.data.receiptAttempts.length,1);assert.equal(unknownStatus.data.receiptAttempts[0].status,'outcome-unknown');assert.equal(unknownStatus.data.receiptAttempts[0].transactionHash,null);
+ await stopJournal();await startJournal();
+ const reconcileHandle=host.wholeReceipt.operation({task:context.task,claimed:selected.claimed});
+ const reconciled=await reconcileHandle.read('observe',selected.rawPlan);assert.deepEqual(reconciled.operation,started.operation);
+ const beforeRetry=providerCalls;
+ await assert.rejects(reconcileHandle.execute(executionRequest),{message:'RECEIPT_RECOVER_EXISTING_OPERATION'});assert.equal(providerCalls,beforeRetry);assert.equal(sendCalls,0);
+ const finalStatus=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(finalStatus.status,200);assert.deepEqual(finalStatus.data.receiptAttempts,unknownStatus.data.receiptAttempts);
+ console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',journalHostRestartRead:'PASS',revision:reconciled.operation.revision,status:reconciled.operation.status,walletStarted:reconciled.operation.walletStarted,providerCalls,providerMethods,sendCalls,transactions:0,CAS:'PASS',unknownBeforeSend:'PASS',restartReconciliation:'PASS',repeatExecute:'REFUSED_NO_NEW_PROVIDER_IO',SEND:'NOT_RUN_COMPILED_ESCROW_FIXTURE_REQUIRED'}));
 }finally{
  await host?.stop();
  await stopJournal();

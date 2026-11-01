@@ -6,7 +6,16 @@ set -euo pipefail
 }
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
-EVIDENCE="$ROOT/dist/receipt-sql-ci-evidence"
+CLIENT=tests/whole-receipt-sql-client.mjs
+EVIDENCE_NAME=receipt-sql-ci-evidence
+if (( $# > 1 )) || { (( $# == 1 )) && [[ $1 != --revoked ]]; }; then
+  echo "RECEIPT_SQL_CLIENT_SELECTION_REFUSED" >&2; exit 1
+fi
+if (( $# == 1 )); then
+  CLIENT=tests/whole-receipt-sql-revoked-client.mjs
+  EVIDENCE_NAME=receipt-revoked-sql-ci-evidence
+fi
+EVIDENCE="$ROOT/dist/$EVIDENCE_NAME"
 mkdir -p "$EVIDENCE"
 WORK=$(mktemp -d "$ROOT/.receipt-sql-ci.XXXXXX")
 on_exit() {
@@ -35,6 +44,7 @@ python3 -I -B - "$SOURCE" "$EVIDENCE/source-pins.json" <<'PY'
 import hashlib,json,pathlib,sys
 root=pathlib.Path(sys.argv[1])
 expected={
+ 'apps/api/internal/httpapi/testdata/oracle-simulated-registry/test/support/simulated-registry.mjs':'c6b1c32323a9002eac40bb54f31af4719f8fd8f58199d7c250da7f9a2af2fa88',
  'apps/api/internal/httpapi/nft_operation_store.go':'2e97281c3471f23e8f711c1538ffd4acb40e18d8d3db4c2fa73155876a281f82',
  'apps/api/cmd/task-journal-software-test/main.go':'74eadb906fe364d34a5bb5459ec9260b5b5f39633d39376ed61fdc6a27332711',
  'scripts/agent/test-mysql-docker.sh':'68ab762a4d1cd5c93156d79a98617d3d322914af622a2850640308a5e6412b29',
@@ -54,4 +64,4 @@ sha256sum "$HOST" | tee "$EVIDENCE/host-sha256.txt"
 export ARTFI_RECEIPT_SOFTWARE_HOST="$HOST"
 export ARTFI_RECEIPT_SOFTWARE_SOURCE="$SOURCE/apps/api/internal/httpapi/testdata/oracle-simulated-registry"
 bash "$SOURCE/scripts/agent/test-mysql-docker.sh" --client \
-  node --conditions=react-server "$ROOT/tests/whole-receipt-sql-client.mjs"
+  node --conditions=react-server "$ROOT/$CLIENT"

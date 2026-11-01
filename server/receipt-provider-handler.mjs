@@ -10,9 +10,9 @@ function codeSnapshot(raw){
     typeof number.value!=='string'||!/^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/i.test(number.value))refuse();
   return Object.freeze({hash:hash.value.toLowerCase(),number:number.value.toLowerCase()});
 }
-export function createReceiptProviderHandler({authorization,provider,task,claimed,now=Date.now}){
+export function createReceiptProviderHandler({authorization,provider,task,claimed,now=Date.now,receiptTaskContentContext=null}){
   if(typeof authorization?.withAuthorization!=='function'||typeof provider?.request!=='function'||typeof now!=='function')refuse();
-  const frozen=receiptTaskCopy(task),binding=Object.freeze(structuredClone(claimed)),slot=receiptPhaseScope(frozen,binding.phase);
+  const frozen=receiptTaskCopy(task,receiptTaskContentContext),binding=Object.freeze(structuredClone(claimed)),slot=receiptPhaseScope(frozen,binding.phase,receiptTaskContentContext);
   const p=frozen.policy,request=provider.request.bind(provider),authorize=authorization.withAuthorization.bind(authorization);
   if(binding.taskDigest!==frozen.digest||binding.taskId!==p.taskId||binding.planDigest!==slot.planDigest||
     binding.journalBindingHash!==slot.journalBindingHash)refuse();

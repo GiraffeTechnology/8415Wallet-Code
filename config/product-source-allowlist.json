@@ -163,6 +163,7 @@
       "server/owner-change-origin.mjs",
       "server/receipt-operation-encoding.mjs",
       "server/receipt-provider-handler.mjs",
+      "server/receipt-software-content.mjs",
       "server/recovery-service.mjs",
       "server/registration-service.mjs",
       "server/rpc-funds-reader.mjs",
@@ -1048,8 +1049,8 @@
     {
       "path": "package-lock.json",
       "mode": "100644",
-      "git_blob_sha1": "e48a674bf217445053e3a8159dd186441c1a7bf8",
-      "sha256": "3acc9200e2ab9c120b5ee69e87ac011268826c996cd5d9d335c7b6211e591ec7"
+      "git_blob_sha1": "15186f6c9a02055239ab7b813fb286667a27e97a",
+      "sha256": "934c80f12c763962389adbbdba7342cc50e3688a3717896bfd75f1de964499b1"
     },
     {
       "path": "package.json",
@@ -1066,8 +1067,8 @@
     {
       "path": "scripts/controls/task-auth-runtime-smoke.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b42ed4046632b8a6a4a29ffb4cd5aed41c8d490e",
-      "sha256": "1ad2b095a6e8020297e957250862b413ed7d5b71f04a074d0418b0bd61c45432"
+      "git_blob_sha1": "026b3f9b75086a601834c371d4d86b679286d596",
+      "sha256": "293df0b0ea211a250fd4da265dab4f2e7ca336810746b08e08449a0f62fd323c"
     },
     {
       "path": "scripts/package/archive-v2.mjs",
@@ -1162,8 +1163,8 @@
     {
       "path": "scripts/package/supervise-auth.py",
       "mode": "100644",
-      "git_blob_sha1": "08898aa9d497e4e43da18ba78ab031048477f20c",
-      "sha256": "3fa9d91bed2157e059582a4f86885650bb404e321b9b255e764c1336f8a1820b"
+      "git_blob_sha1": "09cb56b937d6001e3b8f64b197d4188431ee14da",
+      "sha256": "50a3cce2dc9dedcaadf001f81972192c6b7238e7277f13fe358806f0b0a0da87"
     },
     {
       "path": "scripts/package/v2-public-isolation.mjs",
@@ -1192,8 +1193,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "95b78aba0d3e13024432f7363e57103e75838e9d",
-      "sha256": "aaefab4d6b735c9092077af6cdd77c13afa281aec3a8c0ce7457f12046cb6f17"
+      "git_blob_sha1": "385082c8d217f8495e7d80d1c46d66bd57e0429e",
+      "sha256": "0588fd5fb37aefd677f78b3c7dc6000e63f255e6bb5c48c4ca6400b847ff1827"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -1264,8 +1265,8 @@
     {
       "path": "server/auth-service-core.mjs",
       "mode": "100644",
-      "git_blob_sha1": "b0a230724920cc1ac7df544fc5687f701343bf20",
-      "sha256": "d4e012ba53ce4c408edc2354958db167503b3419a60813d3856529778f99131b"
+      "git_blob_sha1": "465700b684aaac4e81bbd1f76eaf1f2d7e8ecc46",
+      "sha256": "7a3b96d2b3de5ea79fee8ed6f6514cbde94235b40769457c793756976b454a33"
     },
     {
       "path": "server/auth-service.mjs",
@@ -1372,8 +1373,8 @@
     {
       "path": "server/main.mjs",
       "mode": "100644",
-      "git_blob_sha1": "0cfa9995250b5034c698b9f73b0b98ee1e77d63f",
-      "sha256": "3a02774dce65d0ec80df46de3cb1b813fcc01597f135196d7609baeaf215a4e9"
+      "git_blob_sha1": "abd2da83b3e29c4cfdfa102fc98d9c45c165bba8",
+      "sha256": "88979ada2ade9e31cc5d295a8b34a3cdde04410ecb779e337fc942ab5f2bffb8"
     },
     {
       "path": "server/managed-business-runtime.mjs",
@@ -1462,14 +1463,20 @@
     {
       "path": "server/receipt-operation-encoding.mjs",
       "mode": "100644",
-      "git_blob_sha1": "dfeaeeae92b0a680ab5d07e38637276ffbd26ee4",
-      "sha256": "c940145fcda6591a41642fb07fb19a516478e0a0776de49ef27236ab01dc298b"
+      "git_blob_sha1": "51de9422d0724c3532c0742955eeda80a7cbb52e",
+      "sha256": "cf5010073cd962c753f437d097388f8a462da47371689c8c9d4eca316155d772"
     },
     {
       "path": "server/receipt-provider-handler.mjs",
       "mode": "100644",
-      "git_blob_sha1": "0e2dcbb4195aa588468a59c7814804c2d5ae0840",
-      "sha256": "78b64ded025a93d70065e3df735043a71133befa628f859aaf2c733e2b4a80a7"
+      "git_blob_sha1": "ef35fa6573bf1d43bb17f3b82a8cee40a76f6fb3",
+      "sha256": "ada134dc67aed02cac835b0c41c25e4d994ebecf5ee94d26dfada5d56a4936c4"
+    },
+    {
+      "path": "server/receipt-software-content.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "dd16bf3536c6c3563778f4b7b31d8a2135cb9928",
+      "sha256": "0804738034af80f658b531219e5059872cb1eea6c9b97781fbeadf111471099d"
     },
     {
       "path": "server/recovery-service.mjs",
@@ -1546,8 +1553,8 @@
     {
       "path": "server/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "8ac4322d2e7b1935766a7f6453f19acec553470b",
-      "sha256": "d60d986946c38b643b60578181b4495fe1d6a5117f7c2e79cac223d0d44dbcf6"
+      "git_blob_sha1": "6c40355d9a162da125950c082eb1b488ab66e74b",
+      "sha256": "11646a8445d79a504e71ddc1d3848d7ddcd983dc40357e99e9d3153007a42b8c"
     },
     {
       "path": "server/task-background-runner.mjs",
@@ -1648,8 +1655,8 @@
     {
       "path": "server/task-listing-package-pin.mjs",
       "mode": "100644",
-      "git_blob_sha1": "440fed6991ec401bbdc5061d9a3cd651cd4000ba",
-      "sha256": "1278b85445c37fc2605be227fa132080dcf0834189a4ba4536afb579ae0b7644"
+      "git_blob_sha1": "273627528b8c866a06c378da880e050e93d3ad9d",
+      "sha256": "bab4ad759cfb7c1c205d92197598da9fcf3b2502b151db966fa418288263269b"
     },
     {
       "path": "server/task-listing-results.mjs",
@@ -1714,8 +1721,8 @@
     {
       "path": "server/task-runtime-import-probe.mjs",
       "mode": "100644",
-      "git_blob_sha1": "70f2510f963b922478ff48862519d63394ea62af",
-      "sha256": "385b6b3079e671455e7ae6771589797e74f3ed5531fd6ef75b6117cb46322139"
+      "git_blob_sha1": "b86490924f0702ba0633d1f6b6ffe7ac4ac23ea7",
+      "sha256": "37e52b25e8b2b4f3cf68bc0a4f93d7a1d348895e2d9656e90350ee69b3e71093"
     },
     {
       "path": "server/task-test-asset-authorization.mjs",
@@ -1852,8 +1859,8 @@
     {
       "path": "server/whole-receipt-host.mjs",
       "mode": "100644",
-      "git_blob_sha1": "7f6f13b65ce15fcddd3ef8eafe704a40f7c444b7",
-      "sha256": "a780e5769184254c2eb92685564d3bd532eb1bc6c0026cd7a9dc07aadf6bb31e"
+      "git_blob_sha1": "aba5b1119fc880f682fcac2a97e1b65d60a7600e",
+      "sha256": "dd888e0b90420183915f39e2b84ecef4b86e5bdec6db25ada805da299bf5c99d"
     },
     {
       "path": "src/adapters/kit/kitApi.ts",
@@ -1972,8 +1979,8 @@
     {
       "path": "src/agent/receiptTask.ts",
       "mode": "100644",
-      "git_blob_sha1": "ff2e84aacfa1165cd9395f15f64f38cdfe2e179e",
-      "sha256": "46ab06c1af72c6f9feed24d6ca461c6bf3e289734f5d3bcb51382e3f88fce49d"
+      "git_blob_sha1": "a00748fa4c62363fa0fd165fe9e2dd90042414b7",
+      "sha256": "f5d8b096c6335bd5bbd841de07fe8e3a8be08a063a0f922942c98d885643d9a0"
     },
     {
       "path": "src/agent/taskContract.ts",
@@ -2812,8 +2819,8 @@
     {
       "path": "vendor/artfi-task-listing-runtime-1.0.0.tgz",
       "mode": "100644",
-      "git_blob_sha1": "e37d237e4f1aada33568111f585b4e3f6593a2a2",
-      "sha256": "32d4e482e1611b0f5cb522e6a9dda7febb759d176c2d5f2150b24ba27806a23c"
+      "git_blob_sha1": "0c7b4fa4d5dd62a708d1d1f6cc1d6b43ba36b003",
+      "sha256": "46cd102dd97aed5c8539b4497676a32f8641a3774784430d6337b271264cced8"
     },
     {
       "path": "web/about-entry.mjs",
