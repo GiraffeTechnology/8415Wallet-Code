@@ -333,3 +333,20 @@ jobs:
           path: dist/receipt-revoked-sql-ci-evidence
           if-no-files-found: error
           retention-days: 7
+
+
+      - name: Original explicit V2 receipt auth and SQL journal integration
+        id: receipt_v2_sql
+        if: matrix.node-version == 24
+        timeout-minutes: 15
+        shell: bash
+        run: bash scripts/ci/whole-receipt-v2-sql-client.sh
+
+      - name: V2 receipt SQL software evidence
+        if: always() && matrix.node-version == 24 && steps.receipt_v2_sql.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: receipt-v2-sql-software-node-24
+          path: dist/receipt-v2-sql-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
