@@ -12,6 +12,19 @@ for(const gap of [0n,1n,2n])test('normal principal approval requires a usable ro
  if(gap<2n)assert.notEqual(r.status,200);
  else{assert.equal(r.status,200);assert.equal((await f.call('tasks/authorize',f.approval(r.data))).status,200);}
 });
+
+test('new rollback admission does not erase observation of a TEST_ONLY previously approved legacy purpose',async t=>{
+ const f=await fixture(t),c=await f.prepare();assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);
+ // Model the persisted shape accepted before the new admission rule, not a
+ // current approval or permission to alter a production grant.
+ const legacy=structuredClone(c.receiptPrincipalPurpose);legacy.mintTerms.registrationDeadline=c.task.policy.expiresAt;
+ const queue=await f.store.read('task-queue:'+digest(JSON.stringify([origin,'xiongan'])));assert.equal(queue.entries.length,1);
+ await f.store.transaction(queue.entries[0],grant=>({...grant,receiptPrincipalPurpose:legacy}));
+ const observed=await f.port().withPurposeObservation(legacy,async scope=>scope.purpose);assert.deepEqual(observed,legacy);
+ f.clock.now=Number(BigInt(c.task.policy.expiresAt)*1000n)+1;
+ assert.deepEqual(await f.port().withPurposeObservation(legacy,async scope=>scope.purpose),legacy);
+ await assert.rejects(f.port().withPurposeAuthorization(legacy,'release',()=>assert.fail('expired grant extended')));
+});
 test('normal password/CSRF/task approval persists the exact new purpose and reopens its original owner gate',async t=>{
  const f=await fixture(t),c=await f.prepare();assert.equal(c.approvalFactor,'preoperational-default-on');assert.equal(c.receiptPrincipalPurposeDigest,receiptPrincipalPurposeDigest(c.receiptPrincipalPurpose));
  assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);

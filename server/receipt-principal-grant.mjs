@@ -21,9 +21,7 @@ export function assertReceiptPrincipalTaskBinding(raw,{task,executor,reference})
   p.receipt.segmentId===policy.intent.segmentId&&p.receipt.planDigest===slot.planDigest&&p.receipt.journalBindingHash===slot.journalBindingHash&&
   p.task.taskId===policy.taskId&&p.task.taskDigest===task.digest&&p.task.executorDigest===executor.digest&&
   p.task.grantReference===reference&&p.task.grantPolicyVersion==='1'&&
-  // Rollback evidence is expressed in integer seconds strictly after the
-  // registration deadline; that second must still precede grant expiry.
-  BigInt(p.mintTerms.registrationDeadline)+1n<BigInt(policy.expiresAt));
+  BigInt(p.mintTerms.registrationDeadline)<=BigInt(policy.expiresAt));
  check(p.currency.kind==='native'?sale.paymentToken==='0x'+'0'.repeat(40):p.currency.contract===sale.paymentToken);
  return p;
 }
@@ -32,8 +30,11 @@ export function assertReceiptPrincipalTaskBinding(raw,{task,executor,reference})
 export function prepareReceiptPrincipalPurpose(raw,grant){
  const template=fields(raw,['schema','reservationId','tenant','origin','account','chainId','currency','amountBaseUnits','payee','task','receipt','lineage','mintTerms']);
  const {operationId}=fields(template.task,['operationId']);
- return assertReceiptPrincipalTaskBinding({...template,task:{taskId:grant.task.policy.taskId,taskDigest:grant.task.digest,
+ const p=assertReceiptPrincipalTaskBinding({...template,task:{taskId:grant.task.policy.taskId,taskDigest:grant.task.digest,
   executorDigest:grant.executor.digest,grantReference:grant.reference,grantPolicyVersion:'1',operationId}},grant);
+ // New proposals need a usable integer-second rollback window. Historical
+ // purposes still retain their original observation/reconciliation binding.
+ check(BigInt(p.mintTerms.registrationDeadline)+1n<BigInt(grant.task.policy.expiresAt));return p;
 }
 export function requireSameReceiptPrincipalPurpose(purpose,grant){
  check(grant.receiptPrincipalPurpose!==undefined);
