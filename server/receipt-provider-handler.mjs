@@ -2,6 +2,14 @@
 import { keccak256 } from 'ethers';
 import { receiptTaskCopy, receiptPhaseScope } from '../src/agent/receiptTask.ts';
 const refuse=()=>{throw Error('TASK_RECEIPT_PROVIDER_REFUSED');};
+function codeSnapshot(raw){
+  if(!raw||![Object.prototype,null].includes(Object.getPrototypeOf(raw)))refuse();
+  const fields=Object.getOwnPropertyDescriptors(raw),hash=fields.hash,number=fields.number;
+  if(!Object.hasOwn(hash??{},'value')||!Object.hasOwn(number??{},'value')||
+    typeof hash.value!=='string'||!/^0x[0-9a-f]{64}$/i.test(hash.value)||/^0x0+$/i.test(hash.value)||
+    typeof number.value!=='string'||!/^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/i.test(number.value))refuse();
+  return Object.freeze({hash:hash.value.toLowerCase(),number:number.value.toLowerCase()});
+}
 export function createReceiptProviderHandler({authorization,provider,task,claimed,now=Date.now,receiptTaskContentContext=null}){
   if(typeof authorization?.withAuthorization!=='function'||typeof provider?.request!=='function'||typeof now!=='function')refuse();
   const frozen=receiptTaskCopy(task,receiptTaskContentContext),binding=Object.freeze(structuredClone(claimed)),slot=receiptPhaseScope(frozen,binding.phase,receiptTaskContentContext);
@@ -27,8 +35,14 @@ export function createReceiptProviderHandler({authorization,provider,task,claime
       const result=await authorize(binding,wire,async(snapshot,revalidate)=>{
         const current=()=>{revalidate();if(!Number.isSafeInteger(now())||now()>=snapshot.expiresAtMs)refuse();};
         current();await identity();current();
-        const code=await request({method:'eth_getCode',params:[p.intent.escrow,'latest']});current();
+        // Bind the original provider's actual EVM bytes to one canonical block.
+        // No latest-tag fallback or independent provider/source is substituted.
+        const at=codeSnapshot(await request({method:'eth_getBlockByNumber',params:['latest',false]}));current();
+        const code=await request({method:'eth_getCode',params:[p.intent.escrow,{blockHash:at.hash,requireCanonical:true}]});current();
         if(typeof code!=='string'||!/^0x(?:[0-9a-f]{2})+$/i.test(code)||keccak256(code)!==p.intent.runtimeCodeHash)refuse();
+        const after=codeSnapshot(await request({method:'eth_getBlockByNumber',params:[at.number,false]}));current();
+        if(after.hash!==at.hash||after.number!==at.number)refuse();
+        await identity();current();
         const nonce=await request({method:'eth_getTransactionCount',params:[p.actor,'pending']});current();
         if(typeof nonce!=='string'||!/^0x[0-9a-f]+$/i.test(nonce)||BigInt(nonce)!==BigInt(slot.nonce))refuse();
         const tx=Object.freeze({from:p.actor,to:p.intent.escrow,data:wire.data,value:'0x0',chainId:'0x'+BigInt(p.chainId).toString(16),

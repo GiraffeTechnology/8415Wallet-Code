@@ -94,32 +94,44 @@ test('unconfigured receipt gate fails closed before human challenge creation',as
 
 import { createReceiptProviderHandler } from '../server/receipt-provider-handler.mjs';
 function providerFixture(f, scenario='valid'){
-  let sends=0,accounts=0;
+  let sends=0,accounts=0,blocks=0,codeReads=0,blockGetterCalls=0;const calls=[];
   const provider={request:async({method,params})=>{
+    calls.push({method,params});
     if(method==='eth_accounts'){accounts++;return scenario==='switch'&&accounts>1?[a('6')]:scenario==='disconnect'?[]:[a('1')];}
-    if(method==='eth_chainId')return scenario==='chain'?'0x1':'0x88bb0';
-    if(method==='eth_getCode')return scenario==='code'?'0x6001':'0x6000';
+    if(method==='eth_chainId')return scenario==='chain'||scenario==='code-chain'&&codeReads>0?'0x1':'0x88bb0';
+    if(method==='eth_getBlockByNumber'){
+      blocks++;assert.deepEqual(params,[blocks===1?'latest':'0x1',false]);
+      if(scenario==='block')return {hash:'0x1234',number:'0x1'};
+      if(scenario==='block-accessor')return Object.defineProperty({number:'0x1'},'hash',{enumerable:true,get(){blockGetterCalls++;return h('c');}});
+      return {hash:scenario==='reorg'&&blocks>1?h('d'):h('c'),number:scenario==='block-number'&&blocks>1?'0x2':'0x1'};
+    }
+    if(method==='eth_getCode'){
+      codeReads++;assert.deepEqual(params,[a('5'),{blockHash:h('c'),requireCanonical:true}]);
+      if(scenario==='canonical')throw Error('SYNTHETIC_NONCANONICAL_BLOCK');
+      return scenario==='code'?'0x6001':'0x6000';
+    }
     if(method==='eth_getTransactionCount')return scenario==='nonce'?'0x99':'0x0';
     if(method==='eth_call'){if(scenario==='simulation')throw Error('synthetic revert');return '0x';}
     if(method==='eth_sendTransaction'){sends++;assert.equal(params[0].nonce,'0x0');assert.equal(params[0].value,'0x0');assert.equal(params[0].chainId,'0x88bb0');return h('b');}
     throw Error('UNEXPECTED_PROVIDER_METHOD');
   }};
-  return {provider,count:()=>sends};
+  return {provider,count:()=>sends,inspect:()=>({blocks,codeReads,blockGetterCalls,calls})};
 }
 test('fixed provider handler carries the exact approved transaction through existing lease',async()=>{
  const f=fixture();f.policy.intent.runtimeCodeHash=keccak256('0x6000');const g=await f.grant(),x=f.operation(g,'funded'),p=providerFixture(f);
  const handler=createReceiptProviderHandler({authorization:f.service.receiptAuthorization,provider:p.provider,task:g.task,claimed:x.claimed,now:()=>f.state.now});
  assert.deepEqual(await handler.identity(),{account:a('1'),chainId:560048});
  const req={account:a('1'),chainId:560048,to:a('5'),data:x.wire.data,value:0n};
- assert.equal(await handler.sendTransaction(req),h('b'));assert.equal(p.count(),1);
+ assert.equal(await handler.sendTransaction(req),h('b'));assert.equal(p.count(),1);assert.equal(p.inspect().blocks,2);assert.equal(p.inspect().codeReads,1);
+ assert.deepEqual(p.inspect().calls.find(x=>x.method==='eth_getCode').params,[a('5'),{blockHash:h('c'),requireCanonical:true}]);
  await assert.rejects(handler.sendTransaction(req),/TASK_RECEIPT_ALREADY_ATTEMPTED/);assert.equal(p.count(),1);await f.store.close();
 });
-for(const scenario of ['switch','disconnect','chain','code','nonce','simulation']){
+for(const scenario of ['switch','disconnect','chain','code','nonce','simulation','block','block-accessor','canonical','reorg','block-number','code-chain']){
  test('fixed provider handler '+scenario+' refusal occurs before send',async()=>{
  const f=fixture();f.policy.intent.runtimeCodeHash=keccak256('0x6000');const g=await f.grant(),x=f.operation(g,'funded'),p=providerFixture(f,scenario);
  const handler=createReceiptProviderHandler({authorization:f.service.receiptAuthorization,provider:p.provider,task:g.task,claimed:x.claimed,now:()=>f.state.now});
  await assert.rejects(handler.sendTransaction({account:a('1'),chainId:560048,to:a('5'),data:x.wire.data,value:0n}));
- assert.equal(p.count(),0);await f.store.close();
+ assert.equal(p.count(),0);assert.equal(p.inspect().blockGetterCalls,0);await f.store.close();
  });
 }
 test('receipt scope refuses nonce reuse, excess phase fees and recovery-policy change',()=>{
