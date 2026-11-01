@@ -8,6 +8,62 @@ import {digest} from '../server/crypto.mjs';
 import {createTaskReceiptRuntime} from '../server/task-receipt-runtime.mjs';
 import {MemoryCredentialStore} from '../server/store.mjs';
 import {createHash} from 'node:crypto';
+import {createServer,request as httpRequest} from 'node:http';
+import {AsyncLocalStorage} from 'node:async_hooks';
+
+test('an independent native HTTP consume request validates the held closure without inheriting its entry context',async t=>{
+ const f=await fixture(t),c=await f.prepare();assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);
+ const p=c.receiptPrincipalPurpose,port=f.port(),journal=new MemoryCredentialStore(),hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+ const runtime=createTaskReceiptRuntime({store:f.store,journalStore:journal,peerId:'spiffe://test/wallet',consumerPeerId:'spiffe://test/native',digest:hash,nativeDigest:hash,now:()=>f.clock.now});
+ runtime.connectAuthorization(f.receiptPort());runtime.connectPrincipalAuthorization(port);
+ // This loopback HTTP server deliberately models a SEPARATE authenticated
+ // consumer request. Fixed TEST_ONLY peer identity is not real mTLS evidence.
+ // Its async resources are created before either original held context exists.
+ const marker=new AsyncLocalStorage();let independent=0;
+ const server=createServer(async(req,res)=>{
+  try{
+   assert.equal(marker.getStore(),undefined);independent++;
+   const chunks=[];for await(const chunk of req)chunks.push(chunk);
+   const body=JSON.parse(Buffer.concat(chunks).toString());
+   const claim=runtime.consumeCapability(body,req.url==='/wrong-peer'?'spiffe://test/wrong':'spiffe://test/native');
+   res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({claim}));
+  }catch(error){res.writeHead(403,{'content-type':'application/json'});res.end(JSON.stringify({error:error.message}));}
+ });
+ await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+ t.after(async()=>{runtime.stop();await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));await journal.close();});
+ const send=(body,path='/consume')=>new Promise((resolve,reject)=>{
+  const req=httpRequest({hostname:'127.0.0.1',port:server.address().port,path,method:'POST',agent:false,headers:{'content-type':'application/json'}},res=>{
+   const chunks=[];res.on('data',x=>chunks.push(x));res.on('error',reject);res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(Buffer.concat(chunks).toString())}));
+  });req.on('error',reject);req.end(JSON.stringify(body));
+ });
+ const operation={id:'native_'+hash(p.task)},scope={peerId:'spiffe://test/wallet',principal:{kind:'task',...p.task},action:'get',nativeOperationId:operation.id,planDigest:'',requestDigest:hash({action:'get',operation}),operation};
+ const consume=capability=>({capability,peerId:scope.peerId,action:'get',nativeOperationId:operation.id,planDigest:'',requestDigest:scope.requestDigest});
+ let escaped,originalGuard;
+ await marker.run('ORIGINAL_HELD_REQUEST',()=>port.withPurposeAuthorization(p,'freeze',async(_snapshot,guard)=>{
+  originalGuard=guard;
+  await assert.rejects(runtime.withPrincipalJournalCapability(p,()=>guard(),scope,()=>assert.fail('value-equivalent guard admitted')));
+  await assert.rejects(runtime.withPrincipalJournalCapability(p,guard,{...scope,action:'update'},()=>assert.fail('write admitted')),/READ_ONLY/);
+  await runtime.withPrincipalJournalCapability(p,guard,scope,async token=>{
+   escaped=consume(token);assert.equal((await send(escaped,'/wrong-peer')).status,403);
+   const actual=await send(escaped);assert.equal(actual.status,200,JSON.stringify(actual.body));const claim=actual.body.claim;
+   assert.deepEqual(claim.principal,scope.principal);assert.equal(claim.wallet,p.account);assert.equal(claim.chainId,Number(p.chainId));
+   assert.equal(claim.receiptPhase,'funded');assert.equal(claim.receiptNonce,'0');assert.equal(claim.receiptPlanDigest,p.receipt.planDigest);assert.equal(claim.receiptJournalBindingHash,p.receipt.journalBindingHash);
+   assert.equal((await send(escaped)).status,403);
+  });
+  await runtime.withPrincipalJournalCapability(p,guard,scope,async token=>{
+   assert.equal((await send({...consume(token),planDigest:'f'.repeat(64)})).status,403);
+   assert.equal((await send(consume(token))).status,403);
+  });
+  await runtime.withPrincipalJournalCapability(p,guard,scope,async token=>{
+   const saved=f.clock.now;f.clock.now+=10000;
+   try{assert.equal((await send(consume(token))).status,403);}finally{f.clock.now=saved;}
+   assert.equal((await send(consume(token))).status,403);
+  });
+ }));
+ assert.equal((await send(escaped)).status,403);assert.ok(independent>=8);
+ await assert.rejects(runtime.withPrincipalJournalCapability(p,originalGuard,scope,()=>assert.fail('escaped request admitted')));
+ const state=await f.receiptPort().readState({...p.task,phase:'funded',planDigest:p.receipt.planDigest,journalBindingHash:p.receipt.journalBindingHash});assert.equal(state.status,'not-attempted');assert.equal(state.transactionHash,null);
+});
 
 test('principal native get uses the original receipt registry once without reserving a send',async t=>{
  const f=await fixture(t),c=await f.prepare();assert.equal((await f.call('tasks/authorize',f.approval(c))).status,200);
