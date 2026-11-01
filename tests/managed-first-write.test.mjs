@@ -2,7 +2,7 @@
  * credential, RPC, transaction signature or broadcast is used. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile,writeFile,rename,rm,stat,unlink} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rename,rm,stat,unlink,mkdir,copyFile,chmod} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {randomBytes} from 'node:crypto';
@@ -16,8 +16,11 @@ const origin='https://wallet.example.invalid',tenant='fixture',epoch=18000000000
 const sourceIdentity={commit:'1'.repeat(40),tree:'2'.repeat(40)};
 async function fixture(t) {
  const root=await mkdtemp(join(tmpdir(),'wallet-first-write-')),key=randomBytes(32),wallet=Wallet.createRandom();
- const config={origin:origin+':9446',tenant,socketPath:join(root,'auth.sock'),statePath:join(root,'state.enc'),accounts:[{username:'tester',wallets:[{account:wallet.address,chainId:'560048'}]}]};
- const directory={inode:'100',mtimeNs:'200',uid:0,gid:0,mode:'0o700'};
+ const stateDirectory=join(root,'state');await mkdir(stateDirectory,{mode:0o700});const initialDirectory=await stat(stateDirectory,{bigint:true});
+ const config={origin:origin+':9446',tenant,socketPath:join(root,'auth.sock'),statePath:join(stateDirectory,'state.enc'),accounts:[{username:'tester',wallets:[{account:wallet.address,chainId:'560048'}]}]};
+ // The owner role is synthetic; inode/mode/timestamps come from the real Linux
+ // fixture directory so replacement tests do not merely edit a claimed number.
+ const directory={inode:String(initialDirectory.ino),mtimeNs:String(initialDirectory.mtimeNs),uid:0,gid:0,mode:'0o700'};
  const currentDirectory={...directory};
  const witness={schema:'8415wallet-original-uninitialized-store-witness/1',tenant,statePath:config.statePath,unitName:'8415wallet-auth-'+tenant+'.service',sourceCommit:sourceIdentity.commit,sourceTree:sourceIdentity.tree,transportOrigin:origin,
   gracefulDrainCompleted:true,storeFileAbsentBefore:true,storeFileAbsentAfterDrain:true,originalOpenLockVerified:true,priorMainPid:'900',priorSourceCommit:'3'.repeat(40),priorSourceTree:'4'.repeat(40),priorStoreSourceSha256:'5'.repeat(64),
@@ -31,12 +34,14 @@ async function fixture(t) {
   if(value.phase==='prepared'&&failPrepared){failPrepared=false;throw Error('SYNTHETIC_PREPARE_ACK_LOST');}
  }
  async function lifecycle(overrides={}) {
+  const actual=await stat(stateDirectory,{bigint:true});Object.assign(currentDirectory,{inode:String(actual.ino),mtimeNs:String(actual.mtimeNs),mode:'0o'+(Number(actual.mode)&0o7777).toString(8)});
   const stateExists=await stat(config.statePath).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
-  return createManagedFirstWrite({receipt,config,configurationSha256:'6'.repeat(64),transportOrigin:origin,directory:currentDirectory,stateExists,readJournal,writeJournal,...overrides});
+  return createManagedFirstWrite({receipt,config,configurationSha256:'6'.repeat(64),transportOrigin:origin,directory:currentDirectory,stateExists,readJournal,writeJournal,
+   readDirectoryIdentity:async()=>{const value=await stat(stateDirectory,{bigint:true});return {inode:String(value.ino),mtimeNs:String(value.mtimeNs),uid:0,gid:0,mode:'0o'+(Number(value.mode)&0o7777).toString(8)};},...overrides});
  }
  async function open(){const first=await lifecycle(),store=await openEncryptedStore(config.statePath,key,{firstWriteLifecycle:first.hooks});opened.push(store);return {first,store};}
  t.after(async()=>{for(const store of opened)await store.close();key.fill(0);await rm(root,{recursive:true,force:true});});
- return {root,key,wallet,config,directory:currentDirectory,receipt,journal,readJournal,lifecycle,open,failPrepared:()=>{failPrepared=true;},failCommitted:()=>{failCommitted=true;}};
+ return {root,stateDirectory,key,wallet,config,directory:currentDirectory,receipt,journal,readJournal,lifecycle,open,failPrepared:()=>{failPrepared=true;},failCommitted:()=>{failCommitted=true;}};
 }
 test('admission records only provenance and creates no empty credential state',async t=>{
  const f=await fixture(t),{first,store}=await f.open();assert.equal(first.status(),'admitted');assert.equal(store.originTransitionBinding().stateEstablished,false);
@@ -46,16 +51,36 @@ test('a clean pre-transaction restart keeps admission without rebinding the old 
  const f=await fixture(t),{store}=await f.open();await store.close();f.directory.mtimeNs='300';
  const reopened=await f.open();assert.equal(reopened.first.status(),'admitted');assert.equal(reopened.store.originTransitionBinding().stateEstablished,false);await assert.rejects(stat(f.config.statePath),{code:'ENOENT'});
 });
+for(const phase of ['admitted','prepared','committed'])test('a replaced original directory is refused in '+phase+' state',async t=>{
+ const f=await fixture(t),{store}=await f.open();
+ if(phase==='prepared'){f.failPrepared();await assert.rejects(store.transaction('original:record',()=>({revision:1})));}
+ if(phase==='committed')await store.transaction('original:record',()=>({revision:1}));
+ await store.close();const original=f.stateDirectory+'.original';await rename(f.stateDirectory,original);await mkdir(f.stateDirectory,{mode:0o700});
+ const record=await f.readJournal();
+ if(phase==='prepared')await copyFile(join(original,record.candidate.temporaryName),join(f.stateDirectory,record.candidate.temporaryName));
+ if(phase==='committed')await copyFile(join(original,'state.enc'),f.config.statePath);
+ assert.notEqual(String((await stat(f.stateDirectory,{bigint:true})).ino),f.receipt.originalStoreWitness.afterDrainDirectory.inode);
+ await assert.rejects(f.open(),/AUTH_FIRST_WRITE_DIRECTORY_IDENTITY_CHANGED/);
+});
+test('changed original directory permissions are refused after admission',async t=>{
+ const f=await fixture(t),{store}=await f.open();await store.close();await chmod(f.stateDirectory,0o750);
+ await assert.rejects(f.open(),/AUTH_FIRST_WRITE_DIRECTORY_IDENTITY_CHANGED/);
+});
+test('original directory identity is measured again after taking the writer lock',async t=>{
+ const f=await fixture(t),{store}=await f.open();await store.close();const first=await f.lifecycle();
+ await rename(f.stateDirectory,f.stateDirectory+'.original');await mkdir(f.stateDirectory,{mode:0o700});
+ await assert.rejects(openEncryptedStore(f.config.statePath,f.key,{firstWriteLifecycle:first.hooks}),/AUTH_FIRST_WRITE_DIRECTORY_IDENTITY_CHANGED/);
+});
 test('an unjournaled encrypted temporary candidate is preserved rather than ignored',async t=>{
- const f=await fixture(t),path=f.config.statePath+'.'+'a'.repeat(24)+'.tmp';await writeFile(path,'UNRESOLVED_FIXTURE_CANDIDATE',{mode:0o600});
- await assert.rejects(f.open(),/AUTH_FIRST_WRITE_UNJOURNALED_CANDIDATE/);assert.equal(await readFile(path,'utf8'),'UNRESOLVED_FIXTURE_CANDIDATE');
+ const f=await fixture(t),first=await f.lifecycle(),path=f.config.statePath+'.'+'a'.repeat(24)+'.tmp';await writeFile(path,'UNRESOLVED_FIXTURE_CANDIDATE',{mode:0o600});
+ await assert.rejects(openEncryptedStore(f.config.statePath,f.key,{firstWriteLifecycle:first.hooks}),/AUTH_FIRST_WRITE_UNJOURNALED_CANDIDATE/);assert.equal(await readFile(path,'utf8'),'UNRESOLVED_FIXTURE_CANDIDATE');
  await assert.rejects(stat(f.config.statePath),{code:'ENOENT'});assert.equal(await f.readJournal(),null);
 });
 test('prepared encrypted candidate survives metadata acknowledgement loss and resumes without replay',async t=>{
  const f=await fixture(t),{store}=await f.open();f.failPrepared();let mutations=0;
  await assert.rejects(store.transaction('task:synthetic',()=>{mutations++;return {status:'outcome-unknown',nonce:'7',reservedWei:'31'};}),/SYNTHETIC_PREPARE_ACK_LOST/);
  const prepared=await f.readJournal();assert.equal(prepared.phase,'prepared');await assert.rejects(stat(f.config.statePath),{code:'ENOENT'});
- await stat(join(f.root,prepared.candidate.temporaryName));await store.close();
+ await stat(join(f.stateDirectory,prepared.candidate.temporaryName));await store.close();
  const recovered=await f.open();assert.equal(recovered.first.status(),'committed');assert.equal(mutations,1);
  assert.deepEqual(await recovered.store.read('task:synthetic'),{status:'outcome-unknown',nonce:'7',reservedWei:'31'});
 });
@@ -67,7 +92,7 @@ test('renamed state survives commit-journal failure and is admitted after authen
 });
 test('a changed prepared ciphertext is refused and preserved',async t=>{
  const f=await fixture(t),{store}=await f.open();f.failPrepared();await assert.rejects(store.transaction('original:record',()=>({revision:1})));await store.close();
- const value=await f.readJournal(),path=join(f.root,value.candidate.temporaryName);await writeFile(path,'tampered',{mode:0o600});
+ const value=await f.readJournal(),path=join(f.stateDirectory,value.candidate.temporaryName);await writeFile(path,'tampered',{mode:0o600});
  await assert.rejects(f.open(),/AUTH_FIRST_WRITE_CANDIDATE_CHANGED/);assert.equal(await readFile(path,'utf8'),'tampered');assert.equal((await f.readJournal()).phase,'prepared');
 });
 test('prepared provenance is not committed until the original key decrypts the candidate',async t=>{

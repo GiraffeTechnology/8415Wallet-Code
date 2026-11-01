@@ -64,7 +64,11 @@ if(businessMode&&identity.originalStoreWitness){
  await directory(dirname(journalPath),Boolean(sourceReference.metadataDirectory));
  const dir=await lstat(dirname(config.statePath),{bigint:true});
  firstWrite=await createManagedFirstWrite({receipt:identity,config,configurationSha256,transportOrigin,stateExists,
-  directory:{inode:String(dir.ino),mtimeNs:String(dir.mtimeNs)},
+  directory:{inode:String(dir.ino),mtimeNs:String(dir.mtimeNs),uid:Number(dir.uid),gid:Number(dir.gid),mode:'0o'+(Number(dir.mode)&0o7777).toString(8)},
+  readDirectoryIdentity:async()=>{
+   await directory(dirname(config.statePath),true);const actual=await lstat(dirname(config.statePath),{bigint:true});
+   return {inode:String(actual.ino),mtimeNs:String(actual.mtimeNs),uid:Number(actual.uid),gid:Number(actual.gid),mode:'0o'+(Number(actual.mode)&0o7777).toString(8)};
+  },
   readJournal:async()=>{try{journalBytes=await privateFile(journalPath,20000);return JSON.parse(journalBytes);}catch(error){if(error.code==='ENOENT')return null;throw error;}},
   writeJournal:async record=>{
    await assertAuthConfigurationStable(configPath);

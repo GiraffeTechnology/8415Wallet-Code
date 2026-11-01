@@ -38,6 +38,9 @@ Opening under the original writer lock saves admission provenance only, without
 creating a credential file. This supports a clean restart before any genuine
 transaction, without falsely reusing the old directory timestamp as a fresh
 observation. An unjournaled encrypted candidate is preserved and refused.
+Every phase retains the original directory inode, root ownership and private
+mode. Recovery measures this identity again under the original writer lock;
+normal timestamp changes do not admit a substituted directory.
 After the encrypted candidate is durably written, its exact ciphertext digest,
 size and temporary name are saved as prepared. State replacement and directory
 sync precede committed metadata. Once preparation is attempted, a failed or

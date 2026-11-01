@@ -24,13 +24,17 @@ async function encryptedFile(path) {
 }
 /** readJournal/writeJournal are private, derived-receipt I/O supplied by the
  * managed entry. Neither callback nor an admission can be supplied by HTTP. */
-export async function createManagedFirstWrite({receipt,config,configurationSha256,transportOrigin,directory,stateExists,readJournal,writeJournal}) {
+export async function createManagedFirstWrite({receipt,config,configurationSha256,transportOrigin,directory,stateExists,readJournal,writeJournal,readDirectoryIdentity}) {
  check(receipt?.schema==='8415wallet-prepared-source-install/1'&&receipt.sourceDirty===false&&
   receipt.status==='SOURCE_AND_PINNED_RUNTIME_DEPENDENCIES_INSTALLED_NOT_ACTIVATED'&&hex(configurationSha256)&&
-  typeof readJournal==='function'&&typeof writeJournal==='function','CONTEXT_REFUSED');
+  typeof readJournal==='function'&&typeof writeJournal==='function'&&typeof readDirectoryIdentity==='function','CONTEXT_REFUSED');
  const witness=receipt.originalStoreWitness;
  const sourceIdentity={commit:receipt.sourceCommit,tree:receipt.sourceTree};
  validateOriginalUninitializedWitness(witness,{tenant:config.tenant,statePath:config.statePath,transportOrigin,sourceIdentity,directory:witness?.afterDrainDirectory});
+ const stableDirectory=value=>check(value?.inode===witness.afterDrainDirectory.inode&&value.uid===0&&value.gid===0&&value.mode==='0o700','DIRECTORY_IDENTITY_CHANGED');
+ // mtime legitimately changes when locks and state files are created. The
+ // original directory identity and ownership never become optional, in any phase.
+ stableDirectory(directory);
  if(config.origin!==transportOrigin)validateOriginTransitionScope({tenant:config.tenant,fromOrigin:config.origin,toOrigin:transportOrigin});
  const scope={tenant:config.tenant,statePath:config.statePath,configuredOrigin:config.origin,transportOrigin,
   sourceCommit:receipt.sourceCommit,sourceTree:receipt.sourceTree,receiptSha256:digest(json(receipt)),
@@ -60,6 +64,7 @@ export async function createManagedFirstWrite({receipt,config,configurationSha25
   // openEncryptedStore holds the original writer lock throughout recovery.
   async recover({statePath}) {
    check(statePath===scope.statePath,'STATE_REFERENCE_CHANGED');
+   stableDirectory(await readDirectoryIdentity());
    const actual=await encryptedFile(statePath);
    const prefix=basename(statePath)+'.';
    const candidates=(await readdir(dirname(statePath))).filter(name=>name.startsWith(prefix)&&/^[a-f0-9]{24}\.tmp$/.test(name.slice(prefix.length)));
@@ -88,15 +93,18 @@ export async function createManagedFirstWrite({receipt,config,configurationSha25
   // Decryption/decoding must succeed before a prepared journal is committed.
   async opened({statePath,stateEstablished}) {
    check(statePath===scope.statePath,'STATE_REFERENCE_CHANGED');
+   stableDirectory(await readDirectoryIdentity());
    if(record?.phase==='prepared') {check(stateEstablished===true,'CANDIDATE_NOT_OPENED');await save({...record,phase:'committed'});}
    else check(record?.phase==='admitted'?!stateEstablished:stateEstablished,'STATE_LIFECYCLE_CHANGED');
   },
   async prepare({statePath,temporaryPath,sha256,bytes}) {
+   stableDirectory(await readDirectoryIdentity());
    check(record?.phase==='admitted'&&statePath===scope.statePath&&dirname(temporaryPath)===dirname(statePath),'ALREADY_PREPARED');
    const value={schema:'8415wallet-original-first-write/1',phase:'prepared',scope,candidate:{temporaryName:basename(temporaryPath),sha256,bytes}};
    validate(value);await compare(temporaryPath,value.candidate);await save(value);
   },
   async committed({statePath}) {
+   stableDirectory(await readDirectoryIdentity());
    check(record?.phase==='prepared'&&statePath===scope.statePath,'COMMIT_SEQUENCE_REFUSED');
    await compare(statePath,record.candidate);await save({...record,phase:'committed'});
   }

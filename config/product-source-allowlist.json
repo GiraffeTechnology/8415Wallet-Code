@@ -867,8 +867,8 @@
     {
       "path": "docs/MANAGED-BUSINESS-RUNTIME.md",
       "mode": "100644",
-      "git_blob_sha1": "4ec88e0c8f4664ebcb1767530078e74cee398a1c",
-      "sha256": "c7ce3e7b64c34fae25af5403173d18e7c83892a8af86c64ec42d4cdaf41753c8"
+      "git_blob_sha1": "4b8d4f35ff2b2322b58ee4beda9f039b2a571343",
+      "sha256": "b26c0e23620a10f72f5425efea386613c85d7c2fb086db9da17a7940f3068618"
     },
     {
       "path": "docs/NATIVE-WALLET-LOGIN.md",
@@ -1245,8 +1245,8 @@
     {
       "path": "server/auth-integration-entry.mjs",
       "mode": "100644",
-      "git_blob_sha1": "a2f075dbfc0eaff3e666577f6c7c78eb6ef5636e",
-      "sha256": "199539e780e8f0c5aec8cfe77bd81256cb5d81a5586aabcaa83ce8c46eab939c"
+      "git_blob_sha1": "27a34d98b0618154670276408099466d47a6272e",
+      "sha256": "87856b950ec246a2a6c9dfeaf60ba538b58ed29acbc8ad30eeb74598c7a9c670"
     },
     {
       "path": "server/auth-integration-provenance.mjs",
@@ -1383,8 +1383,8 @@
     {
       "path": "server/managed-first-write.mjs",
       "mode": "100644",
-      "git_blob_sha1": "182c2cdda29f5a51e676c5c8850adc3616c41517",
-      "sha256": "9807f834050c5e19b76a5bbe8522e663f9989c8a26ab20b8fde6e252407f70af"
+      "git_blob_sha1": "f3e3189a2d754cf80b39d095596d7f6cf3c3ec15",
+      "sha256": "ac01c686aafdacdc4feb4e1b5f41b93d909d76ee3f57aa680f4d2ca3aff967f6"
     },
     {
       "path": "server/method-change-service.mjs",
