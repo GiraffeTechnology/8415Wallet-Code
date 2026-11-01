@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { captureAuthSource, createAuthBuildDiagnostics, deterministicAuthArchive } from '../scripts/package/build-auth.mjs';
-import { LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, TASK_AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, TASK_RUNTIME_SOURCE_PATHS, ORIGIN_CONTINUATION_SOURCE_PATHS, REGISTRATION_AUTH_STATE_SEMANTICS, LEGACY_AUTH_STATE_SEMANTICS, authStateSemantics, validateAuthStateTransition, jsonBytes, packagePathAllowed, readAuthArchive, runtimePackage, sha256, sourcePathAllowed, sourceTree, unpackAuthArchive, verifyAuthArchive, verifyAuthDirectory, walkAuth } from '../scripts/package/verify-auth.mjs';
+import { LEGAL_FILES, AUTH_SCHEMA, AUTH_STATUS, AUTH_STATE_SEMANTICS, TASK_AUTH_STATE_SEMANTICS, PASSWORD_AUTH_STATE_SEMANTICS, TASK_RUNTIME_SOURCE_PATHS, ORIGIN_CONTINUATION_SOURCE_PATHS, SOURCE_MODE_UPGRADE_SOURCE_PATHS, REGISTRATION_AUTH_STATE_SEMANTICS, LEGACY_AUTH_STATE_SEMANTICS, authStateSemantics, validateAuthStateTransition, jsonBytes, packagePathAllowed, readAuthArchive, runtimePackage, sha256, sourcePathAllowed, sourceTree, unpackAuthArchive, verifyAuthArchive, verifyAuthDirectory, walkAuth } from '../scripts/package/verify-auth.mjs';
 import { paths, nginxLocation, upgrade, rollbackCode } from '../deploy/auth-runtime/install.mjs';
 
 function temporary(t) { const path = mkdtempSync(join(tmpdir(), 'wallet-auth-package-test-')); t.after(() => rmSync(path, { recursive: true, force: true })); return path; }
@@ -485,5 +485,25 @@ test('current auth packages cannot omit either public entry after source and man
       'commit', '-qm', 'Synthetic omission of required public entry']);
     f.release.source = captureAuthSource(f.sourceRoot); f.update();
     assert.throws(() => verifyAuthDirectory(f.runtimeRoot), /AUTH_PACKAGE_REQUIRED_FILE_MISSING/);
+  }
+});
+
+// Source-consistent inventories still refuse an incomplete new helper/document pair.
+// Immutable releases containing neither retain their existing verification contract.
+test('auth packages preserve historical inventory and require a complete source-mode upgrade closure', t => {
+  const historical = fixture(t);
+  assert.doesNotThrow(() => verifyAuthDirectory(historical.runtimeRoot));
+  for (const included of [[SOURCE_MODE_UPGRADE_SOURCE_PATHS[0]], [SOURCE_MODE_UPGRADE_SOURCE_PATHS[1]], SOURCE_MODE_UPGRADE_SOURCE_PATHS]) {
+    const f = fixture(t);
+    for (const path of included) {
+      const bytes = path.endsWith('.mjs') ? 'export {};\n' : 'Synthetic source-mode upgrade documentation\n';
+      put(f.sourceRoot, path, bytes); put(f.runtimeRoot, path, bytes);
+    }
+    git(f.sourceRoot, ['add', '--all']);
+    git(f.sourceRoot, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Synthetic source-mode upgrade closure']);
+    f.release.source = captureAuthSource(f.sourceRoot); f.update();
+    if (included.length === SOURCE_MODE_UPGRADE_SOURCE_PATHS.length)
+      assert.doesNotThrow(() => verifyAuthDirectory(f.runtimeRoot));
+    else assert.throws(() => verifyAuthDirectory(f.runtimeRoot), /REQUIRED_FILE_MISSING/);
   }
 });

@@ -37,6 +37,7 @@
       "docs/NFT-IMAGE-ORIGIN-POLICY.md",
       "docs/NFT-INVENTORY-READ-CONTRACT.md",
       "docs/RESPONSIBILITY-CONTROLS-SECURITY.md",
+      "docs/SOURCE-MODE-UPGRADE.md",
       "docs/STANDARDS-COMPATIBILITY.md",
       "docs/TASK-AUTHORIZATION.md",
       "docs/TASK-EXACT-PLANNER.md",
@@ -118,6 +119,7 @@
       "deploy/auth-runtime/origin-continuation-core.mjs",
       "deploy/auth-runtime/origin-continuation.mjs",
       "deploy/auth-runtime/origin-transition.mjs",
+      "deploy/auth-runtime/source-mode-upgrade.mjs",
       "deploy/auth-runtime/tenant-path-candidate.mjs",
       "deploy/dapp-v2/install.mjs",
       "deploy/dapp/install.mjs",
@@ -752,6 +754,12 @@
       "sha256": "e7096ceede05bc983045568d60fa65eb24b0d8a8a2fe166a51e8c5cc4fdaa514"
     },
     {
+      "path": "deploy/auth-runtime/source-mode-upgrade.mjs",
+      "mode": "100644",
+      "git_blob_sha1": "8a12d7575bac86ca6997e18c5cf18059dd9d80ec",
+      "sha256": "803a78240ced8eeea62c5f025bf56208c8eb1e04e35e89924469b3648f068b7c"
+    },
+    {
       "path": "deploy/auth-runtime/tenant-path-candidate.mjs",
       "mode": "100644",
       "git_blob_sha1": "e53f589fccf1c6b68aae0a4bef6940d0f482a153",
@@ -876,6 +884,12 @@
       "mode": "100644",
       "git_blob_sha1": "fb291aa1a2fbbcb8ccc3319fcad2512d85c220de",
       "sha256": "4e508d0b715bafd186454c36bcc510f7dbb13501d26591fa6d3993b283794eeb"
+    },
+    {
+      "path": "docs/SOURCE-MODE-UPGRADE.md",
+      "mode": "100644",
+      "git_blob_sha1": "e26c173bb42cfc49f7a744e481ec449d50d99c26",
+      "sha256": "c8039e701004c8eaf01488553a3588b6e76a0bd3c306b652c477036441c79297"
     },
     {
       "path": "docs/STANDARDS-COMPATIBILITY.md",
@@ -1030,8 +1044,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "01b0dbce3c22d200a8f84b7d074b649e0aa81533",
-      "sha256": "42ef3e89c687d2c4476f8c63a6eb2b432fa4746f27371918768f0ed394c78175"
+      "git_blob_sha1": "bdfba80341b42da396175e10ce07d64e067cbdb3",
+      "sha256": "f2572c73c609a425b6f46fb33a372c774a9dcbc6e0b1314b7ce613910566a2db"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1042,8 +1056,8 @@
     {
       "path": "scripts/controls/task-auth-runtime-smoke.mjs",
       "mode": "100644",
-      "git_blob_sha1": "41ad5e79932ccf7833419b29336409cd8ebc9b17",
-      "sha256": "fa78ece9ba3bd18f2aad0d7c7602afed848028dabf66ed4b05a8a9109c4c686f"
+      "git_blob_sha1": "b42ed4046632b8a6a4a29ffb4cd5aed41c8d490e",
+      "sha256": "1ad2b095a6e8020297e957250862b413ed7d5b71f04a074d0418b0bd61c45432"
     },
     {
       "path": "scripts/package/archive-v2.mjs",
@@ -1072,8 +1086,8 @@
     {
       "path": "scripts/package/build-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "4a2e3f83837bfbab645d53bd4618eaebd320e8ab",
-      "sha256": "07280aee48c8c879f69d64eba465e5dce71946a8d0f95b354f87d8036d5189c0"
+      "git_blob_sha1": "9b202fe1450fc53e543534410eebb1f658f0efd2",
+      "sha256": "df073121e9deaaebfe5192f3c0f5ccc1da64236286d9d50c163793fa8f8268fe"
     },
     {
       "path": "scripts/package/build-dapp.mjs",
@@ -1168,8 +1182,8 @@
     {
       "path": "scripts/package/verify-auth.mjs",
       "mode": "100644",
-      "git_blob_sha1": "19072819c4bb245f448d1821393b5380ac8d0e9c",
-      "sha256": "57331cab63548f710736720365af83d16ff2553f8a79726b46531e3cd54c7f0c"
+      "git_blob_sha1": "fe65e450c9a1e22ccd11acab457a12f17d7dfafc",
+      "sha256": "cfd4a169fcab5160b7cb4888e1ca73bcd082b7ad557c11392917d22dcd7142f4"
     },
     {
       "path": "scripts/package/verify-dapp.mjs",
@@ -1222,14 +1236,14 @@
     {
       "path": "server/auth-integration-entry.mjs",
       "mode": "100644",
-      "git_blob_sha1": "ee783c5668622c4e0b2dee6f57212db21ca3d56b",
-      "sha256": "4b89e1bb8e7497a8f071d30f7da3267a89dd80b7063eae9bc8402604ece7f9c0"
+      "git_blob_sha1": "6f9b9742073802a456c69352c807b12a88016757",
+      "sha256": "2d6f114adaa0f20b7566d4f0e1ec24ac8130fc68f7b945d1bf4cc4bbc0b813b7"
     },
     {
       "path": "server/auth-integration-provenance.mjs",
       "mode": "100644",
-      "git_blob_sha1": "cf7b78fbc7ea3cd413b00cd7b24baaa77a4ea98b",
-      "sha256": "23cbdecd95ff749a60a412778193c70852bf5f7d8ec3b237cb2d01ff3a66f9a5"
+      "git_blob_sha1": "22ba5bcdd93d6d4d95b1159feba757c32a2faf01",
+      "sha256": "9268f45575ef33f7d87f6bd06602229ca300b9b3e3e5deb3fe7e522efc5e9b4f"
     },
     {
       "path": "server/auth-integration-runtime.mjs",

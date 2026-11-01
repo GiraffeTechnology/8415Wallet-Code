@@ -8,7 +8,7 @@ import { createCaVerifier } from './ca-verifier.mjs';
 import { validateAuthConfig } from './config-validation.mjs';
 import { assertAuthConfigurationStable } from './configuration-transition.mjs';
 import { createAuthIntegrationRuntime,originalAuthenticationStoreView } from './auth-integration-runtime.mjs';
-import { validateOriginalUninitializedWitness } from './auth-integration-provenance.mjs';
+import { validateOriginalUninitializedWitness,loadSourceInstallationReceipt } from './auth-integration-provenance.mjs';
 if(process.platform!=='linux'||process.getuid?.()!==0||process.geteuid?.()!==0)throw Error('AUTH_SERVICE_IDENTITY_REQUIRED');
 if(process.argv.length!==6||process.argv[2]!=='--tenant'||!/^[a-z][a-z0-9-]{0,47}$/.test(process.argv[3])||process.argv[4]!=='--transport-origin')throw Error('AUTH_SERVICE_TENANT_REQUIRED');
 const tenant=process.argv[3],name='8415wallet-auth-'+tenant,transportOrigin=process.argv[5],credentialDirectory='/run/credentials/'+name+'.service',configDirectory='/etc/'+name;
@@ -25,7 +25,19 @@ for(const leaf of [credentialDirectory,configDirectory,'/var/lib/'+name]){
 const configPath=configDirectory+'/auth.json';await assertAuthConfigurationStable(configPath);
 const config=JSON.parse(await privateFile(configPath,1000000));validateAuthConfig(config);
 if(config.tenant!==tenant||config.statePath!=='/var/lib/'+name+'/credentials.enc'||config.socketPath!=='/run/'+name+'/auth.sock'||config.port!==undefined)throw Error('AUTH_SERVICE_CONFIG_BINDING_REFUSED');
-const cwd=await realpath(process.cwd()),identity=JSON.parse(await privateFile(join(cwd,'SOURCE-INSTALLATION.json'),10000));
+const cwd=await realpath(process.cwd());let packaged=false,packagedRelease=null;
+try{
+ const releaseFile=await open(join(cwd,'AUTH-RELEASE.json'),constants.O_RDONLY|constants.O_NOFOLLOW);
+ try{const stat=await releaseFile.stat();if(!stat.isFile()||stat.nlink!==1||stat.uid!==0||stat.gid!==0||stat.mode&0o7022||stat.size>16*1024*1024)throw Error('AUTH_INTEGRATION_PACKAGE_IDENTITY_REFUSED');packaged=true;packagedRelease=JSON.parse(await releaseFile.readFile());}
+ finally{await releaseFile.close();}
+}catch(error){if(error.code!=='ENOENT')throw error;}
+const identity=await loadSourceInstallationReceipt(cwd,{packaged,release:packagedRelease,readReceipt:async reference=>{
+if(reference.metadataDirectory){
+ for(let p=reference.metadataDirectory;;p=dirname(p)){await directory(p,p===reference.metadataDirectory);if(p===dirname(p))break;}
+ try{await lstat(join(cwd,'SOURCE-INSTALLATION.json'));throw Error('AUTH_INTEGRATION_RECEIPT_IN_PAYLOAD_REFUSED');}catch(error){if(error.code!=='ENOENT')throw error;}
+}
+return JSON.parse(await privateFile(reference.receiptPath,10000));
+}});
 if(identity.runtime!==cwd||identity.sourceDirty!==false||identity.status!=='SOURCE_AND_PINNED_RUNTIME_DEPENDENCIES_INSTALLED_NOT_ACTIVATED')throw Error('AUTH_INTEGRATION_SOURCE_REFUSED');
 let originalUninitialized=false;
 try{
