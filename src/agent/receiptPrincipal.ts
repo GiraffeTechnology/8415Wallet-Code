@@ -136,7 +136,7 @@ export function normalizeReceiptPrincipalState(input: unknown): ReceiptPrincipal
   const history = list(s.history, 64).map(v => { const h = fields(v, ['eventId','digest']); return { eventId: id(h.eventId), digest: hash(h.digest) }; });
   requireThat(new Set(history.map(h => h.eventId)).size === history.length && BigInt(uint(s.revision)) === BigInt(history.length));
   requireThat(s.holdReference === null || typeof s.holdReference === 'string');
-  const holdReference = s.holdReference === null ? null : id(s.holdReference);
+  const holdReference = s.holdReference === null ? null : reference(s.holdReference);
   const pending = s.status.endsWith('-pending') || s.status === 'unknown';
   requireThat(pending ? actions.includes(s.activeEffect) && attemptedActions.includes(s.activeEffect) : s.activeEffect === null);
   const pathAction = pending ? s.activeEffect : s.status === 'settled' ? 'settle' : s.status === 'released' ? 'release' : null;
