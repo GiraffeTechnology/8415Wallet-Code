@@ -8,6 +8,7 @@ Python; an unconfirmed group is an explicit failure, never permission to retry.
 import argparse
 import ctypes
 import datetime
+import errno
 import json
 import os
 from pathlib import Path
@@ -118,9 +119,15 @@ def _snapshot(group):
             parts = (path / 'stat').read_text().rsplit(') ', 1)[1].split()
             if int(parts[2]) == group:
                 members.append({'pid': int(path.name), 'state': parts[0], 'startTicks': int(parts[19])})
-        except FileNotFoundError:
+        except OSError as error:
+            # A process may disappear after /proc enumeration. Linux can
+            # return either ENOENT or ESRCH for that same exit race; neither
+            # represents an unreadable live process. Other errors stay unknown.
+            if error.errno in (errno.ENOENT, errno.ESRCH):
+                continue
+            unreadable += 1
             continue
-        except (OSError, ValueError, IndexError):
+        except (ValueError, IndexError):
             unreadable += 1
             continue
     print(json.dumps({'event': 'group-snapshot', 'pgid': group, 'utc': utc(), 'members': members,

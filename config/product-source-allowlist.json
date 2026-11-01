@@ -1163,8 +1163,8 @@
     {
       "path": "scripts/package/supervise-auth.py",
       "mode": "100644",
-      "git_blob_sha1": "08898aa9d497e4e43da18ba78ab031048477f20c",
-      "sha256": "3fa9d91bed2157e059582a4f86885650bb404e321b9b255e764c1336f8a1820b"
+      "git_blob_sha1": "09cb56b937d6001e3b8f64b197d4188431ee14da",
+      "sha256": "50a3cce2dc9dedcaadf001f81972192c6b7238e7277f13fe358806f0b0a0da87"
     },
     {
       "path": "scripts/package/v2-public-isolation.mjs",
