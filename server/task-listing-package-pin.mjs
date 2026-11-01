@@ -535,5 +535,21 @@ export const TASK_LISTING_PACKAGE_PIN = Object.freeze({
         "registryURLDerived": true
       }
     }
+  ],
+  "dependencies": {
+    "@opensea/sdk": "12.12.0",
+    "@opensea/seaport-js": "4.4.0",
+    "ethers": "6.17.0",
+    "server-only": "0.0.1",
+    "viem": "2.56.0",
+    "zod": "4.6.5"
+  },
+  "bundleDependencies": [
+    "@opensea/sdk",
+    "@opensea/seaport-js",
+    "ethers",
+    "server-only",
+    "viem",
+    "zod"
   ]
 });
