@@ -1048,7 +1048,7 @@
     {
       "path": "package-lock.json",
       "mode": "100644",
-      "git_blob_sha1": "e48a674bf217445053e3a8159dd186441c1a7bf8",
+      "git_blob_sha1": "c069f9bc6ece79d7060fc216aa9d342d5b78effa",
       "sha256": "ecdd531ce2aefc99a02a9df59e9f8917b2b21762c07f5d7259c99cff0cd06427"
     },
     {
@@ -1648,7 +1648,7 @@
     {
       "path": "server/task-listing-package-pin.mjs",
       "mode": "100644",
-      "git_blob_sha1": "440fed6991ec401bbdc5061d9a3cd651cd4000ba",
+      "git_blob_sha1": "420d17e944d6787c060e7af5395ced8c7eced0e0",
       "sha256": "9e3045066f6f032c68e00b3800757f7832bbe9ac135a43ee55a20a78a0052455"
     },
     {
@@ -1714,7 +1714,7 @@
     {
       "path": "server/task-runtime-import-probe.mjs",
       "mode": "100644",
-      "git_blob_sha1": "70f2510f963b922478ff48862519d63394ea62af",
+      "git_blob_sha1": "b86490924f0702ba0633d1f6b6ffe7ac4ac23ea7",
       "sha256": "37e52b25e8b2b4f3cf68bc0a4f93d7a1d348895e2d9656e90350ee69b3e71093"
     },
     {
@@ -2812,7 +2812,7 @@
     {
       "path": "vendor/artfi-task-listing-runtime-1.0.0.tgz",
       "mode": "100644",
-      "git_blob_sha1": "e37d237e4f1aada33568111f585b4e3f6593a2a2",
+      "git_blob_sha1": "cfbafd9df5bf86b16a2c1182655ee7f5afef52d6",
       "sha256": "961d0b1183aa083b6177c115243fcf6992a8cfa6cd35a1acc52cf87e7ec21630"
     },
     {
