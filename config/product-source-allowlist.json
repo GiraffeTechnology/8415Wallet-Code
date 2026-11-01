@@ -1052,8 +1052,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "git_blob_sha1": "d7fe0709cc3196b3049bdf4cf92da78a45ec26a6",
-      "sha256": "9487e12f9f8a974b034555015dc2c26f367d29614b8781fa028ae07aa7b2bc89"
+      "git_blob_sha1": "40e4e6d172fb90968ef842a5928d24a971e4d69c",
+      "sha256": "06a6ab8217670f834b5315441492b563d4669e7b0af23dc58add3d2916238a99"
     },
     {
       "path": "scripts/controls/canonical-entry.cjs",
@@ -1244,8 +1244,8 @@
     {
       "path": "server/auth-integration-entry.mjs",
       "mode": "100644",
-      "git_blob_sha1": "c907f3c550da691bb5548d9c822502839e475354",
-      "sha256": "7da0d377256151d31801452d210d510a6e774d8781cf238424c466f5319e2bdb"
+      "git_blob_sha1": "941a6699d2f72bd8988844cbbb178c1fd90f4fa6",
+      "sha256": "7874da4940700eed76c3c5d4a99a8265397b141e63d794408477ce559845a28f"
     },
     {
       "path": "server/auth-integration-provenance.mjs",
