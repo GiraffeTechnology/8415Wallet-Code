@@ -89,7 +89,8 @@ try {
  assert.equal(revoked.status,200);assert.equal(revoked.data.effectiveStatus,'revoked');
  assert.equal(revoked.data.authorization.grantPolicyVersion,(BigInt(selected.principal.grantPolicyVersion)+1n).toString());
  const afterRevoke=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(afterRevoke.operation,created.operation);
- await assert.rejects(restoredHandle.create(selected.rawPlan,selected.rawWire),{message:'TASK_RECEIPT_GRANT_BINDING_REFUSED'});
+ console.log(JSON.stringify({stage:'revoked-read',revoked:true,journalRead:'PASS',providerCalls,transactions:0}));
+ await assert.rejects(restoredHandle.create(selected.rawPlan,selected.rawWire),{message:'RECEIPT_JOURNAL_OUTCOME_UNKNOWN_READ_FIRST'});
  const executionRequest={account:binding.actor,chainId:Number(dataset.business.chainId),to:binding.escrow,data,value:0n};
  await assert.rejects(restoredHandle.execute(executionRequest),{message:'TASK_RECEIPT_GRANT_BINDING_REFUSED'});
  const unchanged=await restoredHandle.read('observe',selected.rawPlan);assert.deepEqual(unchanged.operation,created.operation);
