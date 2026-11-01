@@ -48,14 +48,14 @@ PY
 EX_SOURCE="$WORK/ex-source"
 mkdir "$EX_SOURCE"
 git -C "$EX_SOURCE" init --quiet
-git -C "$EX_SOURCE" fetch --quiet --depth=1 https://github.com/GiraffeTechnology/8415ex.git 8216655ec4589f5254892529e90b2dddccf4bdc2
+git -C "$EX_SOURCE" fetch --quiet --depth=1 https://github.com/GiraffeTechnology/8415ex.git 114ef393d51836f4a0894abb2977d6645b7cc2a2
 git -C "$EX_SOURCE" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$EX_SOURCE" rev-parse HEAD)" = 8216655ec4589f5254892529e90b2dddccf4bdc2
-test "$(git -C "$EX_SOURCE" rev-parse 'HEAD^{tree}')" = 2d7c77160f9b4cfe7e4efd7b4fe1c1c8dce2fd18
+test "$(git -C "$EX_SOURCE" rev-parse HEAD)" = 114ef393d51836f4a0894abb2977d6645b7cc2a2
+test "$(git -C "$EX_SOURCE" rev-parse 'HEAD^{tree}')" = 5fd8e1d1ee84bfa0fb5ba475361f42f517e79fb8
 export EX_ORIGINAL_JOURNAL_RUNNER="$EX_SOURCE/integration/original_journal_live_consumer.py"
-export EX_ORIGINAL_JOURNAL_RUNNER_SHA256=e87c61834d55818e724aba0dde9b8c5df20df249f23dce9352da3e7fee6020fe
+export EX_ORIGINAL_JOURNAL_RUNNER_SHA256=7a1cb0ad1c9c1ae2f948e6dd492e11753569a4852e52a3cdcee37d6a3fa84017
 printf '%s  %s\n' "$EX_ORIGINAL_JOURNAL_RUNNER_SHA256" "$EX_ORIGINAL_JOURNAL_RUNNER" | sha256sum --check
-printf '{"repository":"GiraffeTechnology/8415ex","commit":"8216655ec4589f5254892529e90b2dddccf4bdc2","tree":"2d7c77160f9b4cfe7e4efd7b4fe1c1c8dce2fd18","runnerSHA256":"e87c61834d55818e724aba0dde9b8c5df20df249f23dce9352da3e7fee6020fe"}\n' > "$EVIDENCE/ex-source-pins.json"
+printf '{"repository":"GiraffeTechnology/8415ex","commit":"114ef393d51836f4a0894abb2977d6645b7cc2a2","tree":"5fd8e1d1ee84bfa0fb5ba475361f42f517e79fb8","runnerSHA256":"7a1cb0ad1c9c1ae2f948e6dd492e11753569a4852e52a3cdcee37d6a3fa84017"}\n' > "$EVIDENCE/ex-source-pins.json"
 HOST="$WORK/artfi-task-journal-software-test"
 (
   cd "$SOURCE/apps/api"
