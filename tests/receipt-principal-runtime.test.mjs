@@ -97,3 +97,48 @@ test('the original funds adapter must invoke the commit guard; omission cannot c
  const f=fixture();try{f.clock.skipCommitGuard=true;await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/OUTCOME_UNKNOWN_READ_FIRST/);assert.equal((await f.runtime.read(f.p)).status,'unknown');assert.equal(f.calls.freeze,1);
  }finally{await close(f);}
 });
+
+async function reinstall(f,overrides){await f.runtime.stop();f.runtime=createReceiptPrincipalRuntime({...f.options(),...overrides});}
+test('an evidence provider cannot return success without entering its held callback',async()=>{
+ const f=fixture();try{await reinstall(f,{evidence:{...f.evidence,withMintTerms:async()=>({status:'held'})}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/EVIDENCE_CALLBACK_NOT_JOINED/);assert.equal(f.calls.freeze,0);assert.equal(await f.runtime.read(f.p),null);
+ }finally{await close(f);}
+});
+test('duplicate evidence callbacks invalidate the admitted scope before another effect can enter',async()=>{
+ const f=fixture();try{await reinstall(f,{evidence:{...f.evidence,withMintTerms:async(p,fn)=>{const first=fn(p.mintTerms,()=>p.mintTerms);first.catch(()=>{});await fn(p.mintTerms,()=>p.mintTerms);return first;}}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/EVIDENCE_CALLBACK_REFUSED/);assert.equal(f.calls.freeze,0);assert.equal(await f.runtime.read(f.p),null);
+ }finally{await close(f);}
+});
+test('an escaped evidence callback cannot begin work after the original scope closes',async()=>{
+ const f=fixture();let escaped;try{await reinstall(f,{evidence:{...f.evidence,withMintTerms:async(p,fn)=>{escaped=fn;return null;}}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/EVIDENCE_CALLBACK_NOT_JOINED/);assert.throws(()=>escaped(f.p.mintTerms,()=>f.p.mintTerms),/EVIDENCE_CALLBACK_REFUSED/);assert.equal(f.calls.freeze,0);
+ }finally{await close(f);}
+});
+test('source scope invalidated during asynchronous funds inventory never creates a new intent or effect',async()=>{
+ const f=fixture();let valid=true;try{const original=f.fundsReader.readForPrincipal.bind(f.fundsReader);
+  await reinstall(f,{fundsReader:{async readForPrincipal(c){const result=await original(c);valid=false;return result;}},evidence:{...f.evidence,withMintTerms:(p,fn)=>fn(p.mintTerms,()=>{if(!valid)throw Error('TEST_SOURCE_SCOPE_INVALIDATED');return p.mintTerms;})}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/SOURCE_SCOPE_INVALIDATED/);assert.equal(f.calls.freeze,0);assert.equal(await f.runtime.read(f.p),null);
+ }finally{await close(f);}
+});
+test('source invalidation across the journal callback await refuses its intent commit',async()=>{
+ const f=fixture();let valid=true;try{const transaction=f.store.transactionMany.bind(f.store);f.store.transactionMany=(keys,update)=>transaction(keys,values=>{const pending=update(values);valid=false;return pending;});
+  await reinstall(f,{evidence:{...f.evidence,withMintTerms:(p,fn)=>fn(p.mintTerms,()=>{if(!valid)throw Error('TEST_SOURCE_SCOPE_INVALIDATED');return p.mintTerms;})}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/SOURCE_SCOPE_INVALIDATED/);assert.equal(f.calls.freeze,0);assert.equal(await f.runtime.read(f.p),null);
+ }finally{await close(f);}
+});
+test('a provider returning before its callback settles fences and drains the admitted work',async()=>{
+ const f=fixture();try{await reinstall(f,{evidence:{...f.evidence,withMintTerms(p,fn){fn(p.mintTerms,()=>p.mintTerms).catch(()=>{});return null;}}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/EVIDENCE_CALLBACK_NOT_JOINED/);assert.equal(f.calls.freeze,0);assert.equal(await f.runtime.read(f.p),null);
+ }finally{await close(f);}
+});
+test('scope loss inside the entered funds adapter blocks its commit and remains UNKNOWN without replay',async()=>{
+ const f=fixture();let valid=true,actualWrites=0;try{await reinstall(f,{fundsEffects:{...f.fundsEffects,async freezeExisting(fixed,guard){f.calls.freeze++;await Promise.resolve();valid=false;guard();actualWrites++;throw Error('MUST_NOT_WRITE');}},evidence:{...f.evidence,withMintTerms:(p,fn)=>fn(p.mintTerms,()=>{if(!valid)throw Error('TEST_SOURCE_SCOPE_INVALIDATED');return p.mintTerms;})}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/OUTCOME_UNKNOWN_READ_FIRST/);assert.equal(actualWrites,0);assert.equal((await f.runtime.read(f.p)).status,'unknown');valid=true;
+  assert.equal((await f.runtime.freeze(f.p,request('freeze'))).status,'unknown');assert.equal(f.calls.freeze,1);
+ }finally{await close(f);}
+});
+test('provider result substitution cannot replace the actual durable outcome',async()=>{
+ const f=fixture();try{await reinstall(f,{evidence:{...f.evidence,async withMintTerms(p,fn){await fn(p.mintTerms,()=>p.mintTerms);return {status:'released'};}}});
+  await assert.rejects(f.runtime.freeze(f.p,request('freeze')),/EVIDENCE_RESULT_SUBSTITUTED/);assert.equal((await f.runtime.read(f.p)).status,'held');assert.equal(f.calls.freeze,1);
+ }finally{await close(f);}
+});
