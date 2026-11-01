@@ -10,8 +10,8 @@ const saleFields=[['seller','address'],['collection','address'],['tokenId','uint
 const correspondenceFields=['settlementId','assetRecordHash','oracleSourceId','requestHash','executionReferenceHash','previousSegment','oldCertificateHash','warehouseReceiptHash'];
 const outerFields=[{name:'saleIntentHash',type:'bytes32'},...correspondenceFields.map(name=>({name,type:'bytes32'}))];
 const fail=()=>{throw Error('TASK_RECEIPT_WIRE_REFUSED');};
-export function validateReceiptWire(input,phase,wire) {
-  const task=receiptTaskCopy(input),slot=receiptPhaseScope(task,phase),p=task.policy,s=p.intent;
+export function validateReceiptWire(input,phase,wire,contentContext=null) {
+  const task=receiptTaskCopy(input,contentContext),slot=receiptPhaseScope(task,phase,contentContext),p=task.policy,s=p.intent;
   if(!wire || Object.getPrototypeOf(wire)!==Object.prototype || Reflect.ownKeys(wire).length!==9 ||
     !['account','chainId','to','data','value','nonce','gasLimit','maxFeePerGasWei','maxPriorityFeePerGasWei'].every(k=>Object.hasOwn(Object.getOwnPropertyDescriptor(wire,k)??{},'value')))fail();
   if(wire.account!==p.actor || wire.chainId!==p.chainId || wire.to!==s.escrow || wire.value!=='0' ||

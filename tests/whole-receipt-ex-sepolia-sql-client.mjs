@@ -15,9 +15,10 @@ import {createAuthRuntime} from '../server/main.mjs';
 import {openEncryptedStore} from '../server/store.mjs';
 import {hashPassword} from '../server/crypto.mjs';
 import {disabledTaskListingRuntime} from '../server/task-listing-runtime.mjs';
-import {loadInstalledTaskListingModules} from '../server/task-listing-installed.mjs';
+import {createExSepoliaReceiptContent} from '../server/receipt-software-content.mjs';
 import {createWholeReceiptBootstrapBinding} from '../server/whole-receipt-host.mjs';
 import {prepareAuthenticatedReceiptContexts} from './helpers/receipt-authenticated-context.mjs';
+import {freezeReceiptTask,receiptTaskCopy,receiptPhaseScope,normalizeReceiptAttempts} from '../src/agent/receiptTask.ts';
 assert.equal(process.platform,'linux');assert.equal(process.env.CI,'true');assert.equal(process.env.RUNNER_OS,'Linux');
 const sourceRoot=resolve(process.env.ARTFI_RECEIPT_SOFTWARE_SOURCE??'');
 const helper=process.env.ARTFI_RECEIPT_SOFTWARE_HOST;
@@ -31,9 +32,7 @@ const sourceState=join(root,'source.simulated-registry.json');
 for(const action of ['init','TOKEN_TRANSFER','REGISTERED'])execFileSync(process.execPath,[join(sourceRoot,'registry-driver.mjs'),sourceState,action,'ex-sepolia-simulation'],{stdio:'pipe'});
 const probe=createNetServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const journalPort=probe.address().port;await new Promise(r=>probe.close(r));
 assert.equal(createHash('sha256').update(sourceRaw).digest('hex'),'154b15a85d9cdeed41138a8f77981521f778db7f97d54fbc9f221cb471c1fb3c');
-const runtime=await loadInstalledTaskListingModules();
-assert.equal(typeof runtime.createSimulatedRegistryReceiptBusinessBoundary,'function','SOURCE_BOUND_INSTALLED_RUNTIME_REQUIRED');
-const softwareReceiptBoundary=runtime.createSimulatedRegistryReceiptBusinessBoundary(sourceRaw.toString('utf8'),'ex-sepolia-simulation');
+const {runtime,softwareReceiptBoundary,receiptTaskContentContext}=await createExSepoliaReceiptContent(sourceRaw.toString('utf8'));
 assert.equal(softwareReceiptBoundary.view,'ex-sepolia-simulation');assert.equal(softwareReceiptBoundary.chainId,11155111);
 const dataset=softwareReceiptBoundary.source;
 // Explicit original software fixture binding, independent of HTTP inputs.
@@ -51,7 +50,7 @@ const store=await openEncryptedStore(statePath,Buffer.alloc(32,0x52));
 const epoch=Date.now(),steps=[];let providerCalls=0,host,peer,child,childEnded;
 const password='synthetic-owner-passphrase';
 try {
- host=await createAuthRuntime({config:{origin:binding.origin,tenant:binding.tenant,port:31999,statePath,accounts:[{username:'owner',passwordHash:await hashPassword(password),wallets:[{account:binding.actor,chainId:'11155111'}]}]},store,now:Date.now,
+ host=await createAuthRuntime({config:{origin:binding.origin,tenant:binding.tenant,port:31999,statePath,accounts:[{username:'owner',passwordHash:await hashPassword(password),wallets:[{account:binding.actor,chainId:'11155111'}]}]},store,now:Date.now,receiptTaskContentContext,
  listingRuntime:{runtime:disabledTaskListingRuntime(),async start(){},async stop(){}},
  wholeReceipt:createWholeReceiptBootstrapBinding({createInstallation:options=>runtime.createWholeReceiptInstallation({...options,softwareReceiptBoundary}),createJournalTransport:runtime.createNftTaskJournalHttpsTransport,journalStore:{},consumerPeerId:'spiffe://artfi/journal',taskExecutorIdentity:{schema:'8415-task-executor/1',agentId:'synthetic-receipt',agentVersion:'1',adapterId:'artfi:whole-receipt:v1',adapterVersion:'1',implementationDigest:'0x'+'9'.repeat(64)},provider:{request(){providerCalls++;throw Error('NO_PROVIDER_IO');}},journal:{url:`https://127.0.0.1:${journalPort}/internal/v1/nft/operations`,peerId:'spiffe://artfi/wallet',secureContext:createSecureContext({cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes})}})});
  peer=createTaskJournalCapabilityListener({peerId:'spiffe://artfi/journal',clientFingerprint256:certs.journal.fingerprint},{cert:certs.wallet.certBytes,key:certs.wallet.keyBytes,ca:certs.caBytes},host.wholeReceipt);
@@ -60,8 +59,18 @@ try {
  async function callAuth(path,body){return new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:host.server.address().port,path:'/auth/'+path,method:body===undefined?'GET':'POST',agent:false,headers:{host:'artfi.example',origin:binding.origin,'x-wallet-tenant':binding.tenant,'x-wallet-csrf':csrf,cookie:[...jar].map(([k,v])=>k+'='+v).join('; '),...(body===undefined?{}:{'content-type':'application/json'})}},res=>{for(const cookie of res.headers['set-cookie']??[]){const[k,v]=cookie.split(';')[0].split('=');if(v)jar.set(k,v);else jar.delete(k);}const chunks=[];res.on('data',x=>chunks.push(x));res.on('end',()=>{const data=JSON.parse(Buffer.concat(chunks));if(data.csrf)csrf=data.csrf;steps.push({path,status:res.statusCode,error:data.error??null});resolve({status:res.statusCode,data});});});req.on('error',reject);req.end(body===undefined?undefined:JSON.stringify(body));});}
  assert.equal((await callAuth('bootstrap')).status,200);
  const login=await callAuth('password',{username:'owner',password,account:binding.actor,chainId:'11155111'});assert.equal(login.status,200,login.data.error);
- const context=await prepareAuthenticatedReceiptContexts({runtime,softwareReceiptBoundary,callAuth,business:dataset.business,installationBinding:binding,phaseInputs:[{phase:'funded',operationId:'receipt-funded',planId:'SIMULATED_REGISTRY_PLAN',wire}],expiresAt:String(Math.floor(epoch/1000)+600),fees:{perOperationWei:'100000',totalWei:'300000'}});
+ const context=await prepareAuthenticatedReceiptContexts({runtime,softwareReceiptBoundary,receiptTaskContentContext,callAuth,business:dataset.business,installationBinding:binding,phaseInputs:[{phase:'funded',operationId:'receipt-funded',planId:'SIMULATED_REGISTRY_PLAN',wire}],expiresAt:String(Math.floor(epoch/1000)+600),fees:{perOperationWei:'100000',totalWei:'300000'}});
  assert.equal(context.contexts.length,1);const selected=context.contexts[0];
+ assert.throws(()=>receiptTaskCopy(context.task),/TASK_RECEIPT_CHAIN_REFUSED/);
+ assert.throws(()=>receiptTaskCopy(context.task,structuredClone(receiptTaskContentContext)),/TASK_RECEIPT_CONTENT_CONTEXT_REFUSED/);
+ assert.deepEqual(receiptTaskCopy(context.task,receiptTaskContentContext),context.task);
+ assert.equal(receiptPhaseScope(context.task,'funded',receiptTaskContentContext).nonce,'1');
+ assert.deepEqual(normalizeReceiptAttempts(context.task,[],receiptTaskContentContext),[]);
+ for(const mutate of [p=>p.taskId+='-other',p=>p.actor='0x'+'1'.repeat(40),p=>p.intent.sale.price='99',
+  p=>p.intent.phases[0].planDigest='0x'+'1'.repeat(64),p=>p.chainId='31337']){
+  const changed=structuredClone(context.task.policy);mutate(changed);
+  assert.throws(()=>freezeReceiptTask(changed,receiptTaskContentContext));
+ }
  const status=await callAuth('tasks/status',{taskDigest:context.task.digest});assert.equal(status.status,200,status.data.error);assert.equal(status.data.authorization.reference,selected.principal.grantReference);assert.deepEqual(status.data.receiptAttempts,[]);
  assert.equal(providerCalls,0);assert.equal(selected.rawPlan.taskPrincipal.grantReference,status.data.authorization.reference);
  const journalEnv={...process.env,ARTFI_SOFTWARE_TEST_HOST:'1',ARTFI_TASK_JOURNAL_ENABLED:'true',ARTFI_TASK_JOURNAL_ADDR:`127.0.0.1:${journalPort}`,ARTFI_TASK_JOURNAL_TLS_CERT_FILE:certs.journal.cert,ARTFI_TASK_JOURNAL_TLS_KEY_FILE:certs.journal.key,ARTFI_TASK_JOURNAL_CLIENT_CA_FILE:certs.ca,ARTFI_TASK_JOURNAL_PEER_URI:'spiffe://artfi/wallet',ARTFI_TASK_JOURNAL_AUTHORITY_CA_FILE:certs.ca,ARTFI_TASK_JOURNAL_AUTHORITY_CERT_FILE:certs.journal.cert,ARTFI_TASK_JOURNAL_AUTHORITY_KEY_FILE:certs.journal.key,ARTFI_TASK_JOURNAL_CAPABILITY_URL:`https://127.0.0.1:${peer.address().port}/internal/v1/task-journal-capabilities/consume`};

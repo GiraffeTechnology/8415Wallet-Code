@@ -28,7 +28,7 @@ async function authenticatedCall(callAuth, path, body) {
  */
 export async function prepareAuthenticatedReceiptContexts({
   runtime, callAuth, business, installationBinding, phaseInputs, expiresAt,
-  fees, approvalInput, softwareReceiptBoundary,
+  fees, approvalInput, softwareReceiptBoundary, receiptTaskContentContext = null,
 }) {
   if (!runtime || ['createWholeReceiptApprovalCommitments', 'assertWholeReceiptApprovalPlan',
     'kernelRequestDigest'].some(name => typeof runtime[name] !== 'function')) {
@@ -67,7 +67,7 @@ export async function prepareAuthenticatedReceiptContexts({
       recovery: { funding: 'once', payout: 'once', unknownOutcome: 'reconcile-only' },
     },
   };
-  const frozen = freezeReceiptTask(policy);
+  const frozen = freezeReceiptTask(policy,receiptTaskContentContext);
   const prepared = await authenticatedCall(callAuth, 'tasks/prepare', { policy: frozen.policy });
   if (prepared.task?.digest !== frozen.digest || typeof prepared.challengeId !== 'string' ||
       typeof prepared.executor?.digest !== 'string') fail('RECEIPT_CLIENT_PREPARATION_BINDING_REFUSED');
