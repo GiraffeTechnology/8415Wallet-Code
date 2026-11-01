@@ -8,9 +8,12 @@ import { createCaVerifier } from './ca-verifier.mjs';
 import { validateAuthConfig } from './config-validation.mjs';
 import { assertAuthConfigurationStable } from './configuration-transition.mjs';
 import { createAuthIntegrationRuntime,originalAuthenticationStoreView } from './auth-integration-runtime.mjs';
+import { createManagedBusinessRuntime } from './managed-business-runtime.mjs';
 import { validateOriginalUninitializedWitness,loadSourceInstallationReceipt } from './auth-integration-provenance.mjs';
 if(process.platform!=='linux'||process.getuid?.()!==0||process.geteuid?.()!==0)throw Error('AUTH_SERVICE_IDENTITY_REQUIRED');
-if(process.argv.length!==6||process.argv[2]!=='--tenant'||!/^[a-z][a-z0-9-]{0,47}$/.test(process.argv[3])||process.argv[4]!=='--transport-origin')throw Error('AUTH_SERVICE_TENANT_REQUIRED');
+if(![6,8].includes(process.argv.length)||process.argv[2]!=='--tenant'||!/^[a-z][a-z0-9-]{0,47}$/.test(process.argv[3])||process.argv[4]!=='--transport-origin')throw Error('AUTH_SERVICE_TENANT_REQUIRED');
+if(process.argv.length===8&&(process.argv[6]!=='--runtime'||process.argv[7]!=='business'))throw Error('AUTH_SERVICE_RUNTIME_REFUSED');
+const businessMode=process.argv.length===8;
 const tenant=process.argv[3],name='8415wallet-auth-'+tenant,transportOrigin=process.argv[5],credentialDirectory='/run/credentials/'+name+'.service',configDirectory='/etc/'+name;
 if(process.env.CREDENTIALS_DIRECTORY!==credentialDirectory||process.env.NODE_OPTIONS||process.env.NODE_PATH||process.env.WALLET_AUTH_STORE_KEY||process.env.WALLET_AUTH_CONFIG||
   Object.keys(process.env).some(k=>k.startsWith('WALLET_AUTH_SMTP_')))throw Error('AUTH_AMBIENT_CREDENTIAL_REFUSED');
@@ -52,15 +55,17 @@ try{
 }
 let key,store,runtime;
 try{
+ if(businessMode&&originalUninitialized)throw Error('AUTH_BUSINESS_EXISTING_STATE_REQUIRED');
+ if(businessMode&&config.origin!==transportOrigin)throw Error('AUTH_BUSINESS_ORIGIN_MIGRATION_REQUIRED');
  const raw=await privateFile(credentialDirectory+'/store-key',66);
  try{const value=raw.toString('utf8').trim();if(!/^[a-fA-F0-9]{64}$/.test(value))throw Error('AUTH_CREDENTIAL_FORMAT_REFUSED');key=Buffer.from(value,'hex');}finally{raw.fill(0);}
  await assertAuthConfigurationStable(configPath);store=await openEncryptedStore(config.statePath,key);
  if(store.originTransitionBinding().stateEstablished!==true&&!originalUninitialized)throw Error('AUTH_ORIGIN_EXISTING_STATE_REQUIRED');
  if(originalUninitialized&&store.originTransitionBinding().stateEstablished===true)throw Error('AUTH_ORIGIN_CONTINUATION_STATE_CHANGED');
- const authenticationStore=originalAuthenticationStoreView(store,{uninitialized:originalUninitialized});
- runtime=createAuthIntegrationRuntime({config,store:authenticationStore,transportOrigin,sourceIdentity:{commit:identity.sourceCommit,tree:identity.sourceTree},verifyCa:config.ca?await createCaVerifier(config.ca):null});
+ const common={config,transportOrigin,sourceIdentity:{commit:identity.sourceCommit,tree:identity.sourceTree},verifyCa:config.ca?await createCaVerifier(config.ca):null};
+ runtime=businessMode?await createManagedBusinessRuntime({...common,store}):createAuthIntegrationRuntime({...common,store:originalAuthenticationStoreView(store,{uninitialized:originalUninitialized})});
  await assertAuthConfigurationStable(configPath);await runtime.start();
- process.stdout.write(JSON.stringify({schema:'8415wallet-auth-integration-start/1',sourceCommit:identity.sourceCommit,sourceTree:identity.sourceTree,tenant,transportOrigin,basePath:config.basePath??'',mode:'auth-only-read-only',readOnlyScope:'business-authority',authenticationReplayStateMayPersist:!originalUninitialized,originalStoreStateEstablished:store.originTransitionBinding().stateEstablished,fullTaskAuthorityActivated:false})+'\n');
+ process.stdout.write(JSON.stringify({schema:'8415wallet-auth-integration-start/1',sourceCommit:identity.sourceCommit,sourceTree:identity.sourceTree,tenant,transportOrigin,basePath:config.basePath??'',mode:businessMode?'business-runtime':'auth-only-read-only',readOnlyScope:businessMode?null:'business-authority',authenticationReplayStateMayPersist:!originalUninitialized,originalStoreStateEstablished:store.originTransitionBinding().stateEstablished,fullTaskAuthorityActivated:false,...(businessMode?{taskAuthorizationRuntimeEnabled:true,exactState:runtime.exactState,listingState:runtime.listingState}:{})})+'\n');
  let stopping=false;const stop=async()=>{if(stopping)return;stopping=true;await runtime.stop();await store.close();key.fill(0);};
  for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>stop().catch(()=>{process.exitCode=1;}));
 }catch(error){await runtime?.stop();await store?.close();key?.fill(0);throw error;}
