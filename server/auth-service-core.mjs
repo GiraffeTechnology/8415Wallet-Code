@@ -575,6 +575,7 @@ export function createAuthServiceCore({ origin, tenant, basePath = '', accounts,
   const disabledPort = port => Object.freeze(Object.fromEntries(Object.keys(port).map(name => [name,
     () => { throw new AuthError('AUTH_INTEGRATION_READ_ONLY',503); }])));
   Object.defineProperty(handler, 'taskBackground', { value: integrationReadOnly ? disabledPort(realmRouter.background) : realmRouter.background, enumerable: false });
+  Object.defineProperty(handler,'receiptPrincipalAuthorization',{value:integrationReadOnly?disabledPort(realmRouter.receiptPrincipalAuthorization):realmRouter.receiptPrincipalAuthorization,enumerable:false});
   Object.defineProperty(handler, 'taskReceiptAuthorization', { value: integrationReadOnly ? disabledPort(realmRouter.receiptAuthorization) : realmRouter.receiptAuthorization, enumerable: false });
   Object.defineProperty(handler, 'taskListingAuthorization', { value: integrationReadOnly ? disabledPort(realmRouter.listingAuthorization) : realmRouter.listingAuthorization, enumerable: false });
   return handler;

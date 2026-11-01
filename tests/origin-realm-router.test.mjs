@@ -22,7 +22,7 @@ function fixture() {
     predicates.set(realmOrigin,assertPrincipal);
     const authorization = { assertIndependentStore: candidate => assert.notEqual(candidate,store),
       async inspect(claimed) { calls.push(['inspect',realmOrigin,claimed]); return realmOrigin; } };
-    return { realmOrigin, taskService: { cancel() {}, receiptAuthorization: authorization, listingAuthorization: authorization,
+    return { realmOrigin, taskService: { cancel() {}, receiptPrincipalAuthorization: authorization, receiptAuthorization: authorization, listingAuthorization: authorization,
       background: { async resume(entry) { calls.push(['resume',realmOrigin,entry]); return { continuation: { state: 'outcome-unknown' } }; } } } };
   } });
   return { router, store, m, original, calls, predicates };
@@ -54,6 +54,6 @@ test('altered persisted mapping or queued principal refuses without fallback to 
 test('generation5 missing its exact mapping refuses startup rather than selecting canonical default authority',async()=>{
   const store=new MemoryCredentialStore();store.originTransitionBinding=()=>({minimumGeneration:5});
   const router=createOriginRealmRouter({store,tenant,transportOrigin:origin,createRealm:()=>({taskService:{
-    receiptAuthorization:{},listingAuthorization:{},cancel(){},background:{}}})});
+    receiptPrincipalAuthorization:{},receiptAuthorization:{},listingAuthorization:{},cancel(){},background:{}}})});
   await assert.rejects(router.ready,/AUTH_ORIGIN_REALM_REFUSED/);await assert.rejects(router.forSession(alice),/AUTH_ORIGIN_REALM_REFUSED/);
 });
