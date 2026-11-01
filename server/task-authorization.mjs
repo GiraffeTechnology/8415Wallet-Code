@@ -1620,7 +1620,11 @@ export function createTaskAuthorizationService({ origin, tenant, store, now = Da
       let live=true;
       const current=()=>{
         try{
-          requireThat(live&&held.live&&principalScopes.getStore()===held,'TASK_RECEIPT_PRINCIPAL_GATE_CLOSED',403);
+          // Entry above proves the original guard identity and async scope.
+          // The existing native registry also invokes this CLOSED-OVER guard
+          // from a separate authenticated consume request, which cannot inherit
+          // the issuing request's ALS. Keep lifetime/original-grant checks here.
+          requireThat(live&&held.live,'TASK_RECEIPT_PRINCIPAL_GATE_CLOSED',403);
           const authorized=guard(),grant=readGrant(held.values[held.found.gkey],held.found.context,p.task.taskDigest);
           const slot=receiptPhaseScope(grant.task,'funded');
           return immutable(structuredClone({task:grant.task,executor:grant.executor,

@@ -1575,8 +1575,8 @@
     {
       "path": "server/task-authorization.mjs",
       "mode": "100644",
-      "git_blob_sha1": "5ae22567d631376ecb16b9f76260093dfd70f6c9",
-      "sha256": "fd91af298c838618c29f7a30847d1cf032493be8a8383b81c6f53b9d92a553da"
+      "git_blob_sha1": "8c605d7b2384d14fd6458996abc56b14cbeda3ad",
+      "sha256": "c7af8dc89688a117baf5300d2db8582550dc92d3a434f61c55b3809a75207c4c"
     },
     {
       "path": "server/task-background-runner.mjs",
