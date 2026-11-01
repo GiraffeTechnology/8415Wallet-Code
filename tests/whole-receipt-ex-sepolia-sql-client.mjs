@@ -7,7 +7,7 @@ import {readFile,mkdtemp,rm} from 'node:fs/promises';
 import {spawn,execFileSync} from 'node:child_process';
 import {createServer as createNetServer} from 'node:net';
 import {createInterface} from 'node:readline';
-import {resolve,join} from 'node:path';
+import {resolve,join,dirname,isAbsolute} from 'node:path';
 import {createTaskJournalCapabilityListener} from '../server/task-listing-bootstrap-core.mjs';
 import {certificates} from './helpers/task-https-fixture.mjs';
 import {createHash} from 'node:crypto';
@@ -87,7 +87,33 @@ try {
   return (await handle.read('observe',selected.rawPlan)).operation;
  }
  const consumed=await originalJournal(selected.principal,'get',{id:created.operation.id});assert.deepEqual(consumed,created.operation);assert.equal(providerCalls,0);
- console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',view:'ex-sepolia-simulation',chainId:11155111,authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',authenticatedCallableRead:'PASS',principal:selected.principal,nativeOperation:consumed,providerCalls,transactions:0,EXMapping:'NOT_RUN_ORIGINAL_EX_ADAPTER_REQUIRED',CAS:'NOT_RUN',SEND:'NOT_RUN'}));
+ let exConsumer=null;
+ if(process.env.EX_ORIGINAL_JOURNAL_RUNNER){
+  const runnerPath=process.env.EX_ORIGINAL_JOURNAL_RUNNER,runnerHash=process.env.EX_ORIGINAL_JOURNAL_RUNNER_SHA256;
+  assert.ok(isAbsolute(runnerPath)&&/^[a-f0-9]{64}$/.test(runnerHash??''));
+  assert.equal(createHash('sha256').update(await readFile(runnerPath)).digest('hex'),runnerHash);
+  const runner=spawn('python3',['-I','-B',runnerPath],{cwd:dirname(runnerPath),env:{PATH:process.env.PATH,LANG:'C.UTF-8',PYTHONUTF8:'1'},stdio:['pipe','pipe','pipe']});
+  const ended=once(runner,'exit');let timedOut=false,readCalls=0,runnerError='';
+  runner.stderr.on('data',b=>{runnerError=(runnerError+b).slice(-1024);});
+  const timer=setTimeout(()=>{timedOut=true;runner.kill('SIGTERM');},60000).unref();
+  const seen=new Set();
+  try{
+   runner.stdin.write(JSON.stringify({schema:'ex-original-journal-consumer/1',canonical:softwareReceiptBoundary.source,principal:selected.principal,operationId:created.operation.id})+'\n');
+   for await(const line of createInterface({input:runner.stdout})){
+    assert.ok(line.length<=262144);const frame=JSON.parse(line);
+    if(frame.schema==='ex-original-journal-result/1'){
+     assert.equal(exConsumer,null);assert.ok(!['principal','operation','row','token','session','csrf'].some(k=>Object.hasOwn(frame,k)));exConsumer=frame;continue;
+    }
+    assert.equal(exConsumer,null);assert.deepEqual(Object.keys(frame).sort(),['schema','sequence','principal','action','body'].sort());assert.equal(frame.schema,'ex-original-journal-request/1');
+    assert.ok(Number.isSafeInteger(frame.sequence)&&frame.sequence>0&&!seen.has(frame.sequence));seen.add(frame.sequence);
+    try{const operation=await originalJournal(frame.principal,frame.action,frame.body);readCalls++;runner.stdin.write(JSON.stringify({schema:'ex-original-journal-response/1',sequence:frame.sequence,operation})+'\n');}
+    catch{runner.stdin.write(JSON.stringify({schema:'ex-original-journal-response/1',sequence:frame.sequence,error:'EX_JOURNAL_CALL_REFUSED'})+'\n');throw Error('EX_JOURNAL_CALL_REFUSED');}
+   }
+   const [code,signal]=await ended;assert.equal(timedOut,false,'EX_RUNNER_TIMEOUT');assert.equal(code,0,'EX_RUNNER_EXIT_'+String(signal));assert.ok(exConsumer&&readCalls>0,'EX_RUNNER_ACTUAL_JOURNAL_READ_REQUIRED');
+  }finally{clearTimeout(timer);runner.stdin.end();if(runner.exitCode===null&&!runner.killed)runner.kill('SIGTERM');await ended;}
+ }
+ console.log(JSON.stringify({scope:'SIMULATED_REGISTRY_SOFTWARE_TEST_ONLY',view:'ex-sepolia-simulation',chainId:11155111,authSteps:steps,normalServiceGrant:true,manualSessions:0,manualGrants:0,journalDTOsFabricated:0,journalCreate:'PASS',journalRead:'PASS',authenticatedCallableRead:'PASS',nativeOperationId:consumed.id,revision:consumed.revision,status:consumed.status,walletStarted:consumed.walletStarted,requestHash:consumed.requestHash,updatedAt:consumed.updatedAt,exConsumer,providerCalls,transactions:0,EXMapping:exConsumer?'ORIGINAL_EX_RUNNER_RESULT_ATTACHED':'NOT_RUN_ORIGINAL_EX_ADAPTER_REQUIRED',CAS:'NOT_RUN',SEND:'NOT_RUN'}));
+
 }finally{
  await host?.stop();
  if(child&&!child.killed&&child.exitCode===null){child.stdin.end(JSON.stringify({command:'stop'})+'\n');const [code]=await Promise.race([childEnded,new Promise((_,reject)=>setTimeout(()=>reject(Error('ORIGINAL_JOURNAL_DRAIN_TIMEOUT')),15000).unref())]);assert.equal(code,0);}
