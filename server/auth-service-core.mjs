@@ -43,7 +43,7 @@ function cookies(request) {
   }
   return result;
 }
-export function createAuthServiceCore({ origin, tenant, basePath = '', accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null, taskReceiptHandlerId = null, taskChannelBindings = null, taskTestAuthorization = null, forwardProgressReader = null, forwardProgressSource = null, taskVerificationPolicyEnabled = false, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, integrationReadOnly = false }, { createForwardProgressService, createRpcForwardProgressReader, isForwardProgressError }) {
+export function createAuthServiceCore({ origin, tenant, basePath = '', accounts, store, verifyCa = null, sendOtp = null, now = Date.now, taskExecution = null, taskExecutorIdentity = null, taskObservationPolicy = null, taskReceipt = null, taskListingExecution = null, taskListingResults = null, taskListingRuntimeStatus = null, taskReceiptHandlerId = null, taskReceiptContentContext = null, taskChannelBindings = null, taskTestAuthorization = null, forwardProgressReader = null, forwardProgressSource = null, taskVerificationPolicyEnabled = false, assetControlCatalogReader = null, fundsReader = null, nftInventoryReader = null, integrationReadOnly = false }, { createForwardProgressService, createRpcForwardProgressReader, isForwardProgressError }) {
   const url = loginOrigin(origin);
   requireThat(typeof integrationReadOnly === 'boolean', 'AUTH_CONFIG_REFUSED', 500);
   try { tenantBasePath(tenant, basePath); } catch { throw new AuthError('AUTH_CONFIG_REFUSED', 500); }
@@ -278,7 +278,7 @@ export function createAuthServiceCore({ origin, tenant, basePath = '', accounts,
   if(policyAgents.size<=1) assetControlService=createAssetControlPolicyService({origin,tenant,
     agentId:[...policyAgents][0]??'8415wallet:local-task-service',store,directory,users,sendOtp,now,
     assertSession:activeSession,credentialFor,passwordFor,methodStates,ownerAuthorizationContext});
-  taskService = createTaskAuthorizationService({ origin, tenant, store, now, execution: taskExecution, executorIdentity: taskExecutorIdentity, observationPolicy: taskObservationPolicy, receipt: taskReceipt, listingExecution: taskListingExecution, listingResults: taskListingResults, receiptHandlerId: taskReceiptHandlerId, channelBindings: taskChannelBindings, testAuthorization: taskTestAuthorization,
+  taskService = createTaskAuthorizationService({ origin, tenant, store, now, execution: taskExecution, executorIdentity: taskExecutorIdentity, observationPolicy: taskObservationPolicy, receipt: taskReceipt, listingExecution: taskListingExecution, listingResults: taskListingResults, receiptHandlerId: taskReceiptHandlerId, receiptTaskContentContext: taskReceiptContentContext, channelBindings: taskChannelBindings, testAuthorization: taskTestAuthorization,
     operationVerificationEnabled: verificationPolicyService !== null,
     principalReady: directory.ready,
     assertPrincipal(principal, credential) {

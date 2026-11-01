@@ -33,7 +33,20 @@ function freeze<T>(x: T): Readonly<T> {
 }
 const order = ['funded', 'registered', 'paid'] as const;
 export type ReceiptPhase = typeof order[number];
-export function freezeReceiptTask(input: unknown) {
+const contentContexts = new WeakMap<object, (policy: unknown) => boolean>();
+/** Trusted bootstrap content validator, never request data or execution authority.
+ * The fixed server source factory supplies the validator. Tokens cannot be
+ * serialized, persisted as grants, or reconstructed from an HTTP policy. */
+export function createReceiptTaskContentContext(validate: (policy: unknown) => boolean): object {
+  insist(typeof validate === 'function', 'TASK_RECEIPT_CONTENT_CONTEXT_REFUSED');
+  const context = Object.freeze(Object.create(null)) as object;
+  contentContexts.set(context, validate); return context;
+}
+export function assertReceiptTaskContentContext(context: object | null): void {
+  insist(context === null || typeof context === 'object' && contentContexts.has(context), 'TASK_RECEIPT_CONTENT_CONTEXT_REFUSED');
+}
+export function freezeReceiptTask(input: unknown, contentContext: object | null = null) {
+  assertReceiptTaskContentContext(contentContext);
   const r = fields(input, ['schema','taskId','tenant','origin','chainId','actor','expiresAt','fees','intent']);
   insist(r.schema === '8415-agent-task/1');
   const taskId = id(r.taskId), tenant = id(r.tenant);
@@ -43,7 +56,8 @@ export function freezeReceiptTask(input: unknown) {
   insist(origin.origin === r.origin && (origin.protocol === 'https:' ||
     origin.protocol === 'http:' && ['localhost','127.0.0.1','[::1]'].includes(origin.hostname)));
   const chainId = uint(r.chainId, true), actor = address(r.actor), expiresAt = uint(r.expiresAt, true, 64);
-  insist(['31337','560048'].includes(chainId), 'TASK_RECEIPT_CHAIN_REFUSED');
+  insist(['31337','560048'].includes(chainId) || chainId === '11155111' && contentContext !== null,
+    'TASK_RECEIPT_CHAIN_REFUSED');
   const f = fields(r.fees,['perOperationWei','totalWei']);
   const fees = {perOperationWei:uint(f.perOperationWei,true),totalWei:uint(f.totalWei,true)};
   insist(BigInt(fees.perOperationWei) <= BigInt(fees.totalWei));
@@ -83,21 +97,23 @@ export function freezeReceiptTask(input: unknown) {
     escrow:address(i.escrow),runtimeCodeHash:hash(i.runtimeCodeHash),segmentId:hash(i.segmentId),
     sale,correspondence,phases,recovery:{funding:'once',payout:'once',unknownOutcome:'reconcile-only'}};
   const policy={schema:'8415-agent-task/1' as const,taskId,tenant,origin:r.origin as string,chainId,actor,expiresAt,fees,intent};
+  if (contentContext !== null) insist(contentContexts.get(contentContext)!(freeze(policy)) === true,
+    'TASK_RECEIPT_CONTENT_SOURCE_REFUSED');
   return freeze({policy,digest:keccak256Utf8(JSON.stringify(policy))});
 }
 export type FrozenReceiptTask = ReturnType<typeof freezeReceiptTask>;
-export function receiptTaskCopy(input: FrozenReceiptTask) {
-  const copy=freezeReceiptTask(input.policy);
+export function receiptTaskCopy(input: FrozenReceiptTask, contentContext: object | null = null) {
+  const copy=freezeReceiptTask(input.policy,contentContext);
   insist(copy.digest===input.digest,'TASK_RECEIPT_DIGEST_REFUSED'); return copy;
 }
-export function receiptPhaseScope(input: FrozenReceiptTask, phase: ReceiptPhase) {
-  const task=receiptTaskCopy(input), p=task.policy.intent.phases.find((p:any)=>p.phase===phase);
+export function receiptPhaseScope(input: FrozenReceiptTask, phase: ReceiptPhase, contentContext: object | null = null) {
+  const task=receiptTaskCopy(input,contentContext), p=task.policy.intent.phases.find((p:any)=>p.phase===phase);
   insist(p,'TASK_RECEIPT_PHASE_REFUSED'); return p;
 }
 
 /** Submission markers are not chain finality and never renew authority. */
-export function normalizeReceiptAttempts(input: FrozenReceiptTask, raw: unknown) {
-  const task=receiptTaskCopy(input);
+export function normalizeReceiptAttempts(input: FrozenReceiptTask, raw: unknown, contentContext: object | null = null) {
+  const task=receiptTaskCopy(input,contentContext);
   insist(Array.isArray(raw) && raw.length<=3,'TASK_RECEIPT_BUDGET_REFUSED');
   const descriptors=Object.getOwnPropertyDescriptors(raw);
   insist(Reflect.ownKeys(descriptors).length===raw.length+1,'TASK_RECEIPT_BUDGET_REFUSED');
@@ -106,7 +122,7 @@ export function normalizeReceiptAttempts(input: FrozenReceiptTask, raw: unknown)
   const result=Array.from({length:raw.length},(_,n)=>{
     const descriptor=descriptors[String(n)];insist(descriptor && Object.hasOwn(descriptor,'value'),'TASK_RECEIPT_BUDGET_REFUSED');
     const r=fields(descriptor.value,['phase','nonce','operationId','maximumFeeWei','status','transactionHash']);
-    const slot=receiptPhaseScope(task,r.phase),operationId=id(r.operationId);
+    const slot=receiptPhaseScope(task,r.phase,contentContext),operationId=id(r.operationId);
     insist(r.nonce===slot.nonce && !phases.has(r.phase) && !nonces.has(r.nonce) && !operations.has(operationId),'TASK_RECEIPT_BUDGET_REFUSED');
     const maximumFeeWei=(BigInt(slot.gasLimit)*BigInt(slot.maxFeePerGasWei)).toString();
     insist(r.maximumFeeWei===maximumFeeWei && ['outcome-unknown','submitted'].includes(r.status),'TASK_RECEIPT_BUDGET_REFUSED');
